@@ -1,0 +1,4 @@
+include "MD5.cry";
+extern AIG md5_java("JavaMD5.aig") : [16][8] -> [128];
+
+theorem MatchesRef : {m}. md5_java m == md5_ref m;

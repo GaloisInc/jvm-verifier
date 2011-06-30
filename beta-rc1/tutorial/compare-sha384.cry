@@ -1,0 +1,4 @@
+include "SHA2.cry";
+extern AIG sha384_java("JavaSHA384.aig") : [4][8] -> [384];
+
+theorem MatchesRef : {m}. sha384_java m == sha384_ref m;

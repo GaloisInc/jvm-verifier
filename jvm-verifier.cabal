@@ -1,0 +1,184 @@
+Name:           jvm-verifier
+Version:        0.1.2
+Author:         Galois Inc.
+Maintainer:     jhendrix@galois.com, jstanley@galois.com
+Build-type:     Simple
+Cabal-version: >= 1.2
+
+Flag abc-backend
+  Description: Use the ABC backend for generating AIGs
+  Default: False
+
+Flag build-library
+  description: Build the jvm-verifier library.
+  default: True
+
+Flag build-jss
+  description: Build the JSS executable
+  default: True
+
+Flag build-examples
+  description: Build the example executables
+  default: False
+
+Flag build-tests
+  description: Build the test executables
+  default: False
+
+Flag build-SAWScript
+  description: Build the SAWScript interface
+  default: True
+
+library
+  build-depends:
+      array
+    , base >= 4
+    , binary
+    , bytestring
+    , containers
+    , data-binary-ieee754
+    , directory
+    , executable-path
+    , fingertree
+    , filepath
+    , mtl == 2.0.*
+    , pretty
+    , vector >= 0.7
+    , zlib
+
+  hs-source-dirs: .
+
+  exposed-modules:
+    Analysis.CFG
+    Control.Monad.Exception
+    Execution
+    IO.Session
+    JarReader
+    JavaParser
+    JavaParser.Common
+    MethodSpec
+    SBVModel.SBV
+    SBVParser
+    Simulation
+    Symbolic
+    Symbolic.Lit
+    Symbolic.Lit.SatResult
+    Symbolic.Rewriter
+    Utils
+    Utils.Assert
+    Utils.CatchMIO
+    Utils.Common
+    Utils.IOStateT
+    Utils.Simulation
+    ProofUtils
+
+  other-modules:
+    Execution.Codebase
+    Execution.JavaSemantics
+    Execution.Stepper
+    Symbolic.Common
+    Symbolic.Dag
+    Symbolic.UnionFind
+    Utils.LogMonad
+
+  if !flag(build-library)
+    buildable: False
+
+  if flag(abc-backend)
+    build-depends: abcBridge >= 0.8.3
+    cpp-options: -DUseABC
+    other-modules: Symbolic.Lit.ABC
+  else
+    build-depends: Aiger
+    other-modules: Symbolic.Lit.Pure
+
+  Extensions
+
+  GHC-options: -O2 -Wall -fno-ignore-asserts
+
+executable jss
+  if !flag(build-jss)
+    buildable: False
+  if flag(abc-backend)
+    build-depends: abcBridge >= 0.8.3
+    cpp-options: -DUseABC
+  else
+    build-depends: Aiger
+
+  build-depends:
+      parsec  >= 2.1.0.1
+    , cmdargs >= 0.6.1
+
+  main-is          : Main_jss.hs
+  ghc-options      : -O2 -Wall -fno-ignore-asserts
+  ghc-prof-options : -prof -auto-all
+
+executable sawScript
+  if !flag(build-SAWScript)
+    buildable: False
+
+  if flag(abc-backend)
+    cpp-options: -DUseABC
+
+-- NB: We'd like to depend on {abcBridge,old-time,old-locale,deepseq}
+-- ONLY when the abc-backend flag is present, and the Aiger package
+-- otherwise.  However, cabal-dev can't identify the flag-dependent
+-- dependencies correctly, so we currently have dependencies on all of
+-- them.  [JS 18 Feb 2011]
+
+  build-depends:
+      abcBridge  >= 0.8.3
+    , old-time   >= 1.0.0.3
+    , old-locale >= 1.0.0.2
+    , deepseq    >= 1.1.0.2
+    , cmdargs >= 0.6.1
+    , Aiger
+
+  build-tools:
+     alex, happy
+
+  main-is          : SAWScript/SAWScriptMain.hs
+  ghc-options      : -O2 -Wall -fno-ignore-asserts
+  ghc-prof-options : -prof -auto-all
+  other-modules    :
+        SAWScript.CommandExec
+        SAWScript.Lexer
+        SAWScript.MethodAST
+        SAWScript.MethodSpec
+        SAWScript.Parser
+        SAWScript.ParserActions
+        SAWScript.TIMonad
+        SAWScript.Token
+        SAWScript.TypeChecker
+        SAWScript.Utils
+
+executable Tests
+  if !flag(build-tests)
+    buildable: False
+  if flag(abc-backend)
+    build-depends: abcBridge >= 0.8.3
+    cpp-options: -DUseABC
+  else
+    build-depends: Aiger
+
+  build-depends: 
+      fingertree
+    , process
+    , QuickCheck >= 2.1.2
+    , random
+
+  main-is          : Tests.hs
+  hs-source-dirs   : test/src . 
+  ghc-options      : -O2 -Wall -fno-ignore-asserts
+  ghc-prof-options : -prof -auto-all
+
+executable ExampleAIG
+  if !flag(build-examples)
+    buildable: False
+  if flag(abc-backend)
+    cpp-options: -DUseABC
+
+  main-is          : Examples/AIG/ExampleAIG.hs
+  hs-source-dirs   : test/src .
+  ghc-options      : -O2 -Wall -fno-ignore-asserts
+  ghc-prof-options : -prof -auto-all

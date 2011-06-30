@@ -1,0 +1,74 @@
+\documentclass[12pt]{article}
+
+\title{A Toolsuite for\\Compositional Cryptographic Verification}
+\author{Joe Hendrix\\\texttt{jhendrix@galois.com}}
+
+\pagestyle{empty}
+
+\begin{document}
+
+\begin{center}
+{\LARGE A Toolsuite for Compositional\\ Cryptographic Equivalence Checking}
+
+\vspace{1.5em}
+
+{\large The Cryptol Team}\\
+{\large Galois, Inc\footnote{Corresponding author: Joe Hendrix, \texttt{jhendrix@galois.com}}}
+
+\vspace{1.5em}
+
+\end{center}
+
+\noindent
+\textbf{Abstract.}
+Cryptographic algorithms represent an essential component of many critical
+systems, and there is considerable interest in ensuring the correctness of a
+cryptographic implementation on all possible key and messages.  For the
+verification of symmetric key ciphers and cryptographic hash functions, there
+are verification tools capable of showing this correctness automatically using
+symbolic simulation and SAT-based equivalence checking.
+
+Despite these advances, verification of public key cryptography algorithms
+remains intractable to fully automatic techniques.  Public key algorithms are
+not only much more computationally expensive than private key algorithms, but
+they also fundamentally rely on algorithms that are notorious for being a
+difficult to automatically verify.  This includes algorithms for
+large-word multiplication and field division.
+
+In a recent project, Galois has begun the development of a tool suite, called
+the Software Analysis Workbench (SAW), that supports the \emph{compositional}
+verification of cryptographic algorithms.  The tool suite uses a common
+verification infrastructure that couples a bit-precise type system from the
+Cryptol language to rewriting and SAT-based equivalence checking verification
+algorithms.  Simpler verification tasks may be handled completely automatically,
+while more complex verification examples are enabled by
+using the verification results of low-level algorithms as lemmas to simplify
+the verification of higher-level algorithms.
+
+%This verification infrastructure has been coupled to a symbolic
+%simulator for the JVM, and three verification frontends:
+%
+%\begin{itemize}
+%
+% \item A command-line tool \texttt{jss.exe} that provides Java developers
+%   with a familiar interface to running the symbolic simulator from within Java.
+%
+% \item A command-line tool \texttt{sawScript.exe} that supports
+%   compositional verification of related Java methods using a custom language
+%   for specifying pre and post-conditions.
+%
+% \item A prototype Haskell DSL that provides interactive programatic access to
+%   the symbolic simulator using the Glasgow Haskell Compiler's interactive
+%   shell.
+%
+%\end{itemize}
+
+Although the tool is still in early development, we have had some positive
+results with applying the verification to a Java-based implementation of
+Elliptic Curve Cryptography (ECC).  In the HCSS talk, we will describe the
+development of the SAW tool suite, our verification results, and sketch
+directions for future research.  Tools such as SAW will become increasingly
+critical as complex public key algorithms such as ECC gain more widespread
+adoption.
+
+\end{document}

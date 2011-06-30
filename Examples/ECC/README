@@ -1,0 +1,14 @@
+This directory contains a basic implementation of ECDSA over the NIST P384
+curve.
+
+The contents are for illustrative purposes only.  The best place to get
+started may be to consult the Makefile, and try out the make targets lists
+there.
+
+CONTENTS
+
+saw   : Script with current SAWScript proofs and associated sbv files.
+src   : Source for 32-bit and 64-bit implementations of ECDSA over
+        the NIST P384 curve.
+tests : Basic test code used for performance tuning of ECC code.
+build : Prebuilt JVM class files from src and tests directories.
