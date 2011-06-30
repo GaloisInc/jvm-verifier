@@ -1,0 +1,147 @@
+// Copyright (c) 2001 Galois, Inc.
+//
+
+test : {a} (64 >= width(8*a), 512*((8*a+576)/512)-8*a >= 65)
+        => [a][8] -> [128];
+test s = md5 (tp s);
+
+md5_ref : [16][8] -> [128];
+md5_ref msg = join (reverse bytes)
+  where {
+    bytes : [16][8];
+    bytes = split (md5 (pt (join msg)));
+  };
+
+md5 : {a} (64 >= width(a), 512*((a+576)/512)-a >= 65) => [a] -> [128];
+md5 msg = abcd2block (abcds @ len)
+    where {
+    padMsg = pad msg;
+    len = width padMsg / 512;
+    abcds = [ABCD] # [| add(abcd, rounds (blk, abcd) @ 64)
+		     || abcd <- abcds
+		     || blk <- split (pt padMsg)
+		     |];
+    };
+
+pad : {a} (64 >= width(a), 512*((a+576)/512)-a >= 65)
+       => [a] -> [512*((a+65+511)/512)];
+pad msg = msg # [True] # zero # sizeInfo
+      where { sz : [64];
+              sz = width msg; 
+              sizeInfo = join [| reverse c || c <- groupBy (8, sz) |];
+            };
+
+tp : {a} [a][8] -> [a*8];
+tp s = join [| reverse c || c <- s |];
+
+pt : {a} [a*8] -> [a*8];
+pt s = join [| reverse c || c <- groupBy (8, s) |];
+
+ABCD = [0x67452301 0xefcdab89 0x98badcfe 0x10325476];
+
+// blocks are presented big-endian
+abcd2block : [4][32] -> [128];
+abcd2block xs = join (reverse (join [| word2bytes x || x <- xs |]));
+
+word2bytes : [32] -> [4][8];
+word2bytes w = split w;
+
+add ([a b c d], [e f g h]) = [(a+e) (b+f) (c+g) (d+h)];
+
+rounds : ([512], [4][32]) -> [65][4][32];
+rounds (msg, [a0 b0 c0 d0])
+  = [| [a b c d] || a <- as || b <- bs || c <- cs || d <- ds |]
+  where {
+	msg' = split msg;
+        bs = [b0] # [| box (i, a, b, c, d, m, t, s)
+		    || i <- [0 .. ]
+		    || a <- as
+		    || b <- bs
+		    || c <- cs
+		    || d <- ds
+		    || m <- join [| m @@ p || m <- [msg' msg' msg' msg']
+					   || p <- permutes |]
+		    || t <- sineTbl
+		    || s <- repeat4 [7 12 17 22]
+		          # repeat4 [5  9 14 20]
+		          # repeat4 [4 11 16 23]
+		          # repeat4 [6 10 15 21]
+		    |];
+	cs = [c0] # bs;
+	ds = [d0] # cs;
+	as = [a0] # ds;
+	};
+
+repeat4 abcd = abcd # abcd # abcd # abcd;
+
+permutes = [ [0 .. 15]
+	     [1 6 11 0 5 10 15 4 9 14 3 8 13 2 7 12]
+	     [5 8 11 14 1 4 7 10 13 0 3 6 9 12 15 2]
+	     [0 7 14 5 12 3 10 1 8 15 6 13 4 11 2 9] ];
+
+
+box (i, a, b, c, d, m, t, s) = b + ((a + dafunc (i, b, c, d) + m + t) <<< s);
+
+dafunc (i, b, c, d) =
+    if i < 16 then
+	F (b, c, d)
+    else if i < 32 then
+	G (b, c, d)
+    else if i < 48 then
+	H (b, c, d)
+    else
+	I (b, c, d);
+
+F : ([32], [32], [32]) -> [32];
+F (x, y, z) = (x & y) | (~x & z);
+
+G : ([32], [32], [32]) -> [32];
+G (x, y, z) = (x & z) | (y & ~z);
+
+H : ([32], [32], [32]) -> [32];
+H (x, y, z) = x ^ y ^ z;
+
+I : ([32], [32], [32]) -> [32];
+I (x, y, z) = y ^ (x | ~z);
+
+sineTbl : [64][32];
+sineTbl =
+    [0xd76aa478 0xe8c7b756 0x242070db 0xc1bdceee
+     0xf57c0faf 0x4787c62a 0xa8304613 0xfd469501
+     0x698098d8 0x8b44f7af 0xffff5bb1 0x895cd7be
+     0x6b901122 0xfd987193 0xa679438e 0x49b40821
+     0xf61e2562 0xc040b340 0x265e5a51 0xe9b6c7aa
+     0xd62f105d 0x02441453 0xd8a1e681 0xe7d3fbc8
+     0x21e1cde6 0xc33707d6 0xf4d50d87 0x455a14ed
+     0xa9e3e905 0xfcefa3f8 0x676f02d9 0x8d2a4c8a
+     0xfffa3942 0x8771f681 0x6d9d6122 0xfde5380c
+     0xa4beea44 0x4bdecfa9 0xf6bb4b60 0xbebfbc70
+     0x289b7ec6 0xeaa127fa 0xd4ef3085 0x04881d05
+     0xd9d4d039 0xe6db99e5 0x1fa27cf8 0xc4ac5665
+     0xf4292244 0x432aff97 0xab9423a7 0xfc93a039
+     0x655b59c3 0x8f0ccc92 0xffeff47d 0x85845dd1
+     0x6fa87e4f 0xfe2ce6e0 0xa3014314 0x4e0811a1
+     0xf7537e82 0xbd3af235 0x2ad7d2bb 0xeb86d391];
+
+/*
+MD5 test suite:
+MD5 ("") = d41d8cd98f00b204e9800998ecf8427e
+MD5 ("a") = 0cc175b9c0f1b6a831c399e269772661
+MD5 ("abc") = 900150983cd24fb0d6963f7d28e17f72
+MD5 ("message digest") = f96b697d7cb7938d525a2f31aaf161d0
+MD5 ("abcdefghijklmnopqrstuvwxyz") = c3fcd3d76192e4007dfb496cca67e13b
+MD5 ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789") =
+d174ab98d277d9f5a5611c2c9f419d9f
+MD5 ("12345678901234567890123456789012345678901234567890123456789012345678901234567890") = 57edf4a22be3c955ac49da2e2107b67a     
+
+r0 = test "" == 0xd41d8cd98f00b204e9800998ecf8427e;
+r1 = test "a" == 0x0cc175b9c0f1b6a831c399e269772661;
+r2 = test "abc" == 0x900150983cd24fb0d6963f7d28e17f72;
+r3 = test "message digest" == 0xf96b697d7cb7938d525a2f31aaf161d0;
+r4 = test "abcdefghijklmnopqrstuvwxyz" == 0xc3fcd3d76192e4007dfb496cca67e13b;
+r5 = test "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+           == 0xd174ab98d277d9f5a5611c2c9f419d9f;
+r6 = test "12345678901234567890123456789012345678901234567890123456789012345678901234567890" == 0x57edf4a22be3c955ac49da2e2107b67a;
+
+alltests = r0 & r1 & r2 & r3 & r4 & r5 & r6;
+*/
