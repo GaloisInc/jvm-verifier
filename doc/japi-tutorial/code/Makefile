@@ -1,6 +1,7 @@
 USER_CP=../../../user
+SUPPORT_CP=../../../support/galois.jar
 JDK_CP=../../../jdk1.6
-JSS=../../../jss
+JSS=../../../dist/build/jss/jss
 ABC=abc
 CRYPTOL=cryptol
 
@@ -10,10 +11,10 @@ all: JavaSHA384.aig SHA384-ref.aig JavaMD5.aig MD5-ref.aig
 	javac -cp ${USER_CP} $<
 
 %.aig: %.class
-	${JSS} -c ${USER_CP}:${JDK_CP}:. $*
+	${JSS} -c ${USER_CP}:${JDK_CP}:. -j ${SUPPORT_CP} $*
 
 eval: JavaMD5Eval.class
-	${JSS} -c ${USER_CP}:${JDK_CP}:. JavaMD5Eval
+	${JSS} -c ${USER_CP}:${JDK_CP}:. -j ${SUPPORT_CP} JavaMD5Eval
 
 SHA384-ref.aig: SHA2.cry gen-sha384-fm.cmd
 	cryptol -b gen-sha384-fm.cmd
