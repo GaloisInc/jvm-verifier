@@ -25,7 +25,8 @@ import qualified Test.QuickCheck.Test as T
 
 import Execution.Codebase
 import Simulation (SimulatorExc(..))
-import Symbolic
+
+import Verinf.Symbolic
 
 assertMsg :: Bool -> String -> PropertyM IO ()
 assertMsg b s = when (not b) (run $ putStrLn s) >> assert b

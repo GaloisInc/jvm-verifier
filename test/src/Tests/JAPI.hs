@@ -18,10 +18,11 @@ import Test.QuickCheck
 
 import JavaParser
 import Simulation hiding (run)
-import Symbolic
 import Tests.Common
 import Utils
-import Utils.CatchMIO
+
+import Verinf.Symbolic
+import Verinf.Utils.CatchMIO
 
 -- Test names match those found in PrimOps where possible.
 
