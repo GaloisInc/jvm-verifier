@@ -500,7 +500,7 @@ ppCValueD f (CRec def _ vs) =
                 $ V.zipWith ppField (recDefFieldOps def) args
     Prefix ->
      let ppField fieldOp d = parens (text (opDefName fieldOp) <+> d)
-      in parens $ text "mkRec" <+> 
+      in parens $ text "mkRec" <+>
                   (fsep $ V.toList
                         $ V.zipWith ppField (recDefFieldOps def) args)
   where args = V.map (ppCValueD f) vs
@@ -881,7 +881,9 @@ getStructuralRecord names = do
                       , opDefArgTypes = V.singleton recType
                       , opDefResultType = SymShapeVar opDefName
                       , opDefKind = PrimOp
-                      , opDefEval = UnaryOpEval $ \_ (CRec _ _ rf) -> rf V.! i
+                      , opDefEval = let f _ (CRec _ _ rf) = rf V.! i
+                                        f _ _             = error "internal: getStructuralRecord/fieldOpFn"
+                                    in UnaryOpEval f
                       , opDefDescriptor = \_ args -> do
                          LVN lv <- getVarLit (args V.! 0)
                          return (lv V.! i)
@@ -889,7 +891,7 @@ getStructuralRecord names = do
           fieldOps = V.map fieldOpFn (V.enumFromN 0 fieldCount)
           recDef   = SymRecDef { recDefCtor = ctorOp
                                , recDefFieldOps = fieldOps }
-          sub = emptySubst { shapeSubst = Map.fromList 
+          sub = emptySubst { shapeSubst = Map.fromList
                                         $ map (\nm -> (nm, SymShapeVar nm))
                                         $ namesList }
           recType  = SymRec recDef sub
