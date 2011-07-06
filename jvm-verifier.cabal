@@ -3,7 +3,7 @@ Version:        0.1.2
 Author:         Galois Inc.
 Maintainer:     jhendrix@galois.com, jstanley@galois.com
 Build-type:     Simple
-Cabal-version: >= 1.2
+Cabal-version: >= 1.8
 
 Flag abc-backend
   Description: Use the ABC backend for generating AIGs
@@ -46,7 +46,7 @@ library
     , vector >= 0.7
     , zlib
 
-  hs-source-dirs: .
+  hs-source-dirs: src
 
   exposed-modules:
     Analysis.CFG
@@ -106,12 +106,28 @@ executable jss
     build-depends: Aiger
 
   build-depends:
-      parsec  >= 2.1.0.1
+      array
+    , base >= 4
+    , binary
+    , bytestring
     , cmdargs >= 0.6.1
-
+    , containers
+    , data-binary-ieee754
+    , directory
+    , executable-path
+    , filepath
+    , fingertree
+    , mtl == 2.0.*
+    , parsec >= 2.1.0.1
+    , pretty
+    , vector >= 0.7
+    , zlib
+    
+  hs-source-dirs   : src
   main-is          : Main_jss.hs
   ghc-options      : -O2 -Wall -fno-ignore-asserts
   ghc-prof-options : -prof -auto-all
+
 
 executable sawScript
   if !flag(build-SAWScript)
@@ -127,16 +143,32 @@ executable sawScript
 -- them.  [JS 18 Feb 2011]
 
   build-depends:
-      abcBridge  >= 0.8.3
-    , old-time   >= 1.0.0.3
-    , old-locale >= 1.0.0.2
-    , deepseq    >= 1.1.0.2
+      Aiger
+    , abcBridge >= 0.8.3
+    , array
+    , base >= 4
+    , binary
+    , bytestring
     , cmdargs >= 0.6.1
-    , Aiger
+    , containers
+    , data-binary-ieee754
+    , deepseq >= 1.1.0.2
+    , directory
+    , executable-path
+    , filepath
+    , fingertree
+    , mtl == 2.0.*
+    , old-locale >= 1.0.0.2
+    , old-time >= 1.0.0.3
+    , parsec >= 2.1.0.1
+    , pretty
+    , vector >= 0.7
+    , zlib
 
   build-tools:
      alex, happy
 
+  hs-source-dirs   : src
   main-is          : SAWScript/SAWScriptMain.hs
   ghc-options      : -O2 -Wall -fno-ignore-asserts
   ghc-prof-options : -prof -auto-all
@@ -162,13 +194,27 @@ executable Tests
     build-depends: Aiger
 
   build-depends: 
-      fingertree
+      array
+    , base >= 4
+    , binary
+    , bytestring
+    , containers
+    , data-binary-ieee754
+    , directory
+    , executable-path
+    , filepath
+    , fingertree
+    , mtl == 2.0.*
+    , pretty
     , process
-    , QuickCheck >= 2.1.2
     , random
+    , vector >= 0.7
+    , zlib
+    , QuickCheck >= 2.1.2
+
 
   main-is          : Tests.hs
-  hs-source-dirs   : test/src . 
+  hs-source-dirs   : src test/src
   ghc-options      : -O2 -Wall -fno-ignore-asserts
   ghc-prof-options : -prof -auto-all
 
@@ -177,8 +223,29 @@ executable ExampleAIG
     buildable: False
   if flag(abc-backend)
     cpp-options: -DUseABC
+    build-depends: abcBridge >= 0.8.3
+  else
+    build-depends: Aiger
+
+  build-depends:
+      array
+    , base >= 4
+    , binary
+    , bytestring
+    , containers
+    , data-binary-ieee754
+    , directory
+    , executable-path
+    , fingertree
+    , filepath
+    , mtl == 2.0.*
+    , pretty
+    , random
+    , vector >= 0.7
+    , zlib
+    , QuickCheck >= 2.1.2
 
   main-is          : Examples/AIG/ExampleAIG.hs
-  hs-source-dirs   : test/src .
+  hs-source-dirs   : src test/src .
   ghc-options      : -O2 -Wall -fno-ignore-asserts
   ghc-prof-options : -prof -auto-all
