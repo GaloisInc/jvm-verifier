@@ -10,15 +10,13 @@ Point-of-contact : matthews
 module Tests.ExampleExceptionSession (exampleExceptionSessionTests)
   where
 
-import IO.Session
-
 import Control.Exception as Exc
 import Control.Monad.State
-
+import Data.Typeable (Typeable)
 import Test.QuickCheck
 import Test.QuickCheck.Monadic as QC
 
-import Data.Typeable (Typeable)
+import Verinf.IO.Session
 
 _assertIO :: Bool -> IO ()
 _assertIO True = return ()

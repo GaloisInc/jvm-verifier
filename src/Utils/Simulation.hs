@@ -9,8 +9,9 @@ module Utils.Simulation where
 
 import Control.Arrow (second)
 
+import Verinf.Symbolic
+
 import Execution
-import Symbolic
 import Simulation
 
 withValidResult :: Show term => Either (FinalResult term) a -> (a -> m b) -> m b

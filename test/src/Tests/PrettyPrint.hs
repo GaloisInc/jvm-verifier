@@ -13,7 +13,7 @@ import Test.QuickCheck.Monadic as QC
 import qualified Data.Vector as V
 import qualified SBVModel.SBV as SBV
 import qualified SBVParser as SBV
-import Symbolic
+import Verinf.Symbolic
 
 data TestMode = CREATE          -- create the gold files
               | CHECK           -- test against the gold files

@@ -16,7 +16,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic as QC
 import qualified Data.Vector as V
 
-import Symbolic
+import Verinf.Symbolic
 
 ruleCheckerTests :: [(Args, Property)]
 ruleCheckerTests =

@@ -32,12 +32,13 @@ import MethodSpec (partitions)
 import qualified SAWScript.MethodAST as AST
 import qualified SAWScript.TypeChecker as TC
 import qualified Simulation as JSS
-import Symbolic
 import SAWScript.Utils
 import SAWScript.TypeChecker
 import Utils.Common
-import Utils.IOStateT
-import Utils.LogMonad
+
+import Verinf.Symbolic
+import Verinf.Utils.IOStateT
+import Verinf.Utils.LogMonad
 
 -- Utilities {{{1
 
@@ -606,7 +607,7 @@ methodSpecJavaExprs ir =
 methodSpecInstanceFieldExprs :: MethodSpecIR -> [(TC.JavaExpr, JSS.FieldId)]
 methodSpecInstanceFieldExprs ir =
   [ (refExpr, f) | TC.InstanceField refExpr f <- methodSpecJavaExprs ir ]
-  
+
 -- | Interprets AST method spec commands to construct an intermediate
 -- representation that
 resolveMethodSpecIR :: TC.GlobalBindings
@@ -743,7 +744,7 @@ data JavaStateInfo = JSI {
        , jsiPathState :: JSS.PathState Node
        }
 
--- | Create a Java State info from the current simulator path state, 
+-- | Create a Java State info from the current simulator path state,
 -- and using the given arguments for this and argument positions.
 createJavaStateInfo :: Maybe JSS.Ref
                     -> [JSS.Value Node]
@@ -759,7 +760,7 @@ createJavaStateInfo r args s =
 -- (static versus instance), and correct well-typed arguments.  It does
 -- not assume that all the instanceFields in the JavaStateInfo are initialized.
 javaExprValue :: JavaStateInfo -> TC.JavaExpr -> Maybe (JSS.Value Node)
-javaExprValue jsi (TC.This _) = 
+javaExprValue jsi (TC.This _) =
   case jsiThis jsi of
     Just r -> Just (JSS.RValue r)
     Nothing -> error "internal: javaExprValue given TC.This for static method"
@@ -831,7 +832,7 @@ execOverride pos nm ir mbThis args = do
   forM_ (methodSpecJavaExprs ir) $ \javaExpr -> do
     when (isNothing (javaExprValue jsi javaExpr)) $ do
       let msg = "The override for \'" ++ methodSpecName ir
-                  ++ "\' was called while symbolically simulating " ++ nm 
+                  ++ "\' was called while symbolically simulating " ++ nm
                   ++ ".  However, the method specification of \'"
                   ++ methodSpecName ir ++ "\' requires that the value of \'"
                   ++ show javaExpr ++ "\' is defined."
@@ -1299,7 +1300,7 @@ comparePathStates ir jvs esd newPathState mbRetVal = do
 -- verifyMethodSpec and friends {{{2
 
 data VerificationContext = VContext {
-          vcAssumptions :: Node 
+          vcAssumptions :: Node
         , vcInputs :: InputEvaluatorList
         , vcChecks :: [VerificationCheck]
         }

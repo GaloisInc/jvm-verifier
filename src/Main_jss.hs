@@ -30,10 +30,11 @@ import Text.ParserCombinators.Parsec
 import Execution
 import JavaParser.Common
 import Simulation
-import Symbolic
 import Utils
-import Utils.CatchMIO
 import Utils.Simulation
+
+import Verinf.Symbolic
+import Verinf.Utils.CatchMIO
 
 data JSS = JSS
   { classpath :: String

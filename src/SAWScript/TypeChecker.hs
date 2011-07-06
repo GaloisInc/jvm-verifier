@@ -33,7 +33,8 @@ import Execution(HasCodebase(..))
 import qualified SAWScript.MethodAST as AST
 import SAWScript.TIMonad
 import SAWScript.Utils
-import Symbolic
+
+import Verinf.Symbolic
 
 tcJavaExpr :: TCConfig -> AST.JavaRef -> OpSession JavaExpr
 tcJavaExpr cfg e = runTI cfg (tcASTJavaExpr e)
@@ -296,7 +297,7 @@ tcE (AST.TypeExpr _ (AST.ApplyExpr appPos "split" astArgs) astResType) = do
 tcE (AST.TypeExpr p (AST.MkArray _ []) astResType) = do
   resType <- tcT astResType
   case resType of
-    SymArray we _ 
+    SymArray we _
       | Just (Wx 0) <- widthConstant we -> do
          op <- liftTI $ mkArrayOp 0 resType
          return $ Apply op []
@@ -394,7 +395,7 @@ tcJRef p jr = do
   sje <- tcASTJavaExpr jr
   mbToJavaT <- gets toJavaExprType
   case mbToJavaT of
-    Nothing -> 
+    Nothing ->
       let msg = "The Java value \'" ++ show sje ++ "\' appears in a global context."
           res = "Java values may not be references outside method declarations."
        in typeErrWithR p (ftext msg) res

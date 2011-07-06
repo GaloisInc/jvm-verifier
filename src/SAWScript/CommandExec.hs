@@ -30,9 +30,10 @@ import qualified SAWScript.TypeChecker as TC
 import qualified SBVModel.SBV as SBV
 import qualified SBVParser as SBV
 import qualified Simulation as JSS
-import Symbolic
-import Utils.IOStateT
-import Utils.LogMonad
+
+import Verinf.Symbolic
+import Verinf.Utils.IOStateT
+import Verinf.Utils.LogMonad
 
 -- Executor primitives {{{1
 
@@ -113,7 +114,7 @@ whenVerbosityWriteNoLn cond msg =
   whenVerbosity cond $ liftIO $ do
     putStr msg
     hFlush stdout
-          
+
 -- | Write debug message to standard IO.
 debugWrite :: String -> Executor ()
 debugWrite = whenVerbosityWrite (>=6)

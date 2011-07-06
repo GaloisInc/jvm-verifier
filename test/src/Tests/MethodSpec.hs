@@ -17,10 +17,9 @@ import Test.QuickCheck.Monadic
 
 import JavaParser
 import MethodSpec
-import Symbolic
 import ProofUtils hiding (run)
-import Tests.Common
 import qualified Data.Vector as V
+import Tests.Common
 
 methodSpecTests :: [(Args, Property)]
 methodSpecTests =

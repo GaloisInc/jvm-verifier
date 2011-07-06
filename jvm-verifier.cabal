@@ -1,5 +1,5 @@
 Name:           jvm-verifier
-Version:        0.1.2
+Version:        0.1.3
 Author:         Galois Inc.
 Maintainer:     jhendrix@galois.com, jstanley@galois.com
 Build-type:     Simple
@@ -7,7 +7,7 @@ Cabal-version: >= 1.8
 
 Flag abc-backend
   Description: Use the ABC backend for generating AIGs
-  Default: False
+  Default: True
 
 Flag build-library
   description: Build the jvm-verifier library.
@@ -30,6 +30,9 @@ Flag build-SAWScript
   default: True
 
 library
+  if flag(abc-backend)
+    cpp-options: -DUseABC
+
   build-depends:
       array
     , base >= 4
@@ -45,54 +48,31 @@ library
     , pretty
     , vector >= 0.7
     , zlib
+    , Verinf
 
   hs-source-dirs: src
 
   exposed-modules:
     Analysis.CFG
-    Control.Monad.Exception
     Execution
-    IO.Session
     JarReader
     JavaParser
     JavaParser.Common
     MethodSpec
+    ProofUtils
     SBVModel.SBV
     SBVParser
     Simulation
-    Symbolic
-    Symbolic.Lit
-    Symbolic.Lit.SatResult
-    Symbolic.Rewriter
     Utils
-    Utils.Assert
-    Utils.CatchMIO
-    Utils.Common
-    Utils.IOStateT
     Utils.Simulation
-    ProofUtils
 
   other-modules:
     Execution.Codebase
     Execution.JavaSemantics
     Execution.Stepper
-    Symbolic.Common
-    Symbolic.Dag
-    Symbolic.UnionFind
-    Utils.LogMonad
 
   if !flag(build-library)
     buildable: False
-
-  if flag(abc-backend)
-    build-depends: abcBridge >= 0.8.3
-    cpp-options: -DUseABC
-    other-modules: Symbolic.Lit.ABC
-  else
-    build-depends: Aiger
-    other-modules: Symbolic.Lit.Pure
-
-  Extensions
 
   GHC-options: -O2 -Wall -fno-ignore-asserts
 
@@ -100,10 +80,7 @@ executable jss
   if !flag(build-jss)
     buildable: False
   if flag(abc-backend)
-    build-depends: abcBridge >= 0.8.3
     cpp-options: -DUseABC
-  else
-    build-depends: Aiger
 
   build-depends:
       array
@@ -122,30 +99,21 @@ executable jss
     , pretty
     , vector >= 0.7
     , zlib
+    , Verinf
     
   hs-source-dirs   : src
   main-is          : Main_jss.hs
   ghc-options      : -O2 -Wall -fno-ignore-asserts
   ghc-prof-options : -prof -auto-all
 
-
 executable sawScript
   if !flag(build-SAWScript)
     buildable: False
-
   if flag(abc-backend)
     cpp-options: -DUseABC
 
--- NB: We'd like to depend on {abcBridge,old-time,old-locale,deepseq}
--- ONLY when the abc-backend flag is present, and the Aiger package
--- otherwise.  However, cabal-dev can't identify the flag-dependent
--- dependencies correctly, so we currently have dependencies on all of
--- them.  [JS 18 Feb 2011]
-
   build-depends:
-      Aiger
-    , abcBridge >= 0.8.3
-    , array
+      array
     , base >= 4
     , binary
     , bytestring
@@ -164,6 +132,7 @@ executable sawScript
     , pretty
     , vector >= 0.7
     , zlib
+    , Verinf
 
   build-tools:
      alex, happy
@@ -188,10 +157,7 @@ executable Tests
   if !flag(build-tests)
     buildable: False
   if flag(abc-backend)
-    build-depends: abcBridge >= 0.8.3
     cpp-options: -DUseABC
-  else
-    build-depends: Aiger
 
   build-depends: 
       array
@@ -211,7 +177,7 @@ executable Tests
     , vector >= 0.7
     , zlib
     , QuickCheck >= 2.1.2
-
+    , Verinf
 
   main-is          : Tests.hs
   hs-source-dirs   : src test/src
@@ -223,9 +189,6 @@ executable ExampleAIG
     buildable: False
   if flag(abc-backend)
     cpp-options: -DUseABC
-    build-depends: abcBridge >= 0.8.3
-  else
-    build-depends: Aiger
 
   build-depends:
       array
@@ -244,6 +207,7 @@ executable ExampleAIG
     , vector >= 0.7
     , zlib
     , QuickCheck >= 2.1.2
+    , Verinf
 
   main-is          : Examples/AIG/ExampleAIG.hs
   hs-source-dirs   : src test/src .

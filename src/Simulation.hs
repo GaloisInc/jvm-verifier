@@ -111,12 +111,13 @@ import Analysis.CFG (ppInst)
 import Execution
 import JavaParser
 import JavaParser.Common
-import Symbolic hiding (defaultValue, (&&&), (|||))
 import Utils
-import Utils.CatchMIO
 import Utils.Common
-import Utils.IOStateT
-import Utils.LogMonad
+
+import Verinf.Symbolic hiding (defaultValue, (&&&), (|||))
+import Verinf.Utils.CatchMIO
+import Verinf.Utils.IOStateT
+import Verinf.Utils.LogMonad
 
 data InitializationStatus
   = Started

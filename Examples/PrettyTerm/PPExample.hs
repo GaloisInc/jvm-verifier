@@ -12,7 +12,7 @@ module PPTest(main) where
 import qualified Data.Vector as V
 import qualified SBVModel.SBV as SBV
 import qualified SBVParser as SBV
-import Symbolic
+import Verinf.Symbolic
 
 pp :: TermDescriptor d => Node d -> String
 pp = ppSymTermSExpWith

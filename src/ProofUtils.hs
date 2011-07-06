@@ -17,7 +17,7 @@ module ProofUtils ( module ProofUtils
                   , module JavaParser
                   , module Simulation
                   , module SBVParser
-                  , module Symbolic
+                  , module Verinf.Symbolic
                   , module MethodSpec
                   ) where
 
@@ -32,9 +32,10 @@ import qualified Data.Vector as V
 import JavaParser
 import SBVParser
 import Simulation hiding ((&&&), (|||), loadClass)
-import Symbolic hiding (SymbolicTerm, liftIO)
 import MethodSpec
-import Utils.IOStateT
+
+import Verinf.Symbolic hiding (SymbolicTerm, liftIO)
+import Verinf.Utils.IOStateT
 
 trunc :: OpDef -> Term -> Term
 trunc op x =
@@ -153,7 +154,7 @@ affRecSubst, jacRecSubst :: DagType -> TypeSubst
 affRecSubst fieldType =
   emptySubst { shapeSubst = Map.fromList [("x", fieldType), ("y", fieldType)] }
 jacRecSubst fieldType =
-  emptySubst { shapeSubst = 
+  emptySubst { shapeSubst =
     Map.fromList [("x", fieldType), ("y", fieldType), ("z", fieldType)] }
 
 affineRec :: SymRecDef -> DagType -> DagType

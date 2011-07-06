@@ -14,10 +14,9 @@ import qualified Control.Exception as CE
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 
-import Symbolic
-import IO.Session
-
-import Utils.Assert
+import Verinf.Symbolic
+import Verinf.IO.Session
+import Verinf.Utils.Assert
 
 sessionTests :: [(Args, Property)]
 sessionTests =

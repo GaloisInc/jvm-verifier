@@ -10,8 +10,9 @@ module SAWScript.TIMonad where
 import Control.Monad
 import Control.Monad.Trans
 import SAWScript.Utils
-import Symbolic.Common
 import Text.PrettyPrint.HughesPJ
+
+import Verinf.Symbolic.Common
 
 type WarnMsg = (Pos, Doc)
 type ErrMsg  = (Pos, Doc, String)

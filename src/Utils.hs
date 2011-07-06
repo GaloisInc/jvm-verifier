@@ -7,9 +7,10 @@ Point-of-contact : jstanley
 
 module Utils where
 
+import Verinf.Symbolic
+
 import Execution
 import JavaParser
-import Symbolic
 
 -- | Returns true if type is an integer value.
 isIValue :: Type -> Bool

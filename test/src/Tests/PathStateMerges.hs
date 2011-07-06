@@ -14,11 +14,12 @@ import Test.QuickCheck
 
 import JavaParser
 import Simulation hiding (run)
-import Symbolic
 import Tests.Common
 import Utils
-import Utils.CatchMIO
 import Utils.Simulation
+
+import Verinf.Utils.CatchMIO
+import Verinf.Symbolic
 
 -- import Debug.Trace
 

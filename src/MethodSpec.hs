@@ -56,10 +56,11 @@ import Text.Show
 
 import JavaParser
 import Simulation hiding (typeOf)
-import Symbolic
 import Utils
 import Utils.Common
-import Utils.LogMonad
+
+import Verinf.Symbolic
+import Verinf.Utils.LogMonad
 
 -- MethodSpec {{{1
 

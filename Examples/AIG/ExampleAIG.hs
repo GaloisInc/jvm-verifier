@@ -18,11 +18,12 @@ import Text.Printf
 import Execution
 import JavaParser.Common
 import JavaParser
-import Symbolic
 import Simulation
 import Tests.Common
 import Utils
 import Utils.Simulation
+
+import Verinf.Symbolic
 
 -- Helper methods {{{1
 time :: t -> IO t
@@ -113,10 +114,14 @@ runCryptolC key input = do
       <$> runStaticMethod "AES128Encrypt"
                           "encrypt" "([I[I)[I"
                           [RValue keyArray, RValue inArray]
+
   -- Get (path-specific!) result
-  forM [3,2..0] $ \i -> do
-    IValue iValue <- getArrayValue pd outArray (mkCInt (Wx 32) i)
-    return iValue
+  rslt <-
+    forM [3,2..0] $ \i -> do
+      IValue iValue <- getArrayValue pd outArray (mkCInt (Wx 32) i)
+      return iValue
+  liftIO $ putStrLn "runCryptolC: completed"
+  return rslt
 
 type RunIO sym a = sym a -> IO a
 
@@ -257,6 +262,14 @@ createAigers = do
   makeCryptolAiger runSymbolic "cryptolJava.aig" cb     $ runCryptolJava "AESCryptol"
   makeCryptolAiger runSymbolic "cryptolNoTables.aig" cb $ runCryptolJava "AESCryptolNoTables"
   makeCryptolAiger runSymbolic "cryptolC.aig" cb runCryptolC
+
+  -- [JS <2011-07-06 Wed>] TODO FIXME BUG : At some point, the simulator started
+  -- crashing on this example (and likely downstream examples as well), but we
+  -- missed it because this ExampleAIG code is not tested as a part of the test
+  -- framework.  Crashes as far back in the repo as 264670cd, so it's been
+  -- around for a while and is decidely NOT part of the June/July 2011 repo
+  -- reorganization/refactoring.  Captured here for future reference.
+
   makeBouncyCastleAiger AES "AESEngine" cb
   makeBouncyCastleAiger AES "AESLightEngine" cb
   makeBouncyCastleAiger AES "AESFastEngine" cb

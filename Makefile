@@ -1,6 +1,7 @@
+ABC=../../abcBridge
+
 build:
-	cabal configure -fbuild-tests -fbuild-examples -fabc-backend
-	cabal build
+	cabal-dev install . ../Verinf $(ABC) --flags='build-tests build-examples'
 
 test: build
 	dist/build/Tests/Tests

@@ -17,10 +17,11 @@ import Test.QuickCheck.Monadic
 
 import qualified Data.Vector as V
 import JavaParser.Common
-import Symbolic
 import Simulation hiding (run)
 import Tests.Common
 import Utils
+
+import Verinf.Symbolic
 
 sha384Tests :: [(Args, Property)]
 sha384Tests =

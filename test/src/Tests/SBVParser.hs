@@ -14,10 +14,10 @@ import SBVParser
 import Test.QuickCheck
 import Test.QuickCheck.Monadic as MQC
 
-import IO.Session
-
 import SBVModel.SBV
-import Symbolic
+
+import Verinf.IO.Session
+import Verinf.Symbolic
 
 sbvParserTests :: [(Args, Property)]
 sbvParserTests =
@@ -59,18 +59,18 @@ testCPlus = monadicIO $ do
   _ <- run $ runOpSession $ do
     let arrayType12 = SymArray (constantWidth 12) (SymInt (constantWidth 32))
     abRecDef <- getStructuralRecord (Set.fromList ["a", "b"])
-    let abSubst = emptySubst { shapeSubst = 
+    let abSubst = emptySubst { shapeSubst =
                     Map.fromList [ ("a", arrayType12)
                                  , ("b", arrayType12) ] }
         abRec = SymRec abRecDef abSubst
     cRecDef <- getStructuralRecord (Set.fromList ["c"])
-    let cSubst = emptySubst { shapeSubst = 
+    let cSubst = emptySubst { shapeSubst =
                    Map.fromList [ ("c", arrayType12) ] }
         cRec = SymRec cRecDef cSubst
     let recordFn [("a", _), ("b", _)] = Just abRec
         recordFn [("c", _)] = Just cRec
         recordFn _ =  Nothing
-    cplusOpDef <- uninterpretedOp "c+" 
+    cplusOpDef <- uninterpretedOp "c+"
                                   (V.fromList [abRec, arrayType12])
                                   cRec
     let uninterpFn "cplus" [_x,_y] = Just $ groundOp cplusOpDef

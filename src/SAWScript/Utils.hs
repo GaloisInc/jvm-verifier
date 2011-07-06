@@ -21,7 +21,8 @@ import System.Locale(defaultTimeLocale)
 import Text.PrettyPrint.HughesPJ
 import Numeric(showFFloat)
 import Utils.Common (slashesToDots)
-import Utils.IOStateT
+
+import Verinf.Utils.IOStateT
 
 import qualified Execution.Codebase as JSS
 import qualified JavaParser as JSS

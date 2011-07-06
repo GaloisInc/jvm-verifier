@@ -23,12 +23,13 @@ import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 
 import JavaParser (Type(..))
-import Symbolic
 import Simulation hiding (run, newLongArray)
 import qualified Simulation
 import Tests.Common
 import Utils
 import Utils.Simulation
+
+import Verinf.Symbolic
 
 type TestInput = [CValue]
 

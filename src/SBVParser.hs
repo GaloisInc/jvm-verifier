@@ -51,9 +51,10 @@ import Data.Typeable
 import qualified Data.Vector as V
 
 import SBVModel.SBV
-import Symbolic
-import Utils.Assert
-import Utils.CatchMIO
+
+import Verinf.Symbolic
+import Verinf.Utils.Assert
+import Verinf.Utils.CatchMIO
 
 -- General purpose utility functions {{{1
 
@@ -260,7 +261,7 @@ joinTypesFn :: WordMonad m
             => [DagType]
             -> [DagType]
             -> [MonadTerm m] -> m [MonadTerm m]
-joinTypesFn resTypes sbvTypes = 
+joinTypesFn resTypes sbvTypes =
   let typeSizes = map typeSize resTypes
       groupedTypes = groupInputTypesBySize typeSizes sbvTypes
       sizes = map length groupedTypes
@@ -270,12 +271,12 @@ joinTypesFn resTypes sbvTypes =
 
 -- | Join split terms from SBV into single argument
 -- for symbolic -- simulator.
-joinSBVTerm :: WordMonad m 
+joinSBVTerm :: WordMonad m
             => DagType -- ^ Type of result
             -> [DagType] -- ^ Type of inputs
             -> [MonadTerm m] -> m (MonadTerm m)
-joinSBVTerm SymBool [resType] = 
-  let fn = toBool resType 
+joinSBVTerm SymBool [resType] =
+  let fn = toBool resType
    in \[t] -> fn t
 joinSBVTerm SymInt{} exprTypes =
   let joinFns = map toInt exprTypes
