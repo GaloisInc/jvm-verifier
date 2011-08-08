@@ -90,8 +90,9 @@ _makeAigerRC564 filepath = do
     liftIO $ putStrLn "Creating RC564 aiger..."
     outLits <- mapM getVarLit outValues
     be <- getBitEngine
-    liftIO $ putStrLn $ "Writing RC564 aiger to '" ++ filepath ++ "'"
-    writeAiger be filepath $ concat (map (take 8 . toLsbf_lit) outLits)
+    liftIO $ do
+      putStrLn $ "Writing RC564 aiger to '" ++ filepath ++ "'"
+      writeAiger be filepath $ concat (map (take 8 . toLsbf_lit) outLits)
 
 runRC564 :: AigOps sym =>
             [MonadTerm sym] -> [MonadTerm sym] -> Simulator sym [MonadTerm sym]
