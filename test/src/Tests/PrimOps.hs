@@ -160,12 +160,12 @@ mkTest runTest' _lbl getRslt cb maigNm (cNm, mNm, sig)
     outIntLit <- toLsbf_lit <$> getVarLit rslt
     chks0     <- forM inps $ \inp -> do
        prDag inp <$> (symbolicEval (V.fromList inp) (evalNode rslt))
+    be <- getBitEngine
     case maigNm of
       Nothing -> return ()
-      Just nm -> liftAigMonad (writeAiger nm outIntLit)
-    chks1 <- liftAigMonad
-             $ forM inps $ \inp ->
-                 prAig inp <$> (evalAig (toAigInps inp) outIntLit)
+      Just nm -> writeAiger be nm outIntLit
+    chks1 <- forM inps $ \inp ->
+      prAig inp <$> evalAig be (toAigInps inp) outIntLit
     return (chks0 ++ chks1)
 
 mkIntTest ::
@@ -339,13 +339,13 @@ t13 cb = runTest $ do
   outCns <- symbolicEval (V.fromList cInputs) $ mapM evalNode outVars
   -- AIG eval
   outLits <- mapM getVarLit outVars
-  rs <- liftAigMonad $ do
-    r <- evalAig (concatMap intToBoolSeq $ cInputs)
-                 (concatMap toLsbf_lit outLits)
-    return [ constInt . head . hexToIntSeq . boolSeqToHex
+  be <- getBitEngine
+  r <- evalAig be
+               (concatMap intToBoolSeq $ cInputs)
+               (concatMap toLsbf_lit outLits)
+  let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
              $ take 32 (drop (32*k) r)
-           | k <- [0..(n-1)]
-           ]
+           | k <- [0..(n-1)] ]
   return [outCns == expect && rs == expect]
 
 -- NB: This won't symbolically terminate yet.
@@ -536,18 +536,18 @@ evalBinOp runIO _lbl cb w maigNm mkValue getSymIntegralFromValue newSymVar
     cns <- symbolicEval (V.map (CInt w . fromIntegral) $ V.fromList [x, y])
                         (evalNode rslt)
     let inputs = concatMap (intToBoolSeq . CInt w . fromIntegral) [x, y]
-    liftAigMonad $ do
-      aigResult <- evalAig inputs outIntLit
-      case maigNm of
-        Nothing -> return ()
-        Just nm -> writeAiger nm outIntLit
-      return ( cns
-             , -- aiger eval
-               hexToIntegral
-               $ (\hs -> CE.assert (length hs == numBits w `div` 4) hs)
-               $ boolSeqToHex
-               $ aigResult
-             )
+    be <- getBitEngine
+    aigResult <- evalAig be inputs outIntLit
+    case maigNm of
+      Nothing -> return ()
+      Just nm -> writeAiger be nm outIntLit
+    return ( cns
+           , -- aiger eval
+             hexToIntegral
+             $ (\hs -> CE.assert (length hs == numBits w `div` 4) hs)
+             $ boolSeqToHex
+             $ aigResult
+           )
 
 singletonArg :: Functor f => (a -> b) -> f a -> f [b]
 singletonArg ctor f = (:[]) . ctor <$> f

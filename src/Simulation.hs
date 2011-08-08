@@ -1167,12 +1167,12 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
     blast <- gets $ alwaysBitBlastBranchTerms . simulationFlags
     if blast
       then do
+        be <- liftSymbolic $ getBitEngine
         LV lv           <- liftSymbolic $ getVarLit v
-        [lTrue, lFalse] <- mapM (liftSymbolic . liftAigMonad) [litTrue, litFalse]
         v'              <- CE.assert (SV.length lv == 1) $ return $ SV.head lv
 --         dbugM $ "v = \n" ++ prettyTerm v
-        case () of () | v' == lTrue  -> trueM
-                      | v' == lFalse -> falseM
+        case () of () | v' == beTrue be  -> trueM
+                      | v' == beFalse be -> falseM
                       | otherwise    -> splitPaths
       else do
         splitPaths

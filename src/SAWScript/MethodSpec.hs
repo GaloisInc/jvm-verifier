@@ -12,6 +12,7 @@ module SAWScript.MethodSpec
 
 -- Imports {{{1
 
+import Control.Applicative
 import qualified Control.Exception as CE
 import Control.Monad
 import Data.Int
@@ -60,26 +61,33 @@ int64DagType = SymInt (constantWidth 64)
 -- | Create a node with given number of bits.
 createSymbolicIntNode :: Int -> SymbolicMonad Node
 createSymbolicIntNode w = do
-  lv <- fmap LV $ liftAigMonad $ SV.replicateM w makeInputLit
+  be <- getBitEngine
+  lv <- liftIO $ LV <$> SV.replicateM w (beMakeInputLit be)
   freshVar (SymInt (constantWidth (Wx w))) lv
 
 -- | @createSymbolicArrayNode l w@ creates an array with length l@ and elements with width @w@.
 createSymbolicArrayNode :: Int -> Int -> SymbolicMonad Node
 createSymbolicArrayNode l w = do
   let arrType = SymArray (constantWidth (Wx l)) (SymInt (constantWidth (Wx w)))
-  lv <- liftAigMonad $ V.replicateM l $ fmap LV $ SV.replicateM w makeInputLit
+  be <- getBitEngine
+  lv <- liftIO $ V.replicateM l $
+          LV <$> SV.replicateM w (beMakeInputLit be)
   freshVar arrType (LVN lv)
 
-createLitVectorFromType :: DagType -> AigComputation OpSession (LitResult Lit)
-createLitVectorFromType (SymInt (widthConstant -> Just (Wx w))) = do
-  fmap LV $ SV.replicateM w makeInputLit
-createLitVectorFromType (SymArray (widthConstant -> Just (Wx l)) eltTp) = do
-  fmap LVN $ V.replicateM l $ createLitVectorFromType eltTp
-createLitVectorFromType _ = error "internal: createLitVectorFromType called with unsupported type."
+createLitVectorFromType :: (SV.Storable l)
+                        => BitEngine l -> DagType -> IO (LitResult l)
+createLitVectorFromType be (SymInt (widthConstant -> Just (Wx w))) = do
+  LV <$> SV.replicateM w (beMakeInputLit be)
+createLitVectorFromType be (SymArray (widthConstant -> Just (Wx l)) eltTp) = do
+  LVN <$> V.replicateM l (createLitVectorFromType be eltTp)
+createLitVectorFromType _ _ = error "internal: createLitVectorFromType called with unsupported type."
 
 -- | Create a node with given number of bits.
 createSymbolicFromType :: DagType -> SymbolicMonad Node
-createSymbolicFromType tp = freshVar tp =<< liftAigMonad (createLitVectorFromType tp)
+createSymbolicFromType tp = do
+ be <- getBitEngine
+ r <- liftIO $ createLitVectorFromType be tp
+ freshVar tp r
 
 -- | Throw IO exception indicating name was previously defined.
 throwNameAlreadyDefined :: MonadIO m => Pos -> Pos -> String -> m ()
@@ -987,10 +995,10 @@ type JavaEvaluator = StateT JavaVerificationState (JSS.Simulator SymbolicMonad)
 -- and create them in simulator.
 createJavaEvalReferences :: EquivClassMap -> JavaEvaluator ()
 createJavaEvalReferences cm = do
-  let liftAig = lift . JSS.liftSymbolic . liftAigMonad
-      liftSym = lift . JSS.liftSymbolic
+  let liftSym = lift . JSS.liftSymbolic
+  be <- liftSym $ getBitEngine
   V.forM_ (equivClassMapEntries cm) $ \(_idx, exprClass, initValue) -> do
-    litCount <- liftAig $ getInputLitCount
+    litCount <- liftIO $ beInputLitCount be
     let refName = ppSpecJavaRefEquivClass exprClass
     let -- create array input node with length and int width.
         createInputArrayNode l w = do
@@ -1029,11 +1037,11 @@ createJavaEvalReferences cm = do
 
 createJavaEvalScalars :: MethodSpecIR -> JavaEvaluator ()
 createJavaEvalScalars ir = do
-  let liftAig = lift . JSS.liftSymbolic . liftAigMonad
-      liftSym = lift . JSS.liftSymbolic
+  let liftSym = lift . JSS.liftSymbolic
   -- Create symbolic inputs from specScalarInputs.
+  be <- liftSym $ getBitEngine
   forM_ (specScalarInputs ir) $ \expr -> do
-    litCount <- liftAig $ getInputLitCount
+    litCount <- liftIO $ beInputLitCount be
     let addScalarNode node inputEval value =
           modify $ \s ->
             s { jvsExprNodeMap = Map.insert expr node (jvsExprNodeMap s)
@@ -1390,32 +1398,36 @@ runABC ir inputEvalList fGoal counterFn = do
   LV v <- getVarLit fGoal
   unless (SV.length v == 1) $
     error "internal: Unexpected number of in verification condition"
-  b <- liftAigMonad $ checkSat (neg (v SV.! 0))
-  case b of
-    UnSat -> return ()
-    Unknown -> do
-      let msg = "ABC has returned a status code indicating that it could not "
-                 ++ "determine whether the specification is correct.  This "
-                 ++ "result is not expected for sequential circuits, and could"
-                 ++ "indicate an internal error in ABC or JavaVerifer's "
-                 ++ "connection to ABC."
-       in throwIOExecException (methodSpecPos ir) (ftext msg) ""
-    Sat lits -> do
-      let (inputExprs,inputEvals) = unzip inputEvalList
-      let inputValues = map ($lits) inputEvals
-      -- Get differences between two.
-      diffDoc <- symbolicEval (V.fromList inputValues) $ counterFn
-      let inputExprValMap = Map.fromList (inputExprs `zip` inputValues)
-      let inputDocs
-            = flip map (Map.toList inputExprValMap) $ \(expr,c) ->
-                 text (show expr) <+> equals <+> ppCValueD Mixfix c
-      let msg = ftext ("A counterexample was found by ABC when verifying "
-                         ++ methodSpecName ir ++ ".\n\n") $$
-                ftext ("The inputs that generated the counterexample are:") $$
-                nest 2 (vcat inputDocs) $$
-                ftext ("Counterexample:") $$
-                nest 2 diffDoc
-      throwIOExecException (methodSpecPos ir) msg ""
+  be <- getBitEngine
+  case beCheckSat be of
+    Nothing -> error "internal: Bit engine does not support SAT checking."
+    Just checkSat -> do
+      b <- liftIO $ checkSat (beNeg be (v SV.! 0))
+      case b of
+        UnSat -> return ()
+        Unknown -> do
+          let msg = "ABC has returned a status code indicating that it could not "
+                     ++ "determine whether the specification is correct.  This "
+                     ++ "result is not expected for sequential circuits, and could"
+                     ++ "indicate an internal error in ABC or JavaVerifer's "
+                     ++ "connection to ABC."
+           in throwIOExecException (methodSpecPos ir) (ftext msg) ""
+        Sat lits -> do
+          let (inputExprs,inputEvals) = unzip inputEvalList
+          let inputValues = map ($lits) inputEvals
+          -- Get differences between two.
+          diffDoc <- symbolicEval (V.fromList inputValues) $ counterFn
+          let inputExprValMap = Map.fromList (inputExprs `zip` inputValues)
+          let inputDocs
+                = flip map (Map.toList inputExprValMap) $ \(expr,c) ->
+                     text (show expr) <+> equals <+> ppCValueD Mixfix c
+          let msg = ftext ("A counterexample was found by ABC when verifying "
+                             ++ methodSpecName ir ++ ".\n\n") $$
+                    ftext ("The inputs that generated the counterexample are:") $$
+                    nest 2 (vcat inputDocs) $$
+                    ftext ("Counterexample:") $$
+                    nest 2 diffDoc
+          throwIOExecException (methodSpecPos ir) msg ""
 
 -- | Attempt to verify method spec using verification method specified.
 verifyMethodSpec :: Pos

@@ -46,9 +46,9 @@ sa1 cb =
       return rslt
 
     outIntLit <- toLsbf_lit <$> getVarLit outVar
+    be <- getBitEngine
     let getAt = fmap boolSeqToInt32
-              . liftAigMonad
-              . (`evalAig` outIntLit)
+              . flip (evalAig be) outIntLit
               . intToBoolSeq
               . constInt
     ((:[]) . (== arrayElems))
@@ -74,10 +74,10 @@ sa2 cb =
 
     -- Overwrite a random index with 42 and check it
     rsltLits <- concatMap toLsbf_lit <$> mapM getVarLit rslt
+    be <- getBitEngine
     fmap ((:[]) . elem 42)
-      $ liftAigMonad
       $ outsToInts32 n
-        <$> evalAig (evalAigArgs32 [overwriteIdx, 42]) rsltLits
+        <$> evalAig be (evalAigArgs32 [overwriteIdx, 42]) rsltLits
 
 -- | Symbolic array update w/ concrete index and symbolic value
 sa3 :: TrivialProp
@@ -97,11 +97,11 @@ sa3 cb =
       getIntArray pd arr
 
     rsltLits <- concatMap toLsbf_lit <$> mapM getVarLit rslt
+    be <- getBitEngine
     -- Overwrite the last index with 42 and check it
     fmap ((:[]) . (==) (replicate (n-1) fill ++ [42]))
-      $ liftAigMonad
       $ outsToInts32 n
-        <$> evalAig (evalAigArgs32 (42 : replicate n fill)) rsltLits
+        <$> evalAig be (evalAigArgs32 (42 : replicate n fill)) rsltLits
 
 -- | Symbolic 2-dim array update w/ concrete index and value
 sa4 :: TrivialProp
@@ -127,10 +127,10 @@ sa4 cb =
 
     -- Overwrite the first index with 42 and check it
     rsltLits <- concatMap toLsbf_lit <$> mapM getVarLit rslt
+    be <- getBitEngine
     fmap ((:[]) . (==) (42 : replicate (numElems - 1) fill))
-      $ liftAigMonad
       $ outsToInts32 (fromIntegral numElems)
-        <$> evalAig (evalAigArgs32 (replicate numElems fill)) rsltLits
+        <$> evalAig be (evalAigArgs32 (replicate numElems fill)) rsltLits
 
 
 --------------------------------------------------------------------------------

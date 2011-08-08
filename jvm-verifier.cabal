@@ -48,7 +48,7 @@ library
     , pretty
     , vector >= 0.7
     , zlib
-    , Verinf
+    , Verinf >= 0.2
 
   hs-source-dirs: src
 

@@ -87,12 +87,12 @@ evalAigSHA384 msg = do
     let cinps = map constInt $ hexToByteSeq msg
     -- | Boolean inputs to evalAig
     let binps = concatMap (take 8 . intToBoolSeq) cinps
-    rs      <- liftAigMonad $ do
-                 r <- evalAig binps outLits
-                 return [ constInt . head . hexToIntSeq . boolSeqToHex
-                          $ take 32 (drop (32*k) r)
-                        | k <- [0..47]
-                        ]
+    be <- getBitEngine
+    r <- evalAig be binps outLits
+    let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
+               $ take 32 (drop (32*k) r)
+             | k <- [0..47]
+             ]
     -- Perform evaluation and blasting of every literal
     -- (expensive, but good for debugging failed runs)
 --     evalAndBlast (map constInt $ hexToByteSeq msg) binps

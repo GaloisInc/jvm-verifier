@@ -717,6 +717,7 @@ blastMethodSpec cb spec = do
     defInputsRef <- liftIO $ newIORef []
     litParseFnsRef <- liftIO $ newIORef []
     runSymSession $ do
+      be <- getBitEngine
       -- CreateTerms
       classTermVec <- V.forM (V.enumFromN 0 c) $ \cl -> do
         case classTypeVec V.! cl of
@@ -736,18 +737,17 @@ blastMethodSpec cb spec = do
                     LongType -> 64
                     _ -> error "internal: Unsupported lit type"
             -- Create lits
-            varLits <- liftAigMonad $ do
-              offset <- getInputLitCount
-              liftIO $ do
-                -- Update litParseFnRef
-                litParseFns <- readIORef litParseFnsRef
-                let litParseFn = \lits ->
-                     let arrayVal j = mkCIntFromLsbfV $ LV.slice (offset + eltSize * j) eltSize lits
-                      in CArray $ V.map arrayVal
-                                $ V.enumFromN 0 (fromIntegral len)
-                writeIORef litParseFnsRef (litParseFn : litParseFns)
-              V.replicateM (fromIntegral len)
-                     $ fmap LV $ LV.replicateM eltSize makeInputLit
+            varLits <- liftIO $ do
+              offset <- beInputLitCount be
+              -- Update litParseFnRef
+              litParseFns <- readIORef litParseFnsRef
+              let litParseFn = \lits ->
+                   let arrayVal j = mkCIntFromLsbfV $ LV.slice (offset + eltSize * j) eltSize lits
+                    in CArray $ V.map arrayVal
+                              $ V.enumFromN 0 (fromIntegral len)
+              writeIORef litParseFnsRef (litParseFn : litParseFns)
+              V.replicateM (fromIntegral len) $
+                LV <$> LV.replicateM eltSize (beMakeInputLit be)
             -- Create input.
             input <- getInputCount
             -- Update defInputs
@@ -768,22 +768,25 @@ blastMethodSpec cb spec = do
       LV v <- getVarLit bFinalEq
       when (LV.length v /= 1) $
         error "internal: Unexpected number of in verification condition"
-      b <- liftAigMonad $ checkSat (neg (v `LV.unsafeIndex` 0))
-      case b of
-        UnSat -> return ()
-        Unknown -> error "Checking assumptions failed"
-        Sat lits -> do
-          let inputValues = V.map ($lits) litParseFns
-          --evalAndBlast inputValues lits
-          --liftIO $ putStrLn "EvalAndBlast succeeded"
-          counters <- symbolicEval inputValues counterFn
-          let inputMap = Map.fromList
-                       $ V.toList
-                       $ V.map (\(d,i) -> (d,inputValues V.! i))
-                       $ defInputVec
-          assert (not (null counters)) $
-            liftIO $ throwIO
-                   $ CounterExample classDefVec inputMap counters
+      case beCheckSat be of
+        Nothing -> error "Symbolic backend does not support SAT checking"
+        Just checkSat -> do
+          b <- liftIO $ checkSat (beNeg be (v `LV.unsafeIndex` 0))
+          case b of
+            UnSat -> return ()
+            Unknown -> error "Checking assumptions failed"
+            Sat lits -> do
+              let inputValues = V.map ($lits) litParseFns
+              --evalAndBlast inputValues lits
+              --liftIO $ putStrLn "EvalAndBlast succeeded"
+              counters <- symbolicEval inputValues counterFn
+              let inputMap = Map.fromList
+                           $ V.toList
+                           $ V.map (\(d,i) -> (d,inputValues V.! i))
+                           $ defInputVec
+              assert (not (null counters)) $
+                liftIO $ throwIO
+                       $ CounterExample classDefVec inputMap counters
 
 -- redMethodSpec {{{1
 

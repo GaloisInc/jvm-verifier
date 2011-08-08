@@ -12,6 +12,7 @@ Point-of-contact : atomb, jhendrix
 module Tests.MethodSpec (methodSpecTests) where
 
 import Control.Monad
+import Data.Maybe (isJust)
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 
@@ -52,10 +53,11 @@ testBlastSpec ::
   => String -> MethodSpec sym -> (Args, Property)
 testBlastSpec name spec =
   singleTest $ label name $ monadicIO $ do
-    canBlast <- run $ runAigComputation $ canCheckSat
-    when canBlast $ do
-      cb <- commonCB
-      run $ runOpSession $ blastMethodSpec cb spec
+    cb <- commonCB
+    run $ runOpSession $ do
+      be <- runSymSession $ (getBitEngine :: SymbolicMonad (BitEngine SymbolicMonad Lit))
+      when (isJust (beCheckSat be)) $ do
+        blastMethodSpec cb spec
 
 testRedSpec ::
   ( AigOps sym

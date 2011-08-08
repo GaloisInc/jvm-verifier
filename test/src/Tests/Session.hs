@@ -32,7 +32,6 @@ testSymbolicSession = do
   -- Create a new session for performing SymbolicMonad and AigMonad computations
   sess <- makeSession
   let sym = toIO sess
-  let aig = sym . liftAigMonad
   -- Test that SymbolicMonad errors are properly converted to IO exceptions.
   v <- sym $ freshUninterpretedVar (SymInt (constantWidth 32))
   res <- sym ((getVarLit v :: SymbolicMonad LitVector) >> return "this string won't be returned")
@@ -40,8 +39,9 @@ testSymbolicSession = do
   assertIO (res == "Cannot bitblast uninterpreted input variable")
            "Tests.Session.testSymbolicSession: unexpected res value"
   -- Construct an unsatisfiable Symbolic term
-  l1 <- aig makeInputLit
-  l2 <- aig makeInputLit
+  be <- sym $ getBitEngine 
+  l1 <- sym $ beMakeInputLit be
+  l2 <- sym $ beMakeInputLit be
   x  <- sym $ freshVar SymBool $ litToLitVector l1      -- x
   y  <- sym $ freshVar SymBool $ litToLitVector l2      -- y
   t1 <- sym $ applyOp (groundOp bNotOpDef) [x]     -- !x
@@ -55,32 +55,31 @@ testSymbolicSession = do
   let bits_t7 = toLsbf_lit litvec_t7
   assertIO (length bits_t7 == 1) "length bits_t7 == 1"
   let [res_lit] = bits_t7
-#if defined(UseABC)
   -- check that the Lit is unsatisfiable using ABC
-  res_sat <- aig $ checkSat res_lit
-  assertIO (res_sat == UnSat) "res_sat == Unsat"
-#else
-  -- ABC not available; test for all four variable valuations
-  resTrueTrue <- aig $ evalAig [True,True] [res_lit]
-  assertIO (length resTrueTrue == 1)
-           "Tests.Session.testSymbolicSession: (length resTrueTrue == 1) failed"
-  assertIO (not (head resTrueTrue))
-           "Tests.Session.testSymbolicSession: (not (head resTrueTrue)) failed"
-  resTrueFalse <- aig $ evalAig [True,False] [res_lit]
-  assertIO (length resTrueFalse == 1)
-           "Tests.Session.testSymbolicSession: (length resTrueFalse == 1) failed"
-  assertIO (not (head resTrueFalse)) "(not (head resTrueFalse))"
-  resFalseTrue <- aig $ evalAig [False,True] [res_lit]
-  assertIO (length resFalseTrue == 1)
-           "Tests.Session.testSymbolicSession: (length resFalseTrue == 1) failed"
-  assertIO (not (head resFalseTrue))
-           "Tests.Session.testSymbolicSession: (not (head resFalseTrue)) failed"
-  resFalseFalse <- aig $ evalAig [False,False] [res_lit]
-  assertIO (length resFalseFalse == 1)
-           "Tests.Session.testSymbolicSession: (length resFalseFalse == 1) failed"
-  assertIO (not (head resFalseFalse))
-           "Tests.Session.testSymbolicSession: (not (head resFalseFalse)) failed"
-#endif
+  case beCheckSat be of
+    Just checkSat -> do
+      res_sat <- sym $ checkSat res_lit
+      assertIO (res_sat == UnSat) "res_sat == Unsat"
+    Nothing -> do
+      -- ABC not available; test for all four variable valuations
+      resTrueTrue <- sym $ evalAig be [True,True] [res_lit]
+      assertIO (length resTrueTrue == 1)
+               "Tests.Session.testSymbolicSession: (length resTrueTrue == 1) failed"
+      assertIO (not (head resTrueTrue))
+               "Tests.Session.testSymbolicSession: (not (head resTrueTrue)) failed"
+      resTrueFalse <- sym $ evalAig be [True,False] [res_lit]
+      assertIO (length resTrueFalse == 1)
+               "Tests.Session.testSymbolicSession: (length resTrueFalse == 1) failed"
+      assertIO (not (head resTrueFalse)) "(not (head resTrueFalse))"
+      resFalseTrue <- sym $ evalAig be [False,True] [res_lit]
+      assertIO (length resFalseTrue == 1)
+               "Tests.Session.testSymbolicSession: (length resFalseTrue == 1) failed"
+      assertIO (not (head resFalseTrue))
+               "Tests.Session.testSymbolicSession: (not (head resFalseTrue)) failed"
+      resFalseFalse <- sym $ evalAig be [False,False] [res_lit]
+      assertIO (length resFalseFalse == 1)
+               "Tests.Session.testSymbolicSession: (length resFalseFalse == 1) failed"
+      assertIO (not (head resFalseFalse))
+               "Tests.Session.testSymbolicSession: (not (head resFalseFalse)) failed"
   -- Close the session
   finishIO sess
-
