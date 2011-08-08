@@ -55,7 +55,7 @@ testBlastSpec name spec =
   singleTest $ label name $ monadicIO $ do
     cb <- commonCB
     run $ runOpSession $ do
-      be <- runSymSession $ (getBitEngine :: SymbolicMonad (BitEngine SymbolicMonad Lit))
+      be <- runSymSession $ (getBitEngine :: SymbolicMonad (BitEngine Lit))
       when (isJust (beCheckSat be)) $ do
         blastMethodSpec cb spec
 

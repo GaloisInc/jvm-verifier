@@ -88,7 +88,7 @@ evalAigSHA384 msg = do
     -- | Boolean inputs to evalAig
     let binps = concatMap (take 8 . intToBoolSeq) cinps
     be <- getBitEngine
-    r <- evalAig be binps outLits
+    r <- liftIO $ evalAig be binps outLits
     let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
                $ take 32 (drop (32*k) r)
              | k <- [0..47]
