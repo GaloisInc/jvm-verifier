@@ -141,7 +141,7 @@ makeCryptolAiger rio filepath cb simFn =
     inputVars <- replicateM 4 $ freshInt
     outVars   <- runSimulator cb (setVerbosity 0 >> simFn keyVars inputVars)
     outLits   <- mapM getVarLit outVars
-    writeAiger be filepath (concat $ map toLsbf_lit outLits)
+    liftIO $ writeAiger be filepath (concat $ map toLsbf_lit outLits)
 
 evalCryptolC :: String -> String -> IO String
 evalCryptolC key input = do
@@ -233,8 +233,8 @@ makeBouncyCastleAiger ct name cb =
     outputLits <- mapM getVarLit $ reverse output
     liftIO $ putStrLn $ "makeBouncyCastleAiger: Creating " ++ (name ++ ".aig")
     be <- getBitEngine
-    writeAiger be (name ++ ".aig") $
-      concat $ map (take 8 . toLsbf_lit) outputLits
+    liftIO $ writeAiger be (name ++ ".aig") $
+               concat $ map (take 8 . toLsbf_lit) outputLits
 
 evalBouncyCastle :: CipherType -> String -> String -> String -> IO String
 evalBouncyCastle ct name key input = do
