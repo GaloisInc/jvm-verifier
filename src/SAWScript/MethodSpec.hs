@@ -187,7 +187,9 @@ ppSpecJavaRefEquivClass cl = "{ " ++ intercalate ", " (map show (sort cl)) ++ " 
 -- | Method spec translator state
 -- N.B. keys in nonRefTypes, refTypeMap and constExprMap are disjoint.
 data MethodSpecTranslatorState = MSTS {
-         mstsPos :: Pos
+         mstsOpCache :: OpCache
+         -- | Position of method spec decalaration.
+       , mstsPos :: Pos
        , mstsGlobalBindings :: TC.GlobalBindings
          -- | Class we are currently parsing.
        , specClass :: JSS.Class
@@ -223,7 +225,7 @@ data MethodSpecTranslatorState = MSTS {
        , chosenVerificationMethod :: Maybe (Pos, AST.VerificationMethod)
        }
 
-type MethodSpecTranslator = StateT MethodSpecTranslatorState OpSession
+type MethodSpecTranslator = StateT MethodSpecTranslatorState IO
 
 instance JSS.HasCodebase MethodSpecTranslator where
   getCodebase = gets (TC.codeBase . mstsGlobalBindings)
@@ -476,11 +478,12 @@ resolveDecl (AST.Const pos astJavaExpr astValueExpr) = do
   checkRefIsNotConst pos javaExpr $
     "Multiple const declarations on the same Java expression are not allowed."
   -- Parse expression (must be global since this is a constant.
+  oc <- gets mstsOpCache
   valueExpr <- do
     bindings <- gets mstsGlobalBindings
-    let config = TC.mkGlobalTCConfig bindings Map.empty
+    let config = TC.mkGlobalTCConfig oc bindings Map.empty
     lift $ TC.tcExpr config astValueExpr
-  val <- lift $ TC.globalEval valueExpr
+  val <- lift $ TC.globalEval oc valueExpr
   let tp = TC.getTypeOfExpr valueExpr
   -- Check ref and expr have compatible types.
   checkJavaExprCompat pos (show javaExpr) (TC.getJSSTypeOfJavaExpr javaExpr) tp
@@ -618,14 +621,16 @@ methodSpecInstanceFieldExprs ir =
 
 -- | Interprets AST method spec commands to construct an intermediate
 -- representation that
-resolveMethodSpecIR :: TC.GlobalBindings
+resolveMethodSpecIR :: OpCache
+                    -> TC.GlobalBindings
                     -> Pos
                     -> JSS.Class
                     -> String
                     -> [AST.MethodSpecDecl]
-                    -> OpSession MethodSpecIR
-resolveMethodSpecIR gb pos thisClass mName cmds = do
-  let st = MSTS { mstsPos = pos
+                    -> IO MethodSpecIR
+resolveMethodSpecIR oc gb pos thisClass mName cmds = do
+  let st = MSTS { mstsOpCache = oc
+                , mstsPos = pos
                 , mstsGlobalBindings = gb
                 , specClass = thisClass
                 , mstsMethod = undefined
@@ -1430,15 +1435,16 @@ runABC ir inputEvalList fGoal counterFn = do
           throwIOExecException (methodSpecPos ir) msg ""
 
 -- | Attempt to verify method spec using verification method specified.
-verifyMethodSpec :: Pos
+verifyMethodSpec :: OpCache
+                 -> Pos
                  -> JSS.Codebase
                  -> SSOpts
                  -> MethodSpecIR
                  -> [MethodSpecIR]
                  -> [Rule]
-                 -> OpSession ()
-verifyMethodSpec _ _ _ MSIR { methodSpecVerificationTactic = AST.Skip } _ _ = return ()
-verifyMethodSpec pos cb opts ir overrides rules = do
+                 -> IO ()
+verifyMethodSpec _ _ _ _ MSIR { methodSpecVerificationTactic = AST.Skip } _ _ = return ()
+verifyMethodSpec oc pos cb opts ir overrides rules = do
   let v = verbose opts
   when (v >= 2) $
     liftIO $ putStrLn $ "Starting verification of " ++ methodSpecName ir
@@ -1446,7 +1452,7 @@ verifyMethodSpec pos cb opts ir overrides rules = do
   forM_ vcList $ \mVC -> do
     when (v >= 6) $
       liftIO $ putStrLn $ "Considing new alias configuration of " ++ methodSpecName ir
-    runSymSession $ do
+    runSymbolic oc $ do
       setVerbosity v
       vc <- mVC
       forM (vcChecks vc) $ \check -> do

@@ -36,13 +36,13 @@ import SAWScript.Utils
 
 import Verinf.Symbolic
 
-tcJavaExpr :: TCConfig -> AST.JavaRef -> OpSession JavaExpr
+tcJavaExpr :: TCConfig -> AST.JavaRef -> IO JavaExpr
 tcJavaExpr cfg e = runTI cfg (tcASTJavaExpr e)
 
-tcExpr :: TCConfig -> AST.Expr -> OpSession Expr
+tcExpr :: TCConfig -> AST.Expr -> IO Expr
 tcExpr cfg e = runTI cfg (tcE e)
 
-tcType :: TCConfig -> AST.ExprType -> OpSession DagType
+tcType :: TCConfig -> AST.ExprType -> IO DagType
 tcType cfg t = runTI cfg (tcT t)
 
 -- JavaExpr {{{1
@@ -118,7 +118,8 @@ tcT (AST.BitType       _)   = return SymBool
 tcT (AST.BitvectorType _ w) = return $ SymInt (tcheckExprWidth w)
 tcT (AST.Array _ w tp)      = fmap (SymArray (tcheckExprWidth w)) $ tcT tp
 tcT (AST.Record _ fields)   = do let names = [ nm | (_,nm,_) <- fields ]
-                                 def <- liftTI $ getStructuralRecord (Set.fromList names)
+                                 oc <- gets opCache
+                                 let def = getStructuralRecord oc (Set.fromList names)
                                  tps <- mapM tcT [ tp | (_,_,tp) <- fields ]
                                  let sub = emptySubst { shapeSubst = Map.fromList $ names `zip` tps }
                                  return $ SymRec def sub
@@ -150,8 +151,8 @@ typedExprVarNames (JavaValue _ _) = Set.empty
 typedExprVarNames (Var nm _)      = Set.singleton nm
 
 -- | Evaluate a ground typed expression to a constant value.
-globalEval :: Expr -> OpSession CValue
-globalEval expr = do
+globalEval :: OpCache -> Expr -> IO CValue
+globalEval oc expr = do
   let mkNode :: Expr -> SymbolicMonad Node
       mkNode (Var _nm _tp) =
         error "internal: globalEval called with non-ground expression"
@@ -159,9 +160,9 @@ globalEval expr = do
         error "internal: globalEval called with expression containing Java references."
       mkNode (Cns c tp) = makeConstant c tp
       mkNode (Apply op args) = applyOp op =<< mapM mkNode args
-  runSymSession $ do
+  runSymbolic oc $ do
     n <- mkNode expr
-    symbolicEval V.empty $ evalNode n
+    symbolicEval V.empty (evalNode n)
 
 -- DefinedJavaExprType {{{1
 
@@ -182,20 +183,22 @@ data GlobalBindings = GlobalBindings {
 
 -- | Context for resolving expressions at the top level or within a method.
 data TCConfig = TCC {
-         globalBindings :: GlobalBindings
+         opCache        :: OpCache
+       , globalBindings :: GlobalBindings
        , methodInfo     :: Maybe (JSS.Method, JSS.Class)
        , localBindings  :: Map String Expr
        , toJavaExprType :: Maybe (JavaExpr -> Maybe DefinedJavaExprType)
        }
 
-mkGlobalTCConfig :: GlobalBindings -> Map String Expr -> TCConfig
-mkGlobalTCConfig globalBindings localBindings = do
-  TCC { globalBindings
+mkGlobalTCConfig :: OpCache -> GlobalBindings -> Map String Expr -> TCConfig
+mkGlobalTCConfig opCache globalBindings localBindings = do
+  TCC { opCache
+      , globalBindings
       , methodInfo = Nothing
       , localBindings
       , toJavaExprType = Nothing }
 
-type SawTI = TI OpSession TCConfig
+type SawTI = TI IO TCConfig
 
 debugTI :: String -> SawTI ()
 debugTI msg = do os <- gets (ssOpts . globalBindings)
@@ -265,9 +268,12 @@ tcE (AST.MkArray p (es@(_:_))) = do
   es' <- mapM tcE es
   let go []                 = error "internal: impossible happened in tcE-non-empty-mkArray"
       go [(_, x)]           = return x
-      go ((i, x):rs@((j, y):_)) = if x == y then go rs else mismatch p ("array elements " ++ show i ++ " and " ++ show j) x y
+      go ((i, x):rs@((j, y):_))
+        | x == y = go rs 
+        | otherwise = mismatch p ("array elements " ++ show i ++ " and " ++ show j) x y
   t   <- go $ zip [(1::Int)..] $ map getTypeOfExpr es'
-  op <- liftTI $ mkArrayOp (length es') t
+  oc <- gets opCache
+  op <- liftTI $ mkArrayOp oc (length es') t
   return $ Apply op es'
 tcE (AST.TypeExpr pos (AST.ConstantInt posCnst i) astTp) = do
   tp <- tcT astTp
@@ -289,7 +295,8 @@ tcE (AST.TypeExpr _ (AST.ApplyExpr appPos "split" astArgs) astResType) = do
     (  SymInt (widthConstant -> Just wl)
      , SymArray (widthConstant -> Just l) (SymInt (widthConstant -> Just w)))
       | wl == l * w -> do
-        op <- liftTI $ splitOpDef l w
+        oc <- gets opCache
+        op <- liftTI $ splitOpDef oc l w
         return $ Apply (groundOp op) args
     _ -> typeErr appPos $ ftext $ "Illegal arguments and result type given to \'split\'."
                                 ++ " SAWScript currently requires that the argument is ground type, "
@@ -299,13 +306,15 @@ tcE (AST.TypeExpr p (AST.MkArray _ []) astResType) = do
   case resType of
     SymArray we _
       | Just (Wx 0) <- widthConstant we -> do
-         op <- liftTI $ mkArrayOp 0 resType
+         oc <- gets opCache
+         op <- liftTI $ mkArrayOp oc 0 resType
          return $ Apply op []
     _  -> unexpected p "Empty-array comprehension" "empty-array type" resType
 tcE (AST.MkRecord _ flds) = do
    flds' <- mapM tcE [e | (_, _, e) <- flds]
    let names = [nm | (_, nm, _) <- flds]
-   def <- liftTI $ getStructuralRecord (Set.fromList names)
+   oc <- gets opCache
+   let def = getStructuralRecord oc (Set.fromList names)
    let fldTps = map getTypeOfExpr flds'
    let sub = emptySubst { shapeSubst = Map.fromList $ names `zip` fldTps }
    return $ Apply (mkOp (recDefCtor def) sub) flds'
@@ -323,7 +332,8 @@ tcE (AST.ApplyExpr appPos "join" astArgs) = do
   let argType = getTypeOfExpr (head args)
   case argType of
     SymArray (widthConstant -> Just l) (SymInt (widthConstant -> Just w)) -> do
-         op <- liftTI $ joinOpDef l w
+         oc <- gets opCache
+         op <- liftTI $ joinOpDef oc l w
          return $ Apply (groundOp op) args
     _ -> typeErr appPos $ ftext $ "Illegal arguments and result type given to \'join\'."
                                 ++ " SAWScript currently requires that the argument is ground"

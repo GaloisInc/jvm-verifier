@@ -702,21 +702,14 @@ freshenValue v = return v
 -- blastMethodSpec {{{1
 
 -- | Blasts a method specification and throws VerifyException if attempt fails.
-blastMethodSpec ::
-  forall sym.
-  ( AigOps sym
-  , MonadTerm sym ~ Node -- due to use of evalDagV
-  , SupportsSession sym
-  , TermDagMonad sym
-  )
-  => Codebase -> MethodSpec sym -> OpSession ()
-blastMethodSpec cb spec = do
+blastMethodSpec :: OpCache -> Codebase -> MethodSpec SymbolicMonad -> IO ()
+blastMethodSpec oc cb spec = do
   forM_ (partitions (reverse $ specRefs spec)) $ \(c,clDefMap,clTypeMap) -> do
     let classDefVec  = V.map snd $ V.fromListN c $ Map.toAscList clDefMap
         classTypeVec = V.map snd $ V.fromListN c $ Map.toAscList clTypeMap
     defInputsRef <- liftIO $ newIORef []
     litParseFnsRef <- liftIO $ newIORef []
-    runSymSession $ do
+    runSymbolic oc $ do
       be <- getBitEngine
       -- CreateTerms
       classTermVec <- V.forM (V.enumFromN 0 c) $ \cl -> do
@@ -792,21 +785,17 @@ blastMethodSpec cb spec = do
 
 -- | Uses rewriting to simplify method spec and throws error if attempt fails.
 redMethodSpec ::
-  ( AigOps sym
-  , TermDagMonad sym
-  , SupportsSession sym
-  , MonadTerm sym ~ Node
-  )
-  => Codebase
-  -> MethodSpec sym
-  -> Simulator sym () -- | Action to run before running simulator.
-  -> (MonadTerm sym -> sym ())
-  -> OpSession ()
-redMethodSpec cb spec initializeM reduceFn = do
+     OpCache
+  -> Codebase
+  -> MethodSpec SymbolicMonad
+  -> Simulator SymbolicMonad () -- | Action to run before running simulator.
+  -> (MonadTerm SymbolicMonad -> SymbolicMonad ())
+  -> IO ()
+redMethodSpec oc cb spec initializeM reduceFn = do
   forM_ (partitions (reverse $ specRefs spec)) $ \(c,clDefMap,clTypeMap) -> do
     let classDefVec  = V.map snd $ V.fromListN c $ Map.toAscList clDefMap
         classTypeVec = V.map snd $ V.fromListN c $ Map.toAscList clTypeMap
-    runSymSession $ do
+    runSymbolic oc $ do
       -- CreateTerms
       classTermVec <- V.forM (V.enumFromN 0 c) $ \cl -> do
         case classTypeVec V.! cl of

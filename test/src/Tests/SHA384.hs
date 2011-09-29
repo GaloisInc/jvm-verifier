@@ -63,7 +63,8 @@ evalDagSHA384 msg = do
   golden <- run $ getGoldenSHA384 msg
   -- run $ putStrLn $ "Message        : " ++ msg
   -- run $ putStrLn $ "SHA-384 Golden : " ++ golden
-  rslt <- run $ runSymbolic $ do
+  oc <- run mkOpCache
+  rslt <- run $ runSymbolic oc $ do
     msgVars <- replicateM (length msg `div` 2) freshByte
     outVars <- runSimulator cb $ runSHA384 msgVars
     let inputValues = V.map constInt $ V.fromList (hexToByteSeq msg)
@@ -78,7 +79,8 @@ evalAigSHA384 msg = do
   cb <- commonCB
   golden <- run $ getGoldenSHA384 msg
 --   run $ putStrLn $ "golden sha = " ++ golden
-  rslt <- run $ runSymbolic $ do
+  oc <- run mkOpCache
+  rslt <- run $ runSymbolic oc $ do
     let msgLen = length msg `div` 2
     msgVars <- replicateM msgLen freshByte
     outVars <- runSimulator cb $ runSHA384 msgVars

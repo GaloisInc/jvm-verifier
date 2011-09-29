@@ -4,12 +4,14 @@ Description      :
 Stability        : provisional
 Point-of-contact : jhendrix
 -}
-
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 module SBVParser (
@@ -17,26 +19,17 @@ module SBVParser (
   , inferFunctionType
   , SBVException
   , ppSBVException
-  , RecordDefMap
   , UninterpFnMap
+  , WordEngine
+  , mkEngineFromMonad
   , WordEvalFn(..)
   , parseSBV
   , parseSBVOp
-  -- * SAW declarations
-  , OpInfo(..)
-  , inferRecordType
-  , noRecords
-  , fieldNameTysM
-  , extendRecords
-  , noUfuns
-  , extendUfuns
-  -- * "Internal" exports that may change
   , inferSBVFunctionType
-  -- , makeSBVInput
-  , splitInput
-  , joinSBVTerm
   ) where
 
+-- Imports {{{1
+import Control.Applicative ((<$>))
 import Control.Exception
 import Control.Monad.Identity
 import Control.Monad.Reader
@@ -45,7 +38,6 @@ import Data.Bits
 import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe
 import qualified Data.Set as Set
 import Data.Typeable
 import qualified Data.Vector as V
@@ -53,27 +45,18 @@ import qualified Data.Vector as V
 import SBVModel.SBV
 
 import Verinf.Symbolic
-import Verinf.Utils.Assert
 import Verinf.Utils.CatchMIO
 
 -- General purpose utility functions {{{1
 
-assertErr :: Bool -> String -> a -> a
-assertErr True  _   a = a
-assertErr False msg _ = error msg
-
-partitionLists :: [Int] -> [a] -> [[a]]
-partitionLists cnts = impl [] cnts
+partitionVector :: [Int] -> V.Vector a -> [V.Vector a]
+partitionVector cnts = impl [] cnts 
   where impl result (n : rest) cur =
-          let (hd,tl) = splitAt n cur
+          let (hd,tl) = V.splitAt n cur
            in impl (hd : result) rest tl
-        impl result [] [] = reverse result
-        impl _res   [] _a = error $ "internal: bad number of elements in partitionLists"
-
--- Pretty print list of fields.
-ppFields :: [(String, DagType)] -> String
-ppFields fields = "{ " ++ intercalate "; " (map ppField fields) ++ " }"
-  where ppField (name,tp) = name ++ " = " ++ ppType tp
+        impl result [] cur 
+          | V.null cur = reverse result
+          | otherwise = error $ "internal: bad number of elements in partitionVector"
 
 -- | Returns size of DagType in bits.
 typeSize :: DagType -> Integer
@@ -131,9 +114,7 @@ downcastInt i name = impl minBound maxBound
 
 -- Types used for defining meaning to uninterpreted functions and SBV records {{{1
 
-type SymbolicFn sym = [MonadTerm sym] -> sym (MonadTerm sym)
-
-type RecordDefMap = [(String, DagType)] -> Maybe DagType -- ^ Type map
+newtype SymbolicFn = SFN (forall m t . Monad m => WordEngine m t -> V.Vector t -> m t)
 
 type UninterpFnMap = String -> [DagType] -> Maybe Op
 
@@ -147,92 +128,133 @@ isTuple op argLen
   && ("(" ++ replicate (argLen - 1) ',' ++ ")") == op
 
 -- | Returns SBVType inferred from IRType if one exists.
-inferType :: RecordDefMap -> IRType -> DagType
+inferType :: OpCache -> IRType -> DagType
 inferType _ (TApp "." []) = SymBool
 -- inferType (TApp ":" [TInt 1, TApp "." []]) = Just SBVBool
 inferType _ (TApp ":" [TInt w, TApp "." []]) =
-  SymInt $ constantWidth $ Wx $ downcastInt w "integer width"
-inferType rdm (TApp ":" [TInt l, irType]) =
-  let eltType = inferType rdm irType
-   in SymArray (constantWidth (Wx (downcastInt l "Array size"))) eltType
-inferType rdm (TRecord (unzip -> (names,schemes))) =
-  let parseScheme (Scheme [] [] [] tp) = inferType rdm tp
-      parseScheme _ = throw $ SBVBadFormat "Cannot parse record scheme"
-      expectedTypes = map parseScheme schemes
-      fields = names `zip` expectedTypes
-      printType tp = "  " ++ ppType tp ++ "\n"
-   in case rdm fields of
-        Nothing -> throw (SBVUnidentifiedRecord (ppFields fields))
-        Just recTp@(SymRec def sub) ->
-          -- Check field types match expected types.
-          let foundTypes = recFieldTypes def sub
-           in if foundTypes == V.fromList expectedTypes
-                then recTp
-                else throw $ SBVCallbackError $
-                       "Record returned by RecordDefMap has different fields than expected.\n"
-                       ++ "Expected types:\n"
-                       ++ concat (map printType expectedTypes)
-                       ++ "Returned types:\n"
-                       ++ concat (V.toList (V.map printType foundTypes))
-        Just retTp ->
-          throw $ SBVCallbackError $
-                   "Type returned by RecordDefMap is not a record.\n"
-                    ++ "Typed returned:\n"
-                    ++ printType retTp
+  SymInt (constantWidth (Wx (downcastInt w "integer width")))
+inferType oc (TApp ":" [TInt l, irType]) = do
+  SymArray (constantWidth (Wx (downcastInt l "Array size")))
+           (inferType oc irType)
+inferType oc (TRecord (unzip -> (names,schemes))) = SymRec def sub
+  where parseScheme (Scheme [] [] [] tp) = inferType oc tp
+        parseScheme _ = throw $ SBVBadFormat "Cannot parse record scheme"
+        expectedTypes = map parseScheme schemes
+        def = getStructuralRecord oc (Set.fromList names)
+        sub = emptySubst { shapeSubst = Map.fromList $ names `zip` expectedTypes }
 inferType _ irType =
   throw $ SBVBadFormat $ "Cannot parse parameter type:\n" ++ show irType
 
 -- | symbolic terms provided by operator into list expected by SBV.
-inferTypeList :: RecordDefMap -> IRType -> [DagType]
-inferTypeList rdm (TApp op args)
-  | isTuple op (length args) = map (inferType rdm) args
-inferTypeList rdm arg = [inferType rdm arg]
+inferTypeList :: OpCache -> IRType -> V.Vector DagType
+inferTypeList oc (TApp op args)
+  | isTuple op (length args) = V.map (inferType oc) (V.fromList args)
+inferTypeList oc arg = V.singleton $ inferType oc arg
 
 -- Infer inputs and outputs from function type.
-inferFunctionType :: RecordDefMap -> IRType -> ([DagType], DagType)
-inferFunctionType rdm (TApp "->" [irTypes, irResult]) =
-  (inferTypeList rdm irTypes, inferType rdm irResult)
-inferFunctionType rdm irType = ([], inferType rdm irType) -- Constant case
+inferFunctionType :: OpCache -> IRType -> (V.Vector DagType, DagType)
+inferFunctionType oc (TApp "->" [irTypes, irResult]) =
+  (inferTypeList oc irTypes, inferType oc irResult)
+inferFunctionType oc irType = (V.empty, inferType oc irType) -- Constant case
 
 -- | Infer the SBVType of an SBVPgm as a function type.
 -- Constant types are represented as nullary functions.
-inferSBVFunctionType :: RecordDefMap -> SBVPgm -> ([DagType], DagType)
-inferSBVFunctionType rdm (SBVPgm (_,ir,_,_,_,_)) = inferFunctionType rdm ir
+inferSBVFunctionType :: OpCache -> SBVPgm -> (V.Vector DagType, DagType)
+inferSBVFunctionType oc (SBVPgm (_,ir,_,_,_,_)) = inferFunctionType oc ir
 
 -- Code for splitting and joining SBVtypes {{{1
 
-toBool :: WordMonad m => DagType -> MonadTerm m -> m (MonadTerm m)
-toBool SymBool = return
-toBool (SymInt (widthConstant -> Just 1)) = applyEq (mkCInt 1 1)
+data WordEngine m t = WordEngine {
+         weApplyUnary :: Op -> t -> m t
+       , weApplyOp :: Op -> [t] -> m t
+       , weEq :: t -> t -> m t
+       , weIte :: t -> t -> t -> m t
+       , weAppendInt :: t -> t -> m t
+       , weGetArrayValue :: t -> t -> m t
+       , weUnsignedLeq :: t -> t -> m t
+       , weUnsignedLt :: t -> t -> m t
+       , weBoolConstant :: Bool -> t
+       , weIntConstant :: BitWidth -> Integer -> t
+       , weArrayFromList :: DagType -> [t] -> m t
+       , weBNot :: t -> m t
+       , weINot :: t -> m t
+       , weBAnd :: t -> t -> m t
+       , weBOr  :: t -> t -> m t
+       , weBXor :: t -> t -> m t
+       , weIAnd :: t -> t -> m t
+       , weIOr  :: t -> t -> m t
+       , weIXor :: t -> t -> m t
+       , weShl  :: t -> t -> m t
+       , weUShr :: t -> t -> m t
+       , weTrunc :: BitWidth -> t -> m t
+       , weAdd :: t -> t -> m t
+       , weSub :: t -> t -> m t
+       , weMul :: t -> t -> m t
+       }
+
+mkEngineFromMonad :: WordMonad m => m (WordEngine m (MonadTerm m))
+mkEngineFromMonad = return $ WordEngine {
+    weApplyUnary = applyUnaryOp
+  , weApplyOp = applyOp
+  , weEq = applyEq
+  , weIte = applyIte
+  , weAppendInt = applyAppendInt
+  , weGetArrayValue = applyGetArrayValue
+  , weUnsignedLeq = applyUnsignedLeq
+  , weUnsignedLt = applyUnsignedLt
+  , weArrayFromList = symbolicArrayFromList
+  , weBoolConstant = mkCBool
+  , weIntConstant = mkCInt
+  , weBNot = applyBNot
+  , weINot = applyINot
+  , weBAnd = applyBAnd
+  , weBOr  = applyBOr
+  , weBXor = applyBXor
+  , weIAnd = applyIAnd
+  , weIOr  = applyIOr
+  , weIXor = applyIXor
+  , weShl = applyShl
+  , weUShr = applyUshr
+  , weTrunc = applyTrunc
+  , weAdd = applyAdd
+  , weSub = applySub
+  , weMul = applyMul
+  }
+
+toBool :: DagType -> (forall m t . Monad m => WordEngine m t -> t -> m t)
+toBool SymBool = const return
+toBool (SymInt (widthConstant -> Just 1)) = \we -> weEq we (weIntConstant we 1 1)
 toBool _ = throw $ SBVBadFormat "Illegal type for Boolean input"
 
-toInt :: WordMonad m => DagType -> MonadTerm m -> m (MonadTerm m)
-toInt SymBool = \x -> applyIte x (mkCInt 1 1) (mkCInt 1 0)
-toInt SymInt{} = return
+toInt :: DagType -> (forall m t . Monad m => WordEngine m t -> t -> m t)
+toInt SymBool = \we x -> weIte we x (weIntConstant we 1 1) (weIntConstant we 1 0)
+toInt SymInt{} = const return
 toInt _ = throw $ SBVBadFormat "Illegal type for integer input"
 
 
+newtype SplitFn = SF (forall m t . Monad m => WordEngine m t -> t -> m [t])
+
 -- | Split a specific argument into list of arguments expected by SBV.
-splitInput :: WordMonad m
-           => DagType
-           -> ([DagType], MonadTerm m -> m [MonadTerm m])
-splitInput SymBool = ([SymBool], \x -> return [x])
-splitInput tp@SymInt{} = ([tp], \x -> return [x])
+splitInput :: DagType -> (V.Vector DagType, SplitFn)
+splitInput SymBool = (V.singleton SymBool, SF $ \_ x -> return [x])
+splitInput tp@SymInt{} = (V.singleton tp, SF $ \_ x -> return [x])
 splitInput (SymArray (widthConstant -> Just (Wx len)) eltTp) = do
-  let (eltTypes, eltParser) = splitInput eltTp
-   in ( concat $ replicate (fromIntegral len) eltTypes
-      , \arr -> do
-          fmap concat $ forM [0..toInteger len-1] $ \i -> do
-            eltParser =<< applyGetArrayValue arr (mkCInt 32 i))
+  let (eltTypes, SF eltParser) = splitInput eltTp
+   in ( V.concatMap id (V.replicate (fromIntegral len) eltTypes)
+      , SF $ \we arr -> do
+          res <- forM [0..toInteger len-1] $ \i -> do
+            eltParser we =<< weGetArrayValue we arr (weIntConstant we 32 i)
+          return (concat res))
 splitInput (SymRec recDef recParams) =
   let fieldTypes = recFieldTypes recDef recParams
-      fieldOps = recDefFieldOps recDef
-      fieldRes = V.map splitInput fieldTypes
-   in ( concat (V.toList (V.map fst fieldRes))
-      , \t -> do
-          let opFns = (V.map (flip mkOp recParams) fieldOps) `V.zip` (V.map snd fieldRes)
-          fmap concat $ forM (V.toList opFns) $ \(op,splitFn) -> do
-            splitFn =<< applyUnaryOp op t)
+      fieldOpDefs = recDefFieldOps recDef
+      fieldOps = V.map (\op -> mkOp op recParams) fieldOpDefs
+      (fieldResTypes, fieldResFns) = V.unzip (V.map splitInput fieldTypes)
+   in ( V.concatMap id fieldResTypes
+      , SF $ \we t -> do
+          res <- V.forM (fieldOps `V.zip` fieldResFns) $ \(op, SF splitFn) -> do
+            splitFn we =<< weApplyUnary we op t
+          return (concat (V.toList res)))
 splitInput _ = error "internal: splitInput called on non-ground type."
 
 
@@ -257,84 +279,82 @@ groupInputTypesBySize = impl []
           let (h,inputTypes') = splitTypesBySize sz inputTypes
            in impl (h:res) szL inputTypes'
 
-joinTypesFn :: WordMonad m
+joinTypesFn :: Monad m
             => [DagType]
             -> [DagType]
-            -> [MonadTerm m] -> m [MonadTerm m]
+            -> WordEngine m t -> V.Vector t -> m [t]
 joinTypesFn resTypes sbvTypes =
   let typeSizes = map typeSize resTypes
       groupedTypes = groupInputTypesBySize typeSizes sbvTypes
       sizes = map length groupedTypes
       fieldJoinFns = zipWith joinSBVTerm resTypes groupedTypes
-   in \args -> sequence $ zipWith ($) fieldJoinFns
-                        $ partitionLists sizes args
+   in \we args -> sequence
+                $ zipWith (\fn v -> fn we v)
+                          fieldJoinFns
+                          (partitionVector sizes args)
 
 -- | Join split terms from SBV into single argument
--- for symbolic -- simulator.
-joinSBVTerm :: WordMonad m
+-- for symbolic simulator.
+joinSBVTerm :: Monad m
             => DagType -- ^ Type of result
             -> [DagType] -- ^ Type of inputs
-            -> [MonadTerm m] -> m (MonadTerm m)
+            -> WordEngine m t -> V.Vector t -> m t
 joinSBVTerm SymBool [resType] =
   let fn = toBool resType
-   in \[t] -> fn t
-joinSBVTerm SymInt{} exprTypes =
-  let joinFns = map toInt exprTypes
-   in \args -> do -- Parse arguments as integers
-                  (h:l) <- sequence $ zipWith ($) joinFns args
-                  -- Append arguments together.
-                  foldM applyAppendInt h l
-joinSBVTerm (SymArray (widthConstant -> Just (Wx len)) resEltTp)
-            sbvTypes = do
+   in \we args -> assert (V.length args == 1) $ fn we (args V.! 0)
+joinSBVTerm SymInt{} (V.fromList -> exprTypes) =
+  let joinFns = V.map toInt exprTypes
+   in \we args -> do -- Parse arguments as integers
+                     (V.toList -> h:l) <- V.mapM (\(fn,v) -> fn we v) (joinFns `V.zip` args)
+                      -- Append arguments together.
+                     foldM (weAppendInt we) h l
+joinSBVTerm (SymArray (widthConstant -> Just (Wx len)) resEltTp) sbvTypes = do
   let fn = joinTypesFn (replicate len resEltTp) sbvTypes
-   in symbolicArrayFromList resEltTp <=< fn
+   in \we -> weArrayFromList we resEltTp <=< fn we
 joinSBVTerm (SymRec recDef recSubst) sbvTypes = do
   let fieldTypes = V.toList $ recFieldTypes recDef recSubst
       op = mkOp (recDefCtor recDef) recSubst
       fn = joinTypesFn fieldTypes sbvTypes
-   in \args -> do
-         joinedTerms <- fn args
-         applyOp op joinedTerms
+   in \we args -> weApplyOp we op =<< fn we args
 joinSBVTerm _ _ = error "internal: joinSBVTerm called on invalid types."
 
 -- SBV execution and Type checking computations plus operations {{{1
 -- Core definitions {{{2
 
 -- | State monad used for executing SBV Function.
-type SBVExecutor m a = StateT (Map NodeId (MonadTerm m)) m a
+newtype SBVExecutor = SBVE (forall m t . Monad m => WordEngine m t -> StateT (Map NodeId t) m t)
 
-type ParseResult m = (DagType, SBVExecutor m (MonadTerm m))
+type ParseResult = (DagType, SBVExecutor)
 
-data SBVTypeCheckerState m = SBVTS {
-    recordDefMap :: RecordDefMap
+data SBVTypeCheckerState = SBVTS {
+    opCache :: OpCache
   , uninterpFnMap :: UninterpFnMap
-  , nodeTypeMap :: Map NodeId (ParseResult m)
+    -- | Maps applications to parse result.
+  , nodeTypeMap :: Map NodeId ParseResult
   , remInputs :: [DagType]
   , revInputNodes :: [NodeId]
-  , revOutputs :: [ParseResult m]
+  , revOutputs :: [ParseResult]
   }
 
-type SBVTypeChecker m a = StateT (SBVTypeCheckerState m) Identity a
+type SBVTypeChecker a = State SBVTypeCheckerState a
 
 -- | Bind node identifier to symbolic term.
-bindCheck :: WordMonad m
-          => NodeId
+bindCheck :: NodeId
           -> DagType
-          -> SBVExecutor m (MonadTerm m)
-          -> SBVTypeChecker m ()
+          -> SBVExecutor
+          -> SBVTypeChecker ()
 bindCheck node tp eval = do
   modify $ \s -> s { nodeTypeMap = Map.insert node (tp,eval) (nodeTypeMap s) }
 
 -- | Run parser with given inputs.
-runChecker :: WordMonad m
-           => RecordDefMap
+runChecker :: OpCache
            -> UninterpFnMap
            -> [DagType]
-           -> SBVTypeChecker m a
+           -> SBVTypeChecker a
            -> a
-runChecker rFn uFn inputs m = runIdentity $ evalStateT m initialState
+runChecker oc uFn inputs m = evalState m initialState
   where initialState = SBVTS {
-            recordDefMap = rFn
+            opCache = oc
           , uninterpFnMap = uFn
           , nodeTypeMap = Map.empty
           , remInputs = inputs
@@ -345,81 +365,73 @@ runChecker rFn uFn inputs m = runIdentity $ evalStateT m initialState
 -- Apply code {{{2
 
 -- | Asserts that two types are equal.
-assertTypesEqual :: Monad m => String -> DagType -> DagType -> m ()
-assertTypesEqual loc xtp ytp =
-  unless (xtp == ytp) $
+assertTypesEqual :: String -> DagType -> DagType -> a -> a
+assertTypesEqual loc xtp ytp 
+  | xtp == ytp = id
+  | otherwise =
      throw $ SBVBadFormat
            $ "Illegal argument types " ++ ppType xtp ++ " " ++ ppType ytp
                 ++ " to operator (" ++ loc ++ ")."
 
 -- | Apply appropriate Boolean operator over Bool or integer bitvectors.
 -- Note: On integers, the operation is distributed over the bits.
-applyBoolOp :: WordMonad m
-            => (MonadTerm m -> MonadTerm m -> m (MonadTerm m))
-            -> (MonadTerm m -> MonadTerm m -> m (MonadTerm m))
+applyBoolOp :: (forall m t . Monad m => WordEngine m t -> t -> t -> m t)
+            -> (forall m t . Monad m => WordEngine m t -> t -> t -> m t)
             -> DagType
             -> DagType
-            -> SBVTypeChecker m (DagType, SymbolicFn m)
-applyBoolOp bTermFn _iOpFn SymBool SymBool =
-  let applyFn [x, y] = bTermFn x y
-      applyFn _ = error "internal: illegal arguments to applyBoolOp"
-   in return (SymBool, applyFn)
-applyBoolOp _bOp iTermFn xtp@(SymInt w) ytp@SymInt{} = do
-  assertTypesEqual "applyBoolOp" xtp ytp
-  let applyFn [x, y] = iTermFn x y
-      applyFn _ = error "internal: illegal arguments to applyBoolOp"
-  return (SymInt w, applyFn)
+            -> (DagType, SymbolicFn)
+applyBoolOp bFn _iFn SymBool SymBool =
+  ( SymBool
+  , SFN $ \we v -> assert (V.length v == 2)
+                 $ bFn we (v V.! 0) (v V.! 1))
+applyBoolOp _bFn iFn xtp@SymInt{} ytp@SymInt{} = do
+  assertTypesEqual "applyBoolOp" xtp ytp $
+    ( xtp
+    , SFN $ \we v -> assert (V.length v == 2) $
+                       iFn we (v V.! 0) (v V.! 1))
 applyBoolOp _ _ _ _ = throw $ SBVBadFormat "Illegal types for Boolean operator"
 
 -- | Apply operator over integers.
-applyIntOp :: WordMonad m
-           => (MonadTerm m -> MonadTerm m -> m (MonadTerm m))
+applyIntOp :: (forall m t . Monad m => WordEngine m t -> t -> t -> m t)
            -> DagType
            -> DagType
-           -> SBVTypeChecker m (DagType, SymbolicFn m)
+           -> (DagType, SymbolicFn)
 applyIntOp termFn xTp yTp = do
-  assertTypesEqual "applyIntOp" xTp yTp
-  let xFn = toInt xTp
-  let yFn = toInt yTp
-  let applyFn [x,y] = do
-        x' <- xFn x
-        y' <- yFn y
-        termFn x' y'
-      applyFn _args = throw $ SBVBadFormat $ "integer applied to incorrect number of arguments."
-  return (xTp, applyFn)
+  assertTypesEqual "applyIntOp" xTp yTp $
+    ( xTp
+    , SFN $ let xFn = toInt xTp
+                yFn = toInt yTp
+             in \we v -> assert (V.length v == 2) $ join $
+                           return (termFn we)
+                             `ap` xFn we (v V.! 0)
+                             `ap` yFn we (v V.! 1))
 
 -- | Apply operator over integers.
-applyShiftOp :: WordMonad m
-             => (MonadTerm m -> MonadTerm m -> m (MonadTerm m))
+applyShiftOp :: (forall m t . Monad m => WordEngine m t -> t -> t -> m t)
              -> DagType
              -> DagType
-             -> SBVTypeChecker m (DagType, SymbolicFn m)
-applyShiftOp termFn xTp yTp = do
-  let xFn = toInt xTp
-  let yFn = toInt yTp
-  let applyFn [x,y] = do
-        x' <- xFn x
-        y' <- yFn y
-        termFn x' y'
-      applyFn _args = throw $ SBVBadFormat $ "integer applied to incorrect number of arguments."
-  return (xTp, applyFn)
+             -> (DagType, SymbolicFn)
+applyShiftOp termFn xTp yTp =
+  ( xTp
+  , SFN $ let xFn = toInt xTp
+              yFn = toInt yTp
+           in \we v -> assert (V.length v == 2) $ join $
+                return (termFn we)
+                  `ap` xFn we (v V.! 0)
+                  `ap` yFn we (v V.! 1))
 
 -- | Apply operator over integers.
-applyIntRel :: WordMonad m
-            => (MonadTerm m -> MonadTerm m -> m (MonadTerm m))
+applyIntRel :: (forall m t . Monad m => WordEngine m t -> t -> t -> m t)
             -> DagType
             -> DagType
-            -> SBVTypeChecker m (DagType, SymbolicFn m)
+            -> (DagType, SymbolicFn)
 applyIntRel termFn xTp yTp = do
-  assertTypesEqual "applyIntRel" xTp yTp
-  let xFn = toInt xTp
-  let yFn = toInt yTp
-  let applyFn [x,y] = do
-        x' <- xFn x
-        y' <- yFn y
-        termFn x' y'
-      applyFn _args = error "integer applied to incorrect number of arguments."
-  return (SymBool, applyFn)
+  assertTypesEqual "applyIntRel" xTp yTp $
+    ( SymBool
+    , SFN $ let xFn = toInt xTp
+                yFn = toInt yTp
+             in \we v -> assert (V.length v == 2) $ join $
+                  return (termFn we) `ap` xFn we (v V.! 0) `ap` yFn we (v V.! 1))
 
 -- | @ceilLgl2 i@ returns @ceil(lgl2(i))@
 ceilLgl2 :: Int -> Int
@@ -430,64 +442,62 @@ ceilLgl2 val | val > 0 = impl 0 (val-1)
                  | otherwise = impl (j + 1) (i `shiftR` 1)
 
 -- | Parse an SBV application
-apply :: WordMonad m
-      => Operator
+apply :: (OpCache, UninterpFnMap)
+      -> Operator
       -> [DagType]
-      -> SBVTypeChecker m (DagType, SymbolicFn m)
-apply BVAdd [x, y] = applyIntOp applyAdd x y
-apply BVSub [x, y] = applyIntOp applySub x y
-apply BVMul [x, y] = applyIntOp applyMul x y
+      -> (DagType, SymbolicFn)
+apply _ BVAdd [x, y] = applyIntOp weAdd x y
+apply _ BVSub [x, y] = applyIntOp weSub x y
+apply _ BVMul [x, y] = applyIntOp weMul x y
 
 -- TODO: Support below
-apply (BVDiv _) _args = error "BVDiv unsupported"
-apply (BVMod _) _args = error "BVMod unsupported"
-apply BVPow _args = error "BVPow unsupported"
+apply _ (BVDiv _) _args = error "BVDiv unsupported"
+apply _ (BVMod _) _args = error "BVMod unsupported"
+apply _ BVPow _args = error "BVPow unsupported"
 
-apply BVIte [cType, tType, fType] = do
-  assertTypesEqual "BVIte" tType fType
-  let boolConv = toBool cType
-  let applyFn [c,t,f] = do
-        b <- boolConv c
-        applyIte b t f
-      applyFn _ = error "internal: BVIte given illegal arguments"
-  return (tType, applyFn)
+apply _ BVIte [cType, tType, fType] = do
+  assertTypesEqual "BVIte" tType fType $
+    ( tType
+    , SFN $ let boolConv = toBool cType
+             in \we v -> assert (V.length v == 3) $ do
+                  b <- boolConv we (v V.! 0)
+                  weIte we b (v V.! 1) (v V.! 2))
 
-apply BVShl [x, y] = applyShiftOp applyShl x y
-apply BVShr [x, y] = applyShiftOp applyUshr x y
+apply _ BVShl [x, y] = applyShiftOp weShl x y
+apply _ BVShr [x, y] = applyShiftOp weUShr x y
 
 -- TODO: Support below
-apply BVRol _args = error "BVRol unsupported"
-apply BVRor _args = error "BVRor unsupported"
-
-apply (BVExt hi lo) [SymInt (widthConstant -> Just (Wx w))] = do
-  let shiftWidth = Wx (ceilLgl2 w)
-  let newWidth = Wx $ downcastInt (hi - lo + 1) "BVExt size"
-  unless (newWidth >= 0) $
-    throw $ SBVBadFormat "Negative size given to BVExt"
-  return (SymInt (constantWidth newWidth), \[x] -> do
-    -- Shift x to the right by lo bits.
-    xred <- applyUshr x (mkCInt shiftWidth lo)
-    -- Trunc hi - lo + 1 bits off top.
-    applyTrunc newWidth xred)
-apply (BVExt hi lo) [SymArray (widthConstant -> Just (Wx arrayLength)) eltType] = do
-  let extSize = hi - lo + 1
-  let eltSize = typeSize eltType
-  unless (extSize == eltSize) $
+apply _ BVRol _args = error "BVRol unsupported"
+apply _ BVRor _args = error "BVRor unsupported"
+apply _ (BVExt hi lo) [SymInt (widthConstant -> Just (Wx w))] 
+  | newWidth < 0 = throw $ SBVBadFormat "Negative size given to BVExt"
+  | otherwise =
+      ( SymInt (constantWidth newWidth)
+      , SFN $ \we args -> assert (V.length args == 1) $ do
+                 -- Shift x to the right by lo bits.
+                 xred <- weUShr we (args V.! 0) (weIntConstant we shiftWidth lo)
+                 -- Trunc hi - lo + 1 bits off top.
+                 weTrunc we newWidth xred)
+ where shiftWidth = Wx (ceilLgl2 w)
+       newWidth = Wx $ downcastInt (hi - lo + 1) "BVExt size"
+apply _ (BVExt hi lo) [SymArray (widthConstant -> Just (Wx arrayLength)) eltType]
+  | extSize /= eltSize =
     throw $ SBVBadFormat
           $ "BVExt only supported on arrays when " ++
             "extracting single array elements. Extracting " ++
             show extSize ++ " bits from array of " ++
             show arrayLength ++ " elements of type " ++ ppType eltType
-  let (idx,r) = lo `quotRem` eltSize
-  unless (0 <= idx && idx <= fromIntegral arrayLength) $
+  | idx < 0 || fromIntegral arrayLength <= idx =
     throw $ SBVBadFormat "BVExt array index out of range"
-  unless (r == 0) $
-    throw $ SBVBadFormat "BVExt applied to unaligned array value"
-  let cIdx = mkCInt (Wx 32) idx
-  let applyFn [arr] = applyGetArrayValue arr cIdx
-      applyFn _ = error "internal: Illegal arguments to BVExt"
-  return (eltType, applyFn)
-apply (BVExt hi lo) [(SymRec recDef recSubst)] = do
+  | r /= 0 = throw $ SBVBadFormat "BVExt applied to unaligned array value"
+  | otherwise =
+      ( eltType
+      , SFN $ \we v -> assert (V.length v == 1) $
+                weGetArrayValue we (v V.! 0) (weIntConstant we (Wx 32) idx))
+  where extSize = hi - lo + 1
+        eltSize = typeSize eltType
+        (idx,r) = lo `quotRem` eltSize
+apply ctxt (BVExt hi lo) [(SymRec recDef recSubst)] = do
   let fieldTypes = recFieldTypes recDef recSubst
       fieldOps = recDefFieldOps recDef
   let fieldSizes = V.map typeSize fieldTypes
@@ -497,98 +507,92 @@ apply (BVExt hi lo) [(SymRec recDef recSubst)] = do
       throw $ SBVBadFormat
             $ "BVExt applied to illegal field index: "
                  ++ show lo ++ " " ++ show hi ++ " " ++ show fieldTypes
-    Just i -> do
+    Just i ->
       let fieldType = fieldTypes V.! i
           fieldSize = fieldSizes V.! i
-      let off = (fieldEnds V.! i) - fieldSize
-      let op = mkOp (fieldOps V.! i) recSubst
-      let extSize = hi - lo + 1
-      unless (off <= hi && hi <= off + fieldSize) $
-        throw $ SBVBadFormat $
-          "BVExt requested " ++ show extSize ++ " bits out of field with type "
-            ++ ppType fieldType ++ show off ++ show lo ++ " " ++ show hi
-      if extSize == fieldSize
-        then
-          return (fieldType, \[recVal] -> applyUnaryOp op recVal)
-        else do
-          (tp,extractFn) <- apply (BVExt (hi - off) (lo - off)) [fieldType]
-          return (tp, \[recVal] -> do
-                        fieldVal <- applyUnaryOp op recVal
-                        extractFn [fieldVal])
-apply BVAnd [x, y] = applyBoolOp applyBAnd applyIAnd x y
-apply BVOr  [x, y] = applyBoolOp applyBOr  applyIOr  x y
-apply BVXor [x, y] = applyBoolOp applyBXor applyIXor x y
-apply BVNot [SymBool] =
-  let applyFn [x] = applyBNot x
-      applyFn _ = error "internal: Illegal arguments to BVNot"
-   in return (SymBool, applyFn)
-apply BVNot [tp@SymInt{}] =
-  let applyFn [x] = applyINot x
-      applyFn _ = error "internal: Illegal arguments to BVNot"
-   in return (tp, applyFn)
-
-apply BVEq  [xTp, yTp] = do
-  let applyFn [x,y] = do
-        case (xTp, yTp) of
-          (SymBool, _) -> do
-            y' <- toBool yTp y
-            applyEq x y'
-          (_, SymBool) -> do
-            x' <- toBool xTp x
-            applyEq x' y
-          (_, _) | xTp == yTp -> applyEq x y
-          _ -> throw $
-               SBVBadFormat $ "BVEq applied to incompatible types: " ++
-                 show xTp ++ ", " ++ show yTp
-      applyFn _args = error "integer applied to incorrect number of arguments."
-  return (SymBool, applyFn)
-apply BVGeq [x, y] = applyIntRel applyUnsignedLeq y x
-apply BVGt  [x, y] = applyIntRel applyUnsignedLt y x
-apply BVLeq [x, y] = applyIntRel applyUnsignedLeq x y
-apply BVLt  [x, y] = applyIntRel applyUnsignedLt x y
-apply BVApp [xTp, yTp] = do
-  let xFn = toInt xTp
-  let yFn = toInt yTp
-  let applyFn [x,y] = do
-        x' <- xFn x
-        y' <- yFn y
-        applyAppendInt y' x' -- Order of arguments is reversed.
-      applyFn _ = error "BVApp applied to too many arguments"
-  return ( SymInt (constantWidth $ fromInteger $ typeSize xTp + typeSize yTp)
-         , applyFn)
+          off = (fieldEnds V.! i) - fieldSize
+          op = mkOp (fieldOps V.! i) recSubst
+          extSize = hi - lo + 1
+       in case () of
+            _ | not (off <= hi && hi <= off + fieldSize) ->
+                 throw $ SBVBadFormat $
+                   "BVExt requested " ++ show extSize ++ " bits out of field with type "
+                     ++ ppType fieldType ++ show off ++ show lo ++ " " ++ show hi
+              | extSize == fieldSize ->
+                 ( fieldType
+                 , SFN $ \we v -> assert (V.length v == 1) $
+                                    weApplyUnary we op (v V.! 0))
+              | otherwise ->
+                 let (tp, SFN extractFn) = 
+                       apply ctxt (BVExt (hi - off) (lo - off)) [fieldType]
+                  in (tp, SFN $ \we v -> assert (V.length v == 1) $ do
+                                   fieldVal <- weApplyUnary we op (v V.! 0)
+                                   extractFn we (V.singleton fieldVal))
+apply _ BVAnd [x, y] = applyBoolOp weBAnd weIAnd x y
+apply _ BVOr  [x, y] = applyBoolOp weBOr  weIOr  x y
+apply _ BVXor [x, y] = applyBoolOp weBXor weIXor x y
+apply _ BVNot [SymBool] =
+  ( SymBool
+  , SFN $ \we v -> assert (V.length v == 1) $ weBNot we (v V.! 0))
+apply _ BVNot [tp@SymInt{}] =
+  ( tp, SFN $ \we v -> assert (V.length v == 1) $ weINot we (v V.! 0))
+apply _ BVEq  [xTp, yTp] =
+  ( SymBool
+  , case (xTp, yTp) of
+      (SymBool, _) ->
+        SFN (\we v -> assert (V.length v == 2) $ 
+                        toBool yTp we (v V.! 1) >>= \y -> weEq we (v V.! 0) y)
+      (_, SymBool) ->
+        SFN (\we v -> assert (V.length v == 2) $
+                        toBool xTp we (v V.! 0) >>= \x -> weEq we x (v V.! 1))
+      (_, _) | xTp == yTp ->
+        SFN (\we v -> assert (V.length v == 2) $ weEq we (v V.! 0) (v V.! 1))
+      _ -> throw $ SBVBadFormat $
+             "BVEq applied to incompatible types: " ++ show xTp ++ ", " ++ show yTp)
+apply _ BVGeq [x, y] = applyIntRel (flip . weUnsignedLeq) y x
+apply _ BVGt  [x, y] = applyIntRel (flip . weUnsignedLt) y x
+apply _ BVLeq [x, y] = applyIntRel weUnsignedLeq x y
+apply _ BVLt  [x, y] = applyIntRel weUnsignedLt x y
+apply _ BVApp [xTp, yTp] =
+  ( SymInt (constantWidth $ fromInteger $ typeSize xTp + typeSize yTp)
+  , SFN $ let xFn = toInt xTp
+              yFn = toInt yTp
+           in \we v -> assert (V.length v == 2) $ do
+                         x' <- xFn we (v V.! 0)
+                         y' <- yFn we (v V.! 1)
+                         weAppendInt we y' x') -- Order of arguments is reversed.
 
 -- TODO: Support below
-apply (BVLkUp _ _) _args = error "BVLkUp unsupported"
+apply _ (BVLkUp _ _) _args = error "BVLkUp unsupported"
 
-apply (BVUnint (Loc _path _line _col) [] (name,ir)) inputArgTypes = do
-  uFn <- gets uninterpFnMap
-  rFn <- gets recordDefMap
+apply (oc,uFn) (BVUnint (Loc _path _line _col) [] (name,ir)) inputArgTypes = do
   -- Compute types expected for uninterpreted function
-  let (fnArgTypes,resType) = inferFunctionType rFn ir
-  case uFn name fnArgTypes of
+  case uFn name (V.toList fnArgTypes) of
     Nothing -> throw $ SBVUnidentifiedFunction name
-    Just uOp -> do
-      let printType tp = "  " ++ ppType tp ++ "\n"
-      unless (V.fromList fnArgTypes == opArgTypes uOp) $
-        throw $ SBVCallbackError $
-               "Operator returned by uninterpreted function for " ++ show name
-               ++ " has different argument types than expected.\n"
-               ++ "Expected argument types:\n"
-               ++ concat (map printType fnArgTypes)
-               ++ "Returned argument types:\n"
-               ++ concat (V.toList (V.map printType (opArgTypes uOp)))
-      unless (resType == opResultType uOp) $
-        throw $ SBVCallbackError $
-               "Operator returned by uninterpreted function for " ++ show name
-               ++ " has different return type than expected.\n"
-               ++ "Expected return type:\n"
-               ++ printType resType
-               ++ "Returned return type:\n"
-               ++ printType (opResultType uOp)
-      let joinFn = joinTypesFn fnArgTypes inputArgTypes
-      return (resType, applyOp uOp <=< joinFn)
-
-apply op args =
+    Just uOp
+      | fnArgTypes /= opArgTypes uOp ->
+          throw $ SBVCallbackError $
+                 "Operator returned by uninterpreted function for " ++ show name
+                 ++ " has different argument types than expected.\n"
+                 ++ "Expected argument types:\n"
+                 ++ concat (V.toList (V.map printType fnArgTypes))
+                 ++ "Returned argument types:\n"
+                 ++ concat (V.toList (V.map printType (opArgTypes uOp)))
+      | resType /= opResultType uOp ->
+          throw $ SBVCallbackError $
+                 "Operator returned by uninterpreted function for " ++ show name
+                 ++ " has different return type than expected.\n"
+                 ++ "Expected return type:\n"
+                 ++ printType resType
+                 ++ "Returned return type:\n"
+                 ++ printType (opResultType uOp)
+      | otherwise -> 
+         ( resType
+         , SFN $ let joinFn = joinTypesFn (V.toList fnArgTypes) inputArgTypes
+                  in \we args -> weApplyOp we uOp =<< joinFn we args)
+ where (fnArgTypes,resType) = inferFunctionType oc ir
+       printType tp = "  " ++ ppType tp ++ "\n"
+apply _ op args =
   throw $ SBVBadFormat $
     "apply unexpected op (" ++ show op ++ ") ["
       ++ intercalate ", " (map ppType args) ++ "]"
@@ -596,43 +600,42 @@ apply op args =
 -- checkSBV {{{2
 
 -- | Check SBV and return type and execution engine.
-checkSBV :: WordMonad m
-         => SBV
-         -> SBVTypeChecker m (ParseResult m)
+checkSBV :: SBV -> SBVTypeChecker ParseResult
 -- Bool constant case
 checkSBV (SBV 1 (Left val)) =
-  return (SymBool, return (mkCBool (val /= 0)))
+  return ( SymBool
+         , SBVE $ let applyFn we = return (weBoolConstant we (val /= 0))
+                   in applyFn)
 -- Int constant case
 checkSBV (SBV w (Left val)) = do
   let w' = downcastInt w "integer width"
-  return (SymInt (constantWidth (Wx w')), return $ mkCInt (Wx w') val)
+  return ( SymInt (constantWidth (Wx w'))
+         , SBVE $ \we -> return (weIntConstant we (Wx w') val))
 -- Application case
-checkSBV (SBV _ (Right node)) = do
-  m <- gets nodeTypeMap
-  return $ m Map.! node
+checkSBV (SBV _ (Right node)) = (Map.! node) <$> gets nodeTypeMap
 
 -- parseSBVCommand {{{2
 
 -- | Run SBV command though typechecker and update outputs and bindings.
-parseSBVCommand :: WordMonad m => SBVCommand -> SBVTypeChecker m ()
+parseSBVCommand :: SBVCommand -> SBVTypeChecker ()
 parseSBVCommand (Decl _p (SBV _ (Right n)) Nothing) = do
   s <- get
   let tp : rest = remInputs s
   put s { remInputs = rest
         , revInputNodes = n : revInputNodes s }
-  bindCheck n tp $ do
-    m <- get
-    return $ m Map.! n
+  bindCheck n tp (SBVE $ \_ -> gets (Map.! n))
 parseSBVCommand (Decl _p (SBV _ (Right n)) (Just (SBVApp sOp sArgs))) = do
-  checkedArgs <- mapM checkSBV sArgs
-  (tp,applyFn) <- apply sOp (map fst checkedArgs)
-  let argEvalFns = map snd checkedArgs
-  bindCheck n tp $ do
+  checkedArgs <- V.mapM checkSBV (V.fromList sArgs)
+  oc <- gets opCache
+  uFn <- gets uninterpFnMap
+  let (tp, SFN applyFn) = apply (oc, uFn) sOp (V.toList (V.map fst checkedArgs))
+  let argEvalFns = V.map snd checkedArgs
+  bindCheck n tp $ SBVE $ \we -> do
     m <- get
     case Map.lookup n m of
       Just r -> return r
       Nothing -> do
-        r <- (lift . applyFn) =<< sequence argEvalFns
+        r <- (lift . applyFn we) =<< V.mapM (\(SBVE fn) -> fn we) argEvalFns
         m' <- get
         put (Map.insert n r m')
         return r
@@ -645,51 +648,47 @@ parseSBVCommand d = do
 -- parseSBV top-level declaration {{{1
 
 -- | Returns type of SBV program.
-parseSBVType :: RecordDefMap -> SBVPgm -> ([DagType], DagType)
-parseSBVType recordFn (SBVPgm (_,ir,_c, _v, _w, _ops)) = inferFunctionType recordFn ir
+parseSBVType :: OpCache -> SBVPgm -> (V.Vector DagType, DagType)
+parseSBVType oc (SBVPgm (_,ir,_c, _v, _w, _ops)) = inferFunctionType oc ir
 
-newtype WordEvalFn = WEF (forall sym . WordMonad sym => V.Vector (MonadTerm sym) -> sym (MonadTerm sym))
+newtype WordEvalFn = WEF (forall m t . Monad m => WordEngine m t -> V.Vector t -> m t)
 
 -- | Parse a SBV file into an action running in an arbitrary word monad.
-parseSBV :: RecordDefMap -- ^ Maps record fields to corresponding definiton
+parseSBV :: OpCache -- ^ Stores current operators.
          -> UninterpFnMap -- ^ Maps uninterpreted function names to corresponding op.
          -> SBVPgm
          -> WordEvalFn
-parseSBV recordFn
+parseSBV oc
          uninterpFn
          pgrm@(SBVPgm ((Version vMajor vMinor),
                        _ir,
                        cmds,
                        _vc,
                        _warnings,
-                       _opDecls)) = do
-  if (vMajor == 4 && vMinor == 0)
-    then WEF $
-           let (argTypes,resType) = parseSBVType recordFn pgrm
-               (inputTypes, inputFns) = V.unzip $ V.map splitInput (V.fromList argTypes)
-            in runChecker recordFn uninterpFn (concat (V.toList inputTypes)) $ do
-                 mapM_ parseSBVCommand (reverse cmds)
-                 inputNodes <- fmap reverse $ gets revInputNodes
-                 (outputTypes, outputEvals) <- fmap (unzip . reverse) $ gets revOutputs
-                 let res = joinSBVTerm resType outputTypes
-                 return $ \args -> do
-                   inputs <- fmap (concat . V.toList)
-                           $ V.mapM id
-                           $ V.zipWith ($) inputFns args
-                   (outputs,_) <- runStateT (sequence outputEvals) $
-                                    Map.fromList (inputNodes `zip` inputs)
-                   res outputs
-           else throw $ SBVBadFileVersion vMajor vMinor
+                       _opDecls)) 
+  | not (vMajor == 4 && vMinor == 0) = throw $ SBVBadFileVersion vMajor vMinor
+  | otherwise =
+      runChecker oc uninterpFn (V.toList (V.concatMap id inputTypes)) $ do
+        mapM_ parseSBVCommand (reverse cmds)
+        inputNodes <- reverse <$> gets revInputNodes
+        (outputTypes, V.fromList -> outputEvals) <- unzip <$> reverse <$> gets revOutputs
+        return $ WEF $ \we args -> do
+          let res = joinSBVTerm resType outputTypes
+          inputs <- V.mapM id $ V.zipWith (\(SF fn) a -> fn we a) inputFns args
+          outputs <- evalStateT (V.mapM (\(SBVE fn) -> fn we) outputEvals)
+                                (Map.fromList (inputNodes `zip` (concat (V.toList inputs))))
+          res we outputs
+ where (argTypes, resType) = parseSBVType oc pgrm
+       (inputTypes, inputFns) = V.unzip $ V.map splitInput argTypes
 
 -- | Parse a SBV file into an operator and action.
-parseSBVOp :: -- | Maps record fields to corresponding definiton
-              RecordDefMap
+parseSBVOp :: OpCache 
               -- | Maps uninterpreted function names to corresponding op
            -> UninterpFnMap
            -> String -- ^ Name for new operator
            -> SBVPgm
-           -> OpSession (OpDef, WordEvalFn)
-parseSBVOp recordFn
+           -> IO (OpDef, WordEvalFn)
+parseSBVOp oc
            uninterpFn
            opDefName
            pgrm@(SBVPgm ((Version vMajor vMinor), _ir, _cmds, vc, warnings, _opDecls)) = do
@@ -701,106 +700,8 @@ parseSBVOp recordFn
   unless (null warnings) $
     throwMIO $ SBVUnsupportedFeature
              $ "SBV Parser does not support loading SBV files with warnings."
-  let wef@(WEF evalFn) = parseSBV recordFn uninterpFn pgrm
-  let (argTypes,resType) = parseSBVType recordFn pgrm
-  op <- definedOp opDefName argTypes resType (\_ -> evalFn)
+  let wef@(WEF evalFn) = parseSBV oc uninterpFn pgrm
+  let (argTypes,resType) = parseSBVType oc pgrm
+  op <- definedOp oc opDefName (V.toList argTypes) resType $ 
+          \_ args -> mkEngineFromMonad >>= flip evalFn args
   return (op, wef)
-
--- SAW declarations {{{1
-
--- | Information for helping construct Op values.
-data OpInfo = OI { oiName :: !String, oiFormatString :: !String, oiPrec :: !OpPrec }
-
--- | Return or construct a RecordDef and DagType corresponding to
--- the record info passed in.
-inferRecordType :: RecordDefMap
-                -> OpInfo
-                -> [(Name, OpInfo, DagType)]
-                -> SymbolicMonad DagType
-inferRecordType recordFn _ fields = do
-  ftys <- fieldNameTysM fields
-  liftOpSession $ do
-    case recordFn ftys of
-      Just recordDef -> return recordDef
-      Nothing -> do
-        let fieldNames = Set.fromList [nm | (nm,_,_) <- fields]
-        recDef <- getStructuralRecord fieldNames
-        let sub = TypeSubst {
-                      widthSubst = Map.empty
-                    , shapeSubst = Map.fromList [ (nm,tp) | (nm, _, tp) <- fields ]
-                    }
-        return $ SymRec recDef sub
-
--- | An empty RecordDefMap
-noRecords :: RecordDefMap
-noRecords _ = Nothing
-
-fieldNameTysM :: Monad sym
-              => [(String, OpInfo, DagType)]
-              -> sym [(String, DagType)]
-fieldNameTysM fields = return [ (name,ty) | (name,_,ty) <- fields ]
-
--- | Extend a RecordDefMap with a new record. Raise an error if the record
--- already exists.
-extendRecords :: RecordDefMap
-              -> OpInfo
-              -> [(Name, OpInfo, DagType)]
-              -> SymbolicMonad (DagType, RecordDefMap)
-extendRecords recordFn recConstrInfo fields = do
-  nameTys <- fieldNameTysM fields
-  assertIO (isNothing (recordFn nameTys))
-    "SBVParser.extendRecordDefMap: record already exists in the RecordDefMap."
-  recordTy <- inferRecordType recordFn recConstrInfo fields
-  return $ ( recordTy
-           , (\fields' ->
-                if fields' == nameTys
-                  then Just recordTy
-                  else recordFn fields')
-           )
-
--- | An empty UninterpFnMap.
-noUfuns :: UninterpFnMap
-noUfuns _ _ = Nothing
-
--- | Extend an uninterpreted-function map with a new uninterpreted
--- function operator. Raise an error if the function already exists.
-extendUfuns :: UninterpFnMap
-            -> (Name,OpInfo,[DagType])
-            -> DagType
-            -> SymbolicMonad (OpDef, UninterpFnMap)
-extendUfuns ufunMap (name,opInfo,tys) resultType = do
-  assertIO (isNothing (ufunMap name tys))
-    (  "SBVParser.extendUfunMap: "
-    ++ "uninterpreted function name " ++ name
-    ++ " is already present in the UninterpFnMap argument.")
-  uopDef <- liftOpSession $
-    uninterpretedOp (oiName opInfo)
-                    (V.fromList tys)
-                    resultType
-  let Just subst = matchSubst (tys `zip` tys)
-  return $ (uopDef, \ufunName ufunTys ->
-    if ufunName == name
-      then do assertErr (ufunTys == tys)
-                (  "SBVParser.extendUfuns: "
-                ++ "Expected uninterpreted function " ++ name
-                ++ " to have argument types " ++ show tys
-                ++ ", but parsed an occurrence with argument types "
-                ++ show ufunTys ++ "."
-                )
-                (Just (mkOp uopDef subst))
-      else ufunMap ufunName ufunTys)
-
-{- JHx: Commented out until I better understand how this is used.
--- | Create a bitblastable input term of the given SBV type.
-makeSBVInput :: DagType -> SymbolicMonad SymbolicTerm
-makeSBVInput ty = do
-  let tys = fst (splitInput ty)
-  let joinFn = joinSBVTerm ty
-   in (joinFn =<< mapM (\tp -> freshVar tp =<< liftAigMonad (makeLitvecInput tp)) tys)
-  where
-    makeLitvecInput :: DagType -> AigMonad LitVector
-    makeLitvecInput SymBool    = fmap (LV . LV.singleton) makeInputLit
-    makeLitvecInput (SymInt (Wx w)) = fmap LV $ LV.replicateM w makeInputLit
-    makeLitvecInput bad_ty =
-      fail $ "SBVParser.makeSBVInput: bug -- unrecognized type " ++ show bad_ty
-      -}

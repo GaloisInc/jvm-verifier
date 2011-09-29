@@ -120,8 +120,8 @@ main = do
         return $ (exeDir </> "galois.jar") : jpaths
 
   cb <- loadCodebase jpaths' cpaths
-
-  runSymbolic $
+  oc <- mkOpCache
+  runSymbolic oc $
     let fl = defaultSimFlags{ alwaysBitBlastBranchTerms = blast args' }
         go = runSimulator' fl cb $ do
                Simulation.setVerbosity (dbug args')

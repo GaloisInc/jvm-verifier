@@ -71,8 +71,9 @@ runCryptolJava name key input = do
 
 evalCryptolJava :: String -> String -> String -> IO String
 evalCryptolJava name key input = do
+  oc <- mkOpCache
   cb <- commonLoadCB
-  runSymbolic $ do
+  runSymbolic oc $ do
     outVars <- runSimulator cb $ do
       setVerbosity 0
       let tint      = mkCInt (Wx 32) . fromIntegral
@@ -83,8 +84,9 @@ evalCryptolJava name key input = do
 
 evalCryptolJavaWord :: String -> String -> String -> IO String
 evalCryptolJavaWord name key input = do
+  oc <- mkOpCache
   cb <- commonLoadCB
-  runSymbolic $ do
+  runSymbolic oc $ do
     keyVars <- replicateM 4 $ freshInt
     inputVars <- replicateM 4 $ freshInt
     outVars <- runSimulator cb $ do
@@ -145,11 +147,12 @@ makeCryptolAiger rio filepath cb simFn =
 
 evalCryptolC :: String -> String -> IO String
 evalCryptolC key input = do
+  oc <- mkOpCache
   cb <- commonLoadCB
   let tint      = mkCInt (Wx 32) . fromIntegral
       keyVars   = map tint $ hexToIntSeq key
       inputVars = map tint $ hexToIntSeq input
-  runSymbolic $ do
+  runSymbolic oc $ do
     outVars <- runSimulator cb $ do
       setVerbosity 0
       runCryptolC keyVars inputVars
@@ -223,8 +226,9 @@ runBouncyCastle ct name key input = do
     return iValue
 
 makeBouncyCastleAiger :: CipherType -> String -> Codebase -> IO ()
-makeBouncyCastleAiger ct name cb =
-  runSymbolic $ do
+makeBouncyCastleAiger ct name cb = do
+  oc <- mkOpCache
+  runSymbolic oc $ do
     revKey <- replicateM 16 freshByte
     revInput <- replicateM 16 freshByte
     output <- runSimulator cb $ do
@@ -238,8 +242,9 @@ makeBouncyCastleAiger ct name cb =
 
 evalBouncyCastle :: CipherType -> String -> String -> String -> IO String
 evalBouncyCastle ct name key input = do
+  oc <- mkOpCache
   cb <- commonLoadCB
-  runSymbolic $ do
+  runSymbolic oc $ do
     keyVars <- replicateM 16 freshByte
     inputVars <- replicateM 16 freshByte
     outVars <- runSimulator cb $ do
@@ -260,10 +265,11 @@ writeBouncyCastleAiger name = do
 
 createAigers :: IO ()
 createAigers = do
+  oc <- mkOpCache
   cb <- loadCodebase commonJars ("user":commonClassPaths)
-  makeCryptolAiger runSymbolic "cryptolJava.aig" cb     $ runCryptolJava "AESCryptol"
-  makeCryptolAiger runSymbolic "cryptolNoTables.aig" cb $ runCryptolJava "AESCryptolNoTables"
-  makeCryptolAiger runSymbolic "cryptolC.aig" cb runCryptolC
+  makeCryptolAiger (runSymbolic oc) "cryptolJava.aig" cb     $ runCryptolJava "AESCryptol"
+  makeCryptolAiger (runSymbolic oc) "cryptolNoTables.aig" cb $ runCryptolJava "AESCryptolNoTables"
+  makeCryptolAiger (runSymbolic oc) "cryptolC.aig" cb runCryptolC
 
   -- [JS <2011-07-06 Wed>] TODO FIXME BUG : At some point, the simulator started
   -- crashing on this example (and likely downstream examples as well), but we

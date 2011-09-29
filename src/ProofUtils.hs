@@ -58,13 +58,13 @@ band w a b =
 
 type OpFn sym = V.Vector (MonadTerm sym) -> sym (MonadTerm sym)
 
-type RuleMonad a = StateT [Rule] OpSession a
+type RuleMonad a = StateT [Rule] IO a
 
 defRule :: String -> Term -> Term -> RuleMonad ()
 defRule name t u = r `seq` modify (r :)
   where r = mkRule name t u
 
-runRuleMonad :: RuleMonad () -> OpSession [Rule]
+runRuleMonad :: RuleMonad () -> IO [Rule]
 runRuleMonad m = fmap (reverse . snd) $ runStateT m []
 
 commonJars :: [String]
@@ -147,8 +147,8 @@ w384 = SymInt (constantWidth 384)
 arrType :: DagType
 arrType = SymArray (constantWidth 12) w32
 
-affineRecDef :: OpSession SymRecDef
-affineRecDef = getStructuralRecord (Set.fromList ["x", "y"])
+affineRecDef :: OpCache -> SymRecDef
+affineRecDef oc = getStructuralRecord oc (Set.fromList ["x", "y"])
 
 affRecSubst, jacRecSubst :: DagType -> TypeSubst
 affRecSubst fieldType =
@@ -173,8 +173,8 @@ affineXOp recDef = affineFields recDef V.! 0
 affineYOp :: SymRecDef -> OpDef
 affineYOp recDef = affineFields recDef V.! 1
 
-jacobianRecDef :: OpSession SymRecDef
-jacobianRecDef = getStructuralRecord (Set.fromList ["x", "y", "z"])
+jacobianRecDef :: OpCache -> SymRecDef
+jacobianRecDef oc = getStructuralRecord oc (Set.fromList ["x", "y", "z"])
 
 jacobianRec :: SymRecDef -> DagType -> DagType
 jacobianRec recDef fieldType = SymRec recDef (jacRecSubst fieldType)

@@ -44,38 +44,27 @@ methodSpecTests =
 singleTest :: Property -> (Args, Property)
 singleTest prop = (stdArgs { maxSuccess = 1 }, prop)
 
-testBlastSpec ::
-  ( AigOps sym
-  , SupportsSession sym
-  , TermDagMonad sym
-  , MonadTerm sym ~ Node
-  )
-  => String -> MethodSpec sym -> (Args, Property)
+testBlastSpec :: String -> MethodSpec SymbolicMonad -> (Args, Property)
 testBlastSpec name spec =
   singleTest $ label name $ monadicIO $ do
     cb <- commonCB
-    run $ runOpSession $ do
-      be <- runSymSession $ (getBitEngine :: SymbolicMonad (BitEngine Lit))
+    run $ do
+      oc <- mkOpCache
+      be <- runSymbolic oc $ (getBitEngine :: SymbolicMonad (BitEngine Lit))
       when (isJust (beCheckSat be)) $ do
-        blastMethodSpec cb spec
+        blastMethodSpec oc cb spec
 
-testRedSpec ::
-  ( AigOps sym
-  , SupportsSession sym
-  , TermDagMonad sym
-  , WordMonad sym
-  , MonadTerm sym ~ Node
-  )
-  => String
-  -> MethodSpec sym
-  -> ([Rule] -> MonadTerm sym -> sym ())
-  -> (Args, Property)
+testRedSpec :: String
+            -> MethodSpec SymbolicMonad
+            -> ([Rule] -> MonadTerm SymbolicMonad -> SymbolicMonad ())
+            -> (Args, Property)
 testRedSpec name spec verifyAction =
   ( stdArgs { maxSuccess = 1 }
   , label name $ monadicIO $ do
       cb <- commonCB
       let initAction = return ()
-      run $ runOpSession $ do
+      run $ do
+        oc <- mkOpCache
         -- All the rules we might need for any spec...
         rules <- runRuleMonad $ do
           -- "eqOp" simplification
@@ -96,7 +85,7 @@ testRedSpec name spec verifyAction =
               }
             in do defRule "null-set" (aset a i (aget a i)) a
           return ()
-        redMethodSpec cb spec initAction (verifyAction rules))
+        redMethodSpec oc cb spec initAction (verifyAction rules))
 
 staticIntArrayCopySpec :: (Monad sym, ConstantInjection (MonadTerm sym)) =>
                           MethodSpec sym
