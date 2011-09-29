@@ -62,11 +62,12 @@ getGoldenRC564 key inp =
 evalDagRC564 :: String -> String -> PropertyM IO ()
 evalDagRC564 key input = do
   cb     <- commonCB
+  oc <- run mkOpCache
   golden <- run $ getGoldenRC564 key input
 --   run $ putStrLn $ "Key    : " ++ key
 --   run $ putStrLn $ "Input  : " ++ input
 --   run $ putStrLn $ "Golden : " ++ golden
-  rslt <- run $ runSymbolic $ do
+  rslt <- run $ runSymbolic oc $ do
     keyVars <- replicateM 16 freshByte
     inpVars <- replicateM 16 freshByte
     outVars <- runSimulator cb $ runRC564 keyVars inpVars
@@ -82,8 +83,9 @@ evalDagRC564 key input = do
 _makeAigerRC564 :: String -> IO ()
 _makeAigerRC564 filepath = do
   cb <- commonLoadCB
+  oc <- mkOpCache
   putStrLn "Simulating RC564"
-  runSymbolic $ do
+  runSymbolic oc $ do
     keyVars <- replicateM 16 freshByte
     inpVars <- replicateM 16 freshByte
     outValues <- runSimulator cb $ runRC564 keyVars inpVars

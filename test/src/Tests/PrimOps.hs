@@ -109,7 +109,7 @@ primOpTests =
     runBEs = (`concatMap` symbolicBackendRunFns)
     --
     symbolicBackendRunFns :: [RunSymTest a]
-    symbolicBackendRunFns = [(runSymbolic, runTest)]
+    symbolicBackendRunFns = [(\m -> flip runSymbolic m =<< mkOpCache, runTest)]
     --
     qr32 runIO cb =
       chkQuotRem
