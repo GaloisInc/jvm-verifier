@@ -10,6 +10,7 @@ Point-of-contact : jstanley
 module Tests.RC564 (rc564Tests) where
 
 import Control.Monad
+import Control.Monad.Trans (liftIO)
 import qualified Data.Vector as V
 import System.Process
 import Test.QuickCheck
@@ -74,9 +75,9 @@ evalDagRC564 key input = do
     let inpValues = V.map constInt
                   $ V.fromList
                   $ hexToByteSeq key ++ hexToByteSeq input
-    outCns <- symbolicEval inpValues $ do
-      mapM evalNode outVars
-    return $ byteSeqToHex outCns
+    de <- getDagEngine
+    evalFn <- liftIO $ deMkEvalFn de inpValues
+    return $ byteSeqToHex (map evalFn outVars)
   assert $ rslt == golden
 --   run $ putStrLn $ "Result : " ++ rslt
 

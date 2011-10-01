@@ -9,6 +9,7 @@ module Tests.Arrays (arrayTests) where
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Trans (liftIO)
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 
