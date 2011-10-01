@@ -10,6 +10,7 @@ module Tests.PrettyPrint (prettyPrintTests) where
 import Test.QuickCheck
 import Test.QuickCheck.Monadic as QC
 
+import Control.Monad.Identity
 import qualified Data.Vector as V
 import qualified SBVModel.SBV as SBV
 import qualified SBVParser as SBV
@@ -34,8 +35,9 @@ testAction i what cfg = do res  <- run $ do
                              let (argTys,_) = SBV.inferSBVFunctionType oc pgm
                              let SBV.WEF evalFn = SBV.parseSBV oc (\_ _ -> Nothing) pgm
                              runSymbolic oc $ do
-                               we <- SBV.mkEngineFromMonad
-                               trm <- evalFn we =<< V.mapM freshUninterpretedVar argTys
+                               we <- deWordEngine `fmap` getDagEngine
+                               vars <- V.mapM freshUninterpretedVar argTys
+                               let trm = runIdentity $ evalFn we vars
                                return $ prettyTermWith cfg trm
                            let file = testDir ++ "/pp" ++ what ++ "." ++ show i ++ ".gold"
                            case mode of

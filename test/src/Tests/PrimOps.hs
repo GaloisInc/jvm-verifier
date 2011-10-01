@@ -158,8 +158,10 @@ mkTest runTest' _lbl getRslt cb maigNm (cNm, mNm, sig)
          <$> (runStaticMethod cNm mNm sig =<< mkArgs syms)
     -- dbugM $ "mkTest: rslt = " ++ show rslt
     outIntLit <- toLsbf_lit <$> getVarLit rslt
-    chks0     <- forM inps $ \inp -> do
-       prDag inp <$> (symbolicEval (V.fromList inp) (evalNode rslt))
+    de <- getDagEngine
+    chks0 <- liftIO $ forM inps $ \inp -> do
+       evalFn <- deMkEvalFn de (V.fromList inp)
+       return $ prDag inp (evalFn rslt)
     be <- getBitEngine
     liftIO $ do
       case maigNm of
@@ -337,7 +339,8 @@ t13 cb = runTest $ do
     getIntArray pd outArr
 
   -- DAG eval
-  outCns <- symbolicEval (V.fromList cInputs) $ mapM evalNode outVars
+  de <- getDagEngine
+  evalFn <- liftIO $ deMkEvalFn de (V.fromList cInputs)
   -- AIG eval
   outLits <- mapM getVarLit outVars
   be <- getBitEngine
@@ -347,7 +350,7 @@ t13 cb = runTest $ do
   let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
              $ take 32 (drop (32*k) r)
            | k <- [0..(n-1)] ]
-  return [outCns == expect && rs == expect]
+  return [map evalFn outVars == expect && rs == expect]
 
 -- NB: This won't symbolically terminate yet.
 _t14 :: TrivialProp
@@ -377,9 +380,9 @@ ct1 cb = runTest $ do
                                          "([I)V"
                                          [RValue outArr]
     getIntArray pd outArr
-  symbolicEval V.empty $ do
-    outCns <- mapM evalNode outVars
-    return $ [[constInt 42, constInt 42] == outCns]
+  de <- getDagEngine
+  evalFn <- liftIO $ deMkEvalFn de V.empty
+  return $ [[constInt 42, constInt 42] == map evalFn outVars]
 
 -- | Ensure that refFromString produces a usable string reference
 ct2 :: TrivialProp
@@ -391,9 +394,9 @@ ct2 cb =
       (\(~(Right r)) -> r) . snd . takeIntRslt . withoutExceptions
         <$> runStaticMethod "Trivial" "stringCheck" "(Ljava/lang/String;I)Z"
               [RValue s, IValue (mkCInt (Wx 32) . fromIntegral . length $ str)]
-    symbolicEval V.empty $ do
-      outCns <- evalNode outVar
-      return [boolFromConst outCns]
+    de <- getDagEngine
+    evalFn <- liftIO $ deMkEvalFn de V.empty
+    return [boolFromConst (evalFn outVar)]
 
 --------------------------------------------------------------------------------
 -- floating point tests
@@ -534,8 +537,8 @@ evalBinOp runIO _lbl cb w maigNm mkValue getSymIntegralFromValue newSymVar
             <$> runStaticMethod classNm methodNm sig [mkValue a, mkValue b]
     let rslt = getSymIntegralFromValue val
     outIntLit <- toLsbf_lit <$> getVarLit rslt
-    cns <- symbolicEval (V.map (CInt w . fromIntegral) $ V.fromList [x, y])
-                        (evalNode rslt)
+    de <- getDagEngine
+    evalFn <- liftIO $ deMkEvalFn de (V.map (CInt w . fromIntegral) $ V.fromList [x, y])
     let inputs = concatMap (intToBoolSeq . CInt w . fromIntegral) [x, y]
     be <- getBitEngine
     liftIO $ do
@@ -543,7 +546,7 @@ evalBinOp runIO _lbl cb w maigNm mkValue getSymIntegralFromValue newSymVar
       case maigNm of
         Nothing -> return ()
         Just nm -> writeAiger be nm outIntLit
-      return ( cns
+      return ( evalFn rslt
              , -- aiger eval
                hexToIntegral
                $ (\hs -> CE.assert (length hs == numBits w `div` 4) hs)

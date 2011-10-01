@@ -34,7 +34,7 @@ import SBVParser
 import Simulation hiding ((&&&), (|||), loadClass)
 import MethodSpec
 
-import Verinf.Symbolic hiding (SymbolicTerm, liftIO)
+import Verinf.Symbolic
 import Verinf.Utils.IOStateT
 
 trunc :: OpDef -> Term -> Term

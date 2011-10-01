@@ -1,4 +1,4 @@
-SAWSCRIPT=../../bin/sawScript
+SAWSCRIPT=../../dist/build/sawScript/sawScript
 CLASSES_JAR=../../jdk1.6/classes.jar
 
 build :

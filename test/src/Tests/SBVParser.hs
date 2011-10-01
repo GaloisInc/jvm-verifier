@@ -7,6 +7,8 @@ Point-of-contact : jhendrix
 
 module Tests.SBVParser (sbvParserTests) where
 
+import Control.Monad.Identity
+import Control.Monad.Trans (liftIO)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Vector as V
@@ -54,7 +56,7 @@ testCPlus = monadicIO $ do
     (cPlusSbvOp,WEF applyCPlus) <- parseSBVOp oc uninterpFn "cplus" sbv
     runSymbolic oc $ do
       args <- V.mapM freshUninterpretedVar (opDefArgTypes cPlusSbvOp) :: SymbolicMonad (V.Vector Node)
-      we <- mkEngineFromMonad
-      _ <- applyCPlus we args
-      return ()
+      de <- getDagEngine
+      let v = applyCPlus (deWordEngine de) args
+      v `seq` return ()
   assert True

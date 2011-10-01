@@ -7,6 +7,7 @@ module SAWScript.CommandExec(runProofs) where
 -- Imports {{{1
 import Control.Exception
 import Control.Monad
+import Control.Monad.Identity
 import Data.Int
 import Data.List (intercalate)
 import Data.Map (Map)
@@ -266,9 +267,10 @@ execute (AST.ExternSBV pos nm absolutePath astFnType) = do
   let lhs = evalTerm $ appTerm (groundOp op) (V.toList lhsArgs)
   rhs <- lift $ runSymbolic oc $ do
     inputVars <- V.mapM freshUninterpretedVar argTypes
-    we <- SBV.mkEngineFromMonad
-    res <- opFn we inputVars :: SymbolicMonad Node
-    return $ nodeToTermCtor (fmap show . termInputId) res
+    de <- getDagEngine
+    return $ nodeToTermCtor (fmap show . termInputId)
+           $ runIdentity
+           $ opFn (deWordEngine de) inputVars
   -- Update state with op and rules.
   modify $ \s -> s { sbvOpMap = Map.insert sbvOpName (pos,op) (sbvOpMap s)
                    , definedNames = Map.insert nm pos (definedNames s)

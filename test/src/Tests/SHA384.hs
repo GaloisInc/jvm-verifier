@@ -11,6 +11,7 @@ module Tests.SHA384 (sha384Tests) where
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Trans
 import System.Process
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
@@ -68,9 +69,9 @@ evalDagSHA384 msg = do
     msgVars <- replicateM (length msg `div` 2) freshByte
     outVars <- runSimulator cb $ runSHA384 msgVars
     let inputValues = V.map constInt $ V.fromList (hexToByteSeq msg)
-    outCns <- symbolicEval inputValues $ do
-      mapM evalNode outVars
-    return $ byteSeqToHex outCns
+    de <- getDagEngine
+    evalFn <- liftIO $ deMkEvalFn de inputValues
+    return $ byteSeqToHex $ map evalFn outVars
   assert $ rslt == golden
   -- run $ putStrLn $ "SHA-384 Result : " ++ rslt
 

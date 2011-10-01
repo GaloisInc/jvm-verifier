@@ -310,12 +310,14 @@ getExprTypeFn = do
 -- | Typecheck expression at global level.
 methodParserConfig :: MethodSpecTranslator TC.TCConfig
 methodParserConfig = do
+  oc <- gets mstsOpCache
   globalBindings <- gets mstsGlobalBindings
   locals <- gets currentLetBindingMap
   cl <- gets specClass
   m <- gets mstsMethod
   exprTypeFn <- getExprTypeFn
-  return TC.TCC { TC.globalBindings
+  return TC.TCC { TC.opCache = oc
+                , TC.globalBindings
                 , TC.methodInfo = Just (m, cl)
                 , TC.localBindings = Map.map snd locals
                 , TC.toJavaExprType = Just exprTypeFn }
@@ -1194,16 +1196,12 @@ checkName (PathCheck _) = "the path condition"
 checkName (EqualityCheck nm _ _) = nm
 
 -- | Returns documentation for check that fails.
-checkCounterexample :: VerificationCheck
-                    -> SymbolicEvalMonad SymbolicMonad Doc
-checkCounterexample (PathCheck _) =
-  return $ text "The path conditions were unsatisfied."
-checkCounterexample (EqualityCheck nm jvmNode specNode) = do
-  jvmVal <- evalNode jvmNode
-  specVal <- evalNode specNode
-  return $ text nm $$
-             nest 2 (text "Encountered: " <> ppCValueD Mixfix jvmVal) $$
-             nest 2 (text "Expected:    " <> ppCValueD Mixfix specVal)
+checkCounterexample :: VerificationCheck -> (Node -> CValue) -> Doc
+checkCounterexample (PathCheck _) _ = text "The path conditions were unsatisfied."
+checkCounterexample (EqualityCheck nm jvmNode specNode) evalFn =
+  text nm $$
+    nest 2 (text "Encountered: " <> ppCValueD Mixfix (evalFn jvmNode)) $$
+    nest 2 (text "Expected:    " <> ppCValueD Mixfix (evalFn specNode))
 
 -- | Returns assumptions in method spec.
 methodAssumptions :: MethodSpecIR
@@ -1395,7 +1393,7 @@ methodSpecVCs pos cb opts overrides ir = do
 runABC :: MethodSpecIR
        -> InputEvaluatorList
        -> Node
-       -> SymbolicEvalMonad SymbolicMonad Doc
+       -> ((Node -> CValue) -> Doc)
        -> SymbolicMonad ()
 runABC ir inputEvalList fGoal counterFn = do
   whenVerbosity (>= 3) $
@@ -1421,7 +1419,9 @@ runABC ir inputEvalList fGoal counterFn = do
           let (inputExprs,inputEvals) = unzip inputEvalList
           let inputValues = map ($lits) inputEvals
           -- Get differences between two.
-          diffDoc <- symbolicEval (V.fromList inputValues) $ counterFn
+          de <- getDagEngine
+          evalFn <- liftIO $ deMkEvalFn de (V.fromList inputValues)
+          let diffDoc = counterFn evalFn
           let inputExprValMap = Map.fromList (inputExprs `zip` inputValues)
           let inputDocs
                 = flip map (Map.toList inputExprValMap) $ \(expr,c) ->

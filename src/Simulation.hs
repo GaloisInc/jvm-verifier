@@ -30,7 +30,7 @@ module Simulation
   , Ref(..)
   , State
   , SimulationFlags(..)
-  , SymbolicTerm
+  , Node
   , Value
   , cIntValue
   , defaultSimFlags

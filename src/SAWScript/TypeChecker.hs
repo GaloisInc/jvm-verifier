@@ -20,6 +20,7 @@ module SAWScript.TypeChecker
   ) where
 
 import Control.Monad
+import Control.Monad.Trans
 import Data.Map(Map)
 import qualified Data.Map as Map
 import qualified Data.Vector as V
@@ -161,8 +162,10 @@ globalEval oc expr = do
       mkNode (Cns c tp) = makeConstant c tp
       mkNode (Apply op args) = applyOp op =<< mapM mkNode args
   runSymbolic oc $ do
+    de <- getDagEngine
     n <- mkNode expr
-    symbolicEval V.empty (evalNode n)
+    evalFn <- liftIO $ deMkEvalFn de V.empty
+    return (evalFn n)
 
 -- DefinedJavaExprType {{{1
 
@@ -273,8 +276,7 @@ tcE (AST.MkArray p (es@(_:_))) = do
         | otherwise = mismatch p ("array elements " ++ show i ++ " and " ++ show j) x y
   t   <- go $ zip [(1::Int)..] $ map getTypeOfExpr es'
   oc <- gets opCache
-  op <- liftTI $ mkArrayOp oc (length es') t
-  return $ Apply op es'
+  return $ Apply (mkArrayOp oc (length es') t) es'
 tcE (AST.TypeExpr pos (AST.ConstantInt posCnst i) astTp) = do
   tp <- tcT astTp
   let nonGround = typeErr pos $   text "The type" <+> text (ppType tp)
@@ -307,8 +309,7 @@ tcE (AST.TypeExpr p (AST.MkArray _ []) astResType) = do
     SymArray we _
       | Just (Wx 0) <- widthConstant we -> do
          oc <- gets opCache
-         op <- liftTI $ mkArrayOp oc 0 resType
-         return $ Apply op []
+         return $ Apply (mkArrayOp oc 0 resType) []
     _  -> unexpected p "Empty-array comprehension" "empty-array type" resType
 tcE (AST.MkRecord _ flds) = do
    flds' <- mapM tcE [e | (_, _, e) <- flds]
