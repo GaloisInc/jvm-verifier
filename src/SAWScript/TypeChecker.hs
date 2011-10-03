@@ -161,11 +161,7 @@ globalEval oc expr = do
         error "internal: globalEval called with expression containing Java references."
       mkNode (Cns c tp) = makeConstant c tp
       mkNode (Apply op args) = applyOp op =<< mapM mkNode args
-  runSymbolic oc $ do
-    de <- getDagEngine
-    n <- mkNode expr
-    evalFn <- liftIO $ deMkEvalFn de V.empty
-    return (evalFn n)
+  runSymbolic oc $ mkConcreteEval V.empty `ap` mkNode expr
 
 -- DefinedJavaExprType {{{1
 

@@ -9,7 +9,6 @@ Point-of-contact : matthews
 module Tests.Session (sessionTests)
   where
 
-import qualified Control.Exception as CE
 import Control.Monad.Trans (liftIO)
 
 import Test.QuickCheck
@@ -20,15 +19,20 @@ import Verinf.IO.Session
 import Verinf.Utils.Assert
 
 sessionTests :: [(Args, Property)]
-sessionTests = []
+--sessionTests = []
+sessionTests =
+  [ ( stdArgs{ maxSuccess = 1 }
+    , label "testSymbolicSession" $ monadicIO $ run testSymbolicSession
+    )
+  ]
 
-{-
+
 -- Testing Symbolic.makeSession and some SymbolicMonad operations within
 --  the session.
 testSymbolicSession :: IO ()
 testSymbolicSession = do
   -- Create a new session for performing SymbolicMonad and AigMonad computations
-  sess <- makeSession
+  sess <- makeSession :: IO (Session SymbolicMonad)
   let sym = toIO sess
   -- Test that SymbolicMonad errors are properly converted to IO exceptions.
   v <- sym $ freshUninterpretedVar (SymInt (constantWidth 32))
@@ -78,4 +82,3 @@ testSymbolicSession = do
                  "Tests.Session.testSymbolicSession: (not (head resFalseFalse)) failed"
   -- Close the session
   finishIO sess
-  -}

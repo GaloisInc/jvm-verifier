@@ -1419,8 +1419,7 @@ runABC ir inputEvalList fGoal counterFn = do
           let (inputExprs,inputEvals) = unzip inputEvalList
           let inputValues = map ($lits) inputEvals
           -- Get differences between two.
-          de <- getDagEngine
-          evalFn <- liftIO $ deMkEvalFn de (V.fromList inputValues)
+          evalFn <- mkConcreteEval (V.fromList inputValues)
           let diffDoc = counterFn evalFn
           let inputExprValMap = Map.fromList (inputExprs `zip` inputValues)
           let inputDocs

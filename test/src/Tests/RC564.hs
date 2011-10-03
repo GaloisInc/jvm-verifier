@@ -75,8 +75,7 @@ evalDagRC564 key input = do
     let inpValues = V.map constInt
                   $ V.fromList
                   $ hexToByteSeq key ++ hexToByteSeq input
-    de <- getDagEngine
-    evalFn <- liftIO $ deMkEvalFn de inpValues
+    evalFn <- mkConcreteEval inpValues
     return $ byteSeqToHex (map evalFn outVars)
   assert $ rslt == golden
 --   run $ putStrLn $ "Result : " ++ rslt

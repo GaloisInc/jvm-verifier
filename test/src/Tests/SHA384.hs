@@ -17,6 +17,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 
 import qualified Data.Vector as V
+import qualified Data.Vector.Storable as SV
 import JavaParser.Common
 import Simulation hiding (run)
 import Tests.Common
@@ -69,8 +70,7 @@ evalDagSHA384 msg = do
     msgVars <- replicateM (length msg `div` 2) freshByte
     outVars <- runSimulator cb $ runSHA384 msgVars
     let inputValues = V.map constInt $ V.fromList (hexToByteSeq msg)
-    de <- getDagEngine
-    evalFn <- liftIO $ deMkEvalFn de inputValues
+    evalFn <- mkConcreteEval inputValues
     return $ byteSeqToHex $ map evalFn outVars
   assert $ rslt == golden
   -- run $ putStrLn $ "SHA-384 Result : " ++ rslt
@@ -91,9 +91,9 @@ evalAigSHA384 msg = do
     -- | Boolean inputs to evalAig
     let binps = concatMap (take 8 . intToBoolSeq) cinps
     be <- getBitEngine
-    r <- liftIO $ evalAig be binps outLits
+    r <- liftIO $ beEvalAigV be (SV.fromList binps) (SV.fromList outLits)
     let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
-               $ take 32 (drop (32*k) r)
+               $ SV.toList $ SV.slice (32*k) 32 r
              | k <- [0..47]
              ]
     -- Perform evaluation and blasting of every literal

@@ -772,8 +772,7 @@ blastMethodSpec oc cb spec = do
               let inputValues = V.map ($lits) litParseFns
               --evalAndBlast inputValues lits
               --liftIO $ putStrLn "EvalAndBlast succeeded"
-              de <- getDagEngine
-              evalFn <- liftIO $ deMkEvalFn de inputValues
+              evalFn <- mkConcreteEval inputValues
               let counters = counterFn evalFn
               let inputMap = Map.fromList
                            $ V.toList

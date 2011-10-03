@@ -56,7 +56,7 @@ testCPlus = monadicIO $ do
     (cPlusSbvOp,WEF applyCPlus) <- parseSBVOp oc uninterpFn "cplus" sbv
     runSymbolic oc $ do
       args <- V.mapM freshUninterpretedVar (opDefArgTypes cPlusSbvOp) :: SymbolicMonad (V.Vector Node)
-      de <- getDagEngine
-      let v = applyCPlus (deWordEngine de) args
+      ts <- getTermSemantics
+      let v = applyCPlus ts args
       v `seq` return ()
   assert True

@@ -35,9 +35,9 @@ testAction i what cfg = do res  <- run $ do
                              let (argTys,_) = SBV.inferSBVFunctionType oc pgm
                              let SBV.WEF evalFn = SBV.parseSBV oc (\_ _ -> Nothing) pgm
                              runSymbolic oc $ do
-                               we <- deWordEngine `fmap` getDagEngine
+                               ts <- getTermSemantics
                                vars <- V.mapM freshUninterpretedVar argTys
-                               let trm = runIdentity $ evalFn we vars
+                               let trm = evalFn ts vars
                                return $ prettyTermWith cfg trm
                            let file = testDir ++ "/pp" ++ what ++ "." ++ show i ++ ".gold"
                            case mode of

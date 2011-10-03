@@ -49,7 +49,7 @@ sa1 cb =
     outIntLit <- toLsbf_lit <$> getVarLit outVar
     be <- getBitEngine
     let getAt = fmap boolSeqToInt32
-              . flip (evalAig be) outIntLit
+              . (\inp -> evalAig be inp outIntLit)
               . intToBoolSeq
               . constInt
     liftIO $ 
