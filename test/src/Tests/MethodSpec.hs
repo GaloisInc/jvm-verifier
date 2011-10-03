@@ -106,8 +106,9 @@ staticIntArrayCopyVerify :: (MonadTerm m ~ Node,
                             [Rule] -> MonadTerm m -> m ()
 staticIntArrayCopyVerify rules t = do
   let pgrm = foldl addRule emptyProgram rules
-  rew <- liftIO $ mkRewriter pgrm
-  res <- reduce rew t
+  ts <- getTermSemantics
+  rew <- liftIO $ mkRewriter pgrm ts
+  res <- liftIO $ reduce rew t
   case getBool res of
     Just True -> return ()
     _ -> return ()
@@ -147,8 +148,9 @@ buggyBitMaskVerify :: (ApplyOpMonad m,
                       [Rule] -> MonadTerm m -> m ()
 buggyBitMaskVerify rules t = do
   let pgrm = foldl addRule emptyProgram rules
-  rew <- liftIO $ mkRewriter pgrm
-  res <- reduce rew t
+  ts <- getTermSemantics
+  rew <- liftIO $ mkRewriter pgrm ts
+  res <- liftIO $ reduce rew t
   case getBool res of
     Just False -> return ()
     Just True -> fail "Rewriting proof succeded unexpectedly!"

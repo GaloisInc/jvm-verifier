@@ -1462,9 +1462,11 @@ verifyMethodSpec oc pos cb opts ir overrides rules = do
         fGoal <- applyBinaryOp bImpliesOp (vcAssumptions vc) fConseq
         -- Run verification
         let runRewriter = do
-            let pgm = foldl' addRule emptyProgram rules
-            rew <- liftIO $ mkRewriter pgm
-            reduce rew fGoal
+              let pgm = foldl' addRule emptyProgram rules
+              ts <- getTermSemantics
+              liftIO $ do
+                rew <- mkRewriter pgm ts
+                reduce rew fGoal
         case methodSpecVerificationTactic ir of
           AST.ABC -> do
             runABC ir (vcInputs vc) fGoal (checkCounterexample check)
