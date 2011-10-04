@@ -9,6 +9,7 @@ module Tests.Arrays (arrayTests) where
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Trans (liftIO)
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 
@@ -48,7 +49,7 @@ sa1 cb =
     outIntLit <- toLsbf_lit <$> getVarLit outVar
     be <- getBitEngine
     let getAt = fmap boolSeqToInt32
-              . flip (evalAig be) outIntLit
+              . (\inp -> evalAig be inp outIntLit)
               . intToBoolSeq
               . constInt
     liftIO $ 

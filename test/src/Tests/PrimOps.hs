@@ -18,6 +18,7 @@ import Control.Monad
 import Control.Monad.Trans
 import Data.Bits
 import qualified Data.Vector as V
+import qualified Data.Vector.Storable as SV
 import Data.Int
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
@@ -109,7 +110,7 @@ primOpTests =
     runBEs = (`concatMap` symbolicBackendRunFns)
     --
     symbolicBackendRunFns :: [RunSymTest a]
-    symbolicBackendRunFns = [(runSymbolic, runTest)]
+    symbolicBackendRunFns = [(\m -> flip runSymbolic m =<< mkOpCache, runTest)]
     --
     qr32 runIO cb =
       chkQuotRem
@@ -157,16 +158,18 @@ mkTest runTest' _lbl getRslt cb maigNm (cNm, mNm, sig)
        snd . getRslt . withoutExceptions
          <$> (runStaticMethod cNm mNm sig =<< mkArgs syms)
     -- dbugM $ "mkTest: rslt = " ++ show rslt
-    outIntLit <- toLsbf_lit <$> getVarLit rslt
-    chks0     <- forM inps $ \inp -> do
-       prDag inp <$> (symbolicEval (V.fromList inp) (evalNode rslt))
+    outIntLit <- toLsbfV <$> getVarLit rslt
+    chks0 <- forM inps $ \inp -> do
+       evalFn <- mkConcreteEval (V.fromList inp)
+       return $ prDag inp (evalFn rslt)
     be <- getBitEngine
     liftIO $ do
       case maigNm of
         Nothing -> return ()
-        Just nm -> writeAiger be nm outIntLit
+        Just nm -> beWriteAigerV be nm outIntLit
       chks1 <- liftIO $ forM inps $ \inp ->
-        prAig inp <$> evalAig be (toAigInps inp) outIntLit
+        prAig inp . SV.toList
+          <$> beEvalAigV be (SV.fromList (toAigInps inp)) outIntLit
       return (chks0 ++ chks1)
 
 mkIntTest ::
@@ -337,17 +340,17 @@ t13 cb = runTest $ do
     getIntArray pd outArr
 
   -- DAG eval
-  outCns <- symbolicEval (V.fromList cInputs) $ mapM evalNode outVars
+  evalFn <- mkConcreteEval (V.fromList cInputs)
   -- AIG eval
   outLits <- mapM getVarLit outVars
   be <- getBitEngine
-  r <- liftIO $ evalAig be
-                        (concatMap intToBoolSeq cInputs)
-                        (concatMap toLsbf_lit outLits)
+  r <- liftIO $ beEvalAigV be
+                           (SV.fromList $ concatMap intToBoolSeq cInputs)
+                           (SV.fromList $ concatMap toLsbf_lit outLits)
   let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
-             $ take 32 (drop (32*k) r)
+             $ SV.toList $ (SV.slice (32*k) 32 r)
            | k <- [0..(n-1)] ]
-  return [outCns == expect && rs == expect]
+  return [map evalFn outVars == expect && rs == expect]
 
 -- NB: This won't symbolically terminate yet.
 _t14 :: TrivialProp
@@ -377,9 +380,8 @@ ct1 cb = runTest $ do
                                          "([I)V"
                                          [RValue outArr]
     getIntArray pd outArr
-  symbolicEval V.empty $ do
-    outCns <- mapM evalNode outVars
-    return $ [[constInt 42, constInt 42] == outCns]
+  evalFn <- mkConcreteEval V.empty
+  return $ [[constInt 42, constInt 42] == map evalFn outVars]
 
 -- | Ensure that refFromString produces a usable string reference
 ct2 :: TrivialProp
@@ -391,9 +393,8 @@ ct2 cb =
       (\(~(Right r)) -> r) . snd . takeIntRslt . withoutExceptions
         <$> runStaticMethod "Trivial" "stringCheck" "(Ljava/lang/String;I)Z"
               [RValue s, IValue (mkCInt (Wx 32) . fromIntegral . length $ str)]
-    symbolicEval V.empty $ do
-      outCns <- evalNode outVar
-      return [boolFromConst outCns]
+    evalFn <- mkConcreteEval V.empty
+    return [boolFromConst (evalFn outVar)]
 
 --------------------------------------------------------------------------------
 -- floating point tests
@@ -534,20 +535,20 @@ evalBinOp runIO _lbl cb w maigNm mkValue getSymIntegralFromValue newSymVar
             <$> runStaticMethod classNm methodNm sig [mkValue a, mkValue b]
     let rslt = getSymIntegralFromValue val
     outIntLit <- toLsbf_lit <$> getVarLit rslt
-    cns <- symbolicEval (V.map (CInt w . fromIntegral) $ V.fromList [x, y])
-                        (evalNode rslt)
+    evalFn <- mkConcreteEval (V.map (CInt w . fromIntegral) $ V.fromList [x, y])
     let inputs = concatMap (intToBoolSeq . CInt w . fromIntegral) [x, y]
     be <- getBitEngine
     liftIO $ do
-      aigResult <- evalAig be inputs outIntLit
+      aigResult <- beEvalAigV be (SV.fromList inputs) (SV.fromList outIntLit)
       case maigNm of
         Nothing -> return ()
         Just nm -> writeAiger be nm outIntLit
-      return ( cns
+      return ( evalFn rslt
              , -- aiger eval
                hexToIntegral
                $ (\hs -> CE.assert (length hs == numBits w `div` 4) hs)
                $ boolSeqToHex
+               $ SV.toList
                $ aigResult
              )
 

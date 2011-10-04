@@ -10,6 +10,7 @@ Point-of-contact : jstanley
 module Tests.RC564 (rc564Tests) where
 
 import Control.Monad
+import Control.Monad.Trans (liftIO)
 import qualified Data.Vector as V
 import System.Process
 import Test.QuickCheck
@@ -62,28 +63,29 @@ getGoldenRC564 key inp =
 evalDagRC564 :: String -> String -> PropertyM IO ()
 evalDagRC564 key input = do
   cb     <- commonCB
+  oc <- run mkOpCache
   golden <- run $ getGoldenRC564 key input
 --   run $ putStrLn $ "Key    : " ++ key
 --   run $ putStrLn $ "Input  : " ++ input
 --   run $ putStrLn $ "Golden : " ++ golden
-  rslt <- run $ runSymbolic $ do
+  rslt <- run $ runSymbolic oc $ do
     keyVars <- replicateM 16 freshByte
     inpVars <- replicateM 16 freshByte
     outVars <- runSimulator cb $ runRC564 keyVars inpVars
     let inpValues = V.map constInt
                   $ V.fromList
                   $ hexToByteSeq key ++ hexToByteSeq input
-    outCns <- symbolicEval inpValues $ do
-      mapM evalNode outVars
-    return $ byteSeqToHex outCns
+    evalFn <- mkConcreteEval inpValues
+    return $ byteSeqToHex (map evalFn outVars)
   assert $ rslt == golden
 --   run $ putStrLn $ "Result : " ++ rslt
 
 _makeAigerRC564 :: String -> IO ()
 _makeAigerRC564 filepath = do
   cb <- commonLoadCB
+  oc <- mkOpCache
   putStrLn "Simulating RC564"
-  runSymbolic $ do
+  runSymbolic oc $ do
     keyVars <- replicateM 16 freshByte
     inpVars <- replicateM 16 freshByte
     outValues <- runSimulator cb $ runRC564 keyVars inpVars
