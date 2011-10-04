@@ -6,6 +6,7 @@ Point-of-contact : jhendrix
 -}
 
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module SBVModel.SBV where
 

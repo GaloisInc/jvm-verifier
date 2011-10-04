@@ -1,5 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 module SAWScript.MethodSpec
   ( MethodSpecIR

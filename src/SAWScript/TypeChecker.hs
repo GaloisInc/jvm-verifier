@@ -3,6 +3,7 @@
 {-# LANGUAGE ViewPatterns         #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE PatternGuards        #-}
+{-# LANGUAGE FlexibleInstances    #-}
 module SAWScript.TypeChecker
   ( JavaExpr(..)
   , getJSSTypeOfJavaExpr
