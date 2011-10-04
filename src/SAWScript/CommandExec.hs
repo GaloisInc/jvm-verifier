@@ -39,8 +39,9 @@ import Verinf.Utils.LogMonad
 -- Executor primitives {{{1
 
 data ExecutorState = ES {
+    opCache :: OpCache
     -- | Java codebase
-    codebase :: JSS.Codebase
+  , codebase :: JSS.Codebase
   , execOptions :: SSOpts
     -- | Maps SAWScript function names to corresponding operator definition.
   , sawOpMap :: Map String OpDef
@@ -62,7 +63,7 @@ data ExecutorState = ES {
   , rules :: Map String Rule
     -- | Set of currently enabled rules.
   , enabledRules :: Set String
-  } deriving (Show)
+  }
 
 newtype MExecutor m a = Ex (StateT ExecutorState m a)
   deriving ( CatchMIO
@@ -73,7 +74,7 @@ newtype MExecutor m a = Ex (StateT ExecutorState m a)
            , MonadTrans
            )
 
-type Executor = MExecutor OpSession
+type Executor = MExecutor IO
 
 instance JSS.HasCodebase Executor where
   getCodebase = gets codebase
@@ -145,75 +146,32 @@ checkNameIsDefined pos name = do
                            <+> text "has been defined.")
                          ("Please check that the name is correct.")
 
--- idRecordsInIRType {{{1
-
--- | Identify recors in IRType and register them with Executor.
-idRecordsInIRType :: Pos -> Doc -> Maybe String -> SBV.IRType -> Executor ()
-idRecordsInIRType pos relativePath uninterpName tp =
-   case tp of
-     SBV.TApp "->" [(SBV.TApp op irTypes), irResult]
-        | SBV.isTuple op (length irTypes) -> mapM_ parseType (irResult:irTypes)
-     SBV.TApp "->" [irType, irResult] -> mapM_ parseType [irType, irResult]
-     _ -> parseType tp -- Contant
-  where -- Parse single IRType to get records out of it and verify function names.
-        parseType :: SBV.IRType -> Executor ()
-        parseType (SBV.TVar _i) = return ()
-        parseType (SBV.TInt _i) = return ()
-        parseType (SBV.TApp fnName args)
-          | SBV.isTuple fnName (length args) =
-             case uninterpName of
-               Just name ->
-                throwIOExecException pos
-                  (text "The SBV file" <+> relativePath
-                    <+> ftext "references an uninterpreted function" <+> text name
-                    <+> ftext "with a tuple type, however this is not currently supported by SAWScript.")
-                  ("Please ensure that the SBV file was correctly generated.")
-               Nothing ->
-                throwIOExecException pos
-                  (text "The SBV file" <+> relativePath
-                    <+> ftext "has a tuple in its signature.  This is not currently supported by SAWScript.")
-                  ("Please rewrite the Cryptol function to use a record rather than a tuple.")
-          | otherwise = mapM_ parseType args
-        parseType (SBV.TRecord (unzip -> (names,schemes))) = do
-          -- Lookup record def for files to ensure it is known to executor.
-          _ <- lift $ getStructuralRecord (Set.fromList names)
-          mapM_ (parseType . SBV.schemeType) schemes
 
 -- Operations for extracting DagType from AST expression types {{{1
 
 -- | Returns argument types and result type.
-opDefType :: OpDef -> ([DagType], DagType)
-opDefType def = (V.toList (opDefArgTypes def), opDefResultType def)
+opDefType :: OpDef -> (V.Vector DagType, DagType)
+opDefType def = (opDefArgTypes def, opDefResultType def)
 
 -- | Parse the FnType returned by the parser into symbolic dag types.
-parseFnType :: AST.FnType -> Executor ([DagType], DagType)
+parseFnType :: AST.FnType -> Executor (V.Vector DagType, DagType)
 parseFnType (AST.FnType args res) = do
   globalBindings <- getGlobalBindings
-  let config = TC.mkGlobalTCConfig globalBindings Map.empty
+  oc <- gets opCache
+  let config = TC.mkGlobalTCConfig oc globalBindings Map.empty
   lift $ do
-    parsedArgs <- mapM (TC.tcType config) args
+    parsedArgs <- V.mapM (TC.tcType config) (V.fromList args)
     parsedRes <- TC.tcType config res
     return (parsedArgs, parsedRes)
 
 -- Operations used for SBV Parsing {{{1
 
--- | Create record def map using currently known records.
-getRecordDefMap :: OpSession SBV.RecordDefMap
-getRecordDefMap = do
-  curRecDefs <- listStructuralRecords
-  let recordFn :: [(String, DagType)] -> Maybe DagType
-      recordFn fields =
-        let fieldNames = Set.fromList (map fst fields)
-            sub = emptySubst { shapeSubst = Map.fromList fields }
-         in fmap (flip SymRec sub) $ Map.lookup fieldNames curRecDefs
-  return recordFn
-
 -- | Check uninterpreted functions expected in SBV are already defined.
 checkSBVUninterpretedFunctions :: Pos -> Doc -> SBV.SBVPgm -> Executor ()
 checkSBVUninterpretedFunctions pos relativePath sbv = do
   let SBV.SBVPgm (_ver, _, _cmds, _vc, _warn, sbvUninterpFns) = sbv
+  oc <- gets opCache
   curSbvOps <- gets sbvOpMap
-  recordFn <- lift $ getRecordDefMap
   forM_ sbvUninterpFns $ \((name, _loc), irType, _) -> do
     case Map.lookup name curSbvOps of
       Nothing -> do
@@ -225,8 +183,9 @@ checkSBVUninterpretedFunctions pos relativePath sbv = do
             res = "Please load this extern SBV file before attempting to load \'"
                     ++ name ++ "\'."
         throwIOExecException pos msg res
-      Just (_,def) ->
-        unless (opDefType def == SBV.inferFunctionType recordFn irType) $ do
+      Just (_,def) -> do
+        let resType = SBV.inferFunctionType oc irType
+        unless (opDefType def == resType) $ do
           let msg = text "The type of the uninterpreted function"
                      <+> quotes (text name)
                      <+> text "does not match the type expected in the extern SBV file"
@@ -251,6 +210,7 @@ execute :: AST.VerifierCommand -> Executor ()
 execute (AST.ImportCommand _pos path) = do
   mapM_ execute =<< parseFile path
 execute (AST.ExternSBV pos nm absolutePath astFnType) = do
+  oc <- gets opCache
   -- Get relative path as Doc for error messages.
   relativePath <- liftIO $ fmap (doubleQuotes . text) $
                     makeRelativeToCurrentDirectory absolutePath
@@ -276,17 +236,12 @@ execute (AST.ExternSBV pos nm absolutePath astFnType) = do
   sbv <- liftIO $ SBV.loadSBV absolutePath
   --- Parse SBV type to add recordDefs as needed.
   debugWrite $ "Parsing SBV type for " ++ nm
-  let SBV.SBVPgm (_ver, sbvExprType, _cmds, _vc, _warn, sbvUninterpFns) = sbv
-  idRecordsInIRType pos relativePath Nothing sbvExprType
-  forM_ sbvUninterpFns $ \((name, _loc), irType, _) ->
-    idRecordsInIRType pos relativePath (Just name) irType
-  -- Define recordDefFn
-  debugWrite $ "Defining recordDefFn for " ++ nm
-  recordFn <- lift $ getRecordDefMap
+  let SBV.SBVPgm (_ver, sbvExprType, _cmds, _vc, _warn, _uninterpFns) = sbv
   -- Check that op type matches expected type.
   debugWrite $ "Checking expected type matches inferred type for " ++ nm
   fnType <- parseFnType astFnType
-  unless (fnType == SBV.inferFunctionType recordFn sbvExprType) $
+  let inferredType = SBV.inferFunctionType oc sbvExprType
+  unless (fnType == inferredType) $
     let msg = (ftext "The type of the function in the imported SBV file"
                  $$ relativePath
                  $$ ftext "differs from the type provided to the extern command.")
@@ -303,16 +258,18 @@ execute (AST.ExternSBV pos nm absolutePath astFnType) = do
   debugWrite $ "Parsing SBV inport for " ++ nm
   (op, SBV.WEF opFn) <-
     flip catchMIO (throwSBVParseError pos relativePath) $ lift $
-      SBV.parseSBVOp recordFn uninterpFns nm sbv
+      SBV.parseSBVOp oc uninterpFns nm sbv
   -- Create rule for definition.
   debugWrite $ "Creating rule definition for for " ++ nm
   let (argTypes,_) = fnType
-  let lhsArgs = map (uncurry mkVar) $ (map show ([0..] :: [Int]) `zip` argTypes)
-  let lhs = evalTerm $ appTerm (groundOp op) lhsArgs
-  rhs <- lift $ runSymSession $ do
-    inputVars <- V.mapM freshUninterpretedVar (V.fromList argTypes)
-    res <- opFn inputVars :: SymbolicMonad Node
-    return $ nodeToTermCtor (fmap show . termInputId) res
+  let lhsArgs = V.map (\i -> mkVar (show i) (argTypes V.! i))
+              $ V.enumFromN 0 (V.length argTypes)
+  let lhs = evalTerm $ appTerm (groundOp op) (V.toList lhsArgs)
+  rhs <- lift $ runSymbolic oc $ do
+    inputVars <- V.mapM freshUninterpretedVar argTypes
+    ts <- getTermSemantics
+    return $ nodeToTermCtor (fmap show . termInputId)
+           $ opFn ts inputVars
   -- Update state with op and rules.
   modify $ \s -> s { sbvOpMap = Map.insert sbvOpName (pos,op) (sbvOpMap s)
                    , definedNames = Map.insert nm pos (definedNames s)
@@ -324,11 +281,12 @@ execute (AST.ExternSBV pos nm absolutePath astFnType) = do
 execute (AST.GlobalLet pos name astExpr) = do
   debugWrite $ "Start defining let " ++ name
   checkNameIsUndefined pos name
+  oc <- gets opCache
   valueExpr <- do
     bindings <- getGlobalBindings
-    let config = TC.mkGlobalTCConfig bindings Map.empty
+    let config = TC.mkGlobalTCConfig oc bindings Map.empty
     lift $ TC.tcExpr config astExpr
-  val <- lift $ TC.globalEval valueExpr
+  val <- lift $ TC.globalEval oc valueExpr
   let tp = TC.getTypeOfExpr valueExpr
   modify $ \s -> s { definedNames = Map.insert name pos (definedNames s)
                    , globalLetBindings = Map.insert name (val, tp) (globalLetBindings s) }
@@ -336,6 +294,7 @@ execute (AST.GlobalLet pos name astExpr) = do
 execute (AST.SetVerification _pos val) = do
   modify $ \s -> s { runVerification = val }
 execute (AST.DeclareMethodSpec pos methodId cmds) = do
+  oc <- gets opCache
   let mName:revClasspath = reverse methodId
   when (null revClasspath) $
     throwIOExecException pos (ftext "Missing class in method declaration.") ""
@@ -345,7 +304,7 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
   -- Resolve method spec IR
   ir <- do
     bindings <- getGlobalBindings
-    lift $ TC.resolveMethodSpecIR bindings pos thisClass mName cmds
+    lift $ TC.resolveMethodSpecIR oc bindings pos thisClass mName cmds
   v <- gets runVerification
   ts <- getTimeStamp
   whenVerbosityWriteNoLn (==1) $
@@ -361,7 +320,7 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
         allRules <- gets rules
         enRules <- gets enabledRules
         let activeRules = map (allRules Map.!) $ Set.toList enRules
-        lift $ TC.verifyMethodSpec pos cb opts ir overrides activeRules
+        liftIO $ TC.verifyMethodSpec oc pos cb opts ir overrides activeRules
       whenVerbosityWrite (==1) $ "Done. [Time: " ++ elapsedTime ++ "]"
       whenVerbosityWrite (>1) $
         "Completed verification of \"" ++ TC.methodSpecName ir ++ "\". [Time: " ++ elapsedTime ++ "]"
@@ -374,6 +333,7 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
 execute (AST.Rule pos ruleName params astLhsExpr astRhsExpr) = do
   debugWrite $ "Start defining rule " ++ ruleName
   checkNameIsUndefined pos ruleName
+  oc <- gets opCache
   bindings <- getGlobalBindings
   -- | Get map from variable names to typed expressions.
   nameTypeMap <- lift $ flip execStateT Map.empty $ do
@@ -385,10 +345,10 @@ execute (AST.Rule pos ruleName params astLhsExpr astRhsExpr) = do
                      ++ fieldNm ++ "\'."
            in throwIOExecException fieldPos (ftext msg) ""
         Nothing -> do
-          let config = TC.mkGlobalTCConfig bindings Map.empty
+          let config = TC.mkGlobalTCConfig oc bindings Map.empty
           tp <- lift $ TC.tcType config astType
           modify $ Map.insert fieldNm (TC.Var fieldNm tp)
-  let config = TC.mkGlobalTCConfig bindings nameTypeMap
+  let config = TC.mkGlobalTCConfig oc bindings nameTypeMap
   lhsExpr <- lift $ TC.tcExpr config astLhsExpr
   rhsExpr <- lift $ TC.tcExpr config astRhsExpr
   -- Check types are equivalence
@@ -435,9 +395,11 @@ runProofs :: JSS.Codebase
           -> AST.SSPgm
           -> IO ExitCode
 runProofs cb ssOpts files = do
+  oc <- mkOpCache
   let initialPath = entryPoint ssOpts
   let initState = ES {
-          codebase = cb
+          opCache = oc
+        , codebase = cb
         , execOptions = ssOpts
         , parsedFiles = files
         , runVerification = True
@@ -454,7 +416,7 @@ runProofs cb ssOpts files = do
                      mapM_ execute cmds
                      liftIO $ putStrLn "Verification complete!"
                      return ExitSuccess
-  catch (runOpSession (evalStateT action initState))
+  catch (evalStateT action initState)
     (\(ExecException absPos errorMsg resolution) -> do
         relPos <- posRelativeToCurrentDirectory absPos
         ts <- getTimeStamp

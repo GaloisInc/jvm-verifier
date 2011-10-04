@@ -188,7 +188,9 @@ ppSpecJavaRefEquivClass cl = "{ " ++ intercalate ", " (map show (sort cl)) ++ " 
 -- | Method spec translator state
 -- N.B. keys in nonRefTypes, refTypeMap and constExprMap are disjoint.
 data MethodSpecTranslatorState = MSTS {
-         mstsPos :: Pos
+         mstsOpCache :: OpCache
+         -- | Position of method spec decalaration.
+       , mstsPos :: Pos
        , mstsGlobalBindings :: TC.GlobalBindings
          -- | Class we are currently parsing.
        , specClass :: JSS.Class
@@ -224,7 +226,7 @@ data MethodSpecTranslatorState = MSTS {
        , chosenVerificationMethod :: Maybe (Pos, AST.VerificationMethod)
        }
 
-type MethodSpecTranslator = StateT MethodSpecTranslatorState OpSession
+type MethodSpecTranslator = StateT MethodSpecTranslatorState IO
 
 instance JSS.HasCodebase MethodSpecTranslator where
   getCodebase = gets (TC.codeBase . mstsGlobalBindings)
@@ -309,12 +311,14 @@ getExprTypeFn = do
 -- | Typecheck expression at global level.
 methodParserConfig :: MethodSpecTranslator TC.TCConfig
 methodParserConfig = do
+  oc <- gets mstsOpCache
   globalBindings <- gets mstsGlobalBindings
   locals <- gets currentLetBindingMap
   cl <- gets specClass
   m <- gets mstsMethod
   exprTypeFn <- getExprTypeFn
-  return TC.TCC { TC.globalBindings
+  return TC.TCC { TC.opCache = oc
+                , TC.globalBindings
                 , TC.methodInfo = Just (m, cl)
                 , TC.localBindings = Map.map snd locals
                 , TC.toJavaExprType = Just exprTypeFn }
@@ -477,11 +481,12 @@ resolveDecl (AST.Const pos astJavaExpr astValueExpr) = do
   checkRefIsNotConst pos javaExpr $
     "Multiple const declarations on the same Java expression are not allowed."
   -- Parse expression (must be global since this is a constant.
+  oc <- gets mstsOpCache
   valueExpr <- do
     bindings <- gets mstsGlobalBindings
-    let config = TC.mkGlobalTCConfig bindings Map.empty
+    let config = TC.mkGlobalTCConfig oc bindings Map.empty
     lift $ TC.tcExpr config astValueExpr
-  val <- lift $ TC.globalEval valueExpr
+  val <- lift $ TC.globalEval oc valueExpr
   let tp = TC.getTypeOfExpr valueExpr
   -- Check ref and expr have compatible types.
   checkJavaExprCompat pos (show javaExpr) (TC.getJSSTypeOfJavaExpr javaExpr) tp
@@ -619,14 +624,16 @@ methodSpecInstanceFieldExprs ir =
 
 -- | Interprets AST method spec commands to construct an intermediate
 -- representation that
-resolveMethodSpecIR :: TC.GlobalBindings
+resolveMethodSpecIR :: OpCache
+                    -> TC.GlobalBindings
                     -> Pos
                     -> JSS.Class
                     -> String
                     -> [AST.MethodSpecDecl]
-                    -> OpSession MethodSpecIR
-resolveMethodSpecIR gb pos thisClass mName cmds = do
-  let st = MSTS { mstsPos = pos
+                    -> IO MethodSpecIR
+resolveMethodSpecIR oc gb pos thisClass mName cmds = do
+  let st = MSTS { mstsOpCache = oc
+                , mstsPos = pos
                 , mstsGlobalBindings = gb
                 , specClass = thisClass
                 , mstsMethod = undefined
@@ -1190,16 +1197,12 @@ checkName (PathCheck _) = "the path condition"
 checkName (EqualityCheck nm _ _) = nm
 
 -- | Returns documentation for check that fails.
-checkCounterexample :: VerificationCheck
-                    -> SymbolicEvalMonad SymbolicMonad Doc
-checkCounterexample (PathCheck _) =
-  return $ text "The path conditions were unsatisfied."
-checkCounterexample (EqualityCheck nm jvmNode specNode) = do
-  jvmVal <- evalNode jvmNode
-  specVal <- evalNode specNode
-  return $ text nm $$
-             nest 2 (text "Encountered: " <> ppCValueD Mixfix jvmVal) $$
-             nest 2 (text "Expected:    " <> ppCValueD Mixfix specVal)
+checkCounterexample :: VerificationCheck -> (Node -> CValue) -> Doc
+checkCounterexample (PathCheck _) _ = text "The path conditions were unsatisfied."
+checkCounterexample (EqualityCheck nm jvmNode specNode) evalFn =
+  text nm $$
+    nest 2 (text "Encountered: " <> ppCValueD Mixfix (evalFn jvmNode)) $$
+    nest 2 (text "Expected:    " <> ppCValueD Mixfix (evalFn specNode))
 
 -- | Returns assumptions in method spec.
 methodAssumptions :: MethodSpecIR
@@ -1391,7 +1394,7 @@ methodSpecVCs pos cb opts overrides ir = do
 runABC :: MethodSpecIR
        -> InputEvaluatorList
        -> Node
-       -> SymbolicEvalMonad SymbolicMonad Doc
+       -> ((Node -> CValue) -> Doc)
        -> SymbolicMonad ()
 runABC ir inputEvalList fGoal counterFn = do
   whenVerbosity (>= 3) $
@@ -1417,7 +1420,8 @@ runABC ir inputEvalList fGoal counterFn = do
           let (inputExprs,inputEvals) = unzip inputEvalList
           let inputValues = map ($lits) inputEvals
           -- Get differences between two.
-          diffDoc <- symbolicEval (V.fromList inputValues) $ counterFn
+          evalFn <- mkConcreteEval (V.fromList inputValues)
+          let diffDoc = counterFn evalFn
           let inputExprValMap = Map.fromList (inputExprs `zip` inputValues)
           let inputDocs
                 = flip map (Map.toList inputExprValMap) $ \(expr,c) ->
@@ -1431,15 +1435,16 @@ runABC ir inputEvalList fGoal counterFn = do
           throwIOExecException (methodSpecPos ir) msg ""
 
 -- | Attempt to verify method spec using verification method specified.
-verifyMethodSpec :: Pos
+verifyMethodSpec :: OpCache
+                 -> Pos
                  -> JSS.Codebase
                  -> SSOpts
                  -> MethodSpecIR
                  -> [MethodSpecIR]
                  -> [Rule]
-                 -> OpSession ()
-verifyMethodSpec _ _ _ MSIR { methodSpecVerificationTactic = AST.Skip } _ _ = return ()
-verifyMethodSpec pos cb opts ir overrides rules = do
+                 -> IO ()
+verifyMethodSpec _ _ _ _ MSIR { methodSpecVerificationTactic = AST.Skip } _ _ = return ()
+verifyMethodSpec oc pos cb opts ir overrides rules = do
   let v = verbose opts
   when (v >= 2) $
     liftIO $ putStrLn $ "Starting verification of " ++ methodSpecName ir
@@ -1447,7 +1452,7 @@ verifyMethodSpec pos cb opts ir overrides rules = do
   forM_ vcList $ \mVC -> do
     when (v >= 6) $
       liftIO $ putStrLn $ "Considing new alias configuration of " ++ methodSpecName ir
-    runSymSession $ do
+    runSymbolic oc $ do
       setVerbosity v
       vc <- mVC
       forM (vcChecks vc) $ \check -> do
@@ -1458,9 +1463,11 @@ verifyMethodSpec pos cb opts ir overrides rules = do
         fGoal <- applyBinaryOp bImpliesOp (vcAssumptions vc) fConseq
         -- Run verification
         let runRewriter = do
-            let pgm = foldl' addRule emptyProgram rules
-            rew <- liftIO $ mkRewriter pgm
-            reduce rew fGoal
+              let pgm = foldl' addRule emptyProgram rules
+              ts <- getTermSemantics
+              liftIO $ do
+                rew <- mkRewriter pgm ts
+                reduce rew fGoal
         case methodSpecVerificationTactic ir of
           AST.ABC -> do
             runABC ir (vcInputs vc) fGoal (checkCounterexample check)

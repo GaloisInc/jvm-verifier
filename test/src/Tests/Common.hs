@@ -75,14 +75,16 @@ commonLoadCB :: IO Codebase
 commonLoadCB = loadCodebase commonJars commonClassPaths
 
 runTest :: SymbolicMonad [Bool] -> PropertyM IO ()
-runTest m = run (runSymbolic m) >>= mapM_ assert
+runTest m = run (mkOpCache >>= flip runSymbolic m) >>= mapM_ assert
 
 runNegTest :: SymbolicMonad [Bool] -> PropertyM IO ()
 runNegTest m = do
   -- For negative test cases, we don't want to report success of *any* failure,
   -- just the failures that we want to see, so we explicitly fail if any
   -- unexpected exception escapes out of m.
-  eea <- run $ CE.try (runSymbolic m)
+  eea <- run $ do
+   oc <- mkOpCache
+   CE.try (runSymbolic oc m)
   case eea of
     Left (e :: CE.SomeException) ->
       case CE.fromException e of

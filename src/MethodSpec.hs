@@ -408,8 +408,8 @@ partitions ((h,d):l) = do
   return (c', mk', md')
 partitions [] = [(0,Map.empty,Map.empty)]
 
-type CounterFn sym = SymbolicEvalMonad sym [JVMDiff]
-type MCounterFn sym = SymbolicEvalMonad sym (Maybe JVMDiff)
+type CounterFn sym = (MonadTerm sym -> CValue) -> [JVMDiff]
+type MCounterFn sym = (MonadTerm sym -> CValue) -> (Maybe JVMDiff)
 
 buildPathStateEquations ::
   forall sym.
@@ -461,13 +461,13 @@ buildPathStateEquations classDefVec
           Nothing -> error $ "Unexpected symbolic array element " ++ show ref
           Just i -> do
             let counterFn :: MonadTerm sym -> MCounterFn sym
-                counterFn specTerm = do
+                counterFn specTerm evalFn = do
                   let d:_ = classDefVec V.! i
-                  jvmVal <- evalNode jvmTerm
-                  specVal <- evalNode specTerm
-                  if jvmVal == specVal
-                    then return Nothing
-                    else return $ Just $ DV d specVal jvmVal
+                      jvmVal = evalFn jvmTerm
+                      specVal = evalFn specTerm
+                   in if jvmVal == specVal
+                        then Nothing
+                        else Just $ DV d specVal jvmVal
             case Map.lookup i classChangeMap of
               Nothing -> do
                 let Just specTerm = classTermVec V.! i
@@ -501,11 +501,11 @@ buildVC spec specExprValue oldPathState newPathState fres stateEqns stateCounter
   eqAssumption <- liftSymbolic $ do
     negNew <- applyBNot newAssumption
     applyBOr negNew (psAssumptions oldPathState)
-  let assumptionCounterFn = do
-        CBool assumptionValue <- evalNode newAssumption
-        if assumptionValue
-          then return Nothing
-          else return $ Just StrongerAssumption
+  let assumptionCounterFn evalFn =
+        let CBool assumptionValue = evalFn newAssumption
+         in if assumptionValue
+              then Nothing
+              else Just StrongerAssumption
   let counterFns = assumptionCounterFn : stateCounterFns
   -- Perform SAT check on assumptions.
   bFinalEq <- liftSymbolic $
@@ -522,7 +522,7 @@ buildVC spec specExprValue oldPathState newPathState fres stateEqns stateCounter
               Just a  -> specExprValue a
   negCond <- liftSymbolic $ applyBNot cond
   finalTerm <-  liftSymbolic $ applyBOr negCond bFinalEq
-  return (finalTerm, liftM catMaybes $ mapM id counterFns)
+  return (finalTerm, \evalFn -> catMaybes (map ($ evalFn) counterFns))
 
 -- | Run simulator monad on method spec using fixed set of reference equivalence classes.
 runEquivChoice ::
@@ -702,21 +702,14 @@ freshenValue v = return v
 -- blastMethodSpec {{{1
 
 -- | Blasts a method specification and throws VerifyException if attempt fails.
-blastMethodSpec ::
-  forall sym.
-  ( AigOps sym
-  , MonadTerm sym ~ Node -- due to use of evalDagV
-  , SupportsSession sym
-  , TermDagMonad sym
-  )
-  => Codebase -> MethodSpec sym -> OpSession ()
-blastMethodSpec cb spec = do
+blastMethodSpec :: OpCache -> Codebase -> MethodSpec SymbolicMonad -> IO ()
+blastMethodSpec oc cb spec = do
   forM_ (partitions (reverse $ specRefs spec)) $ \(c,clDefMap,clTypeMap) -> do
     let classDefVec  = V.map snd $ V.fromListN c $ Map.toAscList clDefMap
         classTypeVec = V.map snd $ V.fromListN c $ Map.toAscList clTypeMap
     defInputsRef <- liftIO $ newIORef []
     litParseFnsRef <- liftIO $ newIORef []
-    runSymSession $ do
+    runSymbolic oc $ do
       be <- getBitEngine
       -- CreateTerms
       classTermVec <- V.forM (V.enumFromN 0 c) $ \cl -> do
@@ -779,7 +772,8 @@ blastMethodSpec cb spec = do
               let inputValues = V.map ($lits) litParseFns
               --evalAndBlast inputValues lits
               --liftIO $ putStrLn "EvalAndBlast succeeded"
-              counters <- symbolicEval inputValues counterFn
+              evalFn <- mkConcreteEval inputValues
+              let counters = counterFn evalFn
               let inputMap = Map.fromList
                            $ V.toList
                            $ V.map (\(d,i) -> (d,inputValues V.! i))
@@ -792,21 +786,17 @@ blastMethodSpec cb spec = do
 
 -- | Uses rewriting to simplify method spec and throws error if attempt fails.
 redMethodSpec ::
-  ( AigOps sym
-  , TermDagMonad sym
-  , SupportsSession sym
-  , MonadTerm sym ~ Node
-  )
-  => Codebase
-  -> MethodSpec sym
-  -> Simulator sym () -- | Action to run before running simulator.
-  -> (MonadTerm sym -> sym ())
-  -> OpSession ()
-redMethodSpec cb spec initializeM reduceFn = do
+     OpCache
+  -> Codebase
+  -> MethodSpec SymbolicMonad
+  -> Simulator SymbolicMonad () -- | Action to run before running simulator.
+  -> (MonadTerm SymbolicMonad -> SymbolicMonad ())
+  -> IO ()
+redMethodSpec oc cb spec initializeM reduceFn = do
   forM_ (partitions (reverse $ specRefs spec)) $ \(c,clDefMap,clTypeMap) -> do
     let classDefVec  = V.map snd $ V.fromListN c $ Map.toAscList clDefMap
         classTypeVec = V.map snd $ V.fromListN c $ Map.toAscList clTypeMap
-    runSymSession $ do
+    runSymbolic oc $ do
       -- CreateTerms
       classTermVec <- V.forM (V.enumFromN 0 c) $ \cl -> do
         case classTypeVec V.! cl of

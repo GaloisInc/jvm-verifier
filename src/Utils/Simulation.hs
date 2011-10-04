@@ -9,8 +9,6 @@ module Utils.Simulation where
 
 import Control.Arrow (second)
 
-import Verinf.Symbolic
-
 import Execution
 import Simulation
 
@@ -39,11 +37,11 @@ takeLongRslt :: Show term => TakeSingleton term term
 takeLongRslt = takeRsltCommon $ \v ->
   case v of LValue x -> x ; _ -> error "Input not LValue-constructed"
 
-takeDoubleRslt :: TakeSingleton SymbolicTerm Double
+takeDoubleRslt :: Show term => TakeSingleton term Double
 takeDoubleRslt = takeRsltCommon $ \v ->
   case v of DValue x -> x ; _ -> error "Input not DValue-constructed"
 
-takeFloatRslt :: TakeSingleton SymbolicTerm Float
+takeFloatRslt :: Show term => TakeSingleton term Float
 takeFloatRslt = takeRsltCommon $ \v ->
   case v of FValue x -> x ; _ -> error "Input not DValue-constructed"
 

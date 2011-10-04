@@ -11,11 +11,13 @@ module Tests.SHA384 (sha384Tests) where
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Trans
 import System.Process
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 
 import qualified Data.Vector as V
+import qualified Data.Vector.Storable as SV
 import JavaParser.Common
 import Simulation hiding (run)
 import Tests.Common
@@ -63,13 +65,13 @@ evalDagSHA384 msg = do
   golden <- run $ getGoldenSHA384 msg
   -- run $ putStrLn $ "Message        : " ++ msg
   -- run $ putStrLn $ "SHA-384 Golden : " ++ golden
-  rslt <- run $ runSymbolic $ do
+  oc <- run mkOpCache
+  rslt <- run $ runSymbolic oc $ do
     msgVars <- replicateM (length msg `div` 2) freshByte
     outVars <- runSimulator cb $ runSHA384 msgVars
     let inputValues = V.map constInt $ V.fromList (hexToByteSeq msg)
-    outCns <- symbolicEval inputValues $ do
-      mapM evalNode outVars
-    return $ byteSeqToHex outCns
+    evalFn <- mkConcreteEval inputValues
+    return $ byteSeqToHex $ map evalFn outVars
   assert $ rslt == golden
   -- run $ putStrLn $ "SHA-384 Result : " ++ rslt
 
@@ -78,7 +80,8 @@ evalAigSHA384 msg = do
   cb <- commonCB
   golden <- run $ getGoldenSHA384 msg
 --   run $ putStrLn $ "golden sha = " ++ golden
-  rslt <- run $ runSymbolic $ do
+  oc <- run mkOpCache
+  rslt <- run $ runSymbolic oc $ do
     let msgLen = length msg `div` 2
     msgVars <- replicateM msgLen freshByte
     outVars <- runSimulator cb $ runSHA384 msgVars
@@ -88,9 +91,9 @@ evalAigSHA384 msg = do
     -- | Boolean inputs to evalAig
     let binps = concatMap (take 8 . intToBoolSeq) cinps
     be <- getBitEngine
-    r <- liftIO $ evalAig be binps outLits
+    r <- liftIO $ beEvalAigV be (SV.fromList binps) (SV.fromList outLits)
     let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
-               $ take 32 (drop (32*k) r)
+               $ SV.toList $ SV.slice (32*k) 32 r
              | k <- [0..47]
              ]
     -- Perform evaluation and blasting of every literal

@@ -10,6 +10,7 @@ module Tests.PrettyPrint (prettyPrintTests) where
 import Test.QuickCheck
 import Test.QuickCheck.Monadic as QC
 
+import Control.Monad.Identity
 import qualified Data.Vector as V
 import qualified SBVModel.SBV as SBV
 import qualified SBVParser as SBV
@@ -27,8 +28,17 @@ testDir :: FilePath
 testDir = "test/src/support/ppSupport"
 
 testAction :: Int -> String -> PPConfig -> PropertyM IO ()
-testAction i what cfg = do res  <- run $ runSymbolic $ do trm <- sbvToTerm $ testDir ++ "/ppTest.sbv"
-                                                          return $ prettyTermWith cfg trm
+testAction i what cfg = do res  <- run $ do
+                             oc <- mkOpCache
+                             let path = testDir ++ "/ppTest.sbv"
+                             pgm <- SBV.loadSBV path
+                             let (argTys,_) = SBV.inferSBVFunctionType oc pgm
+                             let SBV.WEF evalFn = SBV.parseSBV oc (\_ _ -> Nothing) pgm
+                             runSymbolic oc $ do
+                               ts <- getTermSemantics
+                               vars <- V.mapM freshUninterpretedVar argTys
+                               let trm = evalFn ts vars
+                               return $ prettyTermWith cfg trm
                            let file = testDir ++ "/pp" ++ what ++ "." ++ show i ++ ".gold"
                            case mode of
                               CREATE -> do run $ writeFile file res
@@ -57,14 +67,6 @@ prettyPrintTests =
   where mixedValues = [(d, l, b) | d <- depths, l <- lengths, b <- [False, True]]
         depths      = [0 .. 5]
         lengths     = [5, 10, 20, 50, 100, 500]
-
-sbvToTerm :: FilePath -> SymbolicMonad (MonadTerm SymbolicMonad)
-sbvToTerm path = do
-  pgm <- liftIO $ SBV.loadSBV path
-  let (argTys,_) = SBV.inferSBVFunctionType (const Nothing) pgm
-  args <- mapM freshUninterpretedVar argTys
-  let SBV.WEF evalFn = SBV.parseSBV (const Nothing) (const (const Nothing)) pgm
-  evalFn (V.fromList args)
 
 _ignore_nouse :: a
 _ignore_nouse = undefined CREATE
