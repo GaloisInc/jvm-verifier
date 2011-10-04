@@ -173,7 +173,7 @@ executable Tests
     , mtl == 2.0.*
     , pretty
     , process
-    , random
+    , random >= 1.0.1.0
     , vector >= 0.7
     , zlib
     , QuickCheck >= 2.1.2
@@ -203,7 +203,7 @@ executable ExampleAIG
     , filepath
     , mtl == 2.0.*
     , pretty
-    , random
+    , random >= 1.0.1.0
     , vector >= 0.7
     , zlib
     , QuickCheck >= 2.1.2
