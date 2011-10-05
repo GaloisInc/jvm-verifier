@@ -1487,4 +1487,5 @@ verifyMethodSpec oc pos cb opts ir overrides rules = do
           AST.Auto -> do
             newGoal <- runRewriter
             runABC ir (vcInputs vc) newGoal (checkCounterexample check)
+          AST.QuickCheck n -> error "quickcheck: not yet implemented"
           AST.Skip -> error "internal: verifyMethodTactic used invalid tactic."

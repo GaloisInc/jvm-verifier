@@ -65,6 +65,7 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'then'         { TReserved _ "then"         }
    'else'         { TReserved _ "else"         }
    'fromJava'     { TReserved _ "fromJava"     }
+   'quickcheck'   { TReserved _ "quickcheck"   }
    var            { TVar      _ _              }
    str            { TLit      _ $$             }
    num            { TNum      _ _ _            }
@@ -264,6 +265,7 @@ VerificationMethod : 'abc'      { ABC     }
                    | 'rewriter' { Rewrite }
                    | 'skip'     { Skip    }
                    | 'auto'     { Auto    }
+                   | 'quickcheck' int { QuickCheck (snd $2) }
 
 -- A qualified variable
 Qvar :: { (Pos, [String]) }
