@@ -49,6 +49,7 @@ library
     , vector >= 0.7
     , zlib
     , Verinf >= 0.2
+    , random
 
   hs-source-dirs: src
 
@@ -130,6 +131,7 @@ executable sawScript
     , old-time >= 1.0.0.3
     , parsec >= 2.1.0.1
     , pretty
+    , random
     , vector >= 0.7
     , zlib
     , Verinf

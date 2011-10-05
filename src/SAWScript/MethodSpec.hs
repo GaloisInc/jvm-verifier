@@ -27,6 +27,7 @@ import qualified Data.Set as Set
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector as V
 import Text.PrettyPrint.HughesPJ
+import System.Random(randomIO, randomRIO)
 
 import qualified Execution.Codebase as JSS
 import JavaParser as JSS
@@ -39,6 +40,7 @@ import SAWScript.TypeChecker
 import Utils.Common
 
 import Verinf.Symbolic
+import Verinf.Symbolic.Common(bitWidthSize)
 import Verinf.Utils.IOStateT
 import Verinf.Utils.LogMonad
 
@@ -1503,5 +1505,36 @@ verifyMethodSpec oc pos cb opts ir overrides rules = do
           AST.Auto -> do
             newGoal <- runRewriter
             runABC ir (vcInputs vc) newGoal (checkCounterexample check)
-          AST.QuickCheck n -> error "quickcheck: not yet implemented"
+          AST.QuickCheck n ->
+            error $ unlines $
+               [ "Now we should be running QuickCheck"
+               , "Tests: " ++ show n
+               , "Argument types: "
+               ] ++ map (ppType . termType . viNode) (vcInputs vc)
+
           AST.Skip -> error "internal: verifyMethodTactic used invalid tactic."
+
+
+pickRandom :: DagType -> IO CValue
+pickRandom ty =
+  case ty of
+    SymBool -> CBool `fmap` randomIO
+    SymInt w ->
+      case widthConstant w of
+         Just n  -> CInt n `fmap` randomRIO (0, bitWidthSize n - 1)
+         Nothing -> qcFail "ingegers of non-constant size"
+
+    SymArray els ty1 ->
+      case widthConstant els of
+        Just n    -> (CArray . V.fromList) `fmap`
+                     replicateM (numBits n) (pickRandom ty1)
+        Nothing   -> qcFail "arrays of non-constant size"
+    SymRec _ _    -> qcFail "record values"
+    SymShapeVar _ -> qcFail "polymorphic values"
+  where
+  qcFail x = fail $
+                "QuickCheck: Generating random " ++ x ++ " is not supported."
+
+
+
+
