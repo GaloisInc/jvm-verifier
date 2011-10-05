@@ -265,7 +265,8 @@ VerificationMethod : 'abc'      { ABC     }
                    | 'rewriter' { Rewrite }
                    | 'skip'     { Skip    }
                    | 'auto'     { Auto    }
-                   | 'quickcheck' int { QuickCheck (snd $2) }
+                   | 'quickcheck' int opt(int) { QuickCheck (snd $2)
+                                                            (fmap snd $3) }
 
 -- A qualified variable
 Qvar :: { (Pos, [String]) }

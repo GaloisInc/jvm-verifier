@@ -13,7 +13,7 @@ module SAWScript.MethodSpec
 
 -- Imports {{{1
 
-import Control.Applicative
+import Control.Applicative hiding (empty)
 import qualified Control.Exception as CE
 import Control.Monad
 import Data.Int
@@ -1505,35 +1505,119 @@ verifyMethodSpec oc pos cb opts ir overrides rules = do
           AST.Auto -> do
             newGoal <- runRewriter
             runABC ir (vcInputs vc) newGoal (checkCounterexample check)
-          AST.QuickCheck n ->
-            error $ unlines $
-               [ "Now we should be running QuickCheck"
-               , "Tests: " ++ show n
-               , "Argument types: "
-               ] ++ map (ppType . termType . viNode) (vcInputs vc)
-
+          AST.QuickCheck n lim -> testRandom ir n lim vc
           AST.Skip -> error "internal: verifyMethodTactic used invalid tactic."
 
 
-pickRandom :: DagType -> IO CValue
-pickRandom ty =
+testRandom :: MethodSpecIR -> Int -> Maybe Int ->
+                                       VerificationContext -> SymbolicMonad ()
+testRandom ir test_num lim vc =
+    do (passed,run) <- loop 0 0
+       when (passed < test_num) $
+         let msg = text "QuickCheck: Failed to generate enough good inputs."
+                $$ nest 2 (vcat [ text "Attempts:" <+> int run
+                                , text "Passed:" <+> int passed
+                                , text "Goal:" <+> int test_num
+                                ])
+         in liftIO $ throwIOExecException (methodSpecPos ir) msg ""
+  where
+  loop run passed | passed >= test_num      = return (passed,run)
+  loop run passed | Just l <- lim, run >= l = return (passed,run)
+  loop run passed = loop (run + 1) =<< testOne passed
+
+  testOne passed =
+    do vs   <- liftIO $ mapM (pickRandom . termType . viNode) (vcInputs vc)
+       eval <- mkConcreteEval (V.fromList vs)
+       asmp_ok <- toBool $ eval $ vcAssumptions vc
+       if not asmp_ok
+         then return passed
+         else do forM_ (vcChecks vc) $ \goal ->
+                   do prop <- checkGoal goal
+                      goal_ok <- toBool (eval prop)
+                      unless goal_ok $
+                        liftIO $ throwIOExecException (methodSpecPos ir)
+                                                      (msg vs goal) ""
+                 return $! passed + 1
+
+
+  msg vs g = text "Random testing found a counter example:"
+            $$ nest 2 (vcat [ text "Method:" <+> text (methodSpecName ir)
+                            , case g of
+                                EqualityCheck n _ _ ->
+                                  text "Unexpected value for:" <+> text n
+                                PathCheck _ -> text "Invalid path constraint."
+                            , text "Random arguments:" $$
+                               nest 2 (vcat (zipWith ppInput (vcInputs vc) vs))
+                            ])
+
+  ppInput inp v =
+    case viExprs inp of
+      [t] -> text (show t) <+> text "=" <+> ppCValueD Mixfix v
+      ts -> vcat [ text (show t) <+> text "=" | t <- ts ] <+> ppCValueD Mixfix v
+
+
+  toBool (CBool b) = return b
+  toBool v = fail $ unlines [ "Internal error in 'testRandom':"
+                            , "  Expected: boolean value"
+                            , "  Result:   " ++ ppCValue Mixfix v ""
+                            ]
+
+-- Or, perhaps, short, tall, grande, venti :-)
+data RandomSpec = Least | Small | Medium | Large | Largest
+
+
+pickRandomSize :: DagType -> RandomSpec -> IO CValue
+pickRandomSize ty spec =
   case ty of
-    SymBool -> CBool `fmap` randomIO
+
+    SymBool -> CBool `fmap`
+      case spec of
+        Least   -> return False
+        Small   -> return False
+        Medium  -> randomIO
+        Large   -> return True
+        Largest -> return True
+
     SymInt w ->
       case widthConstant w of
-         Just n  -> CInt n `fmap` randomRIO (0, bitWidthSize n - 1)
+         Just n  -> CInt n `fmap`
+           do let least   = 0
+                  largest = bitWidthSize n - 1
+              case spec of
+                Least   -> return least
+                Small   -> randomRIO (least, min largest (least + 100))
+                Medium  -> randomRIO (least, largest)
+                Large   -> randomRIO (max least (largest - 100), largest)
+                Largest -> return largest
+
          Nothing -> qcFail "ingegers of non-constant size"
 
     SymArray els ty1 ->
       case widthConstant els of
         Just n    -> (CArray . V.fromList) `fmap`
-                     replicateM (numBits n) (pickRandom ty1)
+                     replicateM (numBits n) (pickRandomSize ty1 spec)
         Nothing   -> qcFail "arrays of non-constant size"
+
     SymRec _ _    -> qcFail "record values"
     SymShapeVar _ -> qcFail "polymorphic values"
   where
   qcFail x = fail $
                 "QuickCheck: Generating random " ++ x ++ " is not supported."
+
+-- Distribution of tests.  The choice is somewhat arbitrary.
+pickRandom :: DagType -> IO CValue
+pickRandom ty = pickRandomSize ty =<< ((`pick` distr) `fmap` randomRIO (0,99))
+  where
+  pick n ((x,s) : ds) = if n < x then s else pick (n-x) ds
+  pick _ _            = Medium
+
+  distr :: [(Int, RandomSpec)]
+  distr = [ (5,  Least)
+          , (30, Small)
+          , (30, Medium)
+          , (30, Large)
+          , (5,  Largest)
+          ]
 
 
 
