@@ -46,26 +46,12 @@ import Verinf.Utils.CatchMIO
 -- TermSemantics functions {{{1
 
 -- | Create a binary operator with given bitwidth.
-mkWidthSubst :: WidthExpr -> TypeSubst
-mkWidthSubst opWidth = emptySubst { widthSubst = Map.fromList [("x", opWidth)] }
-
--- | Create a binary operator with given shape.
-shapeOp :: OpDef -> DagType -> Op
-shapeOp d tp = mkOp d emptySubst { shapeSubst = Map.fromList [("x", tp)] }
-
--- | Create a binary operator with given bitwidth.
 widthOp :: OpDef -> WidthExpr -> Op
 widthOp opDef opWidth = mkOp opDef (mkWidthSubst opWidth)
 
 shiftOp :: OpDef -> WidthExpr -> WidthExpr -> Op
 shiftOp opDef vw sw = mkOp opDef sub
   where sub = emptySubst { widthSubst = Map.fromList [ ("v", vw), ("s", sw) ] }
-
-eqOp :: DagType -> Op
-eqOp = shapeOp eqOpDef
-
-iteOp :: DagType -> Op
-iteOp = shapeOp iteOpDef
 
 tsIte :: DagType -> TermSemantics t -> t -> t -> t -> t
 tsIte tp = impl
@@ -75,23 +61,6 @@ tsIte tp = impl
           | tsIsFalse ts c = f
           | tsEqTerm ts t f = t
           | otherwise = tsApplyTernary ts op c t f
-
-getArrayValueOp :: WidthExpr -> WidthExpr -> DagType -> Op
-getArrayValueOp len idxType eltType =
-  mkOp getArrayValueOpDef 
-       TypeSubst { shapeSubst = Map.fromList [("e", eltType)]
-                 , widthSubst = Map.fromList [("l", len), ("i", idxType)]
-                 }
-
-bNotOp :: Op
-bNotOp = groundOp bNotOpDef
-
-iNotOp :: WidthExpr -> Op
-iNotOp w = mkOp iNotOpDef (mkWidthSubst w)
-
-appendIntOp :: WidthExpr -> WidthExpr -> Op
-appendIntOp xw yw = mkOp appendIntOpDef sub
-  where sub = emptySubst { widthSubst = Map.fromList [("x", xw), ("y", yw)] }
 
 -- General purpose utility functions {{{1
 
@@ -385,11 +354,11 @@ assertTypesEqual loc xtp ytp
 
 -- | Apply appropriate Boolean operator over Bool or integer bitvectors.
 -- Note: On integers, the operation is distributed over the bits.
-applyBoolOp :: OpDef -> OpDef -> DagType -> DagType -> (DagType, SymbolicFn)
+applyBoolOp :: Op -> OpDef -> DagType -> DagType -> (DagType, SymbolicFn)
 applyBoolOp bOp _iOp SymBool SymBool =
   ( SymBool
   , SFN $ \ts v -> assert (V.length v == 2)
-                 $ tsApplyBinary ts (groundOp bOp) (v V.! 0) (v V.! 1))
+                 $ tsApplyBinary ts bOp (v V.! 0) (v V.! 1))
 applyBoolOp _bOp iOp xtp@(SymInt xw)  ytp@SymInt{} = do
   assertTypesEqual "applyBoolOp" xtp ytp $
     ( xtp
@@ -542,9 +511,9 @@ apply ctxt (BVExt hi lo) [(SymRec recDef recSubst)] = do
                   in (tp, SFN $ \ts v -> assert (V.length v == 1) $
                                    let fieldVal = tsApplyUnary ts op (v V.! 0)
                                     in extractFn ts (V.singleton fieldVal))
-apply _ BVAnd [x, y] = applyBoolOp bAndOpDef iAndOpDef x y
-apply _ BVOr  [x, y] = applyBoolOp bOrOpDef  iOrOpDef x y
-apply _ BVXor [x, y] = applyBoolOp bXorOpDef iXorOpDef x y
+apply _ BVAnd [x, y] = applyBoolOp bAndOp iAndOpDef x y
+apply _ BVOr  [x, y] = applyBoolOp bOrOp  iOrOpDef x y
+apply _ BVXor [x, y] = applyBoolOp bXorOp iXorOpDef x y
 apply _ BVNot [SymBool] =
   ( SymBool
   , SFN $ \ts v -> assert (V.length v == 1) $ tsApplyUnary ts bNotOp (v V.! 0))

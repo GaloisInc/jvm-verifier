@@ -294,8 +294,7 @@ tcE (AST.TypeExpr _ (AST.ApplyExpr appPos "split" astArgs) astResType) = do
      , SymArray (widthConstant -> Just l) (SymInt (widthConstant -> Just w)))
       | wl == l * w -> do
         oc <- gets opCache
-        op <- liftTI $ splitOpDef oc l w
-        return $ Apply (groundOp op) args
+        return $ Apply (splitOp oc l w) args
     _ -> typeErr appPos $ ftext $ "Illegal arguments and result type given to \'split\'."
                                 ++ " SAWScript currently requires that the argument is ground type, "
                                 ++ " and an explicit result type is given."
@@ -330,8 +329,7 @@ tcE (AST.ApplyExpr appPos "join" astArgs) = do
   case argType of
     SymArray (widthConstant -> Just l) (SymInt (widthConstant -> Just w)) -> do
          oc <- gets opCache
-         op <- liftTI $ joinOpDef oc l w
-         return $ Apply (groundOp op) args
+         return $ Apply (joinOp oc l w) args
     _ -> typeErr appPos $ ftext $ "Illegal arguments and result type given to \'join\'."
                                 ++ " SAWScript currently requires that the argument is ground"
                                 ++ " array of integers. "
