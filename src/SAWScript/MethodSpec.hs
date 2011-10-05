@@ -963,7 +963,11 @@ equivClassMapEntries (_,em,vm)
 -- JavaVerificationState {{{2
 type InputEvaluator = SV.Vector Bool -> CValue
 
-type InputEvaluatorList = [(TC.JavaExpr, InputEvaluator)]
+data VerificationInput = VerificationInput
+  { viExprs :: [TC.JavaExpr]      -- ^ Many, because they may be aliased.
+  , viNode  :: Node               -- ^ The node for the aliased group.
+  , viEval  :: InputEvaluator     -- ^ Turn bit-patterns back into values.
+  }
 
 -- | JavaVerificationState contains information necessary to map between specification
 -- expressions and the initial JVM state during verification.
@@ -975,7 +979,7 @@ data JavaVerificationState = JVS {
         -- | Contains functions that translate from counterexample
         -- returned by ABC back to constant values, along with the
         -- Java expression associated with that evaluator.
-      , jvsInputEvaluators :: InputEvaluatorList
+      , jvsInputEvaluators :: [VerificationInput]
         -- | Maps Spec Java expression to value for that expression.
       , jvsExprValueMap :: Map TC.JavaExpr (JSS.Value Node)
         -- | Maps JSS refs to name for that ref.
@@ -1017,8 +1021,12 @@ createJavaEvalReferences cm = do
           ref <- lift $ JSS.newSymbolicArray (JSS.ArrayType JSS.IntType) (fromIntegral l) n
           modify $ \s ->
             s { jvsExprNodeMap =  mapInsertKeys exprClass n (jvsExprNodeMap s)
-              , jvsInputEvaluators = map (\expr -> (expr,inputEval)) exprClass
-                                      ++ jvsInputEvaluators s
+              , jvsInputEvaluators =
+                  VerificationInput
+                     { viEval = inputEval
+                     , viNode = n
+                     , viExprs = exprClass
+                     } : jvsInputEvaluators s
               , jvsExprValueMap = mapInsertKeys exprClass (JSS.RValue ref) (jvsExprValueMap s)
               , jvsRefNameMap = Map.insert ref refName (jvsRefNameMap s)
               , jvsArrayNodeList = (ref,exprClass,n):(jvsArrayNodeList s) }
@@ -1053,7 +1061,12 @@ createJavaEvalScalars ir = do
     let addScalarNode node inputEval value =
           modify $ \s ->
             s { jvsExprNodeMap = Map.insert expr node (jvsExprNodeMap s)
-              , jvsInputEvaluators = (expr,inputEval) : jvsInputEvaluators s
+              , jvsInputEvaluators =
+                  VerificationInput
+                     { viNode = node
+                     , viEval = inputEval
+                     , viExprs = [expr]
+                     } : jvsInputEvaluators s
               , jvsExprValueMap = Map.insert expr value (jvsExprValueMap s) }
     case TC.getJSSTypeOfJavaExpr expr of
       JSS.BooleanType -> do
@@ -1313,7 +1326,7 @@ comparePathStates ir jvs esd newPathState mbRetVal = do
 
 data VerificationContext = VContext {
           vcAssumptions :: Node
-        , vcInputs :: InputEvaluatorList
+        , vcInputs :: [VerificationInput]
         , vcChecks :: [VerificationCheck]
         }
 
@@ -1392,7 +1405,7 @@ methodSpecVCs pos cb opts overrides ir = do
                 }
 
 runABC :: MethodSpecIR
-       -> InputEvaluatorList
+       -> [VerificationInput]
        -> Node
        -> ((Node -> CValue) -> Doc)
        -> SymbolicMonad ()
@@ -1417,7 +1430,10 @@ runABC ir inputEvalList fGoal counterFn = do
                      ++ "connection to ABC."
            in throwIOExecException (methodSpecPos ir) (ftext msg) ""
         Sat lits -> do
-          let (inputExprs,inputEvals) = unzip inputEvalList
+          let (inputExprs,inputEvals) = unzip $
+                do vi <- inputEvalList
+                   e  <- viExprs vi
+                   return (e, viEval vi)
           let inputValues = map ($lits) inputEvals
           -- Get differences between two.
           evalFn <- mkConcreteEval (V.fromList inputValues)
