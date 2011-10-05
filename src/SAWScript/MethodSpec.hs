@@ -1451,7 +1451,7 @@ verifyMethodSpec oc pos cb opts ir overrides rules = do
   let vcList = methodSpecVCs pos cb opts overrides ir
   forM_ vcList $ \mVC -> do
     when (v >= 6) $
-      liftIO $ putStrLn $ "Considing new alias configuration of " ++ methodSpecName ir
+      liftIO $ putStrLn $ "Considering new alias configuration of " ++ methodSpecName ir
     runSymbolic oc $ do
       setVerbosity v
       vc <- mVC
