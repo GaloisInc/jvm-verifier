@@ -11,6 +11,7 @@ module Main
 where
 import Control.Applicative ((<$>))
 import Control.Monad (forM, replicateM)
+import Control.Monad.Trans
 import qualified Data.Vector as V
 import System.CPUTime
 import Text.Printf
@@ -80,7 +81,8 @@ evalCryptolJava name key input = do
           keyVars   = map tint $ hexToIntSeq key
           inputVars = map tint $ hexToIntSeq input
       runCryptolJava name keyVars inputVars
-    symbolicEval V.empty $ fmap intSeqToHex $ mapM evalNode outVars
+    evalFn <- mkConcreteEval V.empty
+    return $ intSeqToHex $ map evalFn outVars
 
 evalCryptolJavaWord :: String -> String -> String -> IO String
 evalCryptolJavaWord name key input = do
@@ -93,7 +95,8 @@ evalCryptolJavaWord name key input = do
       setVerbosity 0
       runCryptolJava name keyVars inputVars
     let inp = V.map constInt $ V.fromList $ hexToIntSeq key ++ hexToIntSeq input
-    symbolicEval inp (fmap intSeqToHex $ mapM evalNode outVars)
+    evalFn <- mkConcreteEval inp
+    return $ intSeqToHex $ map evalFn outVars
 
 -- Levent's Cryptol C Port {{{1
 runCryptolC ::
@@ -156,8 +159,8 @@ evalCryptolC key input = do
     outVars <- runSimulator cb $ do
       setVerbosity 0
       runCryptolC keyVars inputVars
-    symbolicEval V.empty
-                 (fmap intSeqToHex $ mapM evalNode outVars)
+    evalFn <- mkConcreteEval V.empty
+    return $ intSeqToHex $ map evalFn outVars
 
 -- Bouncy Castle {{{1
 
@@ -251,7 +254,8 @@ evalBouncyCastle ct name key input = do
       setVerbosity 0
       runBouncyCastle ct name keyVars inputVars
     let inp = V.map constInt $ V.fromList $ hexToByteSeq key ++ hexToByteSeq input
-    symbolicEval inp (fmap intSeqToHex $ mapM evalNode outVars)
+    evalFn <- mkConcreteEval inp
+    return $ intSeqToHex $ map evalFn outVars
 
 writeBouncyCastleAiger :: String -> IO ()
 writeBouncyCastleAiger name = do
