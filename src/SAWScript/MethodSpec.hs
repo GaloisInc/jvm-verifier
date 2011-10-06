@@ -17,7 +17,7 @@ import qualified Control.Exception as CE
 import Control.Monad
 import Data.Int
 import Data.IORef
-import Data.List (foldl', intercalate, sort, find)
+import Data.List (foldl', intercalate, sort)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -1115,24 +1115,6 @@ runMethod ir jsi = do
       let Just thisRef = jsiThis jsi
       JSS.invokeInstanceMethod clName (methodKey method) thisRef args
   JSS.run
-
-runMethod' :: MethodSpecIR
-           -> JavaStateInfo
-           -> JSS.Simulator SymbolicMonad [(JSS.PathDescriptor, JSS.FinalResult Node)]
-runMethod' ir jsi = do
-  rs <- runMethod ir jsi
-  go Set.empty rs
-  where go seen results =
-          case find (isUnhandledBP seen) results of
-            Nothing -> return results
-            Just (pd, res) -> do
-              ps <- JSS.getPathStateByName pd
-              -- TODO: handle breakpoint
-              JSS.resumeBreakpoint ps
-              rs' <- JSS.run
-              go (Set.insert pd seen) rs'
-        isUnhandledBP seen (pd, JSS.Breakpoint _) = not $ Set.member pd seen
-        isUnhandledBP _ _ = False
 
 -- ExpectedStateDef {{{2
 
