@@ -28,6 +28,7 @@ import qualified Data.Vector as V
 import Text.PrettyPrint.HughesPJ
 
 import qualified Execution.Codebase as JSS
+import qualified Execution.JavaSemantics as Sem
 import JavaParser as JSS
 import MethodSpec (partitions)
 import qualified SAWScript.MethodAST as AST
@@ -570,6 +571,14 @@ resolveDecl (AST.VerifyUsing pos method) = do
   -- Assign verification method.
   modify $ \s -> s { chosenVerificationMethod = Just (pos,method) }
 
+-- IntermediateSpec {{{2
+
+data IntermediateSpec = IntermediateSpec {
+    specPC :: JSS.PC
+  , specAssume :: Maybe TC.Expr
+  , specEnsure :: Maybe SpecPostcondition
+  } deriving (Show)
+
 -- MethodSpecIR {{{2
 
 data MethodSpecIR = MSIR {
@@ -600,6 +609,8 @@ data MethodSpecIR = MSIR {
   , arrayPostconditions :: Map TC.JavaExpr SpecPostcondition
   -- | Return value if any (is guaranteed to be compatible with method spec.
   , returnValue :: Maybe TC.Expr
+  -- | Intermediate assertions for method.
+  , specIntermediates :: [IntermediateSpec]
   -- | Verification method for method.
   , methodSpecVerificationTactic :: AST.VerificationMethod
   } deriving (Show)
@@ -747,6 +758,7 @@ resolveMethodSpecIR oc gb pos thisClass mName cmds = do
                 , scalarPostconditions
                 , arrayPostconditions = Map.map snd (arrayEnsures st')
                 , returnValue
+                , specIntermediates = [] -- TODO
                 , methodSpecVerificationTactic
                 }
 
@@ -757,6 +769,7 @@ data JavaStateInfo = JSI {
          jsiThis :: Maybe JSS.Ref
        , jsiArgs :: V.Vector (JSS.Value Node)
        , jsiPathState :: JSS.PathState Node
+       , jsiInitPC :: JSS.PC
        }
 
 -- | Create a Java State info from the current simulator path state,
@@ -766,7 +779,11 @@ createJavaStateInfo :: Maybe JSS.Ref
                     -> JSS.PathState Node
                     -> JavaStateInfo
 createJavaStateInfo r args s =
-  JSI { jsiThis = r, jsiArgs = V.fromList args, jsiPathState = s }
+  JSI { jsiThis = r
+      , jsiArgs = V.fromList args
+      , jsiPathState = s
+      , jsiInitPC = 0
+      }
 
 -- | Returns value associated to Java expression in this state if it is defined,
 -- or Nothing if the expression is undefined.
@@ -1114,6 +1131,8 @@ runMethod ir jsi = do
     else do
       let Just thisRef = jsiThis jsi
       JSS.invokeInstanceMethod clName (methodKey method) thisRef args
+  Sem.setPc (jsiInitPC jsi)
+  -- TODO: run any initalizers given in spec for this PC
   JSS.run
 
 -- ExpectedStateDef {{{2
@@ -1326,7 +1345,9 @@ methodSpecVCs :: Pos
 methodSpecVCs pos cb opts overrides ir = do
   let v = verbose opts
   let refEquivClasses = partitions (specReferences ir)
-  flip map refEquivClasses $ \cm -> do
+  let assertPCs = map specPC (specIntermediates ir)
+  flip concatMap refEquivClasses $ \cm -> flip map (0 : assertPCs) $ \pc -> do
+    -- initial state for some of them.
     setVerbosity v
     JSS.runSimulator cb $ do
       setVerbosity v
@@ -1347,7 +1368,7 @@ methodSpecVCs pos cb opts overrides ir = do
                 args = map (evm Map.!)
                      $ map (uncurry TC.Arg)
                      $ [0..] `zip` methodParameterTypes method
-             in createJavaStateInfo mbThis args initialPS
+             in (createJavaStateInfo mbThis args initialPS) { jsiInitPC = pc }
       -- Add method spec overrides.
       mapM_ (overrideFromSpec pos (methodSpecName ir)) overrides
       -- Execute method.
