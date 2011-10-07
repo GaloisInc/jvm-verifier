@@ -104,8 +104,8 @@ badRule3 = (nm, mkRule nm (a # b) (a # c))
 
 -- check that operator arg gounts match (fully saturated, first order)
 badRule4 :: (String, R)
-badRule4 = (nm, mkRule nm (appTerm (groundOp bAndOpDef) [a, b, c])
-                          (appTerm (groundOp bAndOpDef) [b, c]))
+badRule4 = (nm, mkRule nm (appTerm bAndOp [a, b, c])
+                          (appTerm bAndOp [b, c]))
   where a = mkVar "a" SymBool
         b = mkVar "b" SymBool
         c = mkVar "c" SymBool
