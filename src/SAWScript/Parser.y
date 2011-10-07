@@ -65,6 +65,7 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'then'         { TReserved _ "then"         }
    'else'         { TReserved _ "else"         }
    'fromJava'     { TReserved _ "fromJava"     }
+   'localSpec'    { TReserved _ "localSpec"    }
    var            { TVar      _ _              }
    str            { TLit      _ $$             }
    num            { TNum      _ _ _            }
@@ -235,11 +236,18 @@ MethodSpecDecl : 'var'         JavaRefs ':' JavaType  { Type        (tokPos $1) 
                | 'mayAlias'    '{' JavaRefs '}'       { MayAlias    (tokPos $1) $3             }
                | 'const'       JavaRef ':=' Expr      { Const       (tokPos $1) $2 $4          }
                | 'let'         var '='  Expr          { MethodLet   (tokPos $1) (tokStr $2) $4 }
-               | 'assume'      Expr                   { Assume      (tokPos $1) $2             }
-               | 'ensures'     JavaRef ':=' Expr      { Ensures     (tokPos $1) $2 $4          }
-               | 'arbitrary'   ':' JavaRefs           { Arbitrary   (tokPos $1) $3             }
                | 'returns'     ':' Expr               { Returns     (tokPos $1) $3             }
+               | 'localSpec'   num '{' LSpecDecls '}' { LocalSpec   (tokPos $3) (tokNum $2) $4 }
                | 'verifyUsing' ':' VerificationMethod { VerifyUsing (tokPos $1) $3             }
+               | LSpecDecl                            { $1                                     }
+
+LSpecDecls :: { [MethodSpecDecl] }
+LSpecDecls : termBy(LSpecDecl, ';') { $1 }
+
+LSpecDecl :: { MethodSpecDecl }
+LSpecDecl : 'assume'      Expr              { Assume      (tokPos $1) $2    }
+          | 'ensures'     JavaRef ':=' Expr { Ensures     (tokPos $1) $2 $4 }
+          | 'arbitrary'   ':' JavaRefs      { Arbitrary   (tokPos $1) $3    }
 
 -- Comma separated Sequence of JavaRef's, at least one
 JavaRefs :: { [JavaRef] }

@@ -220,9 +220,11 @@ data MethodSpecTranslatorState = MSTS {
        -- | Map from Java expressions to typed expression in ensures clause.
        -- or nothing if an arbitrary expression for term has been given.
        , arrayEnsures :: Map TC.JavaExpr (Pos, SpecPostcondition)
+       -- | List of local specs parsed so far in reverse order.
+       , currentLocalSpecs :: Map PC LocalSpecs
        -- | Return value found during resolution.
        , currentReturnValue :: Maybe (Pos, TC.Expr)
-       -- Verification method chosen.
+       -- | Verification method chosen.
        , chosenVerificationMethod :: Maybe (Pos, AST.VerificationMethod)
        }
 
@@ -558,6 +560,24 @@ resolveDecl (AST.Returns pos astValueExpr) = do
        in checkJavaExprCompat pos "the return value" returnType valueExprType
   -- Update state with return value.
   modify $ \s -> s { currentReturnValue = Just (pos, valueExpr) }
+resolveDecl (AST.LocalSpec pos pc specs) = do
+  s <- get
+  put $ s { currentAssumptions = []
+          , ensuredExprs = Set.empty
+          , scalarEnsures = Map.empty
+          , arrayEnsures = Map.empty
+          }
+  mapM_ resolveDecl specs
+  locState <- get
+  let scalarPost = Map.map snd (scalarEnsures locState)
+      arrayPost = Map.map snd (arrayEnsures locState)
+      locSpecs = LocalSpecs {
+                   localAssumptions = currentAssumptions locState
+                 , localScalarPostconditions = scalarPost
+                 , localArrayPostconditions = arrayPost
+                 }
+  put $ s { currentLocalSpecs =
+              Map.insert (fromIntegral pc) locSpecs (currentLocalSpecs s) }
 resolveDecl (AST.VerifyUsing pos method) = do
   -- Check verification method has not been assigned.
   vm <- gets chosenVerificationMethod
@@ -571,12 +591,12 @@ resolveDecl (AST.VerifyUsing pos method) = do
   -- Assign verification method.
   modify $ \s -> s { chosenVerificationMethod = Just (pos,method) }
 
--- IntermediateSpec {{{2
+-- LocalSpecs {{{2
 
-data IntermediateSpec = IntermediateSpec {
-    specPC :: JSS.PC
-  , specAssume :: Maybe TC.Expr
-  , specEnsure :: Maybe SpecPostcondition
+data LocalSpecs = LocalSpecs {
+    localAssumptions :: [TC.Expr]
+  , localArrayPostconditions :: Map TC.JavaExpr SpecPostcondition
+  , localScalarPostconditions :: Map TC.JavaExpr SpecPostcondition
   } deriving (Show)
 
 -- MethodSpecIR {{{2
@@ -609,8 +629,8 @@ data MethodSpecIR = MSIR {
   , arrayPostconditions :: Map TC.JavaExpr SpecPostcondition
   -- | Return value if any (is guaranteed to be compatible with method spec.
   , returnValue :: Maybe TC.Expr
-  -- | Intermediate assertions for method.
-  , specIntermediates :: [IntermediateSpec]
+  -- | Local specifications for method.
+  , localSpecs :: Map PC LocalSpecs
   -- | Verification method for method.
   , methodSpecVerificationTactic :: AST.VerificationMethod
   } deriving (Show)
@@ -659,6 +679,7 @@ resolveMethodSpecIR oc gb pos thisClass mName cmds = do
                 , scalarEnsures = Map.empty
 
                 , arrayEnsures = Map.empty
+                , currentLocalSpecs = Map.empty
                 , currentReturnValue = Nothing
                 , chosenVerificationMethod = Nothing
                 }
@@ -758,7 +779,7 @@ resolveMethodSpecIR oc gb pos thisClass mName cmds = do
                 , scalarPostconditions
                 , arrayPostconditions = Map.map snd (arrayEnsures st')
                 , returnValue
-                , specIntermediates = [] -- TODO
+                , localSpecs = currentLocalSpecs st'
                 , methodSpecVerificationTactic
                 }
 
@@ -1132,7 +1153,6 @@ runMethod ir jsi = do
       let Just thisRef = jsiThis jsi
       JSS.invokeInstanceMethod clName (methodKey method) thisRef args
   Sem.setPc (jsiInitPC jsi)
-  -- TODO: run any initalizers given in spec for this PC
   JSS.run
 
 -- ExpectedStateDef {{{2
@@ -1151,9 +1171,19 @@ data ExpectedStateDef = ESD {
 createExpectedStateDef :: MethodSpecIR
                        -> JavaVerificationState
                        -> SpecStateInfo
+                       -> JSS.FinalResult Node
                        -> SymbolicMonad ExpectedStateDef
-createExpectedStateDef ir jvs ssi = do
+createExpectedStateDef ir jvs ssi fr = do
   let jsi = ssiJavaStateInfo ssi
+      (scalarPosts, arrayPosts) =
+        case fr of
+          JSS.Breakpoint bpc -> case Map.lookup bpc (localSpecs ir) of
+            Nothing -> error $
+                       "internal: no intermediate specifications for pc " ++
+                       show bpc
+            Just spec -> (localScalarPostconditions spec,
+                          localArrayPostconditions spec)
+          _ -> (scalarPostconditions ir, arrayPostconditions ir)
   esdReturnValue <-
     case returnValue ir of
       Nothing -> return Nothing
@@ -1164,7 +1194,7 @@ createExpectedStateDef ir jvs ssi = do
       let Just (JSS.RValue ref) = javaExprValue jsi refExpr
       let Just v = javaExprValue jsi javaExpr
       expValue <-
-        case Map.lookup javaExpr (scalarPostconditions ir) of
+        case Map.lookup javaExpr scalarPosts of
           -- Non-modifiable case.
           Nothing -> return (Just v)
           Just PostUnchanged -> return (Just v) -- Unchanged
@@ -1180,7 +1210,7 @@ createExpectedStateDef ir jvs ssi = do
   arrays <-
     forM (jvsArrayNodeList jvs) $ \(r,refEquivClass,initValue) -> do
       expValue <-
-        case mapLookupAny refEquivClass (arrayPostconditions ir) of
+        case mapLookupAny refEquivClass arrayPosts of
           Just PostUnchanged -> return (Just initValue)
           Just (PostArbitrary _) -> return Nothing
           Just (PostResult expr) ->
@@ -1227,7 +1257,12 @@ methodAssumptions :: MethodSpecIR
                   -> SpecStateInfo
                   -> SymbolicMonad Node
 methodAssumptions ir ssi = do
-  nodes <- mapM (evalExpr ssi) (assumptions ir)
+  nodes <- case jsiInitPC (ssiJavaStateInfo ssi) of
+    0 -> mapM (evalExpr ssi) (assumptions ir)
+    pc -> case Map.lookup pc (localSpecs ir) of
+      Nothing -> error $ "internal: no specification found for pc " ++
+                         show pc
+      Just spec -> mapM (evalExpr ssi) (localAssumptions spec)
   foldM applyBAnd (mkCBool True) nodes
 
 -- | Add verification condition to list.
@@ -1341,11 +1376,13 @@ methodSpecVCs :: Pos
               -> SSOpts
               -> [MethodSpecIR]
               -> MethodSpecIR
-              -> [SymbolicMonad VerificationContext]
+              -> [SymbolicMonad [VerificationContext]]
 methodSpecVCs pos cb opts overrides ir = do
   let v = verbose opts
   let refEquivClasses = partitions (specReferences ir)
-  let assertPCs = map specPC (specIntermediates ir)
+  let assertPCs = Map.keys (localSpecs ir)
+  let cls = JSS.className $ methodSpecIRThisClass ir
+  let meth = JSS.methodKey $ methodSpecIRMethod ir
   flip concatMap refEquivClasses $ \cm -> flip map (0 : assertPCs) $ \pc -> do
     -- initial state for some of them.
     setVerbosity v
@@ -1360,56 +1397,70 @@ methodSpecVCs pos cb opts overrides ir = do
       initialPS <- JSS.getPathState
       let jsi =
             let evm = jvsExprValueMap jvs
-                mbThis = case Map.lookup (TC.This (JSS.className (methodSpecIRThisClass ir))) evm of
+                mbThis = case Map.lookup (TC.This cls) evm of
                            Nothing -> Nothing
                            Just (JSS.RValue r) -> Just r
                            Just _ -> error "internal: Unexpected value for This"
                 method = methodSpecIRMethod ir
+                -- TODO: args may be different for intermediate executions?
                 args = map (evm Map.!)
                      $ map (uncurry TC.Arg)
                      $ [0..] `zip` methodParameterTypes method
              in (createJavaStateInfo mbThis args initialPS) { jsiInitPC = pc }
       -- Add method spec overrides.
       mapM_ (overrideFromSpec pos (methodSpecName ir)) overrides
+      -- Register breakpoints
+      JSS.registerBreakpoints $ map (\bpc -> (cls, meth, bpc)) assertPCs
       -- Execute method.
-      when (v >= 6) $
+      when (v >= 6) $ do
          liftIO $ putStrLn $ "Executing " ++ methodSpecName ir
+         when (pc /= 0) $
+              liftIO $ putStrLn $ "  starting from PC " ++ show pc
       jssResult <- runMethod ir jsi
           -- isReturn returns True if result is a normal return value.
       let isReturn JSS.ReturnVal{} = True
           isReturn JSS.Terminated = True
           isReturn _ = False
+      let isExpected JSS.Breakpoint{} = True
+          isExpected fr = isReturn fr
+      let finalResults = filter (isExpected . snd) jssResult
       let returnResults = filter (isReturn . snd) jssResult
-      when (null returnResults) $
+      when (null finalResults) $
         let msg = "The Java method " ++ methodSpecName ir
               ++ " throws exceptions on all paths, and cannot be verified"
             res = "Please check that all fields needed for correctness are defined."
          in throwIOExecException pos (ftext msg) res
       when (length returnResults > 1) $
         error "internal: verifyMethodSpec returned multiple valid results"
-      let [(ps,fr)] = returnResults
-      let returnVal = case fr of
-                        JSS.ReturnVal val -> Just val
-                        JSS.Terminated -> Nothing
-                        _ -> error "internal: Unexpected final result from JSS"
-      -- Build final equation and functions for generating counterexamples.
-      newPathState <- JSS.getPathStateByName ps
-      JSS.liftSymbolic $ do
-        when (v >= 6) $
-          liftIO $ putStrLn $ "Creating expected result for " ++ methodSpecName ir
-        ssi <- createSpecStateInfo ir jsi
-        esd <- createExpectedStateDef ir jvs ssi
-        whenVerbosity (>= 6) $
-          liftIO $ putStrLn $
-            "Creating verification conditions for " ++ methodSpecName ir
-        as <- methodAssumptions ir ssi
-        -- Create verification conditions from path states.
-        vcs <- comparePathStates ir jvs esd newPathState returnVal
-        return VContext {
-                  vcAssumptions = as
-                , vcInputs = jvsInputEvaluators jvs
-                , vcChecks = vcs
-                }
+      forM finalResults $ \(ps, fr) -> do
+        let returnVal = case fr of
+                          JSS.ReturnVal val -> Just val
+                          JSS.Terminated -> Nothing
+                          JSS.Breakpoint{} -> Nothing
+                          _ -> error "internal: Unexpected final result from JSS"
+        let name = case fr of
+                     (JSS.Breakpoint bpc) ->
+                       methodSpecName ir ++
+                       "[" ++ show pc ++ "->" ++ show bpc ++ "]"
+                     _ -> methodSpecName ir
+        -- Build final equation and functions for generating counterexamples.
+        newPathState <- JSS.getPathStateByName ps
+        JSS.liftSymbolic $ do
+          when (v >= 6) $
+            liftIO $ putStrLn $ "Creating expected result for " ++ name
+          ssi <- createSpecStateInfo ir jsi
+          esd <- createExpectedStateDef ir jvs ssi fr
+          whenVerbosity (>= 6) $
+            liftIO $ putStrLn $
+              "Creating verification conditions for " ++ name
+          as <- methodAssumptions ir ssi
+          -- Create verification conditions from path states.
+          vcs <- comparePathStates ir jvs esd newPathState returnVal
+          return VContext {
+                     vcAssumptions = as
+                   , vcInputs = jvsInputEvaluators jvs
+                   , vcChecks = vcs
+                   }
 
 runABC :: MethodSpecIR
        -> InputEvaluatorList
@@ -1474,8 +1525,8 @@ verifyMethodSpec oc pos cb opts ir overrides rules = do
       liftIO $ putStrLn $ "Considing new alias configuration of " ++ methodSpecName ir
     runSymbolic oc $ do
       setVerbosity v
-      vc <- mVC
-      forM (vcChecks vc) $ \check -> do
+      vcs <- mVC
+      forM vcs $ \vc -> forM (vcChecks vc) $ \check -> do
         whenVerbosity (>= 2) $
           liftIO $ putStrLn $ "Verify " ++ checkName check
         -- Get final goal.
