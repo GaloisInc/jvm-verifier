@@ -37,7 +37,7 @@ testAction i what cfg = do res  <- run $ do
                              runSymbolic oc $ do
                                ts <- getTermSemantics
                                vars <- V.mapM freshUninterpretedVar argTys
-                               let trm = evalFn ts vars
+                               let trm = runIdentity (evalFn ts vars)
                                return $ prettyTermWith cfg trm
                            let file = testDir ++ "/pp" ++ what ++ "." ++ show i ++ ".gold"
                            case mode of
