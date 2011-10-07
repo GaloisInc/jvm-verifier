@@ -44,17 +44,10 @@ trunc op x =
     in appTerm (mkOp op s) [x]
 
 ite :: Term -> Term -> Term -> Term
-ite c t e =
-  let tp = termType t
-      s = TypeSubst { shapeSubst = Map.fromList [("x", tp)]
-                    , widthSubst = Map.empty }
-   in appTerm (mkOp iteOpDef s) [c, t, e]
+ite c t e = appTerm (iteOp (termType t)) [c, t, e]
 
 band :: WidthExpr -> Term -> Term -> Term
-band w a b =
-  let s = TypeSubst { shapeSubst = Map.empty
-                    , widthSubst = Map.fromList [("x", w)] }
-   in appTerm (mkOp iAndOpDef s) [a, b]
+band w a b = appTerm (iAndOp w) [a, b]
 
 type OpFn sym = V.Vector (MonadTerm sym) -> sym (MonadTerm sym)
 

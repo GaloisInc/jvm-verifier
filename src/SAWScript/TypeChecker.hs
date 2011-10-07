@@ -351,33 +351,33 @@ tcE (AST.ApplyExpr appPos nm astArgs) = do
         Just sub -> do
           debugTI $ "Making expression with operator " ++ opDefName opDef ++ " and substitution " ++  show sub
           return $ Apply (mkOp opDef sub) args
-tcE (AST.NotExpr      p l)   = lift1Bool     p "not" (groundOp bNotOpDef)        l
-tcE (AST.BitComplExpr p l)   = lift1Word     p "~"   (wordOpX  iNotOpDef)        l
-tcE (AST.NegExpr      p l)   = lift1Word     p "-"   (wordOpX  negOpDef)         l
-tcE (AST.MulExpr      p l r) = lift2WordEq   p "*"   (wordOpEX mulOpDef)         l r
-tcE (AST.SDivExpr     p l r) = lift2WordEq   p "/s"  (wordOpEX signedDivOpDef)   l r
-tcE (AST.SRemExpr     p l r) = lift2WordEq   p "%s"  (wordOpEX signedRemOpDef)   l r
-tcE (AST.PlusExpr     p l r) = lift2WordEq   p "+"   (wordOpEX addOpDef)         l r
-tcE (AST.SubExpr      p l r) = lift2WordEq   p "-"   (wordOpEX subOpDef)         l r
-tcE (AST.ShlExpr      p l r) = lift2Word     p "<<"  (shftOpVS shlOpDef)         l r
-tcE (AST.SShrExpr     p l r) = lift2Word     p ">>s" (shftOpVS shrOpDef)         l r
-tcE (AST.UShrExpr     p l r) = lift2Word     p ">>u" (shftOpVS ushrOpDef)        l r
-tcE (AST.BitAndExpr   p l r) = lift2WordEq   p "&"   (wordOpEX iAndOpDef)        l r
-tcE (AST.BitOrExpr    p l r) = lift2WordEq   p "|"   (wordOpEX iOrOpDef)         l r
-tcE (AST.BitXorExpr   p l r) = lift2WordEq   p "^"   (wordOpEX iXorOpDef)        l r
-tcE (AST.AppendExpr   p l r) = lift2Word     p "#"   (wordOpXY appendIntOpDef)   l r
-tcE (AST.EqExpr       p l r) = lift2ShapeCmp p "=="  (shapeOpX eqOpDef)          l r
-tcE (AST.IneqExpr     p l r) = lift2ShapeCmp p "!="  (shapeOpX eqOpDef)          l r >>= \e -> return $ Apply (groundOp bNotOpDef) [e]
-tcE (AST.SGeqExpr     p l r) = lift2WordCmp  p ">=s" (wordOpX  signedLeqOpDef)   l r >>= return . flipBinOpArgs
-tcE (AST.SLeqExpr     p l r) = lift2WordCmp  p "<=s" (wordOpX  signedLeqOpDef)   l r
-tcE (AST.SGtExpr      p l r) = lift2WordCmp  p ">s"  (wordOpX  signedLtOpDef)    l r >>= return . flipBinOpArgs
-tcE (AST.SLtExpr      p l r) = lift2WordCmp  p "<s"  (wordOpX  signedLtOpDef)    l r
-tcE (AST.UGeqExpr     p l r) = lift2WordCmp  p ">=u" (wordOpX  unsignedLeqOpDef) l r >>= return . flipBinOpArgs
-tcE (AST.ULeqExpr     p l r) = lift2WordCmp  p "<=u" (wordOpX  unsignedLeqOpDef) l r
-tcE (AST.UGtExpr      p l r) = lift2WordCmp  p ">u"  (wordOpX  unsignedLtOpDef)  l r >>= return . flipBinOpArgs
-tcE (AST.ULtExpr      p l r) = lift2WordCmp  p "<u"  (wordOpX  unsignedLtOpDef)  l r
-tcE (AST.AndExpr      p l r) = lift2Bool     p "&&"  (groundOp bAndOpDef)        l r
-tcE (AST.OrExpr       p l r) = lift2Bool     p "||"  (groundOp bOrOpDef)         l r
+tcE (AST.NotExpr      p l)   = lift1Bool     p "not" bNotOp        l
+tcE (AST.BitComplExpr p l)   = lift1Word     p "~"   iNotOp        l
+tcE (AST.NegExpr      p l)   = lift1Word     p "-"   negOp         l
+tcE (AST.MulExpr      p l r) = lift2WordEq   p "*"   (const mulOp)         l r
+tcE (AST.SDivExpr     p l r) = lift2WordEq   p "/s"  (const signedDivOp)   l r
+tcE (AST.SRemExpr     p l r) = lift2WordEq   p "%s"  (const signedRemOp)   l r
+tcE (AST.PlusExpr     p l r) = lift2WordEq   p "+"   (const addOp)         l r
+tcE (AST.SubExpr      p l r) = lift2WordEq   p "-"   (const subOp)         l r
+tcE (AST.ShlExpr      p l r) = lift2Word     p "<<"  shlOp         l r
+tcE (AST.SShrExpr     p l r) = lift2Word     p ">>s" shrOp         l r
+tcE (AST.UShrExpr     p l r) = lift2Word     p ">>u" ushrOp        l r
+tcE (AST.BitAndExpr   p l r) = lift2WordEq   p "&"   (const iAndOp)        l r
+tcE (AST.BitOrExpr    p l r) = lift2WordEq   p "|"   (const iOrOp)         l r
+tcE (AST.BitXorExpr   p l r) = lift2WordEq   p "^"   (const iXorOp)        l r
+tcE (AST.AppendExpr   p l r) = lift2Word     p "#"   appendIntOp   l r
+tcE (AST.EqExpr       p l r) = lift2ShapeCmp p "=="  eqOp          l r
+tcE (AST.IneqExpr     p l r) = lift2ShapeCmp p "!="  eqOp          l r >>= \e -> return $ Apply bNotOp [e]
+tcE (AST.SGeqExpr     p l r) = lift2WordCmp  p ">=s" signedLeqOp   l r >>= return . flipBinOpArgs
+tcE (AST.SLeqExpr     p l r) = lift2WordCmp  p "<=s" signedLeqOp   l r
+tcE (AST.SGtExpr      p l r) = lift2WordCmp  p ">s"  signedLtOp    l r >>= return . flipBinOpArgs
+tcE (AST.SLtExpr      p l r) = lift2WordCmp  p "<s"  signedLtOp    l r
+tcE (AST.UGeqExpr     p l r) = lift2WordCmp  p ">=u" unsignedLeqOp l r >>= return . flipBinOpArgs
+tcE (AST.ULeqExpr     p l r) = lift2WordCmp  p "<=u" unsignedLeqOp l r
+tcE (AST.UGtExpr      p l r) = lift2WordCmp  p ">u"  unsignedLtOp  l r >>= return . flipBinOpArgs
+tcE (AST.ULtExpr      p l r) = lift2WordCmp  p "<u"  unsignedLtOp  l r
+tcE (AST.AndExpr      p l r) = lift2Bool     p "&&"  bAndOp        l r
+tcE (AST.OrExpr       p l r) = lift2Bool     p "||"  bOrOp         l r
 tcE (AST.IteExpr      p t l r) = do
         [t', l', r'] <- mapM tcE [t, l, r]
         let [tt, lt, rt] = map getTypeOfExpr [t', l', r']
@@ -385,7 +385,7 @@ tcE (AST.IteExpr      p t l r) = do
            then mismatch p "test expression of if-then-else" tt SymBool
            else if lt /= rt
                 then mismatch p "branches of if-then-else expression" lt rt
-                else return $ Apply (shapeOpX iteOpDef lt) [t', l', r']
+                else return $ Apply (iteOp lt) [t', l', r']
 tcE (AST.DerefField p e f) = do
    e' <- tcE e
    case getTypeOfExpr e' of
@@ -487,22 +487,6 @@ lift2WordCmp p nm opMaker l r = do
                               else mismatch p ("arguments to operator '" ++ nm ++ "'") lt rt
     (SymInt _,  _)         -> unexpected p ("Second argument to operator '" ++ nm ++ "'") "word" rt
     (_       ,  _)         -> unexpected p ("First argument to operator '"  ++ nm ++ "'") "word" lt
-
--- substitution constructor helpers
-wordOpX :: OpDef -> WidthExpr -> Op
-wordOpX  opDef wx    = mkOp opDef (emptySubst { widthSubst = Map.fromList [("x", wx)           ] })
-
-wordOpEX :: OpDef -> WidthExpr -> WidthExpr -> Op
-wordOpEX opDef wx _  = mkOp opDef (emptySubst { widthSubst = Map.fromList [("x", wx)           ] })
-
-wordOpXY :: OpDef -> WidthExpr -> WidthExpr -> Op
-wordOpXY opDef wx wy = mkOp opDef (emptySubst { widthSubst = Map.fromList [("x", wx), ("y", wy)] })
-
-shftOpVS :: OpDef -> WidthExpr -> WidthExpr -> Op
-shftOpVS opDef wv ws = mkOp opDef (emptySubst { widthSubst = Map.fromList [("v", wv), ("s", ws)] })
-
-shapeOpX :: OpDef -> DagType -> Op
-shapeOpX opDef wx = mkOp opDef (emptySubst { shapeSubst = Map.fromList [("x", wx)] })
 
 flipBinOpArgs :: Expr -> Expr
 flipBinOpArgs (Apply o [a, b]) = Apply o [b, a]
