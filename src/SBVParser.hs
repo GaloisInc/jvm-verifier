@@ -48,11 +48,14 @@ import Verinf.Utils.CatchMIO
 tsIte :: Monad m => DagType -> TermSemantics m t -> t -> t -> t -> m t
 tsIte tp = impl
   where op = iteOp tp
-        impl ts c t f 
-          | tsIsTrue ts c = return t
-          | tsIsFalse ts c = return f
-          | tsEqTerm ts t f = return t
-          | otherwise = tsApplyTernary ts op c t f
+        impl ts c t f = do
+          tc <- tsBoolConstant ts True
+          fc <- tsBoolConstant ts False
+          case () of
+            _ | tsEqTerm ts c tc -> return t
+              | tsEqTerm ts c fc -> return f
+              | tsEqTerm ts t f -> return t
+              | otherwise -> tsApplyTernary ts op c t f
 
 -- General purpose utility functions {{{1
 
@@ -174,8 +177,8 @@ inferSBVFunctionType oc (SBVPgm (_,ir,_,_,_,_)) = inferFunctionType oc ir
 
 toBool :: DagType -> (forall m t . Monad m => TermSemantics m t -> t -> m t)
 toBool SymBool = \_ -> return
-toBool tp@(SymInt (widthConstant -> Just 1)) = \ts -> 
-  tsApplyBinary ts (eqOp tp) (tsIntConstant ts 1 1)
+toBool tp@(SymInt (widthConstant -> Just 1)) = \ts x -> 
+  tsApplyBinary ts (eqOp tp) x =<< tsIntConstant ts 1 1
 toBool _ = throw $ SBVBadFormat "Illegal type for Boolean input"
 
 toIntType :: DagType -> DagType
@@ -184,9 +187,10 @@ toIntType tp@SymInt{} = tp
 toIntType _ = throw $ SBVBadFormat "Illegal type for integer input"
 
 toInt :: DagType -> (forall m t . Monad m => TermSemantics m t -> t -> m t)
-toInt SymBool = \ts x -> 
-    tsApplyTernary ts op x (tsIntConstant ts 1 1)
-                           (tsIntConstant ts 1 0)
+toInt SymBool = \ts x ->  do
+    t1 <- tsIntConstant ts 1 1
+    t0 <- tsIntConstant ts 1 0
+    tsApplyTernary ts op x t1 t0
   where op = iteOp (SymInt (constantWidth 1))
 toInt SymInt{} = \_ -> return
 toInt _ = throw $ SBVBadFormat "Illegal type for integer input"
@@ -202,9 +206,9 @@ splitInput (SymArray lenType@(widthConstant -> Just (Wx len)) eltType) = do
       arrayOp = getArrayValueOp lenType (constantWidth 32) eltType
    in ( V.concatMap id (V.replicate (fromIntegral len) eltTypes)
       , SF $ \ts arr -> do
-               res <- V.generateM len $ \i ->
-                 let c = tsIntConstant ts 32 (toInteger i)
-                  in eltParser ts =<< tsApplyBinary ts arrayOp arr c
+               res <- V.generateM len $ \i -> do
+                 c <- tsIntConstant ts 32 (toInteger i)
+                 eltParser ts =<< tsApplyBinary ts arrayOp arr c
                return (V.concatMap id res))
 splitInput (SymRec recDef recParams) =
   let fieldTypes = recFieldTypes recDef recParams
@@ -462,7 +466,7 @@ apply (oc,_) (BVExt hi lo) [SymInt wx@(widthConstant -> Just (Wx w))]
       ( SymInt (constantWidth newWidth)
       , SFN $ \ts args -> assert (V.length args == 1) $ do
                  -- Shift x to the right by lo bits.
-                 let loc = tsIntConstant ts ws lo
+                 loc <- tsIntConstant ts ws lo
                  xred <- tsApplyBinary ts uOp (args V.! 0) loc
                  tsApplyUnary ts trOp xred) -- Trunc hi - lo + 1 bits off top.
  where ws = Wx (ceilLgl2 w)
@@ -482,8 +486,9 @@ apply _ (BVExt hi lo) [SymArray lenType@(widthConstant -> Just (Wx arrayLength))
   | r /= 0 = throw $ SBVBadFormat "BVExt applied to unaligned array value"
   | otherwise =
       ( eltType
-      , SFN $ \ts v -> assert (V.length v == 1) $
-                tsApplyBinary ts arrayOp (v V.! 0) (tsIntConstant ts (Wx 32) idx))
+      , SFN $ \ts v -> assert (V.length v == 1) $ do
+                tIdx <- tsIntConstant ts (Wx 32) idx
+                tsApplyBinary ts arrayOp (v V.! 0) tIdx)
   where extSize = hi - lo + 1
         eltSize = typeSize eltType
         (idx,r) = lo `quotRem` eltSize
@@ -605,12 +610,12 @@ checkSBV :: SBV -> SBVTypeChecker ParseResult
 -- Bool constant case
 checkSBV (SBV 1 (Left val)) =
   return ( SymBool
-         , SBVE $ \ts -> return (tsBoolConstant ts (val /= 0)))
+         , SBVE $ \ts -> lift $ tsBoolConstant ts (val /= 0))
 -- Int constant case
 checkSBV (SBV w (Left val)) = do
   let w' = downcastInt w "integer width"
   return ( SymInt (constantWidth (Wx w'))
-         , SBVE $ \ts -> return (tsIntConstant ts (Wx w') val))
+         , SBVE $ \ts -> lift $ tsIntConstant ts (Wx w') val)
 -- Application case
 checkSBV (SBV _ (Right node)) = (Map.! node) <$> gets nodeTypeMap
 
