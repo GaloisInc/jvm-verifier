@@ -693,8 +693,7 @@ parseSBV oc
 
 -- | Parse a SBV file into an operator and action.
 parseSBVOp :: OpCache 
-              -- | Maps uninterpreted function names to corresponding op
-           -> UninterpFnMap
+           -> UninterpFnMap  -- ^ Maps uninterpreted function names to corresponding op
            -> String -- ^ Name for new operator
            -> SBVPgm
            -> IO (OpDef, WordEvalFn)

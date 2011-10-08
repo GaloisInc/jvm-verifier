@@ -126,12 +126,14 @@ executable sawScript
     , executable-path
     , filepath
     , fingertree
+    , monadLib
     , mtl == 2.0.*
     , old-locale >= 1.0.0.2
     , old-time >= 1.0.0.3
     , parsec >= 2.1.0.1
     , pretty
     , random
+    , smtLib
     , vector >= 0.7
     , zlib
     , Verinf
@@ -150,6 +152,7 @@ executable sawScript
         SAWScript.MethodSpec
         SAWScript.Parser
         SAWScript.ParserActions
+        SAWScript.SmtLib
         SAWScript.TIMonad
         SAWScript.Token
         SAWScript.TypeChecker

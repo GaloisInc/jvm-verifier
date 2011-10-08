@@ -2,6 +2,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE PatternGuards #-}
 module SAWScript.MethodSpec
   ( MethodSpecIR
   , methodSpecName
@@ -32,6 +33,7 @@ import System.Random(randomIO, randomRIO)
 import qualified Execution.Codebase as JSS
 import JavaParser as JSS
 import MethodSpec (partitions)
+import qualified SAWScript.SmtLib
 import qualified SAWScript.MethodAST as AST
 import qualified SAWScript.TypeChecker as TC
 import qualified Simulation as JSS
@@ -1590,7 +1592,7 @@ pickRandomSize ty spec =
                 Large   -> randomRIO (max least (largest - 100), largest)
                 Largest -> return largest
 
-         Nothing -> qcFail "ingegers of non-constant size"
+         Nothing -> qcFail "integers of non-constant size"
 
     SymArray els ty1 ->
       case widthConstant els of
