@@ -563,7 +563,7 @@ splitOp l w t0 =
                        , asTerm  = extract ((i+1) * w - 1) (i * w) (asTerm t)
                        , smtType = TBitVec w
                        } | i <- [ 0 .. l - 1 ] ]
-      mkArray (TArray (needBits (l*w)) w) vs
+      mkArray (TArray (needBits l) w) vs
 
 
 
