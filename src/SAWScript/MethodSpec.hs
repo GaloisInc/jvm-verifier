@@ -933,11 +933,11 @@ execOverride pos nm ir mbThis args = do
     specNode <- JSS.liftSymbolic $ makeConstant c tp
     JSS.assume =<< JSS.liftSymbolic (applyEq specNode jvmNode)
   -- Update arrayPostconditions
-  forM_ (Map.toList $ arrayPostconditions ir) $ \(javaExpr,pc) ->
-    evalArrayPost jsi ssi javaExpr pc
+  forM_ (Map.toList $ arrayPostconditions ir) $
+    uncurry (evalArrayPost jsi ssi)
   -- Update scalarPostconditions
-  forM_ (Map.toList $ scalarPostconditions ir) $ \(javaExpr,pc) -> do
-    evalScalarPost jsi ssi javaExpr pc
+  forM_ (Map.toList $ scalarPostconditions ir) $
+    uncurry (evalScalarPost jsi ssi)
   -- Update return type.
   let Just returnExpr = returnValue ir
   case JSS.methodReturnType (methodSpecIRMethod ir) of
