@@ -1,0 +1,68 @@
+/* Check that we generate multiple verification conditions. */
+method LocalSpec.test1 {
+    var args[0] : int[12];
+    localSpec 4 {
+        arbitrary: args[0];
+    };
+    arbitrary: args[0];
+    verifyUsing: abc;
+};
+
+/* Test that we can check intermediate values. */
+method LocalSpec.test2 {
+    var args[0] : int[1];
+    localSpec 4 {
+        ensures args[0] := [1 : [32]];
+    };
+    ensures args[0] := [2 : [32]];
+    verifyUsing: abc;
+};
+
+/* Test that we can handle arbitrary iteration counts. */
+method LocalSpec.test3 {
+    var args[0] : int[1];
+    var args[1] : int[1];
+    let a = join(fromJava(args[0]));
+    let b = join(fromJava(args[1]));
+    assume  (0 : [32]) <s b;
+    localSpec 10 {
+        assume  (0 : [32]) <s b;
+        assume a <s b;
+        assume (0 : [32]) <=s a;
+    };
+    localSpec 20 {
+        arbitrary: args[0];
+    };
+    arbitrary: args[0];
+    verifyUsing: abc;
+};
+
+/* Can't write the specs we need for this. The secondary array indices
+ * aren't supported. */
+/*
+method LocalSpec.copy {
+    var args[0] : int[12];
+    var args[1] : int[12];
+    var args[2] : int[1];
+    let i = fromJava(args[2]);
+    localSpec 8 {
+        assume i == 0 ||
+               i == 1 ||
+               i == 2 ||
+               i == 3 ||
+               i == 4 ||
+               i == 5 ||
+               i == 6 ||
+               i == 7 ||
+               i == 8 ||
+               i == 9 ||
+               i == 10 ||
+               i == 11;
+    };
+    localSpec 17 {
+        ensures args[1][i] := fromJava(args[0][i]);
+    };
+    ensures args[1] := fromJava(args[0]);
+    verifyUsing: abc;
+};
+*/
