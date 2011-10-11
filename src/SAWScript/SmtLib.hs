@@ -1,22 +1,46 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module SAWScript.SmtLib where
+module SAWScript.SmtLib (translate) where
 
 import GHC.Exts(IsString(fromString))
 import SMTLib1.QF_AUFBV as BV
-import MonadLib hiding (lift)
+import MonadLib
 import Verinf.Symbolic.Common
   ( CValue(..), Op(..), OpDef(..), TermSemantics(..)
   , WidthExpr, widthConstant
   , DagType(..)
   , opResultType, numBits
   )
+import Verinf.Symbolic(Node,deEval)
 import qualified Verinf.Symbolic.Common as Op (OpIndex(..))
 import qualified Data.Vector as V
+
+
+translate :: String -> [DagType] -> Node -> [Node] -> IO Script
+translate name is asmp goals = toScript name $
+  do js <- V.fromList `fmap` mapM mkInp is
+     eval <- io $ deEval (\i _ _ -> js V.! i) translateOps
+     addAssumpt =<< toForm =<< eval asmp
+     (Conn Not . return . Conn And) `fmap` mapM (toForm <=< eval) goals
+
+  where
+  toForm x = case asForm x of
+               Nothing -> bug "translate" "Type error---not a formula"
+               Just f  -> return f
+
+  mkInp ty = do t    <- cvtType ty
+                term <- newConst t
+                return FTerm { asForm = case t of
+                                          TBool -> Just (term === true)
+                                          _     -> Nothing
+                             , asTerm = term
+                             , smtType = t
+                             }
+
 
 --------------------------------------------------------------------------------
 -- The Monad
 
-newtype M a = M (StateT S (ExceptionT X Id) a) deriving (Functor, Monad)
+newtype M a = M (StateT S (ExceptionT X IO) a) deriving (Functor, Monad)
 
 data S = S { names       :: !Int
            , globalDefs  :: [(Ident,[SmtType],SmtType)]
@@ -27,26 +51,32 @@ type X = String
 
 
 
-toScript :: String -> M Formula -> Either X Script
+toScript :: String -> M Formula -> IO Script
 toScript n (M m) =
-  case runId $ runExceptionT $ runStateT s0 m of
-    Left xx -> Left xx
-    Right (a,s) -> Right Script
-      { scrName     = fromString n
-      , scrCommands =
-        [ CmdLogic (fromString "QF_AUFBV")
-        , CmdExtraFuns [ FunDecl { funName = i
-                                 , funArgs = map toSort as
-                                 , funRes  = toSort b
-                                 , funAnnots = [] } | (i,as,b) <- globalDefs s ]
-        ] ++
-        [ CmdAssumption f | f <- globalAsmps s
-        ] ++
-        [ CmdFormula a
-        ]
-      }
+  do res <- runExceptionT (runStateT s0 m)
+     case res of
+       Left xx -> fail xx -- XXX: Throw a custom exception.
+       Right (a,s) -> return Script
+         { scrName     = fromString n
+         , scrCommands =
+           [ CmdLogic (fromString "QF_AUFBV")
+           , CmdExtraFuns
+               [ FunDecl { funName = i
+                         , funArgs = map toSort as
+                         , funRes  = toSort b
+                         , funAnnots = [] } | (i,as,b) <- globalDefs s
+               ]
+           ] ++
+           [ CmdAssumption f | f <- globalAsmps s
+           ] ++
+           [ CmdFormula a
+           ]
+         }
 
     where s0 = S { names = 0, globalDefs = [], globalAsmps = [] }
+
+io :: IO a -> M a
+io m = M (lift $ lift m)
 
 
 bug :: String -> String -> M a
@@ -171,6 +201,9 @@ toTerm f = FTerm { asForm = Just f
 
 --------------------------------------------------------------------------------
 
+
+
+
 translateOps :: TermSemantics M FTerm
 translateOps = TermSemantics
   { tsEqTerm = same
@@ -238,7 +271,7 @@ translateOps = TermSemantics
 
       i -> \_ _ _ -> err $ "Unknown ternary operator: " ++ show i
 
-  apply op = lift $
+  apply op = liftV $
     case opDefIndex (opDef op) of
       Op.MkArray _  -> \vs -> do t <- cvtType (opResultType op)
                                  mkArray t vs
@@ -258,7 +291,7 @@ translateOps = TermSemantics
                          s3 <- save t3
                          op s1 s2 s3
 
-  lift op ts        = do ss <- mapM save (V.toList ts)
+  liftV op ts       = do ss <- mapM save (V.toList ts)
                          op ss
 
 
