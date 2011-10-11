@@ -9,12 +9,12 @@ class LocalSpec {
     public static void test2(int[] a) {
         a[0] = 1;
         // ensures a == 1;
-        a[0] = 2;
+        a[0]++;
         // ensures a == 2;
     }
 
     public static void test3(int[] a, int[] b) {
-        for(a[0] = 0; a[0] < b[0]; a[0]++) {
+        for(a[0] = 0; a[0] < 10; a[0]++) {
         }
     }
 

@@ -19,23 +19,28 @@ method LocalSpec.test2 {
 };
 
 /* Test that we can handle arbitrary iteration counts. */
+/*
 method LocalSpec.test3 {
     var args[0] : int[1];
     var args[1] : int[1];
     let a = join(fromJava(args[0]));
     let b = join(fromJava(args[1]));
-    assume  (0 : [32]) <s b;
-    localSpec 10 {
-        assume  (0 : [32]) <s b;
-        assume a <s b;
+    localSpec 12 {
         assume (0 : [32]) <=s a;
-    };
-    localSpec 20 {
+        assume (0 : [32]) <s b;
+        assume a <s b;
         arbitrary: args[0];
     };
-    arbitrary: args[0];
+    localSpec 19 {
+        arbitrary: args[0];
+    };
+    localSpec 22 {
+      assume a >=s b;
+      arbitrary: args[0];
+    };
     verifyUsing: abc;
 };
+*/
 
 /* Can't write the specs we need for this. The secondary array indices
  * aren't supported. */
