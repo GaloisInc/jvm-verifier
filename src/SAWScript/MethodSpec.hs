@@ -599,6 +599,9 @@ data LocalSpecs = LocalSpecs {
   , localScalarPostconditions :: Map TC.JavaExpr SpecPostcondition
   } deriving (Show)
 
+emptyLocalSpecs :: LocalSpecs
+emptyLocalSpecs = LocalSpecs [] Map.empty Map.empty
+
 -- MethodSpecIR {{{2
 
 data MethodSpecIR = MSIR {
@@ -930,37 +933,11 @@ execOverride pos nm ir mbThis args = do
     specNode <- JSS.liftSymbolic $ makeConstant c tp
     JSS.assume =<< JSS.liftSymbolic (applyEq specNode jvmNode)
   -- Update arrayPostconditions
-  forM_ (Map.toList $ arrayPostconditions ir) $ \(javaExpr,pc) -> do
-    let Just (JSS.RValue r) = javaExprValue jsi javaExpr
-    case pc of
-      PostUnchanged -> return ()
-      PostArbitrary tp -> do
-        n <- JSS.liftSymbolic $ createSymbolicFromType tp
-        JSS.setSymbolicArray r n
-      PostResult expr -> do
-        n <- JSS.liftSymbolic $ evalExpr ssi expr
-        JSS.setSymbolicArray r n
+  forM_ (Map.toList $ arrayPostconditions ir) $ \(javaExpr,pc) ->
+    evalArrayPost jsi ssi javaExpr pc
   -- Update scalarPostconditions
   forM_ (Map.toList $ scalarPostconditions ir) $ \(javaExpr,pc) -> do
-    case javaExpr of
-      TC.InstanceField refExpr f -> do
-        let Just (JSS.RValue r) = javaExprValue jsi refExpr
-        let scalarValueFromNode :: JSS.Type -> Node -> JSS.Value Node
-            scalarValueFromNode JSS.BooleanType n = JSS.IValue n
-            scalarValueFromNode JSS.IntType n = JSS.IValue n
-            scalarValueFromNode JSS.LongType n = JSS.LValue n
-            scalarValueFromNode _ _ = error "internal: illegal type"
-        case pc of
-          PostUnchanged -> return ()
-          PostArbitrary tp -> do
-            n <- JSS.liftSymbolic (createSymbolicFromType tp)
-            let v = scalarValueFromNode (TC.getJSSTypeOfJavaExpr javaExpr) n
-            JSS.setInstanceFieldValue r f v
-          PostResult expr -> do
-            n <- JSS.liftSymbolic $ evalExpr ssi expr
-            let v = scalarValueFromNode (TC.getJSSTypeOfJavaExpr javaExpr) n
-            JSS.setInstanceFieldValue r f v
-      _ -> return () -- TODO: Investigate better fix. error $ "internal: Illegal scalarPostcondition " ++ show javaExpr
+    evalScalarPost jsi ssi javaExpr pc
   -- Update return type.
   let Just returnExpr = returnValue ir
   case JSS.methodReturnType (methodSpecIRMethod ir) of
@@ -985,6 +962,46 @@ overrideFromSpec pos nm ir = do
            execOverride pos nm ir Nothing args
     else JSS.overrideInstanceMethod cName key $ \thisVal args ->
            execOverride pos nm ir (Just thisVal) args
+
+evalArrayPost :: JavaStateInfo
+              -> SpecStateInfo
+              -> JavaExpr
+              -> SpecPostcondition
+              -> JSS.Simulator SymbolicMonad ()
+evalArrayPost jsi ssi javaExpr pc =
+  case pc of
+    PostUnchanged -> return ()
+    PostArbitrary tp ->
+      JSS.setSymbolicArray r =<< (JSS.liftSymbolic $ createSymbolicFromType tp)
+    PostResult expr ->
+      JSS.setSymbolicArray r =<< (JSS.liftSymbolic $ evalExpr ssi expr)
+  where Just (JSS.RValue r) = javaExprValue jsi javaExpr
+
+evalScalarPost :: JavaStateInfo
+               -> SpecStateInfo
+               -> JavaExpr
+               -> SpecPostcondition
+               -> JSS.Simulator SymbolicMonad ()
+evalScalarPost jsi ssi javaExpr pc =
+  case javaExpr of
+    TC.InstanceField refExpr f -> do
+      let Just (JSS.RValue r) = javaExprValue jsi refExpr
+      let scalarValueFromNode :: JSS.Type -> Node -> JSS.Value Node
+          scalarValueFromNode JSS.BooleanType n = JSS.IValue n
+          scalarValueFromNode JSS.IntType n = JSS.IValue n
+          scalarValueFromNode JSS.LongType n = JSS.LValue n
+          scalarValueFromNode _ _ = error "internal: illegal type"
+      case pc of
+        PostUnchanged -> return ()
+        PostArbitrary tp -> do
+          n <- JSS.liftSymbolic (createSymbolicFromType tp)
+          let v = scalarValueFromNode (TC.getJSSTypeOfJavaExpr javaExpr) n
+          JSS.setInstanceFieldValue r f v
+        PostResult expr -> do
+          n <- JSS.liftSymbolic $ evalExpr ssi expr
+          let v = scalarValueFromNode (TC.getJSSTypeOfJavaExpr javaExpr) n
+          JSS.setInstanceFieldValue r f v
+    _ -> return () -- TODO: Investigate better fix. error $ "internal: Illegal scalarPostcondition " ++ show javaExpr
 
 -- MethodSpec verification {{{1
 -- EquivClassMap {{{2
@@ -1378,44 +1395,53 @@ methodSpecVCs :: Pos
               -> MethodSpecIR
               -> [SymbolicMonad [VerificationContext]]
 methodSpecVCs pos cb opts overrides ir = do
-  let v = verbose opts
+  let vrb = verbose opts
   let refEquivClasses = partitions (specReferences ir)
   let assertPCs = Map.keys (localSpecs ir)
   let cls = JSS.className $ methodSpecIRThisClass ir
   let meth = JSS.methodKey $ methodSpecIRMethod ir
   flip concatMap refEquivClasses $ \cm -> flip map (0 : assertPCs) $ \pc -> do
     -- initial state for some of them.
-    setVerbosity v
+    setVerbosity vrb
     JSS.runSimulator cb $ do
-      setVerbosity v
-      when (v >= 6) $
+      setVerbosity vrb
+      when (vrb >= 6) $
          liftIO $ putStrLn $
            "Creating evaluation state for simulation of " ++ methodSpecName ir
       -- Create map from specification entries to JSS simulator values.
       jvs <- initializeJavaVerificationState ir cm
       -- JavaStateInfo for inital verification state.
       initialPS <- JSS.getPathState
-      let jsi =
+      let specs = Map.findWithDefault emptyLocalSpecs pc (localSpecs ir)
+          jsi =
+            -- TODO: does any of this need to be different for an
+            -- intermediate starting state?
             let evm = jvsExprValueMap jvs
                 mbThis = case Map.lookup (TC.This cls) evm of
                            Nothing -> Nothing
                            Just (JSS.RValue r) -> Just r
                            Just _ -> error "internal: Unexpected value for This"
                 method = methodSpecIRMethod ir
-                -- TODO: args may be different for intermediate executions?
                 args = map (evm Map.!)
-                     $ map (uncurry TC.Arg)
-                     $ [0..] `zip` methodParameterTypes method
-             in (createJavaStateInfo mbThis args initialPS) { jsiInitPC = pc }
+                       $ map (uncurry TC.Arg)
+                       $ [0..] `zip` methodParameterTypes method
+                in (createJavaStateInfo mbThis args initialPS) { jsiInitPC = pc }
       -- Add method spec overrides.
       mapM_ (overrideFromSpec pos (methodSpecName ir)) overrides
       -- Register breakpoints
       JSS.registerBreakpoints $ map (\bpc -> (cls, meth, bpc)) assertPCs
-      -- Execute method.
-      when (v >= 6) $ do
+      when (vrb >= 6) $ do
          liftIO $ putStrLn $ "Executing " ++ methodSpecName ir
          when (pc /= 0) $
               liftIO $ putStrLn $ "  starting from PC " ++ show pc
+      ssi <- JSS.liftSymbolic $ createSpecStateInfo ir jsi
+      -- Update local arrayPostconditions for starting PC
+      forM_ (Map.toList $ localArrayPostconditions specs) $
+        \(javaExpr,post) -> evalArrayPost jsi ssi javaExpr post
+      -- Update local scalarPostconditions for starting PC
+      forM_ (Map.toList $ localScalarPostconditions specs) $
+        \(javaExpr,post) -> evalScalarPost jsi ssi javaExpr post
+      -- Execute method.
       jssResult <- runMethod ir jsi
           -- isReturn returns True if result is a normal return value.
       let isReturn JSS.ReturnVal{} = True
@@ -1446,9 +1472,8 @@ methodSpecVCs pos cb opts overrides ir = do
         -- Build final equation and functions for generating counterexamples.
         newPathState <- JSS.getPathStateByName ps
         JSS.liftSymbolic $ do
-          when (v >= 6) $
+          when (vrb >= 6) $
             liftIO $ putStrLn $ "Creating expected result for " ++ name
-          ssi <- createSpecStateInfo ir jsi
           esd <- createExpectedStateDef ir jvs ssi fr
           whenVerbosity (>= 6) $
             liftIO $ putStrLn $
