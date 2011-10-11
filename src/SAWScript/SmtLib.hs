@@ -1,12 +1,16 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE PatternGuards #-}
 module SAWScript.SmtLib where
 
 import GHC.Exts(IsString(fromString))
 import SMTLib1.QF_AUFBV as BV
-import MonadLib
-import Verinf.Symbolic hiding (mkConst, OpIndex(..))
-import qualified Verinf.Symbolic as Op
+import MonadLib hiding (lift)
+import Verinf.Symbolic.Common
+  ( CValue(..), Op(..), OpDef(..), TermSemantics(..)
+  , WidthExpr, widthConstant
+  , DagType(..)
+  , opResultType, numBits
+  )
+import qualified Verinf.Symbolic.Common as Op (OpIndex(..))
 import qualified Data.Vector as V
 
 --------------------------------------------------------------------------------
@@ -45,15 +49,18 @@ toScript n (M m) =
     where s0 = S { names = 0, globalDefs = [], globalAsmps = [] }
 
 
-bug :: String -> M a
-bug x = M $ raise $ unlines [ "Internal error."
-                            , "*** detected in: SAWScript.SmtLib"
-                            , "*** " ++ x
-                            ]
+bug :: String -> String -> M a
+bug f x = M $ raise $ unlines [ "Internal error."
+                              , "*** detected in: module SAWScript.SmtLib"
+                              , "*** function: " ++ f
+                              , "*** " ++ x
+                              ]
 
 
 err :: String -> M a
-err x = M $ raise x
+err x = M $ raise $ unlines [ "Error whilte translating to SMTLIB:"
+                            , "*** " ++ x
+                            ]
 
 addAssumpt :: Formula -> M ()
 addAssumpt f = M $ sets_ $ \s -> s { globalAsmps = f : globalAsmps s }
@@ -77,11 +84,12 @@ newConst = newFun []
 -- (which we don't) because otherwise lifting things to the top-level
 -- might result in undefined local variables.
 save :: FTerm -> M FTerm
-save t | App _ [] <- asTerm t = return t    -- no need to keep renaming things.
 save t =
-  do x <- newConst (smtType t)
-     addAssumpt (x === asTerm t)
-     return t { asTerm = x }
+  case asTerm t of
+    App _ (_ : _) -> do x <- newConst (smtType t)
+                        addAssumpt (x === asTerm t)
+                        return t { asTerm = x }
+    _             -> return t
 
 -- How many bits do we need to represent the given number.
 needBits :: Integer -> Integer
@@ -159,6 +167,99 @@ toTerm f = FTerm { asForm = Just f
                  }
 
 
+--------------------------------------------------------------------------------
+
+translateOps :: TermSemantics M FTerm
+translateOps = TermSemantics
+  { tsEqTerm = same
+  , tsConstant = \c t -> mkConst c =<< cvtType t
+  , tsApplyUnary = apply1
+  , tsApplyBinary = apply2
+  , tsApplyTernary = apply3
+  , tsApplyOp = apply
+  }
+
+  where
+
+  -- Spot when things are obviously the same.
+  same x y = case (asTerm x, asTerm y) of
+               (App c [], App d []) -> c == d
+               (Lit c, Lit d)       -> c == d
+               _                    -> False
+
+
+  apply1 op = lift1 $
+    case opDefIndex (opDef op) of
+      Op.Trunc w     -> truncOp (numBits w)
+      Op.SignedExt w -> signedExtOp (numBits w)
+      Op.Not         -> bNotOp
+      Op.INot        -> iNotOp
+      Op.Neg         -> negOp
+      Op.Split w1 w2 -> splitOp (numBits w1) (numBits w2)
+      Op.Join w1 w2  -> joinOp (numBits w1) (numBits w2)
+
+      i -> \_ -> err $ "Unknown unary operator: " ++ show i
+
+  apply2 op = lift2 $
+    case opDefIndex (opDef op) of
+      Op.Eq            -> eqOp
+      Op.And           -> bAndOp
+      Op.Or            -> bOrOp
+      Op.Xor           -> bXorOp
+      Op.Implies       -> bImpliesOp
+      Op.IAnd          -> iAndOp
+      Op.IOr           -> iOrOp
+      Op.IXor          -> iXorOp
+      Op.Shl           -> shlOp
+      Op.Shr           -> shrOp
+      Op.Ushr          -> ushrOp
+      Op.AppendInt     -> appendOp
+      Op.Add           -> addOp
+      Op.Mul           -> mulOp
+      Op.Sub           -> subOp
+      Op.SignedDiv     -> signedDivOp
+      Op.SignedRem     -> signedRemOp
+      Op.UnsignedDiv   -> unsignedDivOp
+      Op.UnsignedRem   -> unsignedRemOp
+      Op.SignedLeq     -> signedLeqOp
+      Op.SignedLt      -> signedLtOp
+      Op.UnsignedLeq   -> unsignedLeqOp
+      Op.UnsignedLt    -> unsignedLtOp
+      Op.GetArrayValue -> getArrayValueOp
+
+      i -> \_ _ -> err $ "Unknown binary operator: " ++ show i
+
+  apply3 op = lift3 $
+    case opDefIndex (opDef op) of
+      Op.ITE           -> iteOp
+      Op.SetArrayValue -> setArrayValueOp
+
+      i -> \_ _ _ -> err $ "Unknown ternary operator: " ++ show i
+
+  apply op = lift $
+    case opDefIndex (opDef op) of
+      Op.MkArray _  -> \vs -> do t <- cvtType (opResultType op)
+                                 mkArray t vs
+
+      i -> \_ -> err $ "Unknown variable arity operator: " ++ show i
+
+
+  lift1 op t        = do s1 <- save t
+                         op s1
+
+  lift2 op t1 t2    = do s1 <- save t1
+                         s2 <- save t2
+                         op s1 s2
+
+  lift3 op t1 t2 t3 = do s1 <- save t1
+                         s2 <- save t2
+                         s3 <- save t3
+                         op s1 s2 s3
+
+  lift op ts        = do ss <- mapM save (V.toList ts)
+                         op ss
+
+
 
 
 --------------------------------------------------------------------------------
@@ -190,7 +291,7 @@ mkConst val t =
           do xs <- mapM (`mkConst` TBitVec w) (V.toList vs)
              mkArray t xs
 
-        _ -> bug "Type error: array constant of non-array type"
+        _ -> bug "mkConst" "Type error---array constant of non-array type."
 
     CRec {} -> err "mkConst does not support records at the moment"
 
@@ -222,7 +323,8 @@ iteOp t1 t2 t3 =
                    , asTerm = ITE b (asTerm t2) (asTerm t3)
                    , smtType = smtType t2   -- or t3
                    }
-    Nothing -> bug "type error: discriminator of ITE not a formula?"
+    Nothing -> bug "iteOpt"
+                   "Type error---discriminator of ITE is not a formula."
 
 
 
@@ -243,7 +345,8 @@ signedExtOp n t =
                                        , smtType = TBitVec n
                                        }
               | m == n -> return t
-    _ -> bug "sign extending to a smaller value, or type error"
+    _ -> bug "signedExtOp"
+             "Sign extending to a smaller value, or type error."
 
 
 bNotOp :: FTerm -> M FTerm
@@ -348,7 +451,7 @@ appendOp s t    =
                    , asTerm  = BV.concat (asTerm s) (asTerm t)
                    , smtType = TBitVec (m + n)
                    }
-    _ -> bug "appendOp: type error, arguments are not bit vectors"
+    _ -> bug "appendOp" "Type error---arguments are not bit vectors"
 
 
 addOp :: FTerm -> FTerm -> M FTerm
@@ -421,41 +524,61 @@ unsignedLtOp :: FTerm -> FTerm -> M FTerm
 unsignedLtOp s t = return $ toTerm $ bvugt (asTerm t) (asTerm s)
 
 
+coerceArrayIx :: Integer -> FTerm -> M FTerm
+coerceArrayIx w t =
+  case smtType t of
+    TBitVec n | n == w    -> return t
+              | n > w     -> truncOp w t   -- XXX: Or, report an error?
+              | otherwise -> return t {asTerm = zero_extend (w - n) (asTerm t)}
+    _ -> bug "coerceArrayIx" "Type error---array index is not a bit-vector."
+
 getArrayValueOp :: FTerm -> FTerm -> M FTerm
 getArrayValueOp a i =
   case smtType a of
-    TArray _ n -> return FTerm { asForm  = Nothing
-                               , asTerm  = select (asTerm a) (asTerm i)
-                               , smtType = TBitVec n
-                               }
-    _ -> bug "Type error, selecting from a non-array"
+    TArray w n ->
+      do j <- coerceArrayIx w i
+         return FTerm { asForm  = Nothing
+                      , asTerm  = select (asTerm a) (asTerm j)
+                      , smtType = TBitVec n
+                      }
+    _ -> bug "getArrayValueOp" "Type error---selecting from a non-array."
 
 
 setArrayValueOp :: FTerm -> FTerm -> FTerm -> M FTerm
 setArrayValueOp a i v =
-  return FTerm { asForm  = Nothing
-               , asTerm  = store (asTerm a) (asTerm i) (asTerm v)
-               , smtType = smtType a
-               }
+  case smtType a of
+    TArray w _ ->
+      do j <- coerceArrayIx w i
+         return FTerm { asForm  = Nothing
+                      , asTerm  = store (asTerm a) (asTerm j) (asTerm v)
+                      , smtType = smtType a
+                      }
+    _ -> bug "setArrayValueOp" "Type error---updating a non-array."
 
 
-splitOp :: Integer -> FTerm -> M FTerm
-splitOp m t0 =
-  case smtType t0 of
-    TBitVec n | 0 < m, m <= n, (w,0) <- divMod n m ->
-      do  t <- save t0
-          let vs = [ FTerm { asForm = Nothing
-                           , asTerm = extract ((i+1) * w - 1) (i * w) (asTerm t)
-                           , smtType = TBitVec w
-                           } | i <- [ 0 .. m - 1 ] ]
-          mkArray (TArray (needBits m) w) vs
-    _ -> bug "Type error, splitOp applied on a non-bit vector"
+splitOp :: Integer -> Integer -> FTerm -> M FTerm
+splitOp l w t0 =
+  do  t <- save t0
+      let vs = [ FTerm { asForm  = Nothing
+                       , asTerm  = extract ((i+1) * w - 1) (i * w) (asTerm t)
+                       , smtType = TBitVec w
+                       } | i <- [ 0 .. l - 1 ] ]
+      mkArray (TArray (needBits (l*w)) w) vs
 
 
-{-
-joinOp :: FTerm -> M FTerm
-joinOp t =
-  case smtType t of
--}
+
+joinOp :: Integer -> Integer -> FTerm -> M FTerm
+joinOp 0 _ _ = return FTerm { asForm = Nothing
+                            , asTerm = bv 0 0
+                            , smtType = TBitVec 0
+                            }
+joinOp l w t0 =
+  do t <- save t0
+     return FTerm
+       { asForm = Nothing
+       , asTerm = foldr1 BV.concat
+                     [ select (asTerm t) (fromInteger i) | i <- [ 0 .. l - 1 ] ]
+       , smtType = TBitVec (l * w)
+       }
 
 
