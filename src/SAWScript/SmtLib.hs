@@ -5,7 +5,8 @@ module SAWScript.SmtLib where
 import GHC.Exts(IsString(fromString))
 import SMTLib1.QF_AUFBV as BV
 import MonadLib
-import Verinf.Symbolic hiding (mkConst)
+import Verinf.Symbolic hiding (mkConst, OpIndex(..))
+import qualified Verinf.Symbolic as Op
 import qualified Data.Vector as V
 
 --------------------------------------------------------------------------------
