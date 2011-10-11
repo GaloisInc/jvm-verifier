@@ -91,12 +91,6 @@ save t =
                         return t { asTerm = x }
     _             -> return t
 
--- How many bits do we need to represent the given number.
-needBits :: Integer -> Integer
-needBits n | n <= 0     = 0
-needBits n | odd n      = 1 + needBits (div n 2)
-           | otherwise  = needBits (n + 1)
-
 -- For now, we work only with staticlly known sizes of things.
 wToI :: WidthExpr -> M Integer
 wToI x = case widthConstant x of
@@ -141,6 +135,14 @@ toSort ty =
     TBool       -> tBool
     TArray x y  -> tArray x y
     TBitVec n   -> tBitVec n
+
+-- How many bits do we need to represent the given number.
+needBits :: Integer -> Integer
+needBits n | n <= 0     = 0
+needBits n | odd n      = 1 + needBits (div n 2)
+           | otherwise  = needBits (n + 1)
+
+
 
 
 --------------------------------------------------------------------------------
