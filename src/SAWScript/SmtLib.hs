@@ -8,7 +8,8 @@ import Verinf.Symbolic.Common
   ( CValue(..), Op(..), OpDef(..), TermSemantics(..)
   , WidthExpr, widthConstant
   , DagType(..)
-  , opResultType, numBits
+  , opArgTypes, opResultType, numBits
+  , OpSem(..)
   )
 import Verinf.Symbolic(Node,deEval)
 import qualified Verinf.Symbolic.Common as Op (OpIndex(..))
@@ -89,43 +90,48 @@ err x = M $ raise $ unlines [ "Error whilte translating to SMTLIB:"
 addAssumpt :: Formula -> M ()
 addAssumpt f = M $ sets_ $ \s -> s { globalAsmps = f : globalAsmps s }
 
--- NOTE: Functions mentioning arrays whose sizes are not a power
--- of 2 may result in False positives, because we can't represent
--- the types exactly.
-newFun :: [SmtType] -> SmtType -> M BV.Term
-newFun ts t =
-  do arr <- M $ sets $ \s -> let n = names s
-                                 i = fromString ("x" ++ show n)
-                             in ( App i []
-                         , s { names = n + 1
-                             , globalDefs = (i,ts,t) : globalDefs s
-                             }
-                         )
-     case (ts,t) of
-       ([], TArray n w) ->
-         do let ixW = needBits n
-            forM_ [ n .. 2^ixW - 1 ] $ \i ->
-                 addAssumpt (select arr (bv i ixW) === bv 0 w)
-       _ -> return ()
-
+padArray :: SmtType -> BV.Term -> M BV.Term
+padArray ty@(TArray n w) t =
+  do let ixW = needBits n
+     arr <- saveT ty t
+     forM_ [ n .. 2^ixW - 1 ] $ \i ->
+       addAssumpt (select arr (bv i ixW) === bv 0 w)
      return arr
 
+padArray _ t = return t
+
+
+-- Note: does not do any padding on arrays. This happens where the fun
+-- is used.
+newFun :: [SmtType] -> SmtType -> M Ident
+newFun ts t = M $ sets $ \s -> let n = names s
+                                   i = fromString ("x" ++ show n)
+                               in ( i
+                                  , s { names = n + 1
+                                      , globalDefs = (i,ts,t) : globalDefs s
+                                      }
+                                  )
 
 newConst :: SmtType -> M BV.Term
-newConst ty = newFun [] ty
+newConst ty =
+  do f <- newFun [] ty
+     padArray ty (App f [])
 
 -- Give an explicit name to a term.
 -- This is useful so that we can share term representations.
 -- Note that this assumes that we don't use "lets" in formulas,
 -- (which we don't) because otherwise lifting things to the top-level
 -- might result in undefined local variables.
+saveT :: SmtType -> BV.Term -> M BV.Term
+saveT ty t@(App _ (_ : _)) = do x <- newConst ty
+                                addAssumpt (x === t)
+                                return x
+saveT _ t = return t
+
+
 save :: FTerm -> M FTerm
-save t =
-  case asTerm t of
-    App _ (_ : _) -> do x <- newConst (smtType t)
-                        addAssumpt (x === asTerm t)
-                        return t { asTerm = x }
-    _             -> return t
+save t = do t1 <- saveT (smtType t) (asTerm t)
+            return t { asTerm = t1 }
 
 -- For now, we work only with staticlly known sizes of things.
 wToI :: WidthExpr -> M Integer
@@ -168,7 +174,7 @@ cvtType ty =
 toSort :: SmtType -> Sort
 toSort ty =
   case ty of
-    TBool       -> tBool
+    TBool       -> tBitVec 1
     TArray x y  -> tArray (needBits x) y
     TBitVec n   -> tBitVec n
 
@@ -200,13 +206,13 @@ data FTerm = FTerm { asForm   :: Maybe Formula
 -- This is useful for expressions that are naturally expressed as formulas.
 toTerm :: Formula -> FTerm
 toTerm f = FTerm { asForm = Just f
-                 , asTerm = ITE f true false
+                 , asTerm = ITE f bit1 bit0
                  , smtType = TBool
                  }
 
 fromTerm :: SmtType -> BV.Term -> FTerm
 fromTerm ty t = FTerm { asForm = case ty of
-                                   TBool -> Just (t === true)
+                                   TBool -> Just (t === bit1)
                                    _     -> Nothing
                       , asTerm = t
                       , smtType = ty
@@ -245,6 +251,7 @@ translateOps = TermSemantics
       Op.Neg         -> negOp
       Op.Split w1 w2 -> splitOp (numBits w1) (numBits w2)
       Op.Join w1 w2  -> joinOp (numBits w1) (numBits w2)
+      Op.Dynamic _ m -> \t -> dynOp op m (V.fromList [t])
 
       i -> \_ -> err $ "Unknown unary operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -275,6 +282,7 @@ translateOps = TermSemantics
       Op.UnsignedLeq   -> unsignedLeqOp
       Op.UnsignedLt    -> unsignedLtOp
       Op.GetArrayValue -> getArrayValueOp
+      Op.Dynamic _ m   -> \s t -> dynOp op m (V.fromList [s,t])
 
       i -> \_ _ -> err $ "Unknown binary operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -283,6 +291,7 @@ translateOps = TermSemantics
     case opDefIndex (opDef op) of
       Op.ITE           -> iteOp
       Op.SetArrayValue -> setArrayValueOp
+      Op.Dynamic _ m   -> \r s t -> dynOp op m (V.fromList [r,s,t])
 
       i -> \_ _ _ -> err $ "Unknown ternary operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -291,6 +300,7 @@ translateOps = TermSemantics
     case opDefIndex (opDef op) of
       Op.MkArray _  -> \vs -> do t <- cvtType (opResultType op)
                                  mkArray t vs
+      Op.Dynamic _ m   -> \xs -> dynOp op m (V.fromList xs)
 
       i -> \_ -> err $ "Unknown variable arity operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -312,6 +322,14 @@ translateOps = TermSemantics
                          op ss
 
 
+  dynOp op mbSem args =
+    case mbSem of
+      Just sem -> applyOpSem sem (opSubst op) translateOps args
+      Nothing  -> do as <- mapM cvtType (V.toList (opArgTypes op))
+                     b  <- cvtType (opResultType op)
+                     f  <- newFun as b
+                     fromTerm b `fmap`
+                              padArray b (App f (map asTerm (V.toList args)))
 
 
 --------------------------------------------------------------------------------
@@ -325,7 +343,7 @@ mkConst val t =
 
     CBool b ->
       return FTerm { asForm  = Just (if b then FTrue else FFalse)
-                   , asTerm  = if b then true else false
+                   , asTerm  = if b then bit1 else bit0
                    , smtType = t
                    }
 
@@ -412,7 +430,7 @@ signedExtOp n t =
 bNotOp :: FTerm -> M FTerm
 bNotOp t = return FTerm { asForm = do a <- asForm t
                                       return (Conn Not [a])
-                        , asTerm = BV.not (asTerm t)
+                        , asTerm = bvnot (asTerm t)
                         , smtType = TBool
                         }
 
@@ -422,7 +440,7 @@ bAndOp s t = return FTerm { asForm = do a <- asForm s
                                         b <- asForm t
                                         return (Conn And [a,b])
 
-                          , asTerm = BV.and (asTerm s) (asTerm t)
+                          , asTerm = bvand (asTerm s) (asTerm t)
                           , smtType = TBool
                           }
 
@@ -432,7 +450,7 @@ bOrOp s t  = return FTerm { asForm = do a <- asForm s
                                         b <- asForm t
                                         return (Conn Or [a,b])
 
-                          , asTerm = BV.or (asTerm s) (asTerm t)
+                          , asTerm = bvor (asTerm s) (asTerm t)
                           , smtType = TBool
                           }
 
@@ -442,19 +460,21 @@ bXorOp s t  = return FTerm { asForm = do a <- asForm s
                                          b <- asForm t
                                          return (Conn Xor [a,b])
 
-                          , asTerm = BV.xor (asTerm s) (asTerm t)
+                          , asTerm = bvxor (asTerm s) (asTerm t)
                           , smtType = TBool
                           }
 
 
 bImpliesOp :: FTerm -> FTerm -> M FTerm
-bImpliesOp s t  = return FTerm { asForm = do a <- asForm s
-                                             b <- asForm t
-                                             return (Conn Implies [a,b])
+bImpliesOp s t  =
+  case asForm s of
+    Just f -> return FTerm { asForm = do b <- asForm t
+                                         return (Conn Implies [f,b])
 
-                               , asTerm = BV.implies (asTerm s) (asTerm t)
-                               , smtType = TBool
-                               }
+                           , asTerm = ITE f (asTerm t) bit0
+                           , smtType = TBool
+                           }
+    Nothing -> bug "bImpliesOp" "Missing formula translation."
 
 
 iNotOp :: FTerm -> M FTerm
@@ -483,25 +503,26 @@ iXorOp s t   = return FTerm { asForm  = Nothing
                             }
 
 
+mkShiftOp :: (BV.Term -> BV.Term -> BV.Term) -> FTerm -> FTerm -> M FTerm
+mkShiftOp f s t =
+  case smtType s of
+    TBitVec n ->
+      do t1 <- coerce n t
+         return FTerm { asForm  = Nothing
+                      , asTerm  = f (asTerm s) (asTerm t1)
+                      , smtType = smtType s
+                      }
+    _ -> bug "mkShiftOp" "Type error---shifting a non-bit vector"
+
+
 shlOp :: FTerm -> FTerm -> M FTerm
-shlOp s t    = return FTerm { asForm  = Nothing
-                            , asTerm  = bvshl (asTerm s) (asTerm t)
-                            , smtType = smtType s
-                            }
-
-
+shlOp = mkShiftOp bvshl
 
 shrOp :: FTerm -> FTerm -> M FTerm
-shrOp s t    = return FTerm { asForm  = Nothing
-                            , asTerm  = bvashr (asTerm s) (asTerm t)
-                            , smtType = smtType s
-                            }
+shrOp = mkShiftOp bvashr
 
 ushrOp :: FTerm -> FTerm -> M FTerm
-ushrOp s t    = return FTerm { asForm  = Nothing
-                             , asTerm  = bvshr (asTerm s) (asTerm t)
-                             , smtType = smtType s
-                             }
+ushrOp = mkShiftOp bvlshr
 
 appendOp :: FTerm -> FTerm -> M FTerm
 appendOp s t    =
@@ -584,19 +605,19 @@ unsignedLtOp :: FTerm -> FTerm -> M FTerm
 unsignedLtOp s t = return $ toTerm $ bvugt (asTerm t) (asTerm s)
 
 
-coerceArrayIx :: Integer -> FTerm -> M FTerm
-coerceArrayIx w t =
+coerce :: Integer -> FTerm -> M FTerm
+coerce w t =
   case smtType t of
     TBitVec n | n == w    -> return t
-              | n > w     -> truncOp w t   -- XXX: Or, report an error?
+              | n > w     -> truncOp w t
               | otherwise -> return t {asTerm = zero_extend (w - n) (asTerm t)}
-    _ -> bug "coerceArrayIx" "Type error---array index is not a bit-vector."
+    _ -> bug "coerce" "Type error---coercing a non-bit vector"
 
 getArrayValueOp :: FTerm -> FTerm -> M FTerm
 getArrayValueOp a i =
   case smtType a of
     TArray w n ->
-      do j <- coerceArrayIx (needBits w) i
+      do j <- coerce (needBits w) i
          return FTerm { asForm  = Nothing
                       , asTerm  = select (asTerm a) (asTerm j)
                       , smtType = TBitVec n
@@ -608,7 +629,7 @@ setArrayValueOp :: FTerm -> FTerm -> FTerm -> M FTerm
 setArrayValueOp a i v =
   case smtType a of
     TArray w _ ->
-      do j <- coerceArrayIx (needBits w) i
+      do j <- coerce (needBits w) i
          return FTerm { asForm  = Nothing
                       , asTerm  = store (asTerm a) (asTerm j) (asTerm v)
                       , smtType = smtType a
