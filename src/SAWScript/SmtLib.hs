@@ -28,12 +28,7 @@ translate name is asmp goals = toScript name $
 
   mkInp ty = do t    <- cvtType ty
                 term <- newConst t
-                return FTerm { asForm = case t of
-                                          TBool -> Just (term === true)
-                                          _     -> Nothing
-                             , asTerm = term
-                             , smtType = t
-                             }
+                return (fromTerm t term)
 
 
 --------------------------------------------------------------------------------
@@ -94,26 +89,30 @@ err x = M $ raise $ unlines [ "Error whilte translating to SMTLIB:"
 addAssumpt :: Formula -> M ()
 addAssumpt f = M $ sets_ $ \s -> s { globalAsmps = f : globalAsmps s }
 
+-- NOTE: Functions mentioning arrays whose sizes are not a power
+-- of 2 may result in False positives, because we can't represent
+-- the types exactly.
 newFun :: [SmtType] -> SmtType -> M BV.Term
-newFun ts t = M $ sets $
-  \s -> let n = names s
-            i = fromString ("x" ++ show n)
-        in ( App i []
-           , s { names = n + 1
-               , globalDefs = (i,ts,t) : globalDefs s
-               }
-           )
-
-newConst :: SmtType -> M BV.Term
-newConst ty =
-  do t <- newFun [] ty
-     case ty of
-       TArray n w ->
+newFun ts t =
+  do arr <- M $ sets $ \s -> let n = names s
+                                 i = fromString ("x" ++ show n)
+                             in ( App i []
+                         , s { names = n + 1
+                             , globalDefs = (i,ts,t) : globalDefs s
+                             }
+                         )
+     case (ts,t) of
+       ([], TArray n w) ->
          do let ixW = needBits n
             forM_ [ n .. 2^ixW - 1 ] $ \i ->
-              addAssumpt (select t (bv i ixW) === bv 0 w)
+                 addAssumpt (select arr (bv i ixW) === bv 0 w)
        _ -> return ()
-     return t
+
+     return arr
+
+
+newConst :: SmtType -> M BV.Term
+newConst ty = newFun [] ty
 
 -- Give an explicit name to a term.
 -- This is useful so that we can share term representations.
@@ -205,6 +204,13 @@ toTerm f = FTerm { asForm = Just f
                  , smtType = TBool
                  }
 
+fromTerm :: SmtType -> BV.Term -> FTerm
+fromTerm ty t = FTerm { asForm = case ty of
+                                   TBool -> Just (t === true)
+                                   _     -> Nothing
+                      , asTerm = t
+                      , smtType = ty
+                      }
 
 --------------------------------------------------------------------------------
 
@@ -241,6 +247,7 @@ translateOps = TermSemantics
       Op.Join w1 w2  -> joinOp (numBits w1) (numBits w2)
 
       i -> \_ -> err $ "Unknown unary operator: " ++ show i
+                    ++ " (" ++ opDefName (opDef op) ++ ")"
 
   apply2 op = lift2 $
     case opDefIndex (opDef op) of
@@ -270,6 +277,7 @@ translateOps = TermSemantics
       Op.GetArrayValue -> getArrayValueOp
 
       i -> \_ _ -> err $ "Unknown binary operator: " ++ show i
+                    ++ " (" ++ opDefName (opDef op) ++ ")"
 
   apply3 op = lift3 $
     case opDefIndex (opDef op) of
@@ -277,6 +285,7 @@ translateOps = TermSemantics
       Op.SetArrayValue -> setArrayValueOp
 
       i -> \_ _ _ -> err $ "Unknown ternary operator: " ++ show i
+                    ++ " (" ++ opDefName (opDef op) ++ ")"
 
   apply op = liftV $
     case opDefIndex (opDef op) of
@@ -284,6 +293,7 @@ translateOps = TermSemantics
                                  mkArray t vs
 
       i -> \_ -> err $ "Unknown variable arity operator: " ++ show i
+                    ++ " (" ++ opDefName (opDef op) ++ ")"
 
 
   lift1 op t        = do s1 <- save t
@@ -306,8 +316,6 @@ translateOps = TermSemantics
 
 --------------------------------------------------------------------------------
 -- Operations
-
-
 
 
 

@@ -711,5 +711,5 @@ parseSBVOp oc
              $ "SBV Parser does not support loading SBV files with warnings."
   let wef@(WEF evalFn) = parseSBV oc uninterpFn pgrm
   let (argTypes,resType) = parseSBVType oc pgrm
-  op <- definedOp oc opDefName (V.toList argTypes) resType (\_ -> evalFn)
+  op <- definedOp oc opDefName (V.toList argTypes) resType (OpSem (\_ -> evalFn))
   return (op, wef)
