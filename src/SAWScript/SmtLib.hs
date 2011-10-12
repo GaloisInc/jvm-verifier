@@ -374,10 +374,8 @@ mkArray t xs =
     TArray n w ->
       do a  <- newConst t
          let ixW = needBits n
-             num = 2^ixW
          zipWithM_ (\i x -> addAssumpt (select a (bv i ixW) === x))
-                   [ 0 .. ]
-                   (take num (map asTerm xs ++ Prelude.repeat (bv 0 w)))
+                   [ 0 .. ] (map asTerm xs)
          return FTerm { asForm = Nothing
                       , asTerm = a
                       , smtType = t
