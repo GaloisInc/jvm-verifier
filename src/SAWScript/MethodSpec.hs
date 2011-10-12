@@ -1517,7 +1517,9 @@ verifyMethodSpec oc pos cb opts ir overrides rules = do
 testRandom :: MethodSpecIR -> Int -> Maybe Int ->
                                        VerificationContext -> SymbolicMonad ()
 testRandom ir test_num lim vc =
-    do (passed,run) <- loop 0 0
+    do whenVerbosity (>= 3) $
+         liftIO $ putStrLn $ "Generating random tests: " ++ methodSpecName ir
+       (passed,run) <- loop 0 0
        when (passed < test_num) $
          let msg = text "QuickCheck: Failed to generate enough good inputs."
                 $$ nest 2 (vcat [ text "Attempts:" <+> int run
@@ -1628,7 +1630,9 @@ pickRandom ty = pickRandomSize ty =<< ((`pick` distr) `fmap` randomRIO (0,99))
 useSMTLIB :: MethodSpecIR -> Maybe String -> VerificationContext ->
                                                           SymbolicMonad ()
 useSMTLIB ir mbNm vc =
-  do gs <- mapM checkGoal (vcChecks vc)
+  do whenVerbosity (>= 3) $
+       liftIO $ putStrLn $ "Translating to SMTLIB: " ++ methodSpecName ir
+     gs <- mapM checkGoal (vcChecks vc)
      liftIO $ do script <- SmtLib.translate name
                               (map (termType . viNode) (vcInputs vc))
                               (vcAssumptions vc)
