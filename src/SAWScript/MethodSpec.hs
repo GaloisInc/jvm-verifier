@@ -33,7 +33,7 @@ import System.Random(randomIO, randomRIO)
 import qualified Execution.Codebase as JSS
 import JavaParser as JSS
 import MethodSpec (partitions)
-import qualified SAWScript.SmtLib
+import qualified SAWScript.SmtLib as SmtLib
 import qualified SAWScript.MethodAST as AST
 import qualified SAWScript.TypeChecker as TC
 import qualified Simulation as JSS
@@ -45,6 +45,8 @@ import Verinf.Symbolic
 import Verinf.Symbolic.Common(bitWidthSize)
 import Verinf.Utils.IOStateT
 import Verinf.Utils.LogMonad
+
+import qualified SMTLib1 as SmtLib
 
 -- Utilities {{{1
 
@@ -1508,6 +1510,7 @@ verifyMethodSpec oc pos cb opts ir overrides rules = do
             newGoal <- runRewriter
             runABC ir (vcInputs vc) newGoal (checkCounterexample check)
           AST.QuickCheck n lim -> testRandom ir n lim vc
+          AST.SmtLib nm -> useSMTLIB ir nm vc
           AST.Skip -> error "internal: verifyMethodTactic used invalid tactic."
 
 
@@ -1622,5 +1625,19 @@ pickRandom ty = pickRandomSize ty =<< ((`pick` distr) `fmap` randomRIO (0,99))
           ]
 
 
+useSMTLIB :: MethodSpecIR -> Maybe String -> VerificationContext ->
+                                                          SymbolicMonad ()
+useSMTLIB ir mbNm vc =
+  do gs <- mapM checkGoal (vcChecks vc)
+     liftIO $ do script <- SmtLib.translate name
+                              (map (termType . viNode) (vcInputs vc))
+                              (vcAssumptions vc)
+                              gs
+                 writeFile (name ++ ".smt") $ show $ SmtLib.pp script
+
+  where
+  name = case mbNm of
+           Just x  -> x
+           Nothing -> methodSpecName ir
 
 

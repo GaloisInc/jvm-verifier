@@ -14,7 +14,6 @@ import Verinf.Symbolic(Node,deEval)
 import qualified Verinf.Symbolic.Common as Op (OpIndex(..))
 import qualified Data.Vector as V
 
-
 translate :: String -> [DagType] -> Node -> [Node] -> IO Script
 translate name is asmp goals = toScript name $
   do js <- V.fromList `fmap` mapM mkInp is
@@ -106,7 +105,15 @@ newFun ts t = M $ sets $
            )
 
 newConst :: SmtType -> M BV.Term
-newConst = newFun []
+newConst ty =
+  do t <- newFun [] ty
+     case ty of
+       TArray n w ->
+         do let ixW = needBits n
+            forM_ [ n .. 2^ixW - 1 ] $ \i ->
+              addAssumpt (select t (bv i ixW) === bv 0 w)
+       _ -> return ()
+     return t
 
 -- Give an explicit name to a term.
 -- This is useful so that we can share term representations.
@@ -132,8 +139,8 @@ wToI x = case widthConstant x of
 --------------------------------------------------------------------------------
 -- Converting from HAJava types into SMTLIB types.
 
--- XXX: In the array case, and integer tracking the actual number of
--- elements that we have.
+-- | The array type contains the number of elements, not the
+-- the number of bits, as in SMTLIB!
 data SmtType = TBool | TArray Integer Integer | TBitVec Integer
                deriving (Eq,Show)
 
@@ -146,7 +153,7 @@ cvtType ty =
     SymInt w -> TBitVec `fmap` wToI w
 
     SymArray w ty1 ->
-      do n <- needBits `fmap` wToI w
+      do n <- wToI w
          s <- cvtType ty1
          case s of
            TBitVec m -> return (TArray n m)
@@ -163,7 +170,7 @@ toSort :: SmtType -> Sort
 toSort ty =
   case ty of
     TBool       -> tBool
-    TArray x y  -> tArray x y
+    TArray x y  -> tArray (needBits x) y
     TBitVec n   -> tBitVec n
 
 -- How many bits do we need to represent the given number.
@@ -331,16 +338,26 @@ mkConst val t =
     CRec {} -> err "mkConst does not support records at the moment"
 
 
+-- NOTE: Arrays whose size is not a power of 2 are padded with 0s.
+-- This is needed because otherwise  we can detect fake differences
+-- between arrays, that are equal on their proper range, but differ
+-- in the padding.
 mkArray :: SmtType -> [FTerm] -> M FTerm
 mkArray t xs =
-  do a  <- newConst t
-     zipWithM_ (\i x ->
-        addAssumpt (select a (fromInteger i) === asTerm x)) [ 0 .. ] xs
-     return FTerm { asForm = Nothing
-                  , asTerm = a
-                  , smtType = t
-                  }
+  case t of
+    TArray n w ->
+      do a  <- newConst t
+         let ixW = needBits n
+             num = 2^ixW
+         zipWithM_ (\i x -> addAssumpt (select a (bv i ixW) === x))
+                   [ 0 .. ]
+                   (take num (map asTerm xs ++ Prelude.repeat (bv 0 w)))
+         return FTerm { asForm = Nothing
+                      , asTerm = a
+                      , smtType = t
+                      }
 
+    _ -> bug "mkArray" "Type error---the type of mkArray is not an array."
 
 
 eqOp :: FTerm -> FTerm -> M FTerm
@@ -571,7 +588,7 @@ getArrayValueOp :: FTerm -> FTerm -> M FTerm
 getArrayValueOp a i =
   case smtType a of
     TArray w n ->
-      do j <- coerceArrayIx w i
+      do j <- coerceArrayIx (needBits w) i
          return FTerm { asForm  = Nothing
                       , asTerm  = select (asTerm a) (asTerm j)
                       , smtType = TBitVec n
@@ -583,7 +600,7 @@ setArrayValueOp :: FTerm -> FTerm -> FTerm -> M FTerm
 setArrayValueOp a i v =
   case smtType a of
     TArray w _ ->
-      do j <- coerceArrayIx w i
+      do j <- coerceArrayIx (needBits w) i
          return FTerm { asForm  = Nothing
                       , asTerm  = store (asTerm a) (asTerm j) (asTerm v)
                       , smtType = smtType a
@@ -598,7 +615,7 @@ splitOp l w t0 =
                        , asTerm  = extract ((i+1) * w - 1) (i * w) (asTerm t)
                        , smtType = TBitVec w
                        } | i <- [ 0 .. l - 1 ] ]
-      mkArray (TArray (needBits l) w) vs
+      mkArray (TArray l w) vs
 
 
 
@@ -609,10 +626,11 @@ joinOp 0 _ _ = return FTerm { asForm = Nothing
                             }
 joinOp l w t0 =
   do t <- save t0
+     let n = needBits l
      return FTerm
        { asForm = Nothing
        , asTerm = foldr1 BV.concat
-                     [ select (asTerm t) (fromInteger i) | i <- [ 0 .. l - 1 ] ]
+                     [ select (asTerm t) (bv i n) | i <- [ 0 .. l - 1 ] ]
        , smtType = TBitVec (l * w)
        }
 

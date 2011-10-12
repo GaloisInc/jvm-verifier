@@ -40,7 +40,7 @@ $nl        = [\n\r]
 
 @reservedid  = import|extern|SBV|let|Bit|method|verifyUsing|abc|rewriter|skip|auto
              |type|var|args|this|int|long|boolean|mayAlias|const|True|False|ensures|set|verification|on|off
-             |assume|returns|arbitrary|enable|disable|rule|forAll|if|then|else|fromJava|quickcheck
+             |assume|returns|arbitrary|enable|disable|rule|forAll|if|then|else|fromJava|quickcheck|smtlib
 @reservedop  = "~"  | "-" | "*" | "+" | "/s" | "%s" | ">>" | "<<" | ">>u" | "|" | "&" | "^"
              | "#"  | "==" | "!=" | ">=s" | ">=u" | ">s" | ">u" | "<=s" | "<=u" | "<s" | "<u"
              | "&&" | "||" | "not"

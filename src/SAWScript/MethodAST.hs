@@ -177,6 +177,7 @@ type SpecName = String
 
 data VerificationMethod = ABC | Rewrite | Auto | Skip
                         | QuickCheck Int (Maybe Int)
+                        | SmtLib (Maybe String)
   deriving (Eq, Show)
 
 -- | Commands in a method spec.
