@@ -309,12 +309,21 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
     lift $ TC.resolveMethodSpecIR oc bindings pos thisClass mName cmds
   v <- gets runVerification
   ts <- getTimeStamp
+  let tactics = TC.methodSpecVerificationTactics ir
+  let specName = TC.methodSpecName ir
   whenVerbosityWriteNoLn (==1) $
-    "[" ++ ts ++ "] Verifying \"" ++ TC.methodSpecName ir ++ "\"... "
-  if v && (TC.methodSpecVerificationTactic ir /= AST.Skip)
+   let vnm = case tactics of
+               [AST.QuickCheck _ _] -> "Testing"
+               [AST.Skip]           -> "Parsing"
+               _                    -> "Verifying"
+    in "[" ++ ts ++ "] " ++ vnm ++ " \"" ++ TC.methodSpecName ir ++ "\"... "
+  if v && (TC.methodSpecVerificationTactics ir /= [AST.Skip])
     then do
+      let vnm = case tactics of
+                  [AST.QuickCheck _ _] -> "testing"
+                  _                    -> "verification of"
       whenVerbosityWrite (>1) $
-        "[" ++ ts ++ "] Starting verification of \"" ++ TC.methodSpecName ir ++ "\"."
+        "[" ++ ts ++ "] Starting " ++ vnm  ++ " \"" ++ specName ++ "\"."
       ((), elapsedTime) <- timeIt $ do
         cb <- gets codebase
         opts <- gets execOptions
@@ -323,9 +332,10 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
         enRules <- gets enabledRules
         let activeRules = map (allRules Map.!) $ Set.toList enRules
         liftIO $ TC.verifyMethodSpec oc pos cb opts ir overrides activeRules
+
       whenVerbosityWrite (==1) $ "Done. [Time: " ++ elapsedTime ++ "]"
       whenVerbosityWrite (>1) $
-        "Completed verification of \"" ++ TC.methodSpecName ir ++ "\". [Time: " ++ elapsedTime ++ "]"
+        "Completed " ++ vnm ++ " \"" ++ specName ++ "\". [Time: " ++ elapsedTime ++ "]"
     else do
       whenVerbosityWrite (==1) $ "Skipped."
       whenVerbosityWrite (>1) $

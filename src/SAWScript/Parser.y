@@ -234,15 +234,15 @@ MethodSpecDecls :: { [MethodSpecDecl] }
 MethodSpecDecls : termBy(MethodSpecDecl, ';') { $1 }
 
 MethodSpecDecl :: { MethodSpecDecl }
-MethodSpecDecl : 'var'         JavaRefs ':' JavaType  { Type        (tokPos $1) $2 $4          }
-               | 'mayAlias'    '{' JavaRefs '}'       { MayAlias    (tokPos $1) $3             }
-               | 'const'       JavaRef ':=' Expr      { Const       (tokPos $1) $2 $4          }
-               | 'let'         var '='  Expr          { MethodLet   (tokPos $1) (tokStr $2) $4 }
-               | 'assume'      Expr                   { Assume      (tokPos $1) $2             }
-               | 'ensures'     JavaRef ':=' Expr      { Ensures     (tokPos $1) $2 $4          }
-               | 'arbitrary'   ':' JavaRefs           { Arbitrary   (tokPos $1) $3             }
-               | 'returns'     ':' Expr               { Returns     (tokPos $1) $3             }
-               | 'verifyUsing' ':' VerificationMethod { VerifyUsing (tokPos $1) $3             }
+MethodSpecDecl : 'var'         JavaRefs ':' JavaType   { Type        (tokPos $1) $2 $4          }
+               | 'mayAlias'    '{' JavaRefs '}'        { MayAlias    (tokPos $1) $3             }
+               | 'const'       JavaRef ':=' Expr       { Const       (tokPos $1) $2 $4          }
+               | 'let'         var '='  Expr           { MethodLet   (tokPos $1) (tokStr $2) $4 }
+               | 'assume'      Expr                    { Assume      (tokPos $1) $2             }
+               | 'ensures'     JavaRef ':=' Expr       { Ensures     (tokPos $1) $2 $4          }
+               | 'arbitrary'   ':' JavaRefs            { Arbitrary   (tokPos $1) $3             }
+               | 'returns'     ':' Expr                { Returns     (tokPos $1) $3             }
+               | 'verifyUsing' ':' VerificationTactics { VerifyUsing (tokPos $1) $3             }
 
 -- Comma separated Sequence of JavaRef's, at least one
 JavaRefs :: { [JavaRef] }
@@ -262,11 +262,14 @@ JavaType : Qvar               { RefType    (fst $1)    (snd $1) }
          | 'boolean'          { BoolScalar (tokPos $1)          }
          | 'long'             { LongScalar (tokPos $1)          }
 
-VerificationMethod :: { VerificationMethod }
-VerificationMethod : 'abc'      { ABC     }
-                   | 'rewriter' { Rewrite }
+-- Comma separated Sequence of VerificationTactic's, at least one
+VerificationTactics :: { [VerificationTactic] }
+VerificationTactics : sepBy1(VerificationTactic, ',') { $1 }
+
+VerificationTactic :: { VerificationTactic }
+VerificationTactic : 'rewriter' { Rewrite }
                    | 'skip'     { Skip    }
-                   | 'auto'     { Auto    }
+                   | 'abc'      { ABC     }
                    | 'quickcheck' int opt(int) { QuickCheck (snd $2)
                                                             (fmap snd $3) }
                    | 'smtlib' opt(str)  { SmtLib $2 }

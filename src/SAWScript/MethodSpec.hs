@@ -1,13 +1,14 @@
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 module SAWScript.MethodSpec
   ( MethodSpecIR
   , methodSpecName
   , methodSpecIRMethodClass
-  , methodSpecVerificationTactic
+  , methodSpecVerificationTactics
   , resolveMethodSpecIR
   , verifyMethodSpec
   ) where
@@ -43,7 +44,7 @@ import SAWScript.TypeChecker
 import Utils.Common
 
 import Verinf.Symbolic
-import Verinf.Symbolic.Common(bitWidthSize)
+import Verinf.Symbolic.Lit.Functional
 import Verinf.Utils.IOStateT
 import Verinf.Utils.LogMonad
 
@@ -74,13 +75,12 @@ createSymbolicIntNode w = do
   freshVar (SymInt (constantWidth (Wx w))) lv
 
 -- | @createSymbolicArrayNode l w@ creates an array with length l@ and elements with width @w@.
-createSymbolicArrayNode :: Int -> Int -> SymbolicMonad Node
-createSymbolicArrayNode l w = do
+createSymbolicArrayNode :: DagEngine Node Lit -> Int -> Int -> IO Node
+createSymbolicArrayNode de l w = do
   let arrType = SymArray (constantWidth (Wx l)) (SymInt (constantWidth (Wx w)))
-  be <- getBitEngine
-  lv <- liftIO $ V.replicateM l $
-          LV <$> SV.replicateM w (beMakeInputLit be)
-  freshVar arrType (LVN lv)
+  let ?be = deBitEngine de
+  lv <- V.replicateM l $ LV <$> SV.replicateM w lMkInput
+  deFreshInput de (Just (LVN lv)) arrType
 
 createLitVectorFromType :: (SV.Storable l)
                         => BitEngine l -> DagType -> IO (LitResult l)
@@ -230,7 +230,7 @@ data MethodSpecTranslatorState = MSTS {
        -- | Return value found during resolution.
        , currentReturnValue :: Maybe (Pos, TC.Expr)
        -- Verification method chosen.
-       , chosenVerificationMethod :: Maybe (Pos, AST.VerificationMethod)
+       , verificationTactics :: Maybe (Pos, [AST.VerificationTactic])
        }
 
 type MethodSpecTranslator = StateT MethodSpecTranslatorState IO
@@ -565,9 +565,9 @@ resolveDecl (AST.Returns pos astValueExpr) = do
        in checkJavaExprCompat pos "the return value" returnType valueExprType
   -- Update state with return value.
   modify $ \s -> s { currentReturnValue = Just (pos, valueExpr) }
-resolveDecl (AST.VerifyUsing pos method) = do
+resolveDecl (AST.VerifyUsing pos tactics) = do
   -- Check verification method has not been assigned.
-  vm <- gets chosenVerificationMethod
+  vm <- gets verificationTactics
   case vm of
    Nothing -> return ()
    Just (_oldPos,_) ->
@@ -575,8 +575,32 @@ resolveDecl (AST.VerifyUsing pos method) = do
                 ++ "method specification."
          res = "Please include at most one verification tactic in a single specification."
       in throwIOExecException pos (ftext msg) res
+  case tactics of
+    [AST.Skip] -> return ()
+    [AST.Rewrite] -> return ()
+    [AST.QuickCheck _ _] -> return ()
+    [AST.ABC] -> return ()
+    [AST.Rewrite, AST.ABC] -> return ()
+    [AST.SmtLib _] -> return ()
+    [AST.Rewrite, AST.SmtLib _] -> return ()
+    [AST.Yices _] -> return ()
+    [AST.Rewrite, AST.Yices _] -> return ()
+    _ -> let defList args = nest 2 (vcat (map (\(d,msg) -> quotes (text d) <> char '.' <+> text msg) args))
+             msg = ftext "The tactic specified in verifyUsing is unsupported." 
+                   <+> ftext "SAWScript currently supports the following tactics:\n"
+                   $+$ defList [ ("skip",       "Skip verification of this method.")
+                               , ("rewriter",   "Applies rewriting with the currently enabled rules.")
+                               , ("quickcheck", "Uses quickcheck testing to validate, but not verify method.")
+                               , ("abc",           "Uses abc to verify proof obligations.")
+                               , ("rewriter, abc", "Uses rewriting to simplify proof obligations, and uses abc to discharge result.")
+                               , ("smtLib [name]", "Generates SMTLib file with the given name that can be discharged independently.")
+                               , ("rewriter, smtLib [name]", "Uses rewriting to simplify proof obligations, and generates smtLib file with result.")
+                               , ("yices [version]", "Generates SMTLib and runs Yices to discharge goals.")
+                               , ("rewriter, yices [version]", "Uses rewriting to simplify proof obligations, and uses Yices to discharge result.")
+                               ]
+          in throwIOExecException pos msg ""
   -- Assign verification method.
-  modify $ \s -> s { chosenVerificationMethod = Just (pos,method) }
+  modify $ \s -> s { verificationTactics = Just (pos, tactics) }
 
 -- MethodSpecIR {{{2
 
@@ -609,7 +633,7 @@ data MethodSpecIR = MSIR {
   -- | Return value if any (is guaranteed to be compatible with method spec.
   , returnValue :: Maybe TC.Expr
   -- | Verification method for method.
-  , methodSpecVerificationTactic :: AST.VerificationMethod
+  , methodSpecVerificationTactics :: [AST.VerificationTactic]
   } deriving (Show)
 
 -- | Return user printable name of method spec (currently the class + method name).
@@ -657,7 +681,7 @@ resolveMethodSpecIR oc gb pos thisClass mName cmds = do
 
                 , arrayEnsures = Map.empty
                 , currentReturnValue = Nothing
-                , chosenVerificationMethod = Nothing
+                , verificationTactics = Nothing
                 }
   flip evalStateT st $ do
     -- Initialize necessary values in translator state.
@@ -733,14 +757,14 @@ resolveMethodSpecIR oc gb pos thisClass mName cmds = do
            in Map.fromList $ map getScalarPostCondition
                            $ Set.toList (nonRefTypes st')
     -- Get verification method.
-    let throwUndefinedVerification =
+    tactics <-
+      case verificationTactics st' of
+        Just (_,tactics) -> return tactics
+        Nothing -> 
           let msg = "The verification method for \'" ++ methodName method
                     ++ "\' is undefined."
               res = "Please specify a verification method.  Use \'skip\' to skip verification."
            in throwIOExecException pos (ftext msg) res
-    methodSpecVerificationTactic
-      <- maybe throwUndefinedVerification (return . snd) $
-           chosenVerificationMethod st'
     -- Return IR.
     return MSIR { methodSpecPos = pos
                 , methodSpecIRThisClass = thisClass
@@ -755,7 +779,7 @@ resolveMethodSpecIR oc gb pos thisClass mName cmds = do
                 , scalarPostconditions
                 , arrayPostconditions = Map.map snd (arrayEnsures st')
                 , returnValue
-                , methodSpecVerificationTactic
+                , methodSpecVerificationTactics = tactics
                 }
 
 -- JavaStateInfo {{{1
@@ -981,14 +1005,12 @@ data VerificationInput = VerificationInput
 data JavaVerificationState = JVS {
         -- | Name of method in printable form.
         jvsMethodName :: String
-        -- | Maps Java expression to associated node.
-      , jvsExprNodeMap :: Map TC.JavaExpr Node
+        -- | Maps Spec Java expression to value for that expression.
+      , jvsExprValueMap :: Map TC.JavaExpr (JSS.Value Node)
         -- | Contains functions that translate from counterexample
         -- returned by ABC back to constant values, along with the
         -- Java expression associated with that evaluator.
-      , jvsInputEvaluators :: [VerificationInput]
-        -- | Maps Spec Java expression to value for that expression.
-      , jvsExprValueMap :: Map TC.JavaExpr (JSS.Value Node)
+      , jvsInputs :: [VerificationInput]
         -- | Maps JSS refs to name for that ref.
       , jvsRefNameMap :: Map JSS.Ref String
         -- | List of array references, the associated equivalence class, and the initial value.
@@ -1014,37 +1036,41 @@ type JavaEvaluator = StateT JavaVerificationState (JSS.Simulator SymbolicMonad)
 -- and create them in simulator.
 createJavaEvalReferences :: EquivClassMap -> JavaEvaluator ()
 createJavaEvalReferences cm = do
-  let liftSym = lift . JSS.liftSymbolic
-  be <- liftSym $ getBitEngine
+  de <- lift $ JSS.liftSymbolic $ getDagEngine
   V.forM_ (equivClassMapEntries cm) $ \(_idx, exprClass, initValue) -> do
-    litCount <- liftIO $ beInputLitCount be
+    litCount <- liftIO $ beInputLitCount (deBitEngine de)
     let refName = ppSpecJavaRefEquivClass exprClass
     let -- create array input node with length and int width.
         createInputArrayNode l w = do
-          n <- liftSym $ createSymbolicArrayNode l w
+          -- Create input array node.
+          n <- liftIO $ do
+            let arrType = SymArray (constantWidth (Wx l)) (SymInt (constantWidth (Wx w)))
+            let ?be = deBitEngine de
+            lv <- V.replicateM l $ LV <$> SV.replicateM w lMkInput
+            deFreshInput de (Just (LVN lv)) arrType
+          -- Create Java reference for creating array node.
+          ref <- lift $ JSS.newSymbolicArray (JSS.ArrayType JSS.IntType) (fromIntegral l) n
+          -- Create input evaluator.
           let inputEval lits =
                 CArray $ V.map (\j -> mkCIntFromLsbfV $ SV.slice j w lits)
                        $ V.enumFromStepN litCount w (fromIntegral l)
-          ref <- lift $ JSS.newSymbolicArray (JSS.ArrayType JSS.IntType) (fromIntegral l) n
           modify $ \s ->
-            s { jvsExprNodeMap =  mapInsertKeys exprClass n (jvsExprNodeMap s)
-              , jvsInputEvaluators =
+            s { jvsExprValueMap = mapInsertKeys exprClass (JSS.RValue ref) (jvsExprValueMap s)
+              , jvsInputs =
                   VerificationInput
-                     { viEval = inputEval
+                     { viExprs = exprClass
                      , viNode = n
-                     , viExprs = exprClass
-                     } : jvsInputEvaluators s
-              , jvsExprValueMap = mapInsertKeys exprClass (JSS.RValue ref) (jvsExprValueMap s)
+                     , viEval = inputEval
+                     } : jvsInputs s
               , jvsRefNameMap = Map.insert ref refName (jvsRefNameMap s)
               , jvsArrayNodeList = (ref,exprClass,n):(jvsArrayNodeList s) }
     case initValue of
       RIVArrayConst javaTp c@(CArray v) tp -> do
-        n <- liftSym $ makeConstant c tp
+        let n = deConstantTerm de c tp
         let l = V.length v
         ref <- lift $ JSS.newSymbolicArray javaTp (fromIntegral l) n
         modify $ \s -> s
-          { jvsExprNodeMap =  mapInsertKeys exprClass n (jvsExprNodeMap s)
-          , jvsExprValueMap = mapInsertKeys exprClass (JSS.RValue ref) (jvsExprValueMap s)
+          { jvsExprValueMap = mapInsertKeys exprClass (JSS.RValue ref) (jvsExprValueMap s)
           , jvsRefNameMap = Map.insert ref refName (jvsRefNameMap s)
           , jvsArrayNodeList = (ref,exprClass,n):(jvsArrayNodeList s)
           }
@@ -1067,14 +1093,14 @@ createJavaEvalScalars ir = do
     litCount <- liftIO $ beInputLitCount be
     let addScalarNode node inputEval value =
           modify $ \s ->
-            s { jvsExprNodeMap = Map.insert expr node (jvsExprNodeMap s)
-              , jvsInputEvaluators =
+            s { jvsExprValueMap = Map.insert expr value (jvsExprValueMap s)
+              , jvsInputs =
                   VerificationInput
                      { viNode = node
                      , viEval = inputEval
                      , viExprs = [expr]
-                     } : jvsInputEvaluators s
-              , jvsExprValueMap = Map.insert expr value (jvsExprValueMap s) }
+                     } : jvsInputs s
+              }
     case TC.getJSSTypeOfJavaExpr expr of
       JSS.BooleanType -> do
         -- Treat JSS.Boolean as a 32-bit integer.
@@ -1099,9 +1125,8 @@ initializeJavaVerificationState :: MethodSpecIR
 initializeJavaVerificationState ir cm = do
   let initialState = JVS
         { jvsMethodName = methodSpecName ir
-        , jvsExprNodeMap = Map.empty
-        , jvsInputEvaluators = []
         , jvsExprValueMap = Map.empty
+        , jvsInputs = []
         , jvsRefNameMap = Map.empty
         , jvsArrayNodeList = []
         }
@@ -1208,9 +1233,9 @@ data VerificationCheck
   deriving (Eq, Ord, Show)
 
 -- | Returns goal that one needs to prove.
-checkGoal :: VerificationCheck -> SymbolicMonad Node
-checkGoal (PathCheck n) = return n
-checkGoal (EqualityCheck _ x y) = applyEq x y
+checkGoal :: DagEngine Node Lit -> VerificationCheck -> Node
+checkGoal _ (PathCheck n) = n
+checkGoal de (EqualityCheck _ x y) = deApplyBinary de (eqOp (termType x)) x y
 
 checkName :: VerificationCheck -> String
 checkName (PathCheck _) = "the path condition"
@@ -1407,26 +1432,28 @@ methodSpecVCs pos cb opts overrides ir = do
         vcs <- comparePathStates ir jvs esd newPathState returnVal
         return VContext {
                   vcAssumptions = as
-                , vcInputs = jvsInputEvaluators jvs
+                , vcInputs = jvsInputs jvs
                 , vcChecks = vcs
                 }
 
-runABC :: MethodSpecIR
+runABC :: DagEngine Node Lit
+       -> Int -- ^ Verbosity
+       -> MethodSpecIR
        -> [VerificationInput]
+       -> VerificationCheck
        -> Node
-       -> ((Node -> CValue) -> Doc)
-       -> SymbolicMonad ()
-runABC ir inputEvalList fGoal counterFn = do
-  whenVerbosity (>= 3) $
-    liftIO $ putStrLn $ "Running ABC on " ++ methodSpecName ir
-  LV v <- getVarLit fGoal
+       -> IO ()
+runABC de v ir inputs vc goal = do
+  when (v >= 3) $
+    putStrLn $ "Running ABC on " ++ methodSpecName ir
+  let LV v = deBitBlast de goal
   unless (SV.length v == 1) $
     error "internal: Unexpected number of in verification condition"
-  be <- getBitEngine
+  let be = deBitEngine de
   case beCheckSat be of
     Nothing -> error "internal: Bit engine does not support SAT checking."
     Just checkSat -> do
-      b <- liftIO $ checkSat (beNeg be (v SV.! 0))
+      b <- checkSat (beNeg be (v SV.! 0))
       case b of
         UnSat -> return ()
         Unknown -> do
@@ -1437,18 +1464,14 @@ runABC ir inputEvalList fGoal counterFn = do
                      ++ "connection to ABC."
            in throwIOExecException (methodSpecPos ir) (ftext msg) ""
         Sat lits -> do
-          let (inputExprs,inputEvals) = unzip $
-                do vi <- inputEvalList
-                   e  <- viExprs vi
-                   return (e, viEval vi)
-          let inputValues = map ($lits) inputEvals
+          -- Get doc showing inputs
+          let docInput vi = map (\e -> text (show e) <+> equals <+> ppCValueD Mixfix c)
+                                (viExprs vi)
+                where c = viEval vi lits
+          let inputDocs = concatMap docInput inputs
           -- Get differences between two.
-          evalFn <- mkConcreteEval (V.fromList inputValues)
-          let diffDoc = counterFn evalFn
-          let inputExprValMap = Map.fromList (inputExprs `zip` inputValues)
-          let inputDocs
-                = flip map (Map.toList inputExprValMap) $ \(expr,c) ->
-                     text (show expr) <+> equals <+> ppCValueD Mixfix c
+          let inputValues = V.map (\vi -> viEval vi lits) (V.fromList inputs)
+          diffDoc <- checkCounterexample vc <$> deConcreteEval inputValues
           let msg = ftext ("A counterexample was found by ABC when verifying "
                              ++ methodSpecName ir ++ ".\n\n") $$
                     ftext ("The inputs that generated the counterexample are:") $$
@@ -1466,9 +1489,10 @@ verifyMethodSpec :: OpCache
                  -> [MethodSpecIR]
                  -> [Rule]
                  -> IO ()
-verifyMethodSpec _ _ _ _ MSIR { methodSpecVerificationTactic = AST.Skip } _ _ = return ()
+verifyMethodSpec _ _ _ _ MSIR { methodSpecVerificationTactics = [AST.Skip] } _ _ = return ()
 verifyMethodSpec oc pos cb opts ir overrides rules = do
   let v = verbose opts
+  let pgm = foldl' addRule emptyProgram rules
   when (v >= 2) $
     liftIO $ putStrLn $ "Starting verification of " ++ methodSpecName ir
   let vcList = methodSpecVCs pos cb opts overrides ir
@@ -1476,26 +1500,22 @@ verifyMethodSpec oc pos cb opts ir overrides rules = do
     when (v >= 6) $
       liftIO $ putStrLn $ "Considering new alias configuration of " ++ methodSpecName ir
     runSymbolic oc $ do
+      de <- getDagEngine
       setVerbosity v
       vc <- mVC
-      forM (vcChecks vc) $ \check -> do
-        whenVerbosity (>= 2) $
-          liftIO $ putStrLn $ "Verify " ++ checkName check
-        -- Get final goal.
-        fConseq <- checkGoal check
-        fGoal <- applyBinaryOp bImpliesOp (vcAssumptions vc) fConseq
-        -- Run verification
-        let runRewriter = do
-              let pgm = foldl' addRule emptyProgram rules
-              ts <- getTermSemantics
-              liftIO $ do
-                rew <- mkRewriter pgm ts
-                reduce rew fGoal
-        case methodSpecVerificationTactic ir of
-          AST.ABC -> do
-            runABC ir (vcInputs vc) fGoal (checkCounterexample check)
-          AST.Rewrite -> do
-            newGoal <- runRewriter
+      ts <- getTermSemantics
+      let goal check = deApplyBinary de
+                                     bImpliesOp 
+                                     (vcAssumptions vc)
+                                     (checkGoal de check)
+      -- Run verification
+      case methodSpecVerificationTactics ir of
+        [AST.Rewrite] -> liftIO $ do
+          rew <- mkRewriter pgm ts
+          forM_ (vcChecks vc) $ \check -> do
+            when (v >= 2) $
+              liftIO $ putStrLn $ "Verify " ++ checkName check
+            newGoal <- reduce rew (goal check)
             case getBool newGoal of
               Just True -> return ()
               _ -> do
@@ -1507,13 +1527,35 @@ verifyMethodSpec oc pos cb opts ir overrides rules = do
                          nest 2 (prettyTermD newGoal)
                    res = "Please add new rewrite rules or modify existing ones to reduce the goal to True."
                 in throwIOExecException pos msg res
-          AST.Auto -> do
-            newGoal <- runRewriter
-            runABC ir (vcInputs vc) newGoal (checkCounterexample check)
-          AST.QuickCheck n lim -> testRandom ir n lim vc
-          AST.SmtLib nm -> useSMTLIB ir nm vc
-          AST.Yices ti  -> useYices ir ti vc
-          AST.Skip -> error "internal: verifyMethodTactic used invalid tactic."
+        [AST.QuickCheck n lim] -> do
+          testRandom ir n lim vc
+        [AST.ABC] -> liftIO $ do
+          forM_ (vcChecks vc) $ \check -> do
+            when (v >= 2) $
+              liftIO $ putStrLn $ "Verify " ++ checkName check
+            runABC de v ir (vcInputs vc) check (goal check)
+        [AST.Rewrite, AST.ABC] -> liftIO $ do
+          rew <- mkRewriter pgm ts
+          forM_ (vcChecks vc) $ \check -> do
+            when (v >= 2) $
+              liftIO $ putStrLn $ "Verify " ++ checkName check
+            newGoal <- reduce rew (goal check)
+            runABC de v ir (vcInputs vc) check newGoal
+        [AST.SmtLib nm] -> do
+          let gs = map (checkGoal de) (vcChecks vc)
+          useSMTLIB ir nm vc gs
+        [AST.Rewrite, AST.SmtLib nm] -> do
+          gs <- liftIO $ do rew <- mkRewriter pgm ts
+                            mapM (reduce rew . checkGoal de) (vcChecks vc)
+          useSMTLIB ir nm vc gs
+        [AST.Yices ti]  -> do
+          let gs = map (checkGoal de) (vcChecks vc)
+          useYices ir ti vc gs
+        [AST.Rewrite, AST.Yices ti] -> do
+          gs <- liftIO $ do rew <- mkRewriter pgm ts
+                            mapM (reduce rew . checkGoal de) (vcChecks vc)
+          useYices ir ti vc gs
+        _ -> error "internal: verifyMethodTactic used invalid tactic."
 
 
 testRandom :: MethodSpecIR -> Int -> Maybe Int ->
@@ -1541,8 +1583,8 @@ testRandom ir test_num lim vc =
        if not asmp_ok
          then return passed
          else do forM_ (vcChecks vc) $ \goal ->
-                   do prop <- checkGoal goal
-                      goal_ok <- toBool (eval prop)
+                   do de <- getDagEngine
+                      goal_ok <- toBool (eval (checkGoal de goal))
                       unless goal_ok $
                         liftIO $ throwIOExecException (methodSpecPos ir)
                                                       (msg eval vs goal) ""
@@ -1633,12 +1675,10 @@ pickRandom ty = pickRandomSize ty =<< ((`pick` distr) `fmap` randomRIO (0,99))
           ]
 
 
-useSMTLIB :: MethodSpecIR -> Maybe String -> VerificationContext ->
-                                                          SymbolicMonad ()
-useSMTLIB ir mbNm vc =
+useSMTLIB :: MethodSpecIR -> Maybe String -> VerificationContext -> [Node] -> SymbolicMonad ()
+useSMTLIB ir mbNm vc gs =
   do whenVerbosity (>= 3) $
        liftIO $ putStrLn $ "Translating to SMTLIB: " ++ methodSpecName ir
-     gs <- mapM checkGoal (vcChecks vc)
      liftIO $ do (script,_) <- SmtLib.translate name
                                 (map (termType . viNode) (vcInputs vc))
                                 (vcAssumptions vc)
@@ -1651,12 +1691,10 @@ useSMTLIB ir mbNm vc =
            Nothing -> methodSpecName ir
 
 
-useYices :: MethodSpecIR -> Maybe Int -> VerificationContext ->
-                                                          SymbolicMonad ()
-useYices ir mbTime vc =
+useYices :: MethodSpecIR -> Maybe Int -> VerificationContext -> [Node] -> SymbolicMonad ()
+useYices ir mbTime vc gs =
   do whenVerbosity (>= 3) $
        liftIO $ putStrLn $ "Using Yices2: " ++ methodSpecName ir
-     gs <- mapM checkGoal (vcChecks vc)
      (res,is) <- liftIO $ do (script,is) <- SmtLib.translate
                                               (methodSpecName ir)
                                               (map (termType . viNode)

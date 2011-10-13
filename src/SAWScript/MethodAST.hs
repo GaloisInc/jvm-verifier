@@ -175,9 +175,11 @@ data RewriteVar = RewriteVar Pos String
 
 type SpecName = String
 
-data VerificationMethod = ABC | Rewrite | Auto | Skip
+data VerificationTactic = Skip 
+                        | Rewrite
                         | QuickCheck Int (Maybe Int)
-                        | SmtLib (Maybe String)
+                        | ABC
+                        | SmtLib (Maybe String) 
                         | Yices (Maybe Int)
   deriving (Eq, Show)
 
@@ -195,7 +197,7 @@ data MethodSpecDecl
   | Ensures Pos JavaRef Expr
   | Arbitrary Pos [JavaRef]
   | Returns Pos Expr
-  | VerifyUsing Pos VerificationMethod
+  | VerifyUsing Pos [VerificationTactic]
  deriving (Show)
 
 type RuleName = String
