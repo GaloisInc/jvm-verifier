@@ -19,7 +19,7 @@ import qualified Control.Exception as CE
 import Control.Monad
 import Data.Int
 import Data.IORef
-import Data.List (foldl', intercalate, sort)
+import Data.List (foldl', intercalate, sort,intersperse)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -1545,19 +1545,23 @@ testRandom ir test_num lim vc =
                       goal_ok <- toBool (eval prop)
                       unless goal_ok $
                         liftIO $ throwIOExecException (methodSpecPos ir)
-                                                      (msg vs goal) ""
+                                                      (msg eval vs goal) ""
                  return $! passed + 1
 
 
-  msg vs g = text "Random testing found a counter example:"
-            $$ nest 2 (vcat [ text "Method:" <+> text (methodSpecName ir)
-                            , case g of
-                                EqualityCheck n _ _ ->
-                                  text "Unexpected value for:" <+> text n
-                                PathCheck _ -> text "Invalid path constraint."
-                            , text "Random arguments:" $$
-                               nest 2 (vcat (zipWith ppInput (vcInputs vc) vs))
-                            ])
+  msg eval vs g =
+      text "Random testing found a counter example:"
+    $$ nest 2 (vcat
+     [ text "Method:" <+> text (methodSpecName ir)
+     , case g of
+         EqualityCheck n x y ->
+            text "Unexpected value for:" <+> text n
+            $$ nest 2 (text "Expected:" <+> ppCValueD Mixfix (eval y)
+                    $$ text "Found:"    <+> ppCValueD Mixfix (eval x))
+         PathCheck _ -> text "Invalid path constraint."
+     , text "Random arguments:"
+       $$ nest 2 (vcat (zipWith ppInput (vcInputs vc) vs))
+     ])
 
   ppInput inp v =
     case viExprs inp of
@@ -1635,10 +1639,10 @@ useSMTLIB ir mbNm vc =
   do whenVerbosity (>= 3) $
        liftIO $ putStrLn $ "Translating to SMTLIB: " ++ methodSpecName ir
      gs <- mapM checkGoal (vcChecks vc)
-     liftIO $ do script <- SmtLib.translate name
-                              (map (termType . viNode) (vcInputs vc))
-                              (vcAssumptions vc)
-                              gs
+     liftIO $ do (script,_) <- SmtLib.translate name
+                                (map (termType . viNode) (vcInputs vc))
+                                (vcAssumptions vc)
+                                gs
                  writeFile (name ++ ".smt") $ show $ SmtLib.pp script
 
   where
@@ -1653,24 +1657,41 @@ useYices ir mbTime vc =
   do whenVerbosity (>= 3) $
        liftIO $ putStrLn $ "Using Yices2: " ++ methodSpecName ir
      gs <- mapM checkGoal (vcChecks vc)
-     res <- liftIO $ do script <- SmtLib.translate (methodSpecName ir)
-                              (map (termType . viNode) (vcInputs vc))
-                              (vcAssumptions vc)
-                              gs
-                        Yices.yices mbTime script
+     (res,is) <- liftIO $ do (script,is) <- SmtLib.translate
+                                              (methodSpecName ir)
+                                              (map (termType . viNode)
+                                              (vcInputs vc))
+                                              (vcAssumptions vc)
+                                              gs
+                             res <- Yices.yices mbTime script
+                             return (res,is)
      case res of
        Yices.YUnsat   -> return ()
-       Yices.YUnknown -> yiFail ["Failed to decide property."]
-       Yices.YSat m   -> yiFail ( "(XXX) Found a counter example:\n\n"
-                                : map (show . Yices.ppVal) (Map.toList m)
-                                )
+       Yices.YUnknown -> yiFail (text "Failed to decide property.")
+       Yices.YSat m   ->
+         yiFail ( text "Found a counter example:"
+               $$ nest 2 (vcat $ intersperse (text " ") $
+                    zipWith ppIn (vcInputs vc) (Yices.resolveInputs m is))
+               $$ text " "
+               $$ text "Full model:"
+               $$ nest 2 (vcat $ map Yices.ppVal (Map.toList m))
+                )
 
   where
-  yiFail xs = fail $ unlines $ [ "Yices: Verification failed."
-                               , "*** Method: " ++ show (methodSpecName ir)
-                               , "*** Location: " ++ show (methodSpecPos ir)
-                               , "*** Details:"
-                               ] ++ [ "  " ++ l | l <- xs ]
+  yiFail xs = fail $ show $ vcat $
+                [ text "Yices: Verification failed."
+                , text "*** Method:" <+> text (methodSpecName ir)
+                , text "*** Location:" <+> text (show (methodSpecPos ir))
+                , text "*** Details:"
+                , nest 2 xs
+                ]
+
+  ppIn vi val =
+    case viExprs vi of
+      [x] -> Yices.ppVal (show x, val)
+      xs  -> vcat [ text (show x) <+> text "=" | x <- init xs ]
+          $$ Yices.ppVal (show (last xs), val)
+
 
 
 
