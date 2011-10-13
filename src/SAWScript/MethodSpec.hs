@@ -11,6 +11,7 @@ module SAWScript.MethodSpec
   , methodSpecVerificationTactics
   , resolveMethodSpecIR
   , verifyMethodSpec
+  , VerifyParams(..)
   ) where
 
 -- Imports {{{1
@@ -1360,16 +1361,20 @@ data VerificationContext = VContext {
           vcAssumptions :: Node
         , vcInputs :: [VerificationInput]
         , vcChecks :: [VerificationCheck]
+        , vcEnabled :: Set OpIndex
         }
 
 -- | Attempt to verify method spec using verification method specified.
-methodSpecVCs :: Pos
-              -> JSS.Codebase
-              -> SSOpts
-              -> [MethodSpecIR]
-              -> MethodSpecIR
-              -> [SymbolicMonad VerificationContext]
-methodSpecVCs pos cb opts overrides ir = do
+methodSpecVCs :: VerifyParams -> [SymbolicMonad VerificationContext]
+methodSpecVCs
+  params@(VerifyParams
+    { vpPos = pos
+    , vpCode = cb
+    , vpOpts = opts
+    , vpOver = overrides
+    , vpSpec = ir
+    }
+  ) = do
   let v = verbose opts
   let refEquivClasses = partitions (specReferences ir)
   flip map refEquivClasses $ \cm -> do
@@ -1434,6 +1439,7 @@ methodSpecVCs pos cb opts overrides ir = do
                   vcAssumptions = as
                 , vcInputs = jvsInputs jvs
                 , vcChecks = vcs
+                , vcEnabled = vpEnabledOps params
                 }
 
 runABC :: DagEngine Node Lit
@@ -1480,22 +1486,40 @@ runABC de v ir inputs vc goal = do
                     nest 2 diffDoc
           throwIOExecException (methodSpecPos ir) msg ""
 
+data VerifyParams = VerifyParams
+  { vpOpCache :: OpCache
+  , vpPos     :: Pos
+  , vpCode    :: JSS.Codebase
+  , vpOpts    :: SSOpts
+  , vpSpec    :: MethodSpecIR
+  , vpOver    :: [MethodSpecIR]
+  , vpRules   :: [Rule]
+  , vpEnabledOps  :: Set OpIndex
+  }
+
 -- | Attempt to verify method spec using verification method specified.
-verifyMethodSpec :: OpCache
-                 -> Pos
-                 -> JSS.Codebase
-                 -> SSOpts
-                 -> MethodSpecIR
-                 -> [MethodSpecIR]
-                 -> [Rule]
-                 -> IO ()
-verifyMethodSpec _ _ _ _ MSIR { methodSpecVerificationTactics = [AST.Skip] } _ _ = return ()
-verifyMethodSpec oc pos cb opts ir overrides rules = do
+verifyMethodSpec :: VerifyParams -> IO ()
+verifyMethodSpec
+  (VerifyParams
+    { vpSpec = MSIR { methodSpecVerificationTactics = [AST.Skip] }
+    }
+  ) = return ()
+
+verifyMethodSpec
+  params@(VerifyParams
+    { vpOpCache = oc
+    , vpPos = pos
+    , vpOpts = opts
+    , vpSpec = ir
+    , vpRules = rules
+    }
+  ) = do
+
   let v = verbose opts
   let pgm = foldl' addRule emptyProgram rules
   when (v >= 2) $
     liftIO $ putStrLn $ "Starting verification of " ++ methodSpecName ir
-  let vcList = methodSpecVCs pos cb opts overrides ir
+  let vcList = methodSpecVCs params
   forM_ vcList $ \mVC -> do
     when (v >= 6) $
       liftIO $ putStrLn $ "Considering new alias configuration of " ++ methodSpecName ir
@@ -1558,19 +1582,22 @@ verifyMethodSpec oc pos cb opts ir overrides rules = do
         _ -> error "internal: verifyMethodTactic used invalid tactic."
 
 
+announce :: String -> SymbolicMonad ()
+announce x = whenVerbosity (>= 3) $ liftIO $ putStrLn x
+
+
 testRandom :: MethodSpecIR -> Int -> Maybe Int ->
                                        VerificationContext -> SymbolicMonad ()
 testRandom ir test_num lim vc =
-    do whenVerbosity (>= 3) $
-         liftIO $ putStrLn $ "Generating random tests: " ++ methodSpecName ir
-       (passed,run) <- loop 0 0
-       when (passed < test_num) $
-         let msg = text "QuickCheck: Failed to generate enough good inputs."
-                $$ nest 2 (vcat [ text "Attempts:" <+> int run
-                                , text "Passed:" <+> int passed
-                                , text "Goal:" <+> int test_num
-                                ])
-         in liftIO $ throwIOExecException (methodSpecPos ir) msg ""
+  announce ("Generating random tests: " ++ methodSpecName ir) >>
+  do (passed,run) <- loop 0 0
+     when (passed < test_num) $
+       let msg = text "QuickCheck: Failed to generate enough good inputs."
+              $$ nest 2 (vcat [ text "Attempts:" <+> int run
+                              , text "Passed:" <+> int passed
+                              , text "Goal:" <+> int test_num
+                              ])
+       in liftIO $ throwIOExecException (methodSpecPos ir) msg ""
   where
   loop run passed | passed >= test_num      = return (passed,run)
   loop run passed | Just l <- lim, run >= l = return (passed,run)
@@ -1675,15 +1702,19 @@ pickRandom ty = pickRandomSize ty =<< ((`pick` distr) `fmap` randomRIO (0,99))
           ]
 
 
-useSMTLIB :: MethodSpecIR -> Maybe String -> VerificationContext -> [Node] -> SymbolicMonad ()
+useSMTLIB :: MethodSpecIR -> Maybe String ->
+              VerificationContext -> [Node] -> SymbolicMonad ()
 useSMTLIB ir mbNm vc gs =
-  do whenVerbosity (>= 3) $
-       liftIO $ putStrLn $ "Translating to SMTLIB: " ++ methodSpecName ir
-     liftIO $ do (script,_) <- SmtLib.translate name
-                                (map (termType . viNode) (vcInputs vc))
-                                (vcAssumptions vc)
-                                gs
-                 writeFile (name ++ ".smt") $ show $ SmtLib.pp script
+  announce ("Translating to SMTLIB: " ++ methodSpecName ir) >> liftIO (
+  do (script,_) <- SmtLib.translate SmtLib.TransParams
+        { SmtLib.transName = name
+        , SmtLib.transInputs = map (termType . viNode) (vcInputs vc)
+        , SmtLib.transAssume = vcAssumptions vc
+        , SmtLib.transCheck = gs
+        , SmtLib.transEnabled = vcEnabled vc
+        }
+     writeFile (name ++ ".smt") $ show $ SmtLib.pp script
+  )
 
   where
   name = case mbNm of
@@ -1691,18 +1722,19 @@ useSMTLIB ir mbNm vc gs =
            Nothing -> methodSpecName ir
 
 
-useYices :: MethodSpecIR -> Maybe Int -> VerificationContext -> [Node] -> SymbolicMonad ()
+useYices :: MethodSpecIR -> Maybe Int ->
+            VerificationContext -> [Node] -> SymbolicMonad ()
 useYices ir mbTime vc gs =
-  do whenVerbosity (>= 3) $
-       liftIO $ putStrLn $ "Using Yices2: " ++ methodSpecName ir
-     (res,is) <- liftIO $ do (script,is) <- SmtLib.translate
-                                              (methodSpecName ir)
-                                              (map (termType . viNode)
-                                              (vcInputs vc))
-                                              (vcAssumptions vc)
-                                              gs
-                             res <- Yices.yices mbTime script
-                             return (res,is)
+  announce ("Using Yices2: " ++ methodSpecName ir) >> liftIO (
+  do (script,is) <- SmtLib.translate SmtLib.TransParams
+        { SmtLib.transName = "CheckYices"
+        , SmtLib.transInputs = map (termType . viNode) (vcInputs vc)
+        , SmtLib.transAssume = vcAssumptions vc
+        , SmtLib.transCheck = gs
+        , SmtLib.transEnabled = vcEnabled vc
+        }
+
+     res <- Yices.yices mbTime script
      case res of
        Yices.YUnsat   -> return ()
        Yices.YUnknown -> yiFail (text "Failed to decide property.")
@@ -1714,6 +1746,7 @@ useYices ir mbTime vc gs =
                $$ text "Full model:"
                $$ nest 2 (vcat $ map Yices.ppVal (Map.toList m))
                 )
+  )
 
   where
   yiFail xs = fail $ show $ vcat $

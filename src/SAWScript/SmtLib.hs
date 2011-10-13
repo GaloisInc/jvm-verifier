@@ -1,5 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module SAWScript.SmtLib (translate) where
+module SAWScript.SmtLib (translate, TransParams(..)) where
 
 import GHC.Exts(IsString(fromString))
 import SMTLib1.QF_AUFBV as BV
@@ -9,20 +9,29 @@ import Verinf.Symbolic.Common
   , WidthExpr, widthConstant
   , DagType(..)
   , opArgTypes, opResultType, numBits
-  , OpSem(..)
+  , OpSem(..), OpIndex
   )
 import Verinf.Symbolic(Node,deEval)
 import qualified Verinf.Symbolic.Common as Op (OpIndex(..))
 import qualified Data.Vector as V
+import qualified Data.Set as S
 
-translate :: String -> [DagType] -> Node -> [Node] -> IO (Script, [Ident])
-translate name is asmp goals = toScript name $
-  do (xs,ts) <- unzip `fmap` mapM mkInp is
+data TransParams = TransParams
+  { transName     :: String
+  , transInputs   :: [DagType]
+  , transAssume   :: Node
+  , transCheck    :: [Node]
+  , transEnabled  :: S.Set OpIndex
+  }
+
+translate :: TransParams -> IO (Script, [Ident])
+translate ps = toScript (transName ps) $
+  do (xs,ts) <- unzip `fmap` mapM mkInp (transInputs ps)
      let js = V.fromList ts
-     eval <- io $ deEval (\i _ _ -> js V.! i) translateOps
-     addAssumpt =<< toForm =<< eval asmp
-     form <- (Conn Not . return . Conn And) `fmap` mapM (toForm <=< eval) goals
-     return (form, xs)
+     eval <- io $ deEval (\i _ _ -> js V.! i) (translateOps (transEnabled ps))
+     addAssumpt =<< toForm =<< eval (transAssume ps)
+     gs <- mapM (toForm <=< eval) (transCheck ps)
+     return (Conn Not [ Conn And gs ], xs)
 
   where
   toForm x = case asForm x of
@@ -229,17 +238,18 @@ fromTerm ty t = FTerm { asForm = case ty of
 
 
 
-translateOps :: TermSemantics M FTerm
-translateOps = TermSemantics
-  { tsEqTerm = same
-  , tsConstant = \c t -> mkConst c =<< cvtType t
-  , tsApplyUnary = apply1
-  , tsApplyBinary = apply2
-  , tsApplyTernary = apply3
-  , tsApplyOp = apply
-  }
-
+translateOps :: S.Set OpIndex -> TermSemantics M FTerm
+translateOps enabled = termSem
   where
+  termSem = TermSemantics
+    { tsEqTerm = same
+    , tsConstant = \c t -> mkConst c =<< cvtType t
+    , tsApplyUnary = apply1
+    , tsApplyBinary = apply2
+    , tsApplyTernary = apply3
+    , tsApplyOp = apply
+    }
+
 
   -- Spot when things are obviously the same.
   same x y = case (asTerm x, asTerm y) of
@@ -330,12 +340,13 @@ translateOps = TermSemantics
 
   dynOp op mbSem args =
     case mbSem of
-      Just sem -> applyOpSem sem (opSubst op) translateOps args
-      Nothing  -> do as <- mapM cvtType (V.toList (opArgTypes op))
-                     b  <- cvtType (opResultType op)
-                     f  <- newFun as b
-                     fromTerm b `fmap`
-                              padArray b (App f (map asTerm (V.toList args)))
+      Just sem | opDefIndex (opDef op) `S.member` enabled ->
+        applyOpSem sem (opSubst op) termSem args
+
+      _ -> do as <- mapM cvtType (V.toList (opArgTypes op))
+              b  <- cvtType (opResultType op)
+              f  <- newFun as b
+              fromTerm b `fmap` padArray b (App f (map asTerm (V.toList args)))
 
 
 --------------------------------------------------------------------------------
@@ -377,7 +388,7 @@ mkConst val t =
 mkArray :: SmtType -> [FTerm] -> M FTerm
 mkArray t xs =
   case t of
-    TArray n w ->
+    TArray n _ ->
       do a  <- newConst t
          let ixW = needBits n
          zipWithM_ (\i x -> addAssumpt (select a (bv i ixW) === x))

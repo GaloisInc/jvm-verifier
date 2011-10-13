@@ -34,6 +34,7 @@ import qualified SBVParser as SBV
 import qualified Simulation as JSS
 
 import Verinf.Symbolic
+import Verinf.Symbolic.Common(opDefIndex)
 import Verinf.Utils.IOStateT
 import Verinf.Utils.LogMonad
 
@@ -100,6 +101,14 @@ getGlobalBindings = do
                              , TC.opBindings
                              , TC.constBindings
                              }
+
+enabledOpDefs :: ExecutorState -> Set OpIndex
+enabledOpDefs s
+  = Set.fromList
+  $ map (opDefIndex . snd . snd)
+  $ filter ((`Set.member` enabledRules s) . fst)
+  $ Map.toList
+  $ sbvOpMap s
 
 -- verbosity {{{2
 
@@ -330,8 +339,19 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
         overrides <- gets methodSpecs
         allRules <- gets rules
         enRules <- gets enabledRules
+        enOps <- gets enabledOpDefs
         let activeRules = map (allRules Map.!) $ Set.toList enRules
-        liftIO $ TC.verifyMethodSpec oc pos cb opts ir overrides activeRules
+        liftIO $ TC.verifyMethodSpec
+          TC.VerifyParams
+            { TC.vpOpCache = oc
+            , TC.vpPos = pos
+            , TC.vpCode = cb
+            , TC.vpOpts = opts
+            , TC.vpSpec = ir
+            , TC.vpOver = overrides
+            , TC.vpRules = activeRules
+            , TC.vpEnabledOps = enOps
+            }
 
       whenVerbosityWrite (==1) $ "Done. [Time: " ++ elapsedTime ++ "]"
       whenVerbosityWrite (>1) $
