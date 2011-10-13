@@ -15,12 +15,14 @@ import Verinf.Symbolic(Node,deEval)
 import qualified Verinf.Symbolic.Common as Op (OpIndex(..))
 import qualified Data.Vector as V
 
-translate :: String -> [DagType] -> Node -> [Node] -> IO Script
+translate :: String -> [DagType] -> Node -> [Node] -> IO (Script, [Ident])
 translate name is asmp goals = toScript name $
-  do js <- V.fromList `fmap` mapM mkInp is
+  do (xs,ts) <- unzip `fmap` mapM mkInp is
+     let js = V.fromList ts
      eval <- io $ deEval (\i _ _ -> js V.! i) translateOps
      addAssumpt =<< toForm =<< eval asmp
-     (Conn Not . return . Conn And) `fmap` mapM (toForm <=< eval) goals
+     form <- (Conn Not . return . Conn And) `fmap` mapM (toForm <=< eval) goals
+     return (form, xs)
 
   where
   toForm x = case asForm x of
@@ -29,7 +31,11 @@ translate name is asmp goals = toScript name $
 
   mkInp ty = do t    <- cvtType ty
                 term <- newConst t
-                return (fromTerm t term)
+                x    <- toVar term
+                return (x, fromTerm t term)
+
+  toVar (App x _) = return x
+  toVar _         = bug "translate.toVar" "Argument is not a variable"
 
 
 --------------------------------------------------------------------------------
@@ -46,12 +52,12 @@ type X = String
 
 
 
-toScript :: String -> M Formula -> IO Script
+toScript :: String -> M (Formula, a) -> IO (Script, a)
 toScript n (M m) =
   do res <- runExceptionT (runStateT s0 m)
      case res of
        Left xx -> fail xx -- XXX: Throw a custom exception.
-       Right (a,s) -> return Script
+       Right ((a,other),s) -> return (Script
          { scrName     = fromString n
          , scrCommands =
            [ CmdLogic (fromString "QF_AUFBV")
@@ -66,7 +72,7 @@ toScript n (M m) =
            ] ++
            [ CmdFormula a
            ]
-         }
+         }, other)
 
     where s0 = S { names = 0, globalDefs = [], globalAsmps = [] }
 
@@ -101,8 +107,8 @@ padArray ty@(TArray n w) t =
 padArray _ t = return t
 
 
--- Note: does not do any padding on arrays. This happens where the fun
--- is used.
+-- Note: does not do any padding on arrays.
+-- This happens where the fun is used.
 newFun :: [SmtType] -> SmtType -> M Ident
 newFun ts t = M $ sets $ \s -> let n = names s
                                    i = fromString ("x" ++ show n)

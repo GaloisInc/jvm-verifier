@@ -1,4 +1,7 @@
-module SAWScript.Yices (yices, BV(..), YVal(..), YResult(..), ppVal) where
+module SAWScript.Yices
+  ( yices, BV(..), YVal(..), YResult(..), ppVal
+  , resolveInputs
+  ) where
 
 import Text.ParserCombinators.ReadP as P
 import Text.PrettyPrint as PP hiding (parens)
@@ -21,6 +24,32 @@ data YVal = YArr [(BV,BV)] BV
 data YResult  = YUnknown
               | YUnsat
               | YSat (M.Map String YVal)
+
+yices :: Maybe Int -> Script -> IO YResult
+yices mbTime script =
+  do txt <- readProcess "yices" (["--full-model"] ++ timeOpts)
+                (show (pp script))
+     case parseOutput txt of
+       Just a -> return a
+       _      -> fail "yices: Failed to parse the output from Yices"
+  where timeOpts = case mbTime of
+                     Nothing -> []
+                     Just t  -> ["--timeout=" ++ show t]
+
+
+resolveInputs :: M.Map String YVal -> [Ident] -> [YVal]
+resolveInputs model ins = map getIdent ins
+  where
+  getIdent i = getVar (show (pp i))
+
+  getVar x = case M.lookup x model of
+               Just (YVar y) -> getVar y
+               Just v        -> v
+               Nothing       -> YVar x    -- Should not happen!
+
+
+
+--------------------------------------------------------------------------------
 
 str     :: String -> ReadP ()
 str x    = pSpaces >> string x >> return ()
@@ -85,17 +114,7 @@ parseOutput txt =
     [(a,_)] -> return a
     _       -> Nothing
 
-
-yices :: Maybe Int -> Script -> IO YResult
-yices mbTime script =
-  do txt <- readProcess "yices" (["--full-model"] ++ timeOpts)
-                (show (pp script))
-     case parseOutput txt of
-       Just a -> return a
-       _      -> fail "yices: Failed to parse the output from Yices"
-  where timeOpts = case mbTime of
-                     Nothing -> []
-                     Just t  -> ["--timeout=" ++ show t]
+--------------------------------------------------------------------------------
 
 
 ppVal :: (String, YVal) -> Doc
@@ -103,7 +122,7 @@ ppVal (x,vv) =
   case vv of
     YVar v -> text x <+> text "=" <+> text v
     YVal n -> text x <+> text "=" <+> ppV n
-    YArr vs v -> text " " $$ vcat (map ppEnt vs) $$
+    YArr vs v -> vcat (map ppEnt vs) $$
                  text x <> brackets (text "_") <+> text "=" <+> ppV v
       where ppEnt (a,b) = text x <> brackets (integer (val a))
                       <+> text "=" <+> ppV b
