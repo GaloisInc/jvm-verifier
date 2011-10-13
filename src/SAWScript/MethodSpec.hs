@@ -34,6 +34,7 @@ import qualified Execution.Codebase as JSS
 import JavaParser as JSS
 import MethodSpec (partitions)
 import qualified SAWScript.SmtLib as SmtLib
+import qualified SAWScript.Yices  as Yices
 import qualified SAWScript.MethodAST as AST
 import qualified SAWScript.TypeChecker as TC
 import qualified Simulation as JSS
@@ -1511,6 +1512,7 @@ verifyMethodSpec oc pos cb opts ir overrides rules = do
             runABC ir (vcInputs vc) newGoal (checkCounterexample check)
           AST.QuickCheck n lim -> testRandom ir n lim vc
           AST.SmtLib nm -> useSMTLIB ir nm vc
+          AST.Yices ti  -> useYices ir ti vc
           AST.Skip -> error "internal: verifyMethodTactic used invalid tactic."
 
 
@@ -1643,5 +1645,32 @@ useSMTLIB ir mbNm vc =
   name = case mbNm of
            Just x  -> x
            Nothing -> methodSpecName ir
+
+
+useYices :: MethodSpecIR -> Maybe Int -> VerificationContext ->
+                                                          SymbolicMonad ()
+useYices ir mbTime vc =
+  do whenVerbosity (>= 3) $
+       liftIO $ putStrLn $ "Using Yices2: " ++ methodSpecName ir
+     gs <- mapM checkGoal (vcChecks vc)
+     res <- liftIO $ do script <- SmtLib.translate (methodSpecName ir)
+                              (map (termType . viNode) (vcInputs vc))
+                              (vcAssumptions vc)
+                              gs
+                        Yices.yices mbTime script
+     case res of
+       Yices.YUnsat   -> return ()
+       Yices.YUnknown -> yiFail ["Failed to decide property."]
+       Yices.YSat m   -> yiFail ( "(XXX) Found a counter example:\n\n"
+                                : map (show . Yices.ppVal) (Map.toList m)
+                                )
+
+  where
+  yiFail xs = fail $ unlines $ [ "Yices: Verification failed."
+                               , "*** Method: " ++ show (methodSpecName ir)
+                               , "*** Location: " ++ show (methodSpecPos ir)
+                               , "*** Details:"
+                               ] ++ [ "  " ++ l | l <- xs ]
+
 
 

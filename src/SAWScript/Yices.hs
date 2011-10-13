@@ -1,30 +1,44 @@
+module SAWScript.Yices (yices, BV(..), YVal(..), YResult(..), ppVal) where
+
 import Text.ParserCombinators.ReadP as P
 import Text.PrettyPrint as PP hiding (parens)
-import MonadLib
 import Data.Char
+import Control.Monad(mplus,msum)
 import Numeric
 import Data.List
 import Data.Function
+import System.Process
+import qualified Data.Map as M
+import SMTLib1
 
-data BV = BV { val :: !Integer, width :: !Int } deriving Show
+data BV   = BV { val :: !Integer, width :: !Int } deriving Show
 
-data Val  = Arr [(BV,BV)] BV
-          | Val BV
-          | Var String
+data YVal = YArr [(BV,BV)] BV
+          | YVal BV
+          | YVar String
            deriving Show
 
-str x    = spaces >> string x
-spaces   = munch isSpace >> return ()
-parens p = spaces >> between (P.char '(') (P.char ')') p
+data YResult  = YUnknown
+              | YUnsat
+              | YSat (M.Map String YVal)
 
-pName    = do spaces
+str     :: String -> ReadP ()
+str x    = pSpaces >> string x >> return ()
+
+pSpaces :: ReadP ()
+pSpaces  = munch isSpace >> return ()
+
+parens  :: ReadP a -> ReadP a
+parens p = pSpaces >> between (P.char '(') (P.char ')') p
+
+pName   :: ReadP String
+pName    = do pSpaces
               x <- satisfy isAlpha
               xs <- munch isAlphaNum
               return (x:xs)
 
 pBV :: ReadP BV
-pBV = do spaces
-         string "0b"
+pBV = do str "0b"
          ds <- many (P.char '0' `mplus` P.char '1')
          let twos = 1 : map (2*) twos
              dig '0' = 0
@@ -33,11 +47,13 @@ pBV = do spaces
                    , width = length ds
                    }
 
+pVal :: ReadP (String, YVal)
 pVal = parens $ do str "="
                    x <- pName
-                   v <- (Var `fmap` pName) `mplus` (Val `fmap` pBV)
+                   v <- (YVar `fmap` pName) `mplus` (YVal `fmap` pBV)
                    return (x, v)
 
+pArr :: ReadP (String, YVal)
 pArr = do str "---"
           n <- pName
           str "---"
@@ -48,30 +64,51 @@ pArr = do str "---"
                    return (k,v)
           str "default:"
           v <- pBV
-          return (n, Arr (sortBy (compare `on` (val . fst)) vs) v)
+          return (n, YArr (sortBy (compare `on` (val . fst)) vs) v)
 
+pOut :: ReadP YResult
 pOut =
-  do str "sat"
-     str "MODEL"
-     xs <- many (pVal `mplus` pArr)
-     str "----"
-     spaces
-     return xs
+  do r <- msum [ do str "sat"
+                    str "MODEL"
+                    xs <- many (pVal `mplus` pArr)
+                    str "----"
+                    return $ YSat $ M.fromList xs
+               , str "unsat" >> return YUnsat
+               , str "unknown" >> return YUnknown
+               ]
+     pSpaces
+     return r
 
-ppVal (x,v) =
-  case v of
-    Var v -> text x <+> text "=" <+> text v
-    Val n -> text x <+> text "=" <+> ppV n
-    Arr vs v -> text " " $$ vcat (map ppEnt vs) $$
-                text x <> brackets (text "_") <+> text "=" <+> ppV v
+parseOutput :: String -> Maybe YResult
+parseOutput txt =
+  case filter (null . snd) (readP_to_S pOut txt) of
+    [(a,_)] -> return a
+    _       -> Nothing
+
+
+yices :: Maybe Int -> Script -> IO YResult
+yices mbTime script =
+  do txt <- readProcess "yices" (["--full-model"] ++ timeOpts)
+                (show (pp script))
+     case parseOutput txt of
+       Just a -> return a
+       _      -> fail "yices: Failed to parse the output from Yices"
+  where timeOpts = case mbTime of
+                     Nothing -> []
+                     Just t  -> ["--timeout=" ++ show t]
+
+
+ppVal :: (String, YVal) -> Doc
+ppVal (x,vv) =
+  case vv of
+    YVar v -> text x <+> text "=" <+> text v
+    YVal n -> text x <+> text "=" <+> ppV n
+    YArr vs v -> text " " $$ vcat (map ppEnt vs) $$
+                 text x <> brackets (text "_") <+> text "=" <+> ppV v
       where ppEnt (a,b) = text x <> brackets (integer (val a))
                       <+> text "=" <+> ppV b
 
   where hex v = text "0x" <> text (showHex v "")
         ppV n = hex (val n) <+> text ":" <+> brackets (int (width n))
 
-main = interact ((++ "\n") . show . vcat . map ppVal . one . readP_to_S pOut)
-  where one xs = case filter (null . snd) xs of
-                   [(a,_)] -> a
-                   [] -> error "parse error"
 

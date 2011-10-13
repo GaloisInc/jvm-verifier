@@ -67,6 +67,7 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'fromJava'     { TReserved _ "fromJava"     }
    'quickcheck'   { TReserved _ "quickcheck"   }
    'smtlib'       { TReserved _ "smtlib"       }
+   'yices'        { TReserved _ "yices"        }
    var            { TVar      _ _              }
    str            { TLit      _ $$             }
    num            { TNum      _ _ _            }
@@ -269,6 +270,7 @@ VerificationMethod : 'abc'      { ABC     }
                    | 'quickcheck' int opt(int) { QuickCheck (snd $2)
                                                             (fmap snd $3) }
                    | 'smtlib' opt(str)  { SmtLib $2 }
+                   | 'yices'  opt(int)  { Yices (fmap snd $2) }
 
 -- A qualified variable
 Qvar :: { (Pos, [String]) }
