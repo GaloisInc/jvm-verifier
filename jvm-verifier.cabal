@@ -131,6 +131,7 @@ executable sawScript
     , old-locale >= 1.0.0.2
     , old-time >= 1.0.0.3
     , parsec >= 2.1.0.1
+    , process
     , pretty
     , random
     , smtLib
@@ -153,6 +154,7 @@ executable sawScript
         SAWScript.Parser
         SAWScript.ParserActions
         SAWScript.SmtLib
+        SAWScript.Yices
         SAWScript.TIMonad
         SAWScript.Token
         SAWScript.TypeChecker
