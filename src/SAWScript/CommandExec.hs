@@ -105,10 +105,10 @@ getGlobalBindings = do
 enabledOpDefs :: ExecutorState -> Set OpIndex
 enabledOpDefs s
   = Set.fromList
-  $ map (opDefIndex . snd . snd)
+  $ map (opDefIndex . snd)
   $ filter ((`Set.member` enabledRules s) . fst)
   $ Map.toList
-  $ sbvOpMap s
+  $ sawOpMap s
 
 -- verbosity {{{2
 
