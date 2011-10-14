@@ -15,6 +15,8 @@ import Verinf.Symbolic(Node,deEval)
 import qualified Verinf.Symbolic.Common as Op (OpIndex(..))
 import qualified Data.Vector as V
 import qualified Data.Set as S
+import qualified Data.IntMap as IM
+
 
 data TransParams = TransParams
   { transName     :: String
@@ -24,14 +26,16 @@ data TransParams = TransParams
   , transEnabled  :: S.Set OpIndex
   }
 
-translate :: TransParams -> IO (Script, [Ident])
-translate ps = toScript (transName ps) $
+translate :: TransParams -> IO (Script, (Formula, [Formula], [Ident]))
+translate ps =
+  toScript (transName ps) $
   do (xs,ts) <- unzip `fmap` mapM mkInp (transInputs ps)
      let js = V.fromList ts
      eval <- io $ deEval (\i _ _ -> js V.! i) (translateOps (transEnabled ps))
-     addAssumpt =<< toForm =<< eval (transAssume ps)
+     as <- toForm =<< eval (transAssume ps)
+     addAssumpt as
      gs <- mapM (toForm <=< eval) (transCheck ps)
-     return (Conn Not [ Conn And gs ], xs)
+     return (Conn Not [ Conn And gs ], (as,gs,xs))
 
   where
   toForm x = case asForm x of
@@ -55,6 +59,7 @@ newtype M a = M (StateT S (ExceptionT X IO) a) deriving (Functor, Monad)
 data S = S { names       :: !Int
            , globalDefs  :: [(Ident,[SmtType],SmtType)]
            , globalAsmps :: [Formula]
+           , extraOps    :: IM.IntMap Ident
            }
 
 type X = String
@@ -83,7 +88,9 @@ toScript n (M m) =
            ]
          }, other)
 
-    where s0 = S { names = 0, globalDefs = [], globalAsmps = [] }
+    where s0 = S { names = 0, globalDefs = [], globalAsmps = []
+                 , extraOps = IM.empty
+                 }
 
 io :: IO a -> M a
 io m = M (lift $ lift m)
@@ -131,6 +138,9 @@ newConst :: SmtType -> M BV.Term
 newConst ty =
   do f <- newFun [] ty
      padArray ty (App f [])
+
+
+
 
 -- Give an explicit name to a term.
 -- This is useful so that we can share term representations.
@@ -267,7 +277,7 @@ translateOps enabled = termSem
       Op.Neg         -> negOp
       Op.Split w1 w2 -> splitOp (numBits w1) (numBits w2)
       Op.Join w1 w2  -> joinOp (numBits w1) (numBits w2)
-      Op.Dynamic _ m -> \t -> dynOp op m (V.fromList [t])
+      Op.Dynamic x m -> \t -> dynOp x op m (V.fromList [t])
 
       i -> \_ -> err $ "Unknown unary operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -298,7 +308,7 @@ translateOps enabled = termSem
       Op.UnsignedLeq   -> unsignedLeqOp
       Op.UnsignedLt    -> unsignedLtOp
       Op.GetArrayValue -> getArrayValueOp
-      Op.Dynamic _ m   -> \s t -> dynOp op m (V.fromList [s,t])
+      Op.Dynamic x m   -> \s t -> dynOp x op m (V.fromList [s,t])
 
       i -> \_ _ -> err $ "Unknown binary operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -307,7 +317,7 @@ translateOps enabled = termSem
     case opDefIndex (opDef op) of
       Op.ITE           -> iteOp
       Op.SetArrayValue -> setArrayValueOp
-      Op.Dynamic _ m   -> \r s t -> dynOp op m (V.fromList [r,s,t])
+      Op.Dynamic x m   -> \r s t -> dynOp x op m (V.fromList [r,s,t])
 
       i -> \_ _ _ -> err $ "Unknown ternary operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -316,7 +326,7 @@ translateOps enabled = termSem
     case opDefIndex (opDef op) of
       Op.MkArray _  -> \vs -> do t <- cvtType (opResultType op)
                                  mkArray t vs
-      Op.Dynamic _ m   -> \xs -> dynOp op m (V.fromList xs)
+      Op.Dynamic x m   -> \xs -> dynOp x op m (V.fromList xs)
 
       i -> \_ -> err $ "Unknown variable arity operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -338,15 +348,26 @@ translateOps enabled = termSem
                          op ss
 
 
-  dynOp op mbSem args =
+  dynOp x op mbSem args =
     case mbSem of
       Just sem | opDefIndex (opDef op) `S.member` enabled ->
         applyOpSem sem (opSubst op) termSem args
 
-      _ -> do as <- mapM cvtType (V.toList (opArgTypes op))
-              b  <- cvtType (opResultType op)
-              f  <- newFun as b
-              fromTerm b `fmap` padArray b (App f (map asTerm (V.toList args)))
+      _ ->
+        do as <- mapM cvtType (V.toList (opArgTypes op))
+           b  <- cvtType (opResultType op)
+
+           -- Check to see if we already generated a funciton for this op.
+           known <- M (extraOps `fmap` get)
+           f <- case IM.lookup x known of
+                  Nothing ->
+                    do f <- newFun as b
+                       M $ sets_ $ \s -> s { extraOps = IM.insert x f
+                                                           (extraOps s) }
+                       return f
+                  Just f -> return f
+
+           fromTerm b `fmap` padArray b (App f (map asTerm (V.toList args)))
 
 
 --------------------------------------------------------------------------------
