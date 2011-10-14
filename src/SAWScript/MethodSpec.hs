@@ -16,6 +16,8 @@ module SAWScript.MethodSpec
 
 -- Imports {{{1
 
+import Debug.Trace
+
 import Control.Applicative hiding (empty)
 import qualified Control.Exception as CE
 import Control.Monad
@@ -1532,6 +1534,7 @@ verifyMethodSpec
                                      bImpliesOp 
                                      (vcAssumptions vc)
                                      (checkGoal de check)
+
       -- Run verification
       case methodSpecVerificationTactics ir of
         [AST.Rewrite] -> liftIO $ do
@@ -1565,9 +1568,13 @@ verifyMethodSpec
               liftIO $ putStrLn $ "Verify " ++ checkName check
             newGoal <- reduce rew (goal check)
             runABC de v ir (vcInputs vc) check newGoal
+
+        -- XXX: This is called multiple times, so when we save the
+        -- smtlib file we should somehow parameterize on the configuration.
         [AST.SmtLib nm] -> do
           let gs = map (checkGoal de) (vcChecks vc)
           useSMTLIB ir nm vc gs
+
         [AST.Rewrite, AST.SmtLib nm] -> do
           gs <- liftIO $ do rew <- mkRewriter pgm ts
                             mapM (reduce rew . checkGoal de) (vcChecks vc)
@@ -1726,7 +1733,7 @@ useYices :: MethodSpecIR -> Maybe Int ->
             VerificationContext -> [Node] -> SymbolicMonad ()
 useYices ir mbTime vc gs =
   announce ("Using Yices2: " ++ methodSpecName ir) >> liftIO (
-  do (script,is) <- SmtLib.translate SmtLib.TransParams
+  do (script,(as,gs1,is)) <- SmtLib.translate SmtLib.TransParams
         { SmtLib.transName = "CheckYices"
         , SmtLib.transInputs = map (termType . viNode) (vcInputs vc)
         , SmtLib.transAssume = vcAssumptions vc
@@ -1743,6 +1750,14 @@ useYices ir mbTime vc gs =
                $$ nest 2 (vcat $ intersperse (text " ") $
                     zipWith ppIn (vcInputs vc) (Yices.resolveInputs m is))
                $$ text " "
+{-
+               $$ text "Assumptions:"
+               $$ nest 2 (SmtLib.pp as)
+               $$ text " "
+               $$ text "Goals:"
+               $$ nest 2 (vcat (map SmtLib.pp gs1))
+               $$ text " "
+-}
                $$ text "Full model:"
                $$ nest 2 (vcat $ map Yices.ppVal (Map.toList m))
                 )
