@@ -4,7 +4,7 @@ Description      :
 Stability        : provisional
 Point-of-contact : jstanley
 -}
-
+{-# LANGUAGE ViewPatterns #-}
 module Utils where
 
 import Verinf.Symbolic
@@ -57,6 +57,6 @@ floatRem x y = fromIntegral z
 
 -- | Returns integer from a constant value.
 cIntValue :: CValue -> Integer
-cIntValue (CInt _w x) = x
+cIntValue (getSVal -> Just x) = x
 cIntValue  _ = error "internal: CValue not an integer"
 

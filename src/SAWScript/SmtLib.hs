@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ViewPatterns #-}
 module SAWScript.SmtLib (translate) where
 
 import GHC.Exts(IsString(fromString))
@@ -11,7 +12,7 @@ import Verinf.Symbolic.Common
   , opArgTypes, opResultType, numBits
   , OpSem(..)
   )
-import Verinf.Symbolic(Node,deEval)
+import Verinf.Symbolic(Node,deEval,getSValW)
 import qualified Verinf.Symbolic.Common as Op (OpIndex(..))
 import qualified Data.Vector as V
 
@@ -344,18 +345,17 @@ translateOps = TermSemantics
 
 
 mkConst :: CValue -> SmtType -> M FTerm
+mkConst (getSValW -> Just (w,v)) t =
+  return FTerm { asForm  = Nothing
+               , asTerm  = bv v (numBits w)
+               , smtType = t
+               }
 mkConst val t =
   case val of
 
     CBool b ->
       return FTerm { asForm  = Just (if b then FTrue else FFalse)
                    , asTerm  = if b then bit1 else bit0
-                   , smtType = t
-                   }
-
-    CInt w v ->
-      return FTerm { asForm  = Nothing
-                   , asTerm  = bv v (numBits w)
                    , smtType = t
                    }
 

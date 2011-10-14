@@ -85,8 +85,8 @@ method com.galois.ecc.P384ECC64.field_add {
   //   * "abc" for bitblasting and using ABC to solve resulting SAT problem.
   //   * "rewriter" for using rewriting, and succeeding if verification reduces
   //      to "True".
-  //   * "auto" for using rewriting and passing reduced problem to ABC.
-  verifyUsing: abc;
+  // verifyUsing: abc;
+  verifyUsing: quickcheck 100;
 };
 
 // field_sub {{{2

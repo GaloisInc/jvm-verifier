@@ -74,14 +74,6 @@ createSymbolicIntNode w = do
   lv <- liftIO $ LV <$> SV.replicateM w (beMakeInputLit be)
   freshVar (SymInt (constantWidth (Wx w))) lv
 
--- | @createSymbolicArrayNode l w@ creates an array with length l@ and elements with width @w@.
-createSymbolicArrayNode :: DagEngine Node Lit -> Int -> Int -> IO Node
-createSymbolicArrayNode de l w = do
-  let arrType = SymArray (constantWidth (Wx l)) (SymInt (constantWidth (Wx w)))
-  let ?be = deBitEngine de
-  lv <- V.replicateM l $ LV <$> SV.replicateM w lMkInput
-  deFreshInput de (Just (LVN lv)) arrType
-
 createLitVectorFromType :: (SV.Storable l)
                         => BitEngine l -> DagType -> IO (LitResult l)
 createLitVectorFromType be (SymInt (widthConstant -> Just (Wx w))) = do
@@ -1007,9 +999,7 @@ data JavaVerificationState = JVS {
         jvsMethodName :: String
         -- | Maps Spec Java expression to value for that expression.
       , jvsExprValueMap :: Map TC.JavaExpr (JSS.Value Node)
-        -- | Contains functions that translate from counterexample
-        -- returned by ABC back to constant values, along with the
-        -- Java expression associated with that evaluator.
+        -- | Contains inputs to Java verifiction in reverse order that they appear.
       , jvsInputs :: [VerificationInput]
         -- | Maps JSS refs to name for that ref.
       , jvsRefNameMap :: Map JSS.Ref String
@@ -1432,7 +1422,7 @@ methodSpecVCs pos cb opts overrides ir = do
         vcs <- comparePathStates ir jvs esd newPathState returnVal
         return VContext {
                   vcAssumptions = as
-                , vcInputs = jvsInputs jvs
+                , vcInputs = reverse (jvsInputs jvs)
                 , vcChecks = vcs
                 }
 
@@ -1527,8 +1517,8 @@ verifyMethodSpec oc pos cb opts ir overrides rules = do
                          nest 2 (prettyTermD newGoal)
                    res = "Please add new rewrite rules or modify existing ones to reduce the goal to True."
                 in throwIOExecException pos msg res
-        [AST.QuickCheck n lim] -> do
-          testRandom ir n lim vc
+        [AST.QuickCheck n lim] -> liftIO $ do
+          testRandom de v ir n lim vc
         [AST.ABC] -> liftIO $ do
           forM_ (vcChecks vc) $ \check -> do
             when (v >= 2) $
@@ -1558,11 +1548,13 @@ verifyMethodSpec oc pos cb opts ir overrides rules = do
         _ -> error "internal: verifyMethodTactic used invalid tactic."
 
 
-testRandom :: MethodSpecIR -> Int -> Maybe Int ->
-                                       VerificationContext -> SymbolicMonad ()
-testRandom ir test_num lim vc =
-    do whenVerbosity (>= 3) $
-         liftIO $ putStrLn $ "Generating random tests: " ++ methodSpecName ir
+type Verbosity = Int
+
+testRandom :: DagEngine Node Lit -> Verbosity
+           -> MethodSpecIR -> Int -> Maybe Int -> VerificationContext -> IO ()
+testRandom de v ir test_num lim vc =
+    do when (v >= 3) $
+         putStrLn $ "Generating random tests: " ++ methodSpecName ir
        (passed,run) <- loop 0 0
        when (passed < test_num) $
          let msg = text "QuickCheck: Failed to generate enough good inputs."
@@ -1570,25 +1562,23 @@ testRandom ir test_num lim vc =
                                 , text "Passed:" <+> int passed
                                 , text "Goal:" <+> int test_num
                                 ])
-         in liftIO $ throwIOExecException (methodSpecPos ir) msg ""
+         in throwIOExecException (methodSpecPos ir) msg ""
   where
   loop run passed | passed >= test_num      = return (passed,run)
   loop run passed | Just l <- lim, run >= l = return (passed,run)
   loop run passed = loop (run + 1) =<< testOne passed
 
-  testOne passed =
-    do vs   <- liftIO $ mapM (pickRandom . termType . viNode) (vcInputs vc)
-       eval <- mkConcreteEval (V.fromList vs)
-       asmp_ok <- toBool $ eval $ vcAssumptions vc
-       if not asmp_ok
-         then return passed
-         else do forM_ (vcChecks vc) $ \goal ->
-                   do de <- getDagEngine
-                      goal_ok <- toBool (eval (checkGoal de goal))
-                      unless goal_ok $
-                        liftIO $ throwIOExecException (methodSpecPos ir)
-                                                      (msg eval vs goal) ""
-                 return $! passed + 1
+  testOne passed = do 
+    vs   <- mapM (pickRandom . termType . viNode) (vcInputs vc)
+    eval <- deConcreteEval (V.fromList vs)
+    if not (toBool $ eval $ vcAssumptions vc)
+      then return passed
+      else do forM_ (vcChecks vc) $ \goal ->
+                do let goal_ok = toBool (eval (checkGoal de goal))
+                   unless goal_ok $ do
+                     throwIOExecException (methodSpecPos ir)
+                                          (msg eval vs goal) ""
+              return $! passed + 1
 
 
   msg eval vs g =
@@ -1611,8 +1601,8 @@ testRandom ir test_num lim vc =
       ts -> vcat [ text (show t) <+> text "=" | t <- ts ] <+> ppCValueD Mixfix v
 
 
-  toBool (CBool b) = return b
-  toBool v = fail $ unlines [ "Internal error in 'testRandom':"
+  toBool (CBool b) = b
+  toBool v = error $ unlines [ "Internal error in 'testRandom':"
                             , "  Expected: boolean value"
                             , "  Result:   " ++ ppCValue Mixfix v ""
                             ]
@@ -1635,7 +1625,7 @@ pickRandomSize ty spec =
 
     SymInt w ->
       case widthConstant w of
-         Just n  -> CInt n `fmap`
+         Just n  -> mkCInt n `fmap`
            do let least   = 0
                   largest = bitWidthSize n - 1
               case spec of
