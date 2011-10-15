@@ -9,6 +9,7 @@ Point-of-contact : jstanley
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Tests.PrimOps (primOpTests) where
 
@@ -442,7 +443,7 @@ type MethodSpec  = (String, String, String)
 type EvalBinOp a = Codebase -> MethodSpec -> a -> a -> IO (CValue, a)
 
 ssiToNum :: Num a => CValue -> a
-ssiToNum (CInt _ c) = fromIntegral c
+ssiToNum (getSVal -> Just c) = fromIntegral c
 ssiToNum _ = error $ "internal: Value type is not a num"
 
 chkQuotRem :: (Arbitrary a, Bounded a, Integral a, Num a, Ord a) =>
@@ -535,8 +536,8 @@ evalBinOp runIO _lbl cb w maigNm mkValue getSymIntegralFromValue newSymVar
             <$> runStaticMethod classNm methodNm sig [mkValue a, mkValue b]
     let rslt = getSymIntegralFromValue val
     outIntLit <- toLsbf_lit <$> getVarLit rslt
-    evalFn <- mkConcreteEval (V.map (CInt w . fromIntegral) $ V.fromList [x, y])
-    let inputs = concatMap (intToBoolSeq . CInt w . fromIntegral) [x, y]
+    evalFn <- mkConcreteEval (V.map (mkCInt w . fromIntegral) $ V.fromList [x, y])
+    let inputs = concatMap (intToBoolSeq . mkCInt w . fromIntegral) [x, y]
     be <- getBitEngine
     liftIO $ do
       aigResult <- beEvalAigV be (SV.fromList inputs) (SV.fromList outIntLit)
