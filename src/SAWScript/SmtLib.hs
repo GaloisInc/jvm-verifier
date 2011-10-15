@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE PatternGuards #-}
 module SAWScript.SmtLib (translate, TransParams(..)) where
 
 import GHC.Exts(IsString(fromString))
@@ -11,7 +12,7 @@ import Verinf.Symbolic.Common
   , opArgTypes, opResultType, numBits
   , OpSem(..), OpIndex
   )
-import Verinf.Symbolic(Node,deEval)
+import Verinf.Symbolic(Node,deEval,getSValW)
 import qualified Verinf.Symbolic.Common as Op (OpIndex(..))
 import qualified Data.Vector as V
 import qualified Data.Set as S
@@ -26,7 +27,8 @@ data TransParams = TransParams
   , transEnabled  :: S.Set OpIndex
   }
 
-translate :: TransParams -> IO (Script, (Formula, [Formula], [Ident]))
+translate :: TransParams -> IO (Script, ([(Ident,String)],
+                                          Formula, [Formula], [Ident]))
 translate ps =
   toScript (transName ps) $
   do (xs,ts) <- unzip `fmap` mapM mkInp (transInputs ps)
@@ -35,7 +37,8 @@ translate ps =
      as <- toForm =<< eval (transAssume ps)
      addAssumpt as
      gs <- mapM (toForm <=< eval) (transCheck ps)
-     return (Conn Not [ Conn And gs ], (as,gs,xs))
+     ops <- getExtraOps
+     return (Conn Not [ Conn And gs ], (IM.elems ops,as,gs,xs))
 
   where
   toForm x = case asForm x of
@@ -59,7 +62,7 @@ newtype M a = M (StateT S (ExceptionT X IO) a) deriving (Functor, Monad)
 data S = S { names       :: !Int
            , globalDefs  :: [(Ident,[SmtType],SmtType)]
            , globalAsmps :: [Formula]
-           , extraOps    :: IM.IntMap Ident
+           , extraOps    :: IM.IntMap (Ident, String)
            }
 
 type X = String
@@ -86,7 +89,9 @@ toScript n (M m) =
            ] ++
            [ CmdFormula a
            ]
-         }, other)
+         }
+         , other
+         )
 
     where s0 = S { names = 0, globalDefs = [], globalAsmps = []
                  , extraOps = IM.empty
@@ -121,6 +126,9 @@ padArray ty@(TArray n w) t =
      return arr
 
 padArray _ t = return t
+
+getExtraOps :: M (IM.IntMap (Ident, String))
+getExtraOps = M $ extraOps `fmap` get
 
 
 -- Note: does not do any padding on arrays.
@@ -356,16 +364,17 @@ translateOps enabled = termSem
       _ ->
         do as <- mapM cvtType (V.toList (opArgTypes op))
            b  <- cvtType (opResultType op)
+           let name = opDefName (opDef op)
 
            -- Check to see if we already generated a funciton for this op.
-           known <- M (extraOps `fmap` get)
+           known <- getExtraOps
            f <- case IM.lookup x known of
                   Nothing ->
                     do f <- newFun as b
-                       M $ sets_ $ \s -> s { extraOps = IM.insert x f
+                       M $ sets_ $ \s -> s { extraOps = IM.insert x (f,name)
                                                            (extraOps s) }
                        return f
-                  Just f -> return f
+                  Just (f,_) -> return f
 
            fromTerm b `fmap` padArray b (App f (map asTerm (V.toList args)))
 
@@ -378,16 +387,15 @@ translateOps enabled = termSem
 mkConst :: CValue -> SmtType -> M FTerm
 mkConst val t =
   case val of
+    _ | Just (w,v) <- getSValW val ->
+      return FTerm { asForm  = Nothing
+                   , asTerm  = bv v (numBits w)
+                   , smtType = t
+                   }
 
     CBool b ->
       return FTerm { asForm  = Just (if b then FTrue else FFalse)
                    , asTerm  = if b then bit1 else bit0
-                   , smtType = t
-                   }
-
-    CInt w v ->
-      return FTerm { asForm  = Nothing
-                   , asTerm  = bv v (numBits w)
                    , smtType = t
                    }
 

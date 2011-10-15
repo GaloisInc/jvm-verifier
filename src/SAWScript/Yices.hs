@@ -1,5 +1,5 @@
 module SAWScript.Yices ( yices, BV(..), YVal(..), YResult(..), ppVal
-  , resolveInputs
+  , getIdent
   ) where
 
 import Text.ParserCombinators.Parsec as P
@@ -39,15 +39,14 @@ yices mbTime script =
                      Just t  -> ["--timeout=" ++ show t]
 
 
-resolveInputs :: M.Map String YVal -> [Ident] -> [YVal]
-resolveInputs model ins = map getIdent ins
+getIdent :: M.Map String YVal -> Ident -> YVal
+getIdent model i = getVar (show (pp i))
   where
-  getIdent i = getVar (show (pp i))
-
   getVar x = case M.lookup x model of
                Just (YVar y) -> getVar y
                Just v        -> v
                Nothing       -> YVar x    -- Should not happen!
+
 
 
 
