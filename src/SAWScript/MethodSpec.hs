@@ -1248,6 +1248,7 @@ createExpectedStateDef ir jvs ssi fr = do
 data VerificationCheck
   = PathCheck Node
   | EqualityCheck String -- ^ Name of value to compare
+                  Node -- ^ Condition under which this equality should hold.
                   Node -- ^ Value returned by JVM symbolic simulator.
                   Node -- ^ Expected value in Spec.
   deriving (Eq, Ord, Show)
@@ -1255,16 +1256,20 @@ data VerificationCheck
 -- | Returns goal that one needs to prove.
 checkGoal :: VerificationCheck -> SymbolicMonad Node
 checkGoal (PathCheck n) = return n
-checkGoal (EqualityCheck _ x y) = applyEq x y
+checkGoal (EqualityCheck _ c x y) = do
+  eq <- applyEq x y
+  c' <- applyBNot c
+  applyBOr c eq
 
 checkName :: VerificationCheck -> String
 checkName (PathCheck _) = "the path condition"
-checkName (EqualityCheck nm _ _) = nm
+checkName (EqualityCheck nm _ _ _) = nm
 
 -- | Returns documentation for check that fails.
 checkCounterexample :: VerificationCheck -> (Node -> CValue) -> Doc
-checkCounterexample (PathCheck _) _ = text "The path conditions were unsatisfied."
-checkCounterexample (EqualityCheck nm jvmNode specNode) evalFn =
+checkCounterexample (PathCheck n) evalFn =
+  text "The path conditions were unsatisfied:" <+> prettyTermD n
+checkCounterexample (EqualityCheck nm _cond jvmNode specNode) evalFn =
   text nm $$
     nest 2 (text "Encountered: " <> ppCValueD Mixfix (evalFn jvmNode)) $$
     nest 2 (text "Expected:    " <> ppCValueD Mixfix (evalFn specNode))
@@ -1283,9 +1288,10 @@ methodAssumptions ir ssi = do
   foldM applyBAnd (mkCBool True) nodes
 
 -- | Add verification condition to list.
-addEqVC :: String -> Node -> Node -> StateT [VerificationCheck] SymbolicMonad ()
-addEqVC name jvmNode specNode = do
-  modify $ \l -> EqualityCheck name jvmNode specNode : l
+addEqVC :: String -> Node -> Node -> Node
+        -> StateT [VerificationCheck] SymbolicMonad ()
+addEqVC name cond jvmNode specNode = do
+  modify $ \l -> EqualityCheck name cond jvmNode specNode : l
 
 -- | Compare old and new states.
 comparePathStates :: MethodSpecIR
@@ -1297,14 +1303,14 @@ comparePathStates :: MethodSpecIR
 comparePathStates ir jvs esd newPathState mbRetVal = do
   let pos = methodSpecPos ir
   let mName = methodSpecName ir
-  let initialVCS  = [PathCheck (JSS.psAssumptions newPathState)]
-  flip execStateT initialVCS $ do
+  let c = JSS.psAssumptions newPathState
+  flip execStateT [] $ do
     -- Check return value.
     let Just expRetVal = esdReturnValue esd
     case mbRetVal of
       Nothing -> return ()
-      Just (JSS.IValue rv) -> addEqVC "return value" rv expRetVal
-      Just (JSS.LValue rv) -> addEqVC "return value" rv expRetVal
+      Just (JSS.IValue rv) -> addEqVC "return value" c rv expRetVal
+      Just (JSS.LValue rv) -> addEqVC "return value" c rv expRetVal
       Just _ ->  error "internal: The Java method has a return type unsupported by JavaVerifier."
     -- Check initialization
     do let specInits = Set.fromList (initializedClasses ir)
@@ -1359,9 +1365,9 @@ comparePathStates ir jvs esd newPathState mbRetVal = do
         (_, Just (JSS.FValue _)) -> throwIfModificationUnsupported "floating point"
         (_, Just (JSS.RValue _)) -> throwIfModificationUnsupported "reference"
         (JSS.IValue jvmNode, Just (JSS.IValue specNode)) ->
-          addEqVC fieldName jvmNode specNode
+          addEqVC fieldName c jvmNode specNode
         (JSS.LValue jvmNode, Just (JSS.LValue specNode)) ->
-          addEqVC fieldName jvmNode specNode
+          addEqVC fieldName c jvmNode specNode
         (_, Just _) -> error "internal: comparePathStates encountered illegal field type."
     -- Check ref arrays
     do let jvmRefArrays = JSS.refArrays newPathState
@@ -1377,7 +1383,7 @@ comparePathStates ir jvs esd newPathState mbRetVal = do
         Nothing -> error "internal: Unexpected undefined array reference."
         Just Nothing -> return ()
         Just (Just specNode) ->
-          addEqVC refName jvmNode specNode
+          addEqVC refName c jvmNode specNode
 
 -- verifyMethodSpec and friends {{{2
 
@@ -1414,8 +1420,6 @@ methodSpecVCs pos cb opts overrides ir = do
       initialPS <- JSS.getPathState
       let specs = Map.findWithDefault emptyLocalSpecs pc (localSpecs ir)
           jsi =
-            -- TODO: does any of this need to be different for an
-            -- intermediate starting state?
             let evm = jvsExprValueMap jvs
                 mbThis = case Map.lookup (TC.This cls) evm of
                            Nothing -> Nothing
@@ -1435,6 +1439,9 @@ methodSpecVCs pos cb opts overrides ir = do
          when (pc /= 0) $
               liftIO $ putStrLn $ "  starting from PC " ++ show pc
       ssi <- JSS.liftSymbolic $ createSpecStateInfo ir jsi
+      -- FIXME: Making the following state modifications causes
+      -- trouble. I think this is because the initial state of the
+      -- execution differs from jvs and jsi.
       -- Update local arrayPostconditions for starting PC
       forM_ (Map.toList $ localArrayPostconditions specs) $
         \(javaExpr,post) -> evalArrayPost jsi ssi javaExpr post
@@ -1468,7 +1475,10 @@ methodSpecVCs pos cb opts overrides ir = do
                      (JSS.Breakpoint bpc) ->
                        methodSpecName ir ++
                        "[" ++ show pc ++ "->" ++ show bpc ++ "]"
-                     _ -> methodSpecName ir
+                     _ -> case pc of
+                            0 -> methodSpecName ir
+                            _ -> methodSpecName ir ++
+                                 "[" ++ show pc ++ "->end]"
         -- Build final equation and functions for generating counterexamples.
         newPathState <- JSS.getPathStateByName ps
         JSS.liftSymbolic $ do
@@ -1496,15 +1506,20 @@ runABC ir inputEvalList fGoal counterFn = do
   whenVerbosity (>= 3) $
     liftIO $ putStrLn $ "Running ABC on " ++ methodSpecName ir
   LV v <- getVarLit fGoal
+  whenVerbosity (>= 5) $
+    liftIO $ putStrLn $ "Goal is: " ++ prettyTerm fGoal
   unless (SV.length v == 1) $
     error "internal: Unexpected number of in verification condition"
   be <- getBitEngine
   case beCheckSat be of
     Nothing -> error "internal: Bit engine does not support SAT checking."
     Just checkSat -> do
+      whenVerbosity (>= 3) $ liftIO $ putStrLn "Running SAT check."
       b <- liftIO $ checkSat (beNeg be (v SV.! 0))
       case b of
-        UnSat -> return ()
+        UnSat -> do
+          whenVerbosity (>= 3) $ liftIO $ putStrLn "Verification succeeded."
+          return ()
         Unknown -> do
           let msg = "ABC has returned a status code indicating that it could not "
                      ++ "determine whether the specification is correct.  This "
