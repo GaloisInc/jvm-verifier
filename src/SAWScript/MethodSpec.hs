@@ -33,6 +33,7 @@ import qualified Data.Vector.Storable as SV
 import qualified Data.Vector as V
 import Text.PrettyPrint.HughesPJ
 import System.Random(randomIO, randomRIO)
+import System.Directory(doesFileExist)
 
 import qualified Execution.Codebase as JSS
 import JavaParser as JSS
@@ -1710,7 +1711,15 @@ useSMTLIB ir mbNm vc gs =
         , SmtLib.transCheck = gs
         , SmtLib.transEnabled = vcEnabled vc
         }
-     writeFile (name ++ ".smt") $ show $ SmtLib.pp script
+
+     -- XXX: THERE IS A RACE CONDITION HERE!
+     let pickName n = do let cand = name ++ (if n == 0 then "" else show n)
+                                         ++ ".smt"
+                         b <- doesFileExist cand
+                         if b then pickName (n + 1) else return cand
+
+     fileName <- pickName 0
+     writeFile fileName $ show $ SmtLib.pp script
   )
 
   where
