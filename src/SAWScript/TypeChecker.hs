@@ -52,21 +52,26 @@ tcType cfg t = runTI cfg (tcT t)
 data JavaExpr
   = This String -- | Name of classname for this object.
   | Arg Int JSS.Type
+  | Local Int JSS.Type
   | InstanceField JavaExpr JSS.FieldId
 
 instance Eq JavaExpr where
   This _      == This _      = True
   Arg i _     == Arg j _     = i == j
+  Local i _   == Local j _   = i == j
   InstanceField r1 f1 == InstanceField r2 f2 = r1 == r2 && f1 == f2
   _               == _               = False
 
 instance Ord JavaExpr where
   This _      `compare` This _      = EQ
-  This _      `compare` _               = LT
-  _               `compare` This _      = GT
+  This _      `compare` _           = LT
+  _           `compare` This _      = GT
   Arg i _     `compare` Arg j _     = i `compare` j
-  Arg _ _     `compare` _               = LT
-  _               `compare` Arg _ _     = GT
+  Arg _ _     `compare` _           = LT
+  _           `compare` Arg _ _     = GT
+  Local i _   `compare` Local j _   = i `compare` j
+  Local _ _   `compare` _           = LT
+  _           `compare` Local _ _   = GT
   InstanceField r1 f1 `compare` InstanceField r2 f2 =
         case r1 `compare` r2 of
           EQ -> f1 `compare` f2
@@ -75,6 +80,7 @@ instance Ord JavaExpr where
 instance Show JavaExpr where
   show (This _)    = "this"
   show (Arg i _)   = "args[" ++ show i ++ "]"
+  show (Local i _) = "locals[" ++ show i ++ "]"
   show (InstanceField r f) = show r ++ "." ++ JSS.fieldIdName f
 
 -- | Returns JSS Type of JavaExpr
@@ -82,6 +88,7 @@ getJSSTypeOfJavaExpr :: JavaExpr -- ^ Spec Java reference to get type of.
                      -> JSS.Type
 getJSSTypeOfJavaExpr (This cl)   = JSS.ClassType cl
 getJSSTypeOfJavaExpr (Arg _ tp)  = tp
+getJSSTypeOfJavaExpr (Local _ tp)  = tp
 getJSSTypeOfJavaExpr (InstanceField _ f) = JSS.fieldIdType f
 
 -- Typecheck DagType {{{1
