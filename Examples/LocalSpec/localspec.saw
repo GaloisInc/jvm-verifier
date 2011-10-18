@@ -22,7 +22,6 @@ method LocalSpec.test2 {
 method LocalSpec.test3 {
     var args[0] : int[1];
     var args[1] : int[1];
-    let a = join(fromJava(args[0]));
     /* The one back edge in this method is from "goto 4". */
     localSpec 4 {
         arbitrary: args[0];
