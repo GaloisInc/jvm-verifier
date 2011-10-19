@@ -58,9 +58,6 @@ tok p    = p <* P.spaces
 str     :: String -> Parser ()
 str x    = tok (string x >> return ())
 
-pSpaces1 :: Parser ()
-pSpaces1 = P.space >> P.spaces
-
 parens  :: Parser a -> Parser a
 parens p = between (tok (P.char '(')) (tok (P.char ')')) p
 
