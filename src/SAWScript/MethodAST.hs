@@ -196,6 +196,7 @@ data MethodSpecDecl
   | Assume Pos Expr
   | Ensures Pos JavaRef Expr
   | Arbitrary Pos [JavaRef]
+  | LocalSpec Pos Integer [MethodSpecDecl]
   | Returns Pos Expr
   | VerifyUsing Pos [VerificationTactic]
  deriving (Show)
