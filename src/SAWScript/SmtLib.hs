@@ -98,7 +98,14 @@ toScript n (M m) =
                [ FunDecl { funName = i
                          , funArgs = map toSort as
                          , funRes  = toSort b
-                         , funAnnots = [] } | (i,as,b) <- globalDefs s
+                         , funAnnots = [] }
+               | (i,as,b) <- globalDefs s
+               ]
+           , CmdExtraPreds
+               [ PredDecl { predName = p
+                          , predArgs = map toSort as
+                          , predAnnots = [] }
+               | (p,as) <- globalPreds s
                ]
            ] ++
            [ CmdAssumption f | f <- globalAsmps s
@@ -109,7 +116,10 @@ toScript n (M m) =
          , other
          )
 
-    where s0 = S { names    = 0, globalDefs = [], globalAsmps = []
+    where s0 = S { names    = 0
+                 , globalDefs = []
+                 , globalPreds = []
+                 , globalAsmps = []
                  , extraAbs = IM.empty
                  , extraDef = IM.empty
                  , notes    = text "Detail about variables:"
@@ -145,6 +155,7 @@ newtype M a = M (StateT S (ExceptionT X IO) a) deriving (Functor, Monad)
 
 data S = S { names        :: !Int
            , globalDefs   :: [(Ident,[SmtType],SmtType)]
+           , globalPreds  :: [(Ident,[SmtType])]
            , globalAsmps  :: [Formula]
            , extraAbs     :: IM.IntMap (Ident, String)  -- ^ uninterpreted ops.
            , extraDef     :: IM.IntMap
@@ -211,6 +222,15 @@ newFun ts t = M $ sets $ \s -> let n = names s
                                       }
                                   )
 
+newPred :: [SmtType] -> M Ident
+newPred ts = M $ sets $ \s -> let n = names s
+                                  p = fromString ("p" ++ show n)
+                              in ( p
+                                 , s { names = n + 1
+                                     , globalPreds = (p,ts) : globalPreds s
+                                     }
+                                 )
+
 newConst :: SmtType -> M BV.Term
 newConst ty =
   do f <- newFun [] ty
@@ -236,9 +256,31 @@ saveT ty t =
                     addNote $ pp x <> char ':' <+> pp t
                     return x
 
+saveF :: Formula -> M Formula
+saveF f =
+  case f of
+    FPred {}  -> return f
+    FTrue     -> return f
+    FFalse    -> return f
+
+    FVar {}   -> bad "formula variables"
+    Let {}    -> bad "term let"
+    FLet {}   -> bad "formula let"
+
+    _         -> do p <- newPred []
+                    let f1 = FPred p []
+                    addAssumpt (Conn Iff [f1,f])
+                    addNote $ pp f1 <> char ':' <+> pp f
+                    return f1
+
+  where bad x = bug "saveF" ("We do not support " ++ x)
+
 save :: FTerm -> M FTerm
 save t = do t1 <- saveT (smtType t) (asTerm t)
-            return t { asTerm = t1 }
+            f1 <- case asForm t of
+                    Nothing -> return Nothing
+                    Just f  -> Just `fmap` saveF f
+            return t { asTerm = t1, asForm = f1 }
 
 -- For now, we work only with staticlly known sizes of things.
 wToI :: WidthExpr -> M Integer
