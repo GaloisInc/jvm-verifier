@@ -27,7 +27,7 @@ data YResult  = YUnknown
 
 yices :: Maybe Int -> Script -> IO YResult
 yices mbTime script =
-  do txt <- readProcess "yices" (["--full-model"] ++ timeOpts)
+  do txt <- readProcess "yices" (["--model"] ++ timeOpts)
                 (show (pp script))
      case parseOutput txt of
        Right a -> return a
