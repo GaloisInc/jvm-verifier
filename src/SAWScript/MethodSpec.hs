@@ -1718,7 +1718,7 @@ useSMTLIB ir mbNm vc gs =
                          b <- doesFileExist cand
                          if b then pickName (n + 1) else return cand
 
-     fileName <- pickName 0
+     fileName <- pickName (0 :: Integer)
      writeFile fileName $ show $ SmtLib.pp script
   )
 
@@ -1732,7 +1732,7 @@ useYices :: MethodSpecIR -> Maybe Int ->
             VerificationContext -> [Node] -> SymbolicMonad ()
 useYices ir mbTime vc gs =
   announce ("Using Yices2: " ++ methodSpecName ir) >> liftIO (
-  do (script,(uninterp,as,gs1,is)) <- SmtLib.translate SmtLib.TransParams
+  do (script,info) <- SmtLib.translate SmtLib.TransParams
         { SmtLib.transName = "CheckYices"
         , SmtLib.transInputs = map (termType . viNode) (vcInputs vc)
         , SmtLib.transAssume = vcAssumptions vc
@@ -1747,17 +1747,22 @@ useYices ir mbTime vc gs =
        Yices.YSat m   ->
          yiFail ( text "Found a counter example:"
                $$ nest 2 (vcat $ intersperse (text " ") $
-                    zipWith ppIn (vcInputs vc) (map (Yices.getIdent m) is))
+                    zipWith ppIn (vcInputs vc) (map (Yices.getIdent m)
+                                                      (SmtLib.trInputs info)))
                $$ text " "
-               $$ ppUninterp m uninterp
-{-
+               $$ ppUninterp m (SmtLib.trUninterp info)
+
+               $$ ppArgHist info m
+               $$ text " "
+
                $$ text "Assumptions:"
-               $$ nest 2 (SmtLib.pp as)
+               $$ nest 2 (SmtLib.pp (SmtLib.trAsmp info))
                $$ text " "
                $$ text "Goals:"
-               $$ nest 2 (vcat (map SmtLib.pp gs1))
+               $$ nest 2 (vcat $ intersperse (text " ")
+                               $ map SmtLib.pp (SmtLib.trGoals info))
                $$ text " "
--}
+
                $$ text "Full model:"
                $$ nest 2 (vcat $ map Yices.ppVal (Map.toList m))
                 )
@@ -1784,6 +1789,30 @@ useYices ir mbTime vc gs =
     $$ nest 2 (vcat $
       [ Yices.ppVal (s, Yices.getIdent m i) $$ text " " | (i,s) <- us ]
     )
+
+  varName base 0    = base
+  varName base time = base ++ "@" ++ show time
+
+  varSuccessors m time i = (i,time) :
+    case Map.lookup i m of
+      Nothing -> []
+      Just js -> concatMap (varSuccessors m $! (time + 1)) js
+
+  ppHist model upds nm arg = vcat $ intersperse (text " ")
+    [ Yices.ppVal (nm {-varName nm time-}, Yices.getIdent model i)
+         -- This is written in this weird way, so that we can easily
+         -- switch between the whole update-history for a variable
+         -- and just the last value.
+         | (i,time) <- [ last $ varSuccessors upds (0::Integer) arg ],
+                                                              time /= 0 ]
+
+  ppArgHist info model =
+    case zipWith (ppHist model (SmtLib.trArrays info))
+                 (map (show . last . viExprs) (vcInputs vc))
+                 (SmtLib.trInputs info) of
+      [] -> empty
+      ds -> text "Final values for array arguments:"
+         $$ nest 2 (vcat (intersperse (text " ") ds))
 
 
 
