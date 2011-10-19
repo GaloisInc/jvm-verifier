@@ -573,7 +573,7 @@ appendOp s t    =
   case (smtType s, smtType t) of
     (TBitVec m, TBitVec n) ->
       return FTerm { asForm  = Nothing
-                   , asTerm  = BV.concat (asTerm s) (asTerm t)
+                   , asTerm  = BV.concat (asTerm t) (asTerm s)
                    , smtType = TBitVec (m + n)
                    }
     _ -> bug "appendOp" "Type error---arguments are not bit vectors"
@@ -702,7 +702,7 @@ joinOp l w t0 =
      let n = needBits l
      return FTerm
        { asForm = Nothing
-       , asTerm = foldr1 BV.concat
+       , asTerm = foldr1 (flip BV.concat)
                      [ select (asTerm t) (bv i n) | i <- [ 0 .. l - 1 ] ]
        , smtType = TBitVec (l * w)
        }
