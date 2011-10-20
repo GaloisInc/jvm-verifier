@@ -16,8 +16,6 @@ module SAWScript.MethodSpec
 
 -- Imports {{{1
 
-import Debug.Trace
-
 import Control.Applicative hiding (empty)
 import qualified Control.Exception as CE
 import Control.Monad
@@ -54,6 +52,7 @@ import Verinf.Utils.IOStateT
 import Verinf.Utils.LogMonad
 
 import qualified SMTLib1 as SmtLib
+import qualified SMTLib2 as SmtLib2
 
 -- Utilities {{{1
 
@@ -578,8 +577,8 @@ resolveDecl (AST.VerifyUsing pos tactics) = do
     [AST.QuickCheck _ _] -> return ()
     [AST.ABC] -> return ()
     [AST.Rewrite, AST.ABC] -> return ()
-    [AST.SmtLib _] -> return ()
-    [AST.Rewrite, AST.SmtLib _] -> return ()
+    [AST.SmtLib {}] -> return ()
+    [AST.Rewrite, AST.SmtLib {}] -> return ()
     [AST.Yices _] -> return ()
     [AST.Rewrite, AST.Yices _] -> return ()
     _ -> let defList args = nest 2 (vcat (map (\(d,msg) -> quotes (text d) <> char '.' <+> text msg) args))
@@ -1563,14 +1562,14 @@ verifyMethodSpec
 
         -- XXX: This is called multiple times, so when we save the
         -- smtlib file we should somehow parameterize on the configuration.
-        [AST.SmtLib nm] -> do
+        [AST.SmtLib ver nm] -> do
           let gs = map (checkGoal de) (vcChecks vc)
-          useSMTLIB ir nm vc gs
+          useSMTLIB ir ver nm vc gs
 
-        [AST.Rewrite, AST.SmtLib nm] -> do
+        [AST.Rewrite, AST.SmtLib ver nm] -> do
           gs <- liftIO $ do rew <- mkRewriter pgm ts
                             mapM (reduce rew . checkGoal de) (vcChecks vc)
-          useSMTLIB ir nm vc gs
+          useSMTLIB ir ver nm vc gs
         [AST.Yices ti]  -> do
           let gs = map (checkGoal de) (vcChecks vc)
           useYices ir ti vc gs
@@ -1701,32 +1700,48 @@ pickRandom ty = pickRandomSize ty =<< ((`pick` distr) `fmap` randomRIO (0,99))
 announce :: String -> SymbolicMonad ()
 announce msg = whenVerbosity (>= 3) (liftIO (putStrLn msg))
 
-useSMTLIB :: MethodSpecIR -> Maybe String ->
+useSMTLIB :: MethodSpecIR -> Maybe Int -> Maybe String ->
               VerificationContext -> [Node] -> SymbolicMonad ()
-useSMTLIB ir mbNm vc gs =
-  announce ("Translating to SMTLIB: " ++ methodSpecName ir) >> liftIO (
-  do (script,_) <- SmtLib.translate SmtLib.TransParams
-        { SmtLib.transName = name
-        , SmtLib.transInputs = map (termType . viNode) (vcInputs vc)
-        , SmtLib.transAssume = vcAssumptions vc
-        , SmtLib.transCheck = gs
-        , SmtLib.transEnabled = vcEnabled vc
-        }
+useSMTLIB ir mbVer mbNm vc gs =
+  announce ("Translating to SMTLIB (version " ++ show version ++"): "
+                                        ++ methodSpecName ir) >> liftIO (
+  do doc <-
+       case version of
+         1 -> do (script,_) <- SmtLib.translate SmtLib.TransParams
+                    { SmtLib.transName = name
+                    , SmtLib.transInputs = map (termType . viNode) (vcInputs vc)
+                    , SmtLib.transAssume = vcAssumptions vc
+                    , SmtLib.transCheck = gs
+                    , SmtLib.transEnabled = vcEnabled vc
+                    }
+                 return (SmtLib.pp script)
+         2 -> do (script,_) <- SmtLib2.translate SmtLib2.TransParams
+                   { SmtLib2.transInputs = map (termType . viNode) (vcInputs vc)
+                   , SmtLib2.transAssume = vcAssumptions vc
+                   , SmtLib2.transCheck = gs
+                   , SmtLib2.transEnabled = vcEnabled vc
+                   }
+                 return (SmtLib2.pp script)
 
      -- XXX: THERE IS A RACE CONDITION HERE!
      let pickName n = do let cand = name ++ (if n == 0 then "" else show n)
-                                         ++ ".smt"
+                                         ++ ".smt" ++ ver_exr
                          b <- doesFileExist cand
                          if b then pickName (n + 1) else return cand
 
      fileName <- pickName (0 :: Integer)
-     writeFile fileName $ show $ SmtLib.pp script
+     writeFile fileName (show doc)
   )
 
   where
   name = case mbNm of
            Just x  -> x
            Nothing -> methodSpecName ir
+
+  version :: Int
+  (version, ver_exr) = case mbVer of
+                         Just n | n /= 1 -> (n, show n)
+                         _      -> (1, "")   -- For now, we use 1 by default.
 
 
 useYices :: MethodSpecIR -> Maybe Int ->
@@ -1784,7 +1799,7 @@ useYices ir mbTime vc gs =
       xs  -> vcat [ text (show x) <+> text "=" | x <- init xs ]
           $$ Yices.ppVal (show (last xs), val)
 
-  ppUninterp m [] = empty
+  ppUninterp _ [] = empty
   ppUninterp m us =
     text "Uninterpreted functions:"
     $$ nest 2 (vcat $

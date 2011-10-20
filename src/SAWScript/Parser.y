@@ -272,7 +272,7 @@ VerificationTactic : 'rewriter' { Rewrite }
                    | 'abc'      { ABC     }
                    | 'quickcheck' int opt(int) { QuickCheck (snd $2)
                                                             (fmap snd $3) }
-                   | 'smtlib' opt(str)  { SmtLib $2 }
+                   | 'smtlib' opt(int) opt(str)  { SmtLib (fmap snd $2) $3 }
                    | 'yices'  opt(int)  { Yices (fmap snd $2) }
 
 -- A qualified variable

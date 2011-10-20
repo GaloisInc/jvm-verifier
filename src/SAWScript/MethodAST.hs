@@ -179,7 +179,7 @@ data VerificationTactic = Skip
                         | Rewrite
                         | QuickCheck Int (Maybe Int)
                         | ABC
-                        | SmtLib (Maybe String) 
+                        | SmtLib (Maybe Int) (Maybe String) -- version, file
                         | Yices (Maybe Int)
   deriving (Eq, Show)
 
