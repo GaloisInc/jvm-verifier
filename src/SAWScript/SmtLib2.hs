@@ -1,6 +1,9 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PatternGuards #-}
-module SAWScript.SmtLib2 (translate, TransParams(..), MetaData(..)) where
+module SAWScript.SmtLib2 
+  ( translate, TransParams(..), MetaData(..)
+  , ExtArrMode(..)
+  ) where
 
 import GHC.Exts(IsString(fromString))
 import SMTLib2 as SMT
@@ -30,8 +33,13 @@ data TransParams = TransParams
   , transAssume   :: Node
   , transCheck    :: [Node]
   , transEnabled  :: S.Set OpIndex
-  , transExtArr   :: !Bool   -- use array extensionality?
+  , transExtArr   :: ExtArrMode
   }
+
+-- XXX: This confaltes two options: using defintions, and using ext. arrays
+data ExtArrMode = UseExtArr
+                | NoExtArrWithDefs
+                | NoExtArrNoDefs
 
 
 data MetaData = MetaData
@@ -86,7 +94,7 @@ type X = String
 
 
 
-toScript :: Bool -> M (Expr, a) -> IO (Script, a)
+toScript :: ExtArrMode -> M (Expr, a) -> IO (Script, a)
 toScript useExt (M m) =
   do res <- runExceptionT $ runStateT s0 $ runReaderT r0 m
      case res of
@@ -96,9 +104,9 @@ toScript useExt (M m) =
            ] ++
            -- , CmdNotes $ show $ notes s
            [ CmdDeclareFun i (map toSort as) (toSort b)
-                                      | (i,as,b) <- globalDefs s
+                                          | (i,as,b) <- globalParams s
            ] ++
-           [ CmdDeclareFun p (map toSort as) tBool | (p,as) <- globalPreds s
+           [ CmdDefineFun i [] (toSort b) def | (i,b,def) <- globalDefs s
            ] ++
            [ CmdAssert f | f <- globalAsmps s
            ] ++
@@ -110,8 +118,8 @@ toScript useExt (M m) =
          )
 
     where s0 = S { names    = 0
+                 , globalParams = []
                  , globalDefs = []
-                 , globalPreds = []
                  , globalAsmps = []
                  , extraAbs = IM.empty
                  , extraDef = IM.empty
@@ -152,11 +160,11 @@ toVar r             = bug "translate.toVar"
 newtype M a = M (ReaderT R (StateT S (ExceptionT X IO)) a)
                 deriving (Functor, Monad)
 
-data R = R { useExtArr :: Bool }
+data R = R { useExtArr :: ExtArrMode }
 
 data S = S { names        :: !Int
-           , globalDefs   :: [(Name,[SmtType],SmtType)]
-           , globalPreds  :: [(Name,[SmtType])]
+           , globalParams :: [(Name,[SmtType],SmtType)]
+           , globalDefs   :: [(Name,SmtType,Expr)]    -- Defs, for caching.
            , globalAsmps  :: [Expr]
            , extraAbs     :: IM.IntMap (Name, String)  -- ^ uninterpreted ops.
            , extraDef     :: IM.IntMap
@@ -166,7 +174,7 @@ data S = S { names        :: !Int
            , notes        :: Doc
            }
 
-useExtArrays :: M Bool
+useExtArrays :: M ExtArrMode
 useExtArrays = M (useExtArr `fmap` ask)
 
 addNote :: Doc -> M ()
@@ -204,14 +212,15 @@ addDefinedOp x name ts t = M $ sets_ $
 
 padArray :: SmtType -> Expr -> M Expr
 padArray ty@(TArray n w) t =
-  do useExt <- useExtArrays
-     if useExt
-       then do let ixW = needBits n
-               arr <- saveT ty t
-               forM_ [ n .. 2^ixW - 1 ] $ \i ->
-                 addAssumpt (select arr (bv i ixW) === bv 0 w)
-               return arr
-       else return t
+  do mode <- useExtArrays
+     case mode of
+       UseExtArr ->
+         do let ixW = needBits n
+            arr <- saveT ty t
+            forM_ [ n .. 2^ixW - 1 ] $ \i ->
+               addAssumpt (select arr (bv i ixW) === bv 0 w)
+            return arr
+       _ -> return t
 
 padArray _ t = return t
 
@@ -225,7 +234,7 @@ newFun ts t = M $ sets $ \s -> let n = names s
                                    i = fromString ("x" ++ show n)
                                in ( i
                                   , s { names = n + 1
-                                      , globalDefs = (i,ts,t) : globalDefs s
+                                      , globalParams = (i,ts,t) : globalParams s
                                       }
                                   )
 
@@ -234,8 +243,15 @@ newConst ty =
   do f <- newFun [] ty
      padArray ty (app (I f []) [])
 
-
-
+newConstDef :: SmtType -> Expr -> M Expr
+newConstDef ty e = M $ sets $ \s ->
+  let n = names s
+      i = fromString ("d" ++ show n)
+  in ( app (I i []) []
+     , s { names = n + 1
+         , globalDefs = (i, ty, e) : globalDefs s
+         }
+     )
 
 -- Give an explicit name to a term.
 -- This is useful so that we can share term representations.
@@ -244,17 +260,25 @@ newConst ty =
 -- might result in undefined local variables.
 saveT :: SmtType -> Expr -> M Expr
 saveT ty t =
-  do useExt <- useExtArrays
+  do mode <- useExtArrays
      case t of
-       App _ _ (_ : _) -> case ty of
-                            TArray _ _ | Prelude.not useExt -> return t
-                            _ -> doSave
+       App _ _ (_ : _) ->
+         case ty of
+           TArray _ _ ->
+             case mode of
+               UseExtArr        -> doSave True
+               NoExtArrWithDefs -> doSave False
+               NoExtArrNoDefs   -> return t
+           _ -> doSave True
        _               -> return t
 
-  where doSave = do x <- newConst ty
-                    addAssumpt (x === t)
-                    addNote $ pp x <> char ':' <+> pp t
-                    return x
+  where
+  doSave asmp = do x <- if asmp then do x <- newConst ty
+                                        addAssumpt (x === t)
+                                        return x
+                                else newConstDef ty t
+                   addNote $ pp x <> char ':' <+> pp t
+                   return x
 
 save :: FTerm -> M FTerm
 save t = do t1 <- saveT (smtType t) (asExpr t)
@@ -512,17 +536,21 @@ binOp f s t = return FTerm { asExpr = f (asExpr s) (asExpr t)
 
 eqOp :: FTerm -> FTerm -> M FTerm
 eqOp s t =
-  case smtType s of
-    TArray n _
-      | n == 0  -> return FTerm { asExpr = SMT.true, smtType = TBool }
-      | otherwise ->
-          do a <- asExpr `fmap` save s
-             b <- asExpr `fmap` save t
-             let w = needBits n
-             let cmp i = select a (bv i w) === select b (bv i w)
-             return FTerm { asExpr = foldr1 SMT.and $ map cmp [ 0 .. n - 1 ]
-                          , smtType = TBool }
-    _ -> relOp (===) s t
+  do mode <- useExtArrays
+     case mode of
+       UseExtArr -> relOp (===) s t
+       _ -> case smtType s of
+              TArray n _
+                | n == 0  -> return FTerm { asExpr = SMT.true, smtType = TBool }
+                | otherwise ->
+                    do a <- asExpr `fmap` save s
+                       b <- asExpr `fmap` save t
+                       let w = needBits n
+                       let cmp i = select a (bv i w) === select b (bv i w)
+                       return FTerm { asExpr = foldr1 SMT.and $
+                                                      map cmp [ 0 .. n - 1 ]
+                                    , smtType = TBool }
+              _ -> relOp (===) s t
 
 
 -- = relOp (===)
@@ -674,16 +702,16 @@ setArrayValueOp a i v =
   case smtType a of
     ty@(TArray w _) ->
       do j <- coerce (needBits w) i
-         extArr <- useExtArrays
-         new <- if extArr
-                   then do old <- saveT ty (asExpr a)
-                           new <- saveT ty (store old (asExpr j) (asExpr v))
-                           oi  <- toVar old
-                           ni  <- toVar new
-                           addArrayUpdate oi ni
-                           return new
-
-                   else return (store (asExpr a) (asExpr j) (asExpr v))
+         mode <- useExtArrays
+         new <-
+           case mode of
+             NoExtArrNoDefs -> return (store (asExpr a) (asExpr j) (asExpr v))
+             _ -> do old <- saveT ty (asExpr a)
+                     new <- saveT ty (store old (asExpr j) (asExpr v))
+                     oi  <- toVar old
+                     ni  <- toVar new
+                     addArrayUpdate oi ni
+                     return new
 
          return FTerm { asExpr  = new
                       , smtType = smtType a

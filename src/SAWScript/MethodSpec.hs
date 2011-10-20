@@ -1720,7 +1720,7 @@ useSMTLIB ir mbVer mbNm vc gs =
                    , SmtLib2.transAssume = vcAssumptions vc
                    , SmtLib2.transCheck = gs
                    , SmtLib2.transEnabled = vcEnabled vc
-                   , SmtLib2.transExtArr = False
+                   , SmtLib2.transExtArr = SmtLib2.UseExtArr
                    }
                  return (SmtLib2.pp script)
 
