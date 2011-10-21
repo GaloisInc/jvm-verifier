@@ -1705,9 +1705,7 @@ useSMTLIB :: MethodSpecIR -> Maybe Int -> Maybe String ->
 useSMTLIB ir mbVer mbNm vc gs =
   announce ("Translating to SMTLIB (version " ++ show version ++"): "
                                         ++ methodSpecName ir) >> liftIO (
-  do doc <-
-       case version of
-         1 -> do (script,_) <- SmtLib.translate SmtLib.TransParams
+  do let params = SmtLib.TransParams
                     { SmtLib.transName = name
                     , SmtLib.transInputs = map (termType . viNode) (vcInputs vc)
                     , SmtLib.transAssume = vcAssumptions vc
@@ -1715,14 +1713,13 @@ useSMTLIB ir mbVer mbNm vc gs =
                     , SmtLib.transEnabled = vcEnabled vc
                     , SmtLib.transExtArr = True
                     }
+
+     doc <-
+       case version of
+         1 -> do (script,_) <- SmtLib.translate params
                  return (SmtLib.pp script)
-         2 -> do (script,_) <- SmtLib2.translate SmtLib2.TransParams
-                   { SmtLib2.transInputs = map (termType . viNode) (vcInputs vc)
-                   , SmtLib2.transAssume = vcAssumptions vc
-                   , SmtLib2.transCheck = gs
-                   , SmtLib2.transEnabled = vcEnabled vc
-                   , SmtLib2.transExtArr = SmtLib2.UseExtArr
-                   }
+
+         2 -> do (script,_) <- SmtLib2.translate params
                  return (SmtLib2.pp script)
 
      -- XXX: THERE IS A RACE CONDITION HERE!
