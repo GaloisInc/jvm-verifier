@@ -1713,6 +1713,7 @@ useSMTLIB ir mbVer mbNm vc gs =
                     , SmtLib.transAssume = vcAssumptions vc
                     , SmtLib.transCheck = gs
                     , SmtLib.transEnabled = vcEnabled vc
+                    , SmtLib.transExtArr = True
                     }
                  return (SmtLib.pp script)
          2 -> do (script,_) <- SmtLib2.translate SmtLib2.TransParams
@@ -1755,6 +1756,7 @@ useYices ir mbTime vc gs =
         , SmtLib.transAssume = vcAssumptions vc
         , SmtLib.transCheck = gs
         , SmtLib.transEnabled = vcEnabled vc
+        , SmtLib.transExtArr = True
         }
 
      res <- Yices.yices mbTime script

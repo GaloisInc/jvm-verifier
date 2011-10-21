@@ -28,6 +28,7 @@ data TransParams = TransParams
   , transAssume   :: Node
   , transCheck    :: [Node]
   , transEnabled  :: S.Set OpIndex
+  , transExtArr   :: Bool
   }
 
 
@@ -43,7 +44,7 @@ data MetaData = MetaData
 
 translate :: TransParams -> IO (Script, MetaData)
 translate ps =
-  toScript (transName ps) $
+  toScript (transName ps) (transExtArr ps) $
   do (xs,ts) <- unzip `fmap` mapM mkInp (transInputs ps)
      let js = V.fromList ts
      eval <- io $ deEval (\i _ _ -> js V.! i) (translateOps (transEnabled ps))
@@ -84,9 +85,9 @@ type X = String
 
 
 
-toScript :: String -> M (Formula, a) -> IO (Script, a)
-toScript n (M m) =
-  do res <- runExceptionT (runStateT s0 m)
+toScript :: String -> Bool -> M (Formula, a) -> IO (Script, a)
+toScript n extArr (M m) =
+  do res <- runExceptionT $ runStateT s0 $ runReaderT r0 m
      case res of
        Left xx -> fail xx -- XXX: Throw a custom exception.
        Right ((a,other),s) -> return (Script
@@ -125,9 +126,10 @@ toScript n (M m) =
                  , notes    = text "Detail about variables:"
                  , arrayUpdates = M.empty
                  }
+          r0 = R { useExtArr = extArr }
 
 io :: IO a -> M a
-io m = M (lift $ lift m)
+io m = M (lift $ lift $ lift m)
 
 
 bug :: String -> String -> M a
@@ -151,7 +153,10 @@ toVar _           = bug "translate.toVar" "Argument is not a variable"
 --------------------------------------------------------------------------------
 -- The Monad
 
-newtype M a = M (StateT S (ExceptionT X IO) a) deriving (Functor, Monad)
+newtype M a = M (ReaderT R (StateT S (ExceptionT X IO)) a)
+              deriving (Functor, Monad)
+
+data R = R { useExtArr :: Bool }
 
 data S = S { names        :: !Int
            , globalDefs   :: [(Ident,[SmtType],SmtType)]
@@ -164,6 +169,9 @@ data S = S { names        :: !Int
            , arrayUpdates :: M.Map Ident [Ident]
            , notes        :: Doc
            }
+
+useExtArrays :: M Bool
+useExtArrays = M (useExtArr `fmap` ask)
 
 addNote :: Doc -> M ()
 addNote d = M $ sets_ $ \s -> s { notes = notes s $$ d }
@@ -200,11 +208,15 @@ addDefinedOp x name ts t = M $ sets_ $
 
 padArray :: SmtType -> BV.Term -> M BV.Term
 padArray ty@(TArray n w) t =
-  do let ixW = needBits n
-     arr <- saveT ty t
-     forM_ [ n .. 2^ixW - 1 ] $ \i ->
-       addAssumpt (select arr (bv i ixW) === bv 0 w)
-     return arr
+  do ext <- useExtArrays
+     if ext
+       then do let ixW = needBits n
+               arr <- saveT ty t
+               forM_ [ n .. 2^ixW - 1 ] $ \i ->
+                 addAssumpt (select arr (bv i ixW) === bv 0 w)
+               return arr
+       else return t -- No need to pad, because we only compare
+                     -- meaningful elements
 
 padArray _ t = return t
 
@@ -246,10 +258,14 @@ newConst ty =
 -- might result in undefined local variables.
 saveT :: SmtType -> BV.Term -> M BV.Term
 saveT ty t =
-  case t of
-    App _ (_ : _) -> doSave
-    ITE _ _ _ -> doSave
-    _ -> return t
+  do ext <- useExtArrays
+     let saveArr = case ty of
+                     TArray {} -> ext
+                     _ -> True
+     case t of
+       App _ (_ : _) | saveArr -> doSave
+       ITE _ _ _     | saveArr -> doSave
+       _ -> return t
 
   where doSave = do x <- newConst ty
                     addAssumpt (x === t)
@@ -556,7 +572,35 @@ mkArray t xs =
 
 
 eqOp :: FTerm -> FTerm -> M FTerm
-eqOp t1 t2 = return $ toTerm (asTerm t1 === asTerm t2)
+eqOp t1 t2 =
+  do ext <- useExtArrays
+     if ext
+       then return $ toTerm (asTerm t1 === asTerm t2)
+
+       -- If we are aiming for a theory that does not support array
+       -- extensionality (i.e. arrays are equal if their elems are equal),
+       -- then we simulate the behavior by comparing each array element
+       -- separately.  For large arrays, this can become big, of course.
+       else case smtType t1 of
+              TArray n v
+                | n == 0  -> return FTerm { asForm  = Just FTrue
+                                          , asTerm  = bit1
+                                          , smtType = TBool
+                                          }
+                | otherwise ->
+                    do a <- asTerm `fmap` save t1
+                       b <- asTerm `fmap` save t2
+                       let w        = needBits n
+                           el arr i = fromTerm (TBitVec v) (select arr (bv i w))
+                           rng      = [ 0 .. n - 1 ]
+                           conj m1 m2 = do f1 <- m1
+                                           f2 <- m2
+                                           bAndOp f1 f2
+                       foldr1 conj (zipWith eqOp [ el a i | i <- rng ]
+                                                 [ el b i | i <- rng ])
+
+              _ -> return $ toTerm (asTerm t1 === asTerm t2)
+
 
 
 
@@ -798,12 +842,17 @@ setArrayValueOp :: FTerm -> FTerm -> FTerm -> M FTerm
 setArrayValueOp a i v =
   case smtType a of
     ty@(TArray w _) ->
-      do j <- coerce (needBits w) i
-         old <- saveT ty (asTerm a)
-         new <- saveT ty (store old (asTerm j) (asTerm v))
-         oi  <- toVar old
-         ni  <- toVar new
-         addArrayUpdate oi ni
+      do ext <- useExtArrays
+         j <- coerce (needBits w) i
+         new <- if ext then do old <- saveT ty (asTerm a)
+                               new <- saveT ty (store old (asTerm j) (asTerm v))
+                               oi  <- toVar old
+                               ni  <- toVar new
+                               addArrayUpdate oi ni
+                               return new
+                       -- we can't save things without assuming equality
+                       -- between arrays.
+                       else return (store (asTerm a) (asTerm j) (asTerm v))
          return FTerm { asForm  = Nothing
                       , asTerm  = new
                       , smtType = smtType a
