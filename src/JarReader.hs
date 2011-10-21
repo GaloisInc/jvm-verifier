@@ -1,20 +1,20 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 {- |
 Module           : $Header$
 Description      :
 Stability        : stable
 Point-of-contact : jstanley
+
+A quick-n-dirty reader for JAR files.  MANY keep-it-simple concessions have
+been made regarding the zip structure of jars (e.g. no ZIP64, Deflate-type
+compression only, etc., etc.).  Please don't mistake this module for any kind
+of fully-fledged unzip implementation!
+
+Info on the zip file format can be found at:
+http://www.pkware.com/documents/casestudies/APPNOTE.TXT
 -}
 
-{-# LANGUAGE ScopedTypeVariables #-}
-
--- | A quick-n-dirty reader for JAR files.  MANY keep-it-simple concessions have
--- been made regarding the zip structure of jars (e.g. no ZIP64, Deflate-type
--- compression only, etc., etc.).  Please don't mistake this module for any kind
--- of fully-fledged unzip implementation!
---
--- Info on the zip file format can be found at:
--- http://www.pkware.com/documents/casestudies/APPNOTE.TXT
---
 
 module JarReader
   ( JarReader

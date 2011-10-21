@@ -655,7 +655,7 @@ stdOverrides = do
         error "debug dag eval / bitblast integrity checker NYI"
     ]
   where
-    intVal = fmap fromInteger . getSVal
+    intVal = fmap fromInteger  . getSVal
     abortWhenMultiPath msg = do
       finished <- snd <$> splitFinishedPaths
       when (length finished > 1) $ do

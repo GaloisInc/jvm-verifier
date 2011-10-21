@@ -18,8 +18,8 @@ Point-of-contact : atomb, jhendrix
 {-# LANGUAGE ViewPatterns              #-}
 
 module MethodSpec
-  -- * MethodSpec
-  ( SpecJavaExpr(..)
+  ( -- * MethodSpec
+    SpecJavaExpr(..)
   , SpecExpr(..)
   , SpecType(..)
   , RefChange(..)
