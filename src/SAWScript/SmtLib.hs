@@ -794,7 +794,7 @@ signedRemOp s t = return FTerm { asForm  = Nothing
 
 unsignedDivOp :: FTerm -> FTerm -> M FTerm
 unsignedDivOp s t = return FTerm { asForm  = Nothing
-                                 , asTerm  = bvdiv (asTerm s) (asTerm t)
+                                 , asTerm  = bvudiv (asTerm s) (asTerm t)
                                  , smtType = smtType s
                                  }
 
