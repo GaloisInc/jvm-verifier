@@ -98,6 +98,10 @@ instance Exception ExecException
 throwIOExecException :: MonadIO m => Pos -> Doc -> String -> m a
 throwIOExecException pos errorMsg resolution = liftIO $ throwIO (ExecException pos errorMsg resolution)
 
+-- | Throw exec exception in a MonadIO.
+throwExecException :: Pos -> Doc -> String -> m a
+throwExecException pos errorMsg resolution = throw (ExecException pos errorMsg resolution)
+
 -- Java lookup functions {{{1
 
 -- | Atempt to find class with given name, or throw ExecException if no class
