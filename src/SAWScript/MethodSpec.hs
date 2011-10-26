@@ -1390,8 +1390,8 @@ data VerificationCheck
 -- | Returns goal that one needs to prove.
 checkGoal :: DagEngine Node Lit -> VerificationCheck -> Node
 checkGoal _ (PathCheck n) = n
--- TODO: this should use c
-checkGoal de (EqualityCheck _ c x y) = deApplyBinary de (eqOp (termType x)) x y
+checkGoal de (EqualityCheck _ c x y) =
+  deApplyBinary de bImpliesOp c $ deApplyBinary de (eqOp (termType x)) x y
 
 checkName :: VerificationCheck -> String
 checkName (PathCheck _) = "the path condition"
@@ -1639,8 +1639,10 @@ runABC :: DagEngine Node Lit
        -> Node
        -> IO ()
 runABC de v ir inputs vc goal = do
-  when (v >= 3) $
+  when (v >= 3) $ do
     putStrLn $ "Running ABC on " ++ methodSpecName ir
+    putStrLn $ "Goal is:"
+    putStrLn $ prettyTerm goal
   let LV value = deBitBlast de goal
   unless (SV.length value == 1) $
     error "internal: Unexpected number of in verification condition"
