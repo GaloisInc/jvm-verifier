@@ -18,6 +18,12 @@ class LocalSpec {
         }
     }
 
+    public static void test4(int[] a) {
+        while(a[0] > 0) {
+            a[0] = a[0] - 1;
+        }
+    }
+
     public static void copy(int[] a, int[] b, int[] i) {
         for(i[0] = 0; i[0] < 12; i[0]++) {
             // assume 0 <= i[0]

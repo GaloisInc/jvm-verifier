@@ -1284,21 +1284,46 @@ initializeJavaVerificationState ir cm = do
 
 -- Java execution {{{2
 
--- Run method and get final path state
-runMethod :: MethodSpecIR
+-- Run method and get final path state, along with the evaluation
+-- context describing the initial state after all initial ensures
+-- clauses applied.
+runMethod :: DagEngine Node Lit
+          -> MethodSpecIR
+          -> SpecStateInfo Node
           -> JavaEvalContext Node
-          -> JSS.Simulator SymbolicMonad [(JSS.PathDescriptor, JSS.FinalResult Node)]
-runMethod ir jec = do
+          -> JSS.Simulator SymbolicMonad
+             ( [(JSS.PathDescriptor, JSS.FinalResult Node)]
+             , JavaEvalContext Node
+             )
+runMethod de ir ssi jec = do
   let clName = className (methodSpecIRMethodClass ir)
   let method = methodSpecIRMethod ir
   let args = V.toList (jecArgs jec)
+  let pc = jecInitPC jec
+  let specs = Map.findWithDefault emptyLocalSpecs pc (localSpecs ir)
   if methodIsStatic method
     then JSS.invokeStaticMethod clName (methodKey method) args
     else do
       let Just thisRef = jecThis jec
       JSS.invokeInstanceMethod clName (methodKey method) thisRef args
-  Sem.setPc (jecInitPC jec)
-  JSS.run
+  Sem.setPc pc
+  -- Update the starting state with any 'ensures' located at the
+  -- starting PC.
+  --
+  -- NB: eventually we'll do this, but only once we've settled on a
+  -- state semantics for MethodSpecs.
+  {-
+  forM_ (Map.toList $ arrayPostconditions specs) $ \(javaExpr,post) ->
+    evalArrayPost de ssi javaExpr post
+  forM_ (instanceFieldPostconditions specs) $ \(refExpr,f,post) ->
+    evalInstanceFieldPost ssi refExpr f post
+  -}
+  -- Retrieve the path state after these updates and build a new
+  -- JEC based on it.
+  newPS <- JSS.getPathState
+  let jec' = jec { jecPathState = newPS }
+  res <- JSS.run
+  return (res, jec')
 
 -- ExpectedStateDef {{{2
 
@@ -1530,14 +1555,15 @@ methodSpecVCs
       when (vrb >= 6) $
          liftIO $ putStrLn $
            "Creating evaluation state for simulation of " ++ methodSpecName ir
+      -- Add method spec overrides.
+      mapM_ (overrideFromSpec pos (methodSpecName ir)) overrides
+      -- Register breakpoints
+      JSS.registerBreakpoints $ map (\bpc -> (cls, meth, bpc)) assertPCs
       -- Create map from specification entries to JSS simulator values.
       jvs <- initializeJavaVerificationState ir cm
       -- JavaEvalContext for inital verification state.
       initialPS <- JSS.getPathState
-      let specs = Map.findWithDefault emptyLocalSpecs pc (localSpecs ir)
-          jec =
-            -- TODO: does any of this need to be different for an
-            -- intermediate starting state?
+      let jec' =
             let evm = jvsExprValueMap jvs
                 mbThis = case Map.lookup (TC.This cls) evm of
                            Nothing -> Nothing
@@ -1551,28 +1577,16 @@ methodSpecVCs
              in JSI { jecThis = mbThis
                     , jecArgs = args
                     , jecPathState = initialPS
-                    , jecInitPC = pc 
+                    , jecInitPC = pc
                     }
-      -- Add method spec overrides.
-      mapM_ (overrideFromSpec pos (methodSpecName ir)) overrides
-      -- Register breakpoints
-      JSS.registerBreakpoints $ map (\bpc -> (cls, meth, bpc)) assertPCs
+          ssi' = createSpecStateInfo de ir jec'
       when (vrb >= 6) $ do
          liftIO $ putStrLn $ "Executing " ++ methodSpecName ir
          when (pc /= 0) $
               liftIO $ putStrLn $ "  starting from PC " ++ show pc
-      let ssi = createSpecStateInfo de ir jec
-      -- FIXME: Making the following state modifications causes
-      -- trouble. I think this is because the initial state of the
-      -- execution differs from jvs and jec.
-      -- Update local arrayPostconditions for starting PC
-      forM_ (Map.toList $ arrayPostconditions specs) $ \(javaExpr,post) ->
-        evalArrayPost de ssi javaExpr post
-      -- Update local scalarPostconditions for starting PC
-      forM_ (instanceFieldPostconditions specs) $ \(refExpr,f,post) ->
-        evalInstanceFieldPost ssi refExpr f post
       -- Execute method.
-      jssResult <- runMethod ir jec
+      (jssResult, jec) <- runMethod de ir ssi' jec'
+      let ssi = createSpecStateInfo de ir jec
           -- isReturn returns True if result is a normal return value.
       let isReturn JSS.ReturnVal{} = True
           isReturn JSS.Terminated = True
