@@ -535,6 +535,26 @@ method com.galois.ecc.P384ECC64.ec_mul {
 
   const this.field_prime := split(field_prime) : [12][32];
 
+  /*
+  localSpec 162 {
+      let lres = ec_mul_aux(
+                   { x = join(valueOf(args[0].x))
+                   ; y = join(valueOf(args[0].y))
+                   ; z = join(valueOf(args[0].z))
+                   },
+                   { x = join(valueOf(args[2].x))
+                   ; y = join(valueOf(args[2].y))
+                   },
+                   TODO,
+                   TODO,
+                   TODO);
+      ensures: valueOf(args[0].x) := split(lres.x);
+      ensures: valueOf(args[0].y) := split(lres.y);
+      ensures: valueOf(args[0].z) := split(lres.z);
+
+  }
+  */
+
   let res = ec_mul(join(valueOf(args[1])),
                    { x = join(valueOf(args[2].x))
                    ; y = join(valueOf(args[2].y))
@@ -543,6 +563,7 @@ method com.galois.ecc.P384ECC64.ec_mul {
   ensures valueOf(args[0].x) := split(res.x) : [12][32];
   ensures valueOf(args[0].y) := split(res.y) : [12][32];
   ensures valueOf(args[0].z) := split(res.z) : [12][32];
+  /*modifies: valueOf(args[0].x), valueOf(args[0].y), valueOf(args[0].z);*/
   modifies: valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 
   verifyUsing: skip;
