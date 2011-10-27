@@ -5,6 +5,9 @@ extern SBV field_sub("sbv/ref_p384_sub.sbv") : ([384],[384]) -> [384];
 extern SBV field_mul("sbv/ref_p384_mul.sbv") : ([384],[384]) -> [384];
 extern SBV field_mod("sbv/ref_p384_mod.sbv") : [768] -> [384];
 extern SBV field_sq("sbv/ref_p384_sq.sbv") : [384] -> [384];
+extern SBV field_div_step("sbv/ref_p384_div_step.sbv") :
+  ([12][32], [12][32], [12][32], [12][32], [12][32], [32]) ->
+  { a:[12][32]; ra:[12][32]; b:[12][32]; rb:[12][32]; sw:[32] };
 extern SBV ec_double("sbv/p384_ref_double.sbv") :
   { x: [384]; y: [384]; z: [384] } -> { x:[384]; y:[384]; z:[384] };
 extern SBV field_half("sbv/ref_p384_half.sbv") : [384] -> [384];
@@ -20,9 +23,6 @@ extern SBV ec_mul_aux("sbv/p384_ref_mul_aux.sbv") :
   { x:[384]; y:[384]; z:[384] };
 extern SBV ec_mul("sbv/p384_ref_mul.sbv") :
   ([384], { x:[384]; y:[384] }) -> { x:[384]; y:[384]; z:[384] };
-extern SBV ec_div_step("sbv/ref_p384_div_step.sbv") :
-  ([12][32], [12][32], [12][32], [12][32], [12][32], [32]) ->
-  { a:[12][32]; ra:[12][32]; b:[12][32]; rb:[12][32]; sw:[32] };
 
 // Define field prime for P384 curve (taken from NIST and NSA documents).
 let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
@@ -245,6 +245,26 @@ method com.galois.ecc.P384ECC64.mod_half {
 method com.galois.ecc.P384ECC64.mod_div {
   var args[0], args[1], args[2], args[3] :: int[12];
   var this.t1, this.t2, this.t3 :: int[12];
+  //var locals[0] :: int[12];
+  //var locals[1] :: int[12];
+  //var locals[2] :: int[12];
+  //var locals[3] :: boolean;
+  //let a = locals[0];
+  //let ra = args[0];
+  //let b = locals[1];
+  //let rb = locals[2];
+  //let sw = locals[3];
+  const this.field_prime := split(field_prime) : [12][32];
+  /*
+  localSpec 143 {
+    let res = field_div_step(a, ra, b, rb, sw);
+    ensures valueOf(a) := res.a;
+    ensures valueOf(ra) := res.ra;
+    ensures valueOf(b) := res.b;
+    ensures valueOf(rb) := res.rb;
+    ensures valueOf(sw) := res.sw;
+  };
+  */
 
   modifies: valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 
