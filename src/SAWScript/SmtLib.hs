@@ -1,6 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PatternGuards #-}
-module SAWScript.SmtLib (translate, TransParams(..)) where
+module SAWScript.SmtLib (translate, TransParams(..), MetaData(..)) where
 
 import GHC.Exts(IsString(fromString))
 import SMTLib1.QF_AUFBV as BV
@@ -17,6 +17,9 @@ import qualified Verinf.Symbolic.Common as Op (OpIndex(..))
 import qualified Data.Vector as V
 import qualified Data.Set as S
 import qualified Data.IntMap as IM
+import qualified Data.Map as M
+import Text.PrettyPrint
+
 
 
 data TransParams = TransParams
@@ -25,12 +28,23 @@ data TransParams = TransParams
   , transAssume   :: Node
   , transCheck    :: [Node]
   , transEnabled  :: S.Set OpIndex
+  , transExtArr   :: Bool
   }
 
-translate :: TransParams -> IO (Script, ([(Ident,String)],
-                                          Formula, [Formula], [Ident]))
+
+data MetaData = MetaData
+  { trAsmp     :: Formula
+  , trGoals    :: [Formula]
+  , trInputs   :: [Ident]
+  , trUninterp :: [(Ident, String)]
+  , trDefined  :: M.Map String [ (V.Vector (BV.Term), BV.Term) ]
+  , trArrays   :: M.Map Ident [Ident]
+  }
+
+
+translate :: TransParams -> IO (Script, MetaData)
 translate ps =
-  toScript (transName ps) $
+  toScript (transName ps) (transExtArr ps) $
   do (xs,ts) <- unzip `fmap` mapM mkInp (transInputs ps)
      let js = V.fromList ts
      eval <- io $ deEval (\i _ _ -> js V.! i) (translateOps (transEnabled ps))
@@ -38,9 +52,24 @@ translate ps =
      addAssumpt as
      gs <- mapM (toForm <=< eval) (transCheck ps)
      ops <- getExtraOps
-     return (Conn Not [ Conn And gs ], (IM.elems ops,as,gs,xs))
+     dops <- getDefinedOps
+     arrs <- getArrayUpdates
+     return ( Conn Not [ Conn And gs ]
+            , MetaData
+                { trAsmp = as
+                , trGoals = gs
+                , trInputs = xs
+                , trUninterp = IM.elems ops
+                , trDefined = M.fromList
+                            [ (f, map fixupTerm $ M.toList m) |
+                                                    (f,m) <- IM.elems dops ]
+                , trArrays = arrs
+                }
+            )
 
   where
+  fixupTerm (as,b) = (V.map asTerm as, asTerm b)
+
   toForm x = case asForm x of
                Nothing -> bug "translate" "Type error---not a formula"
                Just f  -> return f
@@ -48,41 +77,36 @@ translate ps =
   mkInp ty = do t    <- cvtType ty
                 term <- newConst t
                 x    <- toVar term
+                addNote $ text "input:" <+> pp term <+> text "::" <+> text (show t)
                 return (x, fromTerm t term)
 
-  toVar (App x _) = return x
-  toVar _         = bug "translate.toVar" "Argument is not a variable"
-
-
---------------------------------------------------------------------------------
--- The Monad
-
-newtype M a = M (StateT S (ExceptionT X IO) a) deriving (Functor, Monad)
-
-data S = S { names       :: !Int
-           , globalDefs  :: [(Ident,[SmtType],SmtType)]
-           , globalAsmps :: [Formula]
-           , extraOps    :: IM.IntMap (Ident, String)
-           }
 
 type X = String
 
 
 
-toScript :: String -> M (Formula, a) -> IO (Script, a)
-toScript n (M m) =
-  do res <- runExceptionT (runStateT s0 m)
+toScript :: String -> Bool -> M (Formula, a) -> IO (Script, a)
+toScript n extArr (M m) =
+  do res <- runExceptionT $ runStateT s0 $ runReaderT r0 m
      case res of
        Left xx -> fail xx -- XXX: Throw a custom exception.
        Right ((a,other),s) -> return (Script
          { scrName     = fromString n
          , scrCommands =
            [ CmdLogic (fromString "QF_AUFBV")
+           , CmdNotes $ show $ notes s
            , CmdExtraFuns
                [ FunDecl { funName = i
                          , funArgs = map toSort as
                          , funRes  = toSort b
-                         , funAnnots = [] } | (i,as,b) <- globalDefs s
+                         , funAnnots = [] }
+               | (i,as,b) <- globalDefs s
+               ]
+           , CmdExtraPreds
+               [ PredDecl { predName = p
+                          , predArgs = map toSort as
+                          , predAnnots = [] }
+               | (p,as) <- globalPreds s
                ]
            ] ++
            [ CmdAssumption f | f <- globalAsmps s
@@ -93,12 +117,19 @@ toScript n (M m) =
          , other
          )
 
-    where s0 = S { names = 0, globalDefs = [], globalAsmps = []
-                 , extraOps = IM.empty
+    where s0 = S { names    = 0
+                 , globalDefs = []
+                 , globalPreds = []
+                 , globalAsmps = []
+                 , extraAbs = IM.empty
+                 , extraDef = IM.empty
+                 , notes    = text "Detail about variables:"
+                 , arrayUpdates = M.empty
                  }
+          r0 = R { useExtArr = extArr }
 
 io :: IO a -> M a
-io m = M (lift $ lift m)
+io m = M (lift $ lift $ lift m)
 
 
 bug :: String -> String -> M a
@@ -114,22 +145,83 @@ err x = M $ raise $ unlines [ "Error whilte translating to SMTLIB:"
                             , "*** " ++ x
                             ]
 
+toVar :: BV.Term -> M Ident
+toVar (App x [])  = return x
+toVar _           = bug "translate.toVar" "Argument is not a variable"
+
+
+--------------------------------------------------------------------------------
+-- The Monad
+
+newtype M a = M (ReaderT R (StateT S (ExceptionT X IO)) a)
+              deriving (Functor, Monad)
+
+data R = R { useExtArr :: Bool }
+
+data S = S { names        :: !Int
+           , globalDefs   :: [(Ident,[SmtType],SmtType)]
+           , globalPreds  :: [(Ident,[SmtType])]
+           , globalAsmps  :: [Formula]
+           , extraAbs     :: IM.IntMap (Ident, String)  -- ^ uninterpreted ops.
+           , extraDef     :: IM.IntMap
+                              (String, M.Map (V.Vector FTerm) FTerm)
+            -- ^ defined ops
+           , arrayUpdates :: M.Map Ident [Ident]
+           , notes        :: Doc
+           }
+
+useExtArrays :: M Bool
+useExtArrays = M (useExtArr `fmap` ask)
+
+addNote :: Doc -> M ()
+addNote d = M $ sets_ $ \s -> s { notes = notes s $$ d }
+
 addAssumpt :: Formula -> M ()
 addAssumpt f = M $ sets_ $ \s -> s { globalAsmps = f : globalAsmps s }
 
+
+addArrayUpdate :: Ident -> Ident -> M ()
+addArrayUpdate old new =
+  M $ sets_ $ \s -> s { arrayUpdates = M.insertWith (++) old [new]
+                                                        (arrayUpdates s) }
+
+getArrayUpdates :: M (M.Map Ident [Ident])
+getArrayUpdates = M $ arrayUpdates `fmap` get
+
+
+getDefinedOps :: M (IM.IntMap (String, M.Map (V.Vector FTerm) FTerm))
+getDefinedOps = M $ extraDef `fmap` get
+
+lkpDefinedOp :: Int -> V.Vector FTerm -> M (Maybe FTerm)
+lkpDefinedOp x ts =
+  do mp <- getDefinedOps
+     return (M.lookup ts . snd =<< IM.lookup x mp)
+
+addDefinedOp :: Int -> String -> V.Vector FTerm -> FTerm -> M ()
+addDefinedOp x name ts t = M $ sets_ $
+  \s -> s { extraDef = IM.alter upd x (extraDef s) }
+  where upd val = Just (case val of
+                          Nothing -> (name,M.singleton ts t)
+                          Just (n,mp) -> (n,M.insert ts t mp))
+
+
+
 padArray :: SmtType -> BV.Term -> M BV.Term
 padArray ty@(TArray n w) t =
-  do let ixW = needBits n
-     arr <- saveT ty t
-     forM_ [ n .. 2^ixW - 1 ] $ \i ->
-       addAssumpt (select arr (bv i ixW) === bv 0 w)
-     return arr
+  do ext <- useExtArrays
+     if ext
+       then do let ixW = needBits n
+               arr <- saveT ty t
+               forM_ [ n .. 2^ixW - 1 ] $ \i ->
+                 addAssumpt (select arr (bv i ixW) === bv 0 w)
+               return arr
+       else return t -- No need to pad, because we only compare
+                     -- meaningful elements
 
 padArray _ t = return t
 
 getExtraOps :: M (IM.IntMap (Ident, String))
-getExtraOps = M $ extraOps `fmap` get
-
+getExtraOps = M $ extraAbs `fmap` get
 
 -- Note: does not do any padding on arrays.
 -- This happens where the fun is used.
@@ -141,6 +233,15 @@ newFun ts t = M $ sets $ \s -> let n = names s
                                       , globalDefs = (i,ts,t) : globalDefs s
                                       }
                                   )
+
+newPred :: [SmtType] -> M Ident
+newPred ts = M $ sets $ \s -> let n = names s
+                                  p = fromString ("p" ++ show n)
+                              in ( p
+                                 , s { names = n + 1
+                                     , globalPreds = (p,ts) : globalPreds s
+                                     }
+                                 )
 
 newConst :: SmtType -> M BV.Term
 newConst ty =
@@ -156,15 +257,46 @@ newConst ty =
 -- (which we don't) because otherwise lifting things to the top-level
 -- might result in undefined local variables.
 saveT :: SmtType -> BV.Term -> M BV.Term
-saveT ty t@(App _ (_ : _)) = do x <- newConst ty
-                                addAssumpt (x === t)
-                                return x
-saveT _ t = return t
+saveT ty t =
+  do ext <- useExtArrays
+     let saveArr = case ty of
+                     TArray {} -> ext
+                     _ -> True
+     case t of
+       App _ (_ : _) | saveArr -> doSave
+       ITE _ _ _     | saveArr -> doSave
+       _ -> return t
 
+  where doSave = do x <- newConst ty
+                    addAssumpt (x === t)
+                    addNote $ pp x <> char ':' <+> pp t
+                    return x
+
+saveF :: Formula -> M Formula
+saveF f =
+  case f of
+    FPred {}  -> return f
+    FTrue     -> return f
+    FFalse    -> return f
+
+    FVar {}   -> bad "formula variables"
+    Let {}    -> bad "term let"
+    FLet {}   -> bad "formula let"
+
+    _         -> do p <- newPred []
+                    let f1 = FPred p []
+                    addAssumpt (Conn Iff [f1,f])
+                    addNote $ pp f1 <> char ':' <+> pp f
+                    return f1
+
+  where bad x = bug "saveF" ("We do not support " ++ x)
 
 save :: FTerm -> M FTerm
 save t = do t1 <- saveT (smtType t) (asTerm t)
-            return t { asTerm = t1 }
+            f1 <- case asForm t of
+                    Nothing -> return Nothing
+                    Just f  -> Just `fmap` saveF f
+            return t { asTerm = t1, asForm = f1 }
 
 -- For now, we work only with staticlly known sizes of things.
 wToI :: WidthExpr -> M Integer
@@ -180,7 +312,7 @@ wToI x = case widthConstant x of
 -- | The array type contains the number of elements, not the
 -- the number of bits, as in SMTLIB!
 data SmtType = TBool | TArray Integer Integer | TBitVec Integer
-               deriving (Eq,Show)
+               deriving (Eq,Ord,Show)
 
 cvtType :: DagType -> M SmtType
 cvtType ty =
@@ -234,7 +366,10 @@ fterm_prop f = case asForm f of
 data FTerm = FTerm { asForm   :: Maybe Formula
                    , asTerm   :: BV.Term
                    , smtType  :: SmtType      -- Type of the term
-                   }
+                   } deriving (Show)
+
+instance Eq FTerm  where x == y = asTerm x == asTerm y
+instance Ord FTerm where compare x y = compare (asTerm x) (asTerm y)
 
 -- This is useful for expressions that are naturally expressed as formulas.
 toTerm :: Formula -> FTerm
@@ -359,7 +494,14 @@ translateOps enabled = termSem
   dynOp x op mbSem args =
     case mbSem of
       Just sem | opDefIndex (opDef op) `S.member` enabled ->
-        applyOpSem sem (opSubst op) termSem args
+        do as <- V.mapM save args
+           mb <- lkpDefinedOp x as
+           case mb of
+             Just t -> return t
+             Nothing ->
+               do t <- save =<< applyOpSem sem (opSubst op) termSem as
+                  addDefinedOp x (opDefName (opDef op)) as t
+                  return t
 
       _ ->
         do as <- mapM cvtType (V.toList (opArgTypes op))
@@ -371,8 +513,8 @@ translateOps enabled = termSem
            f <- case IM.lookup x known of
                   Nothing ->
                     do f <- newFun as b
-                       M $ sets_ $ \s -> s { extraOps = IM.insert x (f,name)
-                                                           (extraOps s) }
+                       M $ sets_ $ \s -> s { extraAbs = IM.insert x (f,name)
+                                                           (extraAbs s) }
                        return f
                   Just (f,_) -> return f
 
@@ -392,7 +534,6 @@ mkConst val t =
                    , asTerm  = bv v (numBits w)
                    , smtType = t
                    }
-
     CBool b ->
       return FTerm { asForm  = Just (if b then FTrue else FFalse)
                    , asTerm  = if b then bit1 else bit0
@@ -431,7 +572,35 @@ mkArray t xs =
 
 
 eqOp :: FTerm -> FTerm -> M FTerm
-eqOp t1 t2 = return $ toTerm (asTerm t1 === asTerm t2)
+eqOp t1 t2 =
+  do ext <- useExtArrays
+     if ext
+       then return $ toTerm (asTerm t1 === asTerm t2)
+
+       -- If we are aiming for a theory that does not support array
+       -- extensionality (i.e. arrays are equal if their elems are equal),
+       -- then we simulate the behavior by comparing each array element
+       -- separately.  For large arrays, this can become big, of course.
+       else case smtType t1 of
+              TArray n v
+                | n == 0  -> return FTerm { asForm  = Just FTrue
+                                          , asTerm  = bit1
+                                          , smtType = TBool
+                                          }
+                | otherwise ->
+                    do a <- asTerm `fmap` save t1
+                       b <- asTerm `fmap` save t2
+                       let w        = needBits n
+                           el arr i = fromTerm (TBitVec v) (select arr (bv i w))
+                           rng      = [ 0 .. n - 1 ]
+                           conj m1 m2 = do f1 <- m1
+                                           f2 <- m2
+                                           bAndOp f1 f2
+                       foldr1 conj (zipWith eqOp [ el a i | i <- rng ]
+                                                 [ el b i | i <- rng ])
+
+              _ -> return $ toTerm (asTerm t1 === asTerm t2)
+
 
 
 
@@ -573,7 +742,7 @@ appendOp s t    =
   case (smtType s, smtType t) of
     (TBitVec m, TBitVec n) ->
       return FTerm { asForm  = Nothing
-                   , asTerm  = BV.concat (asTerm s) (asTerm t)
+                   , asTerm  = BV.concat (asTerm t) (asTerm s)
                    , smtType = TBitVec (m + n)
                    }
     _ -> bug "appendOp" "Type error---arguments are not bit vectors"
@@ -625,7 +794,7 @@ signedRemOp s t = return FTerm { asForm  = Nothing
 
 unsignedDivOp :: FTerm -> FTerm -> M FTerm
 unsignedDivOp s t = return FTerm { asForm  = Nothing
-                                 , asTerm  = bvdiv (asTerm s) (asTerm t)
+                                 , asTerm  = bvudiv (asTerm s) (asTerm t)
                                  , smtType = smtType s
                                  }
 
@@ -672,10 +841,20 @@ getArrayValueOp a i =
 setArrayValueOp :: FTerm -> FTerm -> FTerm -> M FTerm
 setArrayValueOp a i v =
   case smtType a of
-    TArray w _ ->
-      do j <- coerce (needBits w) i
+    ty@(TArray w _) ->
+      do ext <- useExtArrays
+         j <- coerce (needBits w) i
+         new <- if ext then do old <- saveT ty (asTerm a)
+                               new <- saveT ty (store old (asTerm j) (asTerm v))
+                               oi  <- toVar old
+                               ni  <- toVar new
+                               addArrayUpdate oi ni
+                               return new
+                       -- we can't save things without assuming equality
+                       -- between arrays.
+                       else return (store (asTerm a) (asTerm j) (asTerm v))
          return FTerm { asForm  = Nothing
-                      , asTerm  = store (asTerm a) (asTerm j) (asTerm v)
+                      , asTerm  = new
                       , smtType = smtType a
                       }
     _ -> bug "setArrayValueOp" "Type error---updating a non-array."
@@ -702,7 +881,7 @@ joinOp l w t0 =
      let n = needBits l
      return FTerm
        { asForm = Nothing
-       , asTerm = foldr1 BV.concat
+       , asTerm = foldr1 (flip BV.concat)
                      [ select (asTerm t) (bv i n) | i <- [ 0 .. l - 1 ] ]
        , smtType = TBitVec (l * w)
        }

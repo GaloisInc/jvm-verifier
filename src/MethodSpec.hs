@@ -337,16 +337,16 @@ overrideFromSpec ms = do
 -- | Difference between spec and JVM states.
 data JVMDiff
   -- | A value whose spec value difers from simulator value.
-  = DV SpecJavaExpr -- ^ Symbol with divergent value.
-       CValue -- ^ Value in spec
-       CValue -- ^ Value from JVM bytecode.
+  = DV SpecJavaExpr -- Symbol with divergent value.
+       CValue -- Value in spec
+       CValue -- Value from JVM bytecode.
   | StrongerAssumption
   deriving (Show)
 
 -- | Exception thrown when attempting to blast method
 data VerifyException
-  = CounterExample (Vector [SpecJavaExpr]) -- ^ Stores expressions in each equivalence class.
-                   (Map SpecJavaExpr CValue) -- ^ Maps symbolic inputs to input values.
+  = CounterExample (Vector [SpecJavaExpr]) -- Stores expressions in each equivalence class.
+                   (Map SpecJavaExpr CValue) -- Maps symbolic inputs to input values.
                    [JVMDiff]
   deriving (Show, Typeable)
 
@@ -532,15 +532,15 @@ runEquivChoice ::
   , MonadTerm sym ~ Node
   )
   => MethodSpec sym -- ^ Spec to execute
-  -- | vector containing equivalence classes of Java expressions
   -> Vector [SpecJavaExpr]
-  -- | Type of each Java expression in equivalence classes.
+  -- ^ vector containing equivalence classes of Java expressions
   -> Vector SpecType
-  -- | symbolic term if any for array equivalence classes.
+  -- ^ Type of each Java expression in equivalence classes.
   -> Vector (Maybe (MonadTerm sym))
-  -- | Returns term that is valid if spec is valid, and function for computing
-  -- differences between spec and implementation if specification is different.
+  -- ^ symbolic term if any for array equivalence classes.
   -> Simulator sym (MonadTerm sym, CounterFn sym)
+  -- ^ Returns term that is valid if spec is valid, and function for computing
+  -- differences between spec and implementation if specification is different.
 runEquivChoice spec classDefVec classTypeVec classTermVec = do
   -- TODO: it may make sense for much of the following to be in a
   -- separate buildInitialState function that sets up the PathState of
@@ -789,8 +789,9 @@ redMethodSpec ::
      OpCache
   -> Codebase
   -> MethodSpec SymbolicMonad
-  -> Simulator SymbolicMonad () -- | Action to run before running simulator.
+  -> Simulator SymbolicMonad ()
   -> (MonadTerm SymbolicMonad -> SymbolicMonad ())
+    -- ^ Action to run before running simulator.
   -> IO ()
 redMethodSpec oc cb spec initializeM reduceFn = do
   forM_ (partitions (reverse $ specRefs spec)) $ \(c,clDefMap,clTypeMap) -> do
