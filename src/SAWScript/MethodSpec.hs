@@ -32,12 +32,14 @@ import qualified Data.Vector.Storable as SV
 import qualified Data.Vector as V
 import Text.PrettyPrint.HughesPJ
 import System.Random(randomIO, randomRIO)
+import System.Directory(doesFileExist)
 
 import qualified Execution.Codebase as JSS
 import qualified Execution.JavaSemantics as Sem
 import JavaParser as JSS
 import MethodSpec (partitions)
 import qualified SAWScript.SmtLib as SmtLib
+import qualified SAWScript.SmtLib2 as SmtLib2
 import qualified SAWScript.Yices  as Yices
 import qualified SAWScript.MethodAST as AST
 import qualified SAWScript.TypeChecker as TC
@@ -52,6 +54,7 @@ import Verinf.Utils.IOStateT
 import Verinf.Utils.LogMonad
 
 import qualified SMTLib1 as SmtLib
+import qualified SMTLib2 as SmtLib2
 
 -- Utilities {{{1
 
@@ -672,8 +675,8 @@ resolveDecl (AST.VerifyUsing pos tactics) = do
     [AST.QuickCheck _ _] -> return ()
     [AST.ABC] -> return ()
     [AST.Rewrite, AST.ABC] -> return ()
-    [AST.SmtLib _] -> return ()
-    [AST.Rewrite, AST.SmtLib _] -> return ()
+    [AST.SmtLib {}] -> return ()
+    [AST.Rewrite, AST.SmtLib {}] -> return ()
     [AST.Yices _] -> return ()
     [AST.Rewrite, AST.Yices _] -> return ()
     _ -> let defList args = nest 2 (vcat (map (\(d,m) -> quotes (text d) <> char '.' <+> text m) args))
@@ -1719,6 +1722,7 @@ verifyMethodSpec
       setVerbosity v
       vcs <- mVC
       ts <- getTermSemantics
+-- <<<<<<< HEAD
       forM vcs $ \vc -> do
         let goal check =
              deApplyBinary de bImpliesOp (vcAssumptions vc) (checkGoal de check)
@@ -1756,14 +1760,14 @@ verifyMethodSpec
               runABC de v ir (vcInputs vc) check newGoal
           -- XXX: This is called multiple times, so when we save the
           -- smtlib file we should somehow parameterize on the configuration.
-          [AST.SmtLib nm] -> do
+          [AST.SmtLib ver nm] -> do
             let gs = map (checkGoal de) (vcChecks vc)
-            useSMTLIB ir nm vc gs
-          [AST.Rewrite, AST.SmtLib nm] -> do
+            useSMTLIB ir ver nm vc gs
+          [AST.Rewrite, AST.SmtLib ver nm] -> do
             gs <- liftIO $ do
               rew <- mkRewriter pgm ts
               mapM (reduce rew . checkGoal de) (vcChecks vc)
-            useSMTLIB ir nm vc gs
+            useSMTLIB ir ver nm vc gs
           [AST.Yices ti]  -> do
             let gs = map (checkGoal de) (vcChecks vc)
             useYices ir ti vc gs
@@ -1772,6 +1776,68 @@ verifyMethodSpec
                               mapM (reduce rew . checkGoal de) (vcChecks vc)
             useYices ir ti vc gs
           _ -> error "internal: verifyMethodTactic used invalid tactic."
+{-
+=======
+      let goal check = deApplyBinary de
+                                     bImpliesOp 
+                                     (vcAssumptions vc)
+                                     (checkGoal de check)
+
+      -- Run verification
+      case methodSpecVerificationTactics ir of
+        [AST.Rewrite] -> liftIO $ do
+          rew <- mkRewriter pgm ts
+          forM_ (vcChecks vc) $ \check -> do
+            when (v >= 2) $
+              liftIO $ putStrLn $ "Verify " ++ checkName check
+            newGoal <- reduce rew (goal check)
+            case getBool newGoal of
+              Just True -> return ()
+              _ -> do
+               let msg = ftext ("The rewriter failed to reduce the verification condition "
+                                  ++ " generated from " ++ checkName check
+                                  ++ " in the Java method " ++ methodSpecName ir
+                                  ++ " to 'True'.\n\n") $$
+                         ftext ("The remaining goal is:") $$
+                         nest 2 (prettyTermD newGoal)
+                   res = "Please add new rewrite rules or modify existing ones to reduce the goal to True."
+                in throwIOExecException pos msg res
+        [AST.QuickCheck n lim] -> liftIO $ do
+          testRandom de v ir n lim vc
+        [AST.ABC] -> liftIO $ do
+          forM_ (vcChecks vc) $ \check -> do
+            when (v >= 2) $
+              liftIO $ putStrLn $ "Verify " ++ checkName check
+            runABC de v ir (vcInputs vc) check (goal check)
+        [AST.Rewrite, AST.ABC] -> liftIO $ do
+          rew <- mkRewriter pgm ts
+          forM_ (vcChecks vc) $ \check -> do
+            when (v >= 2) $
+              liftIO $ putStrLn $ "Verify " ++ checkName check
+            newGoal <- reduce rew (goal check)
+            runABC de v ir (vcInputs vc) check newGoal
+
+        -- XXX: This is called multiple times, so when we save the
+        -- smtlib file we should somehow parameterize on the configuration.
+        [AST.SmtLib ver nm] -> do
+          let gs = map (checkGoal de) (vcChecks vc)
+          useSMTLIB ir ver nm vc gs
+
+        [AST.Rewrite, AST.SmtLib ver nm] -> do
+          gs <- liftIO $ do rew <- mkRewriter pgm ts
+                            mapM (reduce rew . checkGoal de) (vcChecks vc)
+          useSMTLIB ir ver nm vc gs
+        [AST.Yices ti]  -> do
+          let gs = map (checkGoal de) (vcChecks vc)
+          useYices ir ti vc gs
+        [AST.Rewrite, AST.Yices ti] -> do
+          gs <- liftIO $ do rew <- mkRewriter pgm ts
+                            mapM (reduce rew . checkGoal de) (vcChecks vc)
+          useYices ir ti vc gs
+        _ -> error "internal: verifyMethodTactic used invalid tactic."
+
+>>>>>>> master
+-}
 
 type Verbosity = Int
 
@@ -1893,18 +1959,36 @@ pickRandom ty = pickRandomSize ty =<< ((`pick` distr) `fmap` randomRIO (0,99))
 announce :: String -> SymbolicMonad ()
 announce msg = whenVerbosity (>= 3) (liftIO (putStrLn msg))
 
-useSMTLIB :: MethodSpecIR -> Maybe String ->
+useSMTLIB :: MethodSpecIR -> Maybe Int -> Maybe String ->
               VerificationContext -> [Node] -> SymbolicMonad ()
-useSMTLIB ir mbNm vc gs =
-  announce ("Translating to SMTLIB: " ++ methodSpecName ir) >> liftIO (
-  do (script,_) <- SmtLib.translate SmtLib.TransParams
-        { SmtLib.transName = name
-        , SmtLib.transInputs = map (termType . viNode) (vcInputs vc)
-        , SmtLib.transAssume = vcAssumptions vc
-        , SmtLib.transCheck = gs
-        , SmtLib.transEnabled = vcEnabled vc
-        }
-     writeFile (name ++ ".smt") $ show $ SmtLib.pp script
+useSMTLIB ir mbVer mbNm vc gs =
+  announce ("Translating to SMTLIB (version " ++ show version ++"): "
+                                        ++ methodSpecName ir) >> liftIO (
+  do let params = SmtLib.TransParams
+                    { SmtLib.transName = name
+                    , SmtLib.transInputs = map (termType . viNode) (vcInputs vc)
+                    , SmtLib.transAssume = vcAssumptions vc
+                    , SmtLib.transCheck = gs
+                    , SmtLib.transEnabled = vcEnabled vc
+                    , SmtLib.transExtArr = True
+                    }
+
+     doc <-
+       case version of
+         1 -> do (script,_) <- SmtLib.translate params
+                 return (SmtLib.pp script)
+
+         2 -> do (script,_) <- SmtLib2.translate params
+                 return (SmtLib2.pp script)
+
+     -- XXX: THERE IS A RACE CONDITION HERE!
+     let pickName n = do let cand = name ++ (if n == 0 then "" else show n)
+                                         ++ ".smt" ++ ver_exr
+                         b <- doesFileExist cand
+                         if b then pickName (n + 1) else return cand
+
+     fileName <- pickName (0 :: Integer)
+     writeFile fileName (show doc)
   )
 
   where
@@ -1912,17 +1996,23 @@ useSMTLIB ir mbNm vc gs =
            Just x  -> x
            Nothing -> methodSpecName ir
 
+  version :: Int
+  (version, ver_exr) = case mbVer of
+                         Just n | n /= 1 -> (n, show n)
+                         _      -> (1, "")   -- For now, we use 1 by default.
+
 
 useYices :: MethodSpecIR -> Maybe Int ->
             VerificationContext -> [Node] -> SymbolicMonad ()
 useYices ir mbTime vc gs =
   announce ("Using Yices2: " ++ methodSpecName ir) >> liftIO (
-  do (script,(uninterp,as,gs1,is)) <- SmtLib.translate SmtLib.TransParams
+  do (script,info) <- SmtLib.translate SmtLib.TransParams
         { SmtLib.transName = "CheckYices"
         , SmtLib.transInputs = map (termType . viNode) (vcInputs vc)
         , SmtLib.transAssume = vcAssumptions vc
         , SmtLib.transCheck = gs
         , SmtLib.transEnabled = vcEnabled vc
+        , SmtLib.transExtArr = True
         }
 
      res <- Yices.yices mbTime script
@@ -1932,17 +2022,22 @@ useYices ir mbTime vc gs =
        Yices.YSat m   ->
          yiFail ( text "Found a counter example:"
                $$ nest 2 (vcat $ intersperse (text " ") $
-                    zipWith ppIn (vcInputs vc) (map (Yices.getIdent m) is))
+                    zipWith ppIn (vcInputs vc) (map (Yices.getIdent m)
+                                                      (SmtLib.trInputs info)))
                $$ text " "
-               $$ ppUninterp m uninterp
-{-
+               $$ ppUninterp m (SmtLib.trUninterp info)
+
+               $$ ppArgHist info m
+               $$ text " "
+
                $$ text "Assumptions:"
-               $$ nest 2 (SmtLib.pp as)
+               $$ nest 2 (SmtLib.pp (SmtLib.trAsmp info))
                $$ text " "
                $$ text "Goals:"
-               $$ nest 2 (vcat (map SmtLib.pp gs1))
+               $$ nest 2 (vcat $ intersperse (text " ")
+                               $ map SmtLib.pp (SmtLib.trGoals info))
                $$ text " "
--}
+
                $$ text "Full model:"
                $$ nest 2 (vcat $ map Yices.ppVal (Map.toList m))
                 )
@@ -1963,12 +2058,36 @@ useYices ir mbTime vc gs =
       xs  -> vcat [ text (show x) <+> text "=" | x <- init xs ]
           $$ Yices.ppVal (show (last xs), val)
 
-  ppUninterp m [] = empty
+  ppUninterp _ [] = empty
   ppUninterp m us =
     text "Uninterpreted functions:"
     $$ nest 2 (vcat $
       [ Yices.ppVal (s, Yices.getIdent m i) $$ text " " | (i,s) <- us ]
     )
+
+  varName base 0    = base
+  varName base time = base ++ "@" ++ show time
+
+  varSuccessors m time i = (i,time) :
+    case Map.lookup i m of
+      Nothing -> []
+      Just js -> concatMap (varSuccessors m $! (time + 1)) js
+
+  ppHist model upds nm arg = vcat $ intersperse (text " ")
+    [ Yices.ppVal (nm {-varName nm time-}, Yices.getIdent model i)
+         -- This is written in this weird way, so that we can easily
+         -- switch between the whole update-history for a variable
+         -- and just the last value.
+         | (i,time) <- [ last $ varSuccessors upds (0::Integer) arg ],
+                                                              time /= 0 ]
+
+  ppArgHist info model =
+    case zipWith (ppHist model (SmtLib.trArrays info))
+                 (map (show . last . viExprs) (vcInputs vc))
+                 (SmtLib.trInputs info) of
+      [] -> empty
+      ds -> text "Final values for array arguments:"
+         $$ nest 2 (vcat (intersperse (text " ") ds))
 
 
 

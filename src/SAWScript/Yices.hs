@@ -27,7 +27,7 @@ data YResult  = YUnknown
 
 yices :: Maybe Int -> Script -> IO YResult
 yices mbTime script =
-  do txt <- readProcess "yices" (["--full-model"] ++ timeOpts)
+  do txt <- readProcess "yices" (["--model"] ++ timeOpts)
                 (show (pp script))
      case parseOutput txt of
        Right a -> return a
@@ -57,9 +57,6 @@ tok p    = p <* P.spaces
 
 str     :: String -> Parser ()
 str x    = tok (string x >> return ())
-
-pSpaces1 :: Parser ()
-pSpaces1 = P.space >> P.spaces
 
 parens  :: Parser a -> Parser a
 parens p = between (tok (P.char '(')) (tok (P.char ')')) p

@@ -167,7 +167,7 @@ mkTest runTest' _lbl getRslt cb maigNm (cNm, mNm, sig)
     liftIO $ do
       case maigNm of
         Nothing -> return ()
-        Just nm -> beWriteAigerV be nm outIntLit
+        Just nm -> beWriteAigerV be nm [outIntLit]
       chks1 <- liftIO $ forM inps $ \inp ->
         prAig inp . SV.toList
           <$> beEvalAigV be (SV.fromList (toAigInps inp)) outIntLit
