@@ -52,6 +52,7 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'off'          { TReserved _ "off"          }
    'var'          { TReserved _ "var"          }
    'args'         { TReserved _ "args"         }
+   'locals'       { TReserved _ "locals"       }
    'this'         { TReserved _ "this"         }
    'int'          { TReserved _ "int"          }
    'long'         { TReserved _ "long"         }
@@ -225,6 +226,7 @@ Expr : var                               { Var          (tokPos $1) (tokStr $1) 
      | Expr '||'  Expr                   { OrExpr       (tokPos $2) $1 $3          }
      | 'this'                            { ThisExpr     (tokPos $1)                }
      | 'args' '[' int ']'                { ArgExpr      (tokPos $1) (snd $3)       }
+     | 'locals' '[' var ']'              { LocalExpr    (tokPos $1) (tokStr $3)    }
      | '(' Expr ')'                      { $2                                      }
      | 'if' Expr 'then' Expr 'else' Expr { IteExpr      (tokPos $1) $2 $4 $6       }
 
@@ -243,7 +245,6 @@ MethodSpecDecl :: { MethodSpecDecl }
 MethodSpecDecl : 'var'         Exprs1 '::' JavaType    { Type        (tokPos $1) $2 $4          }
                | 'mayAlias'    '{' Exprs1 '}'          { MayAlias    (tokPos $1) $3             }
                | 'const'       Expr ':=' Expr          { Const       (tokPos $1) $2 $4          }
-               | 'let'         var '='  Expr           { MethodLet   (tokPos $1) (tokStr $2) $4 }
                | 'localSpec'   num '{' LSpecDecls '}'  { LocalSpec   (tokPos $3) (tokNum $2) $4 }
                | 'returns' ':' Expr                    { Returns     (tokPos $1) $3             }
                | 'verifyUsing' ':' VerificationTactics { VerifyUsing (tokPos $1) $3             }
@@ -256,6 +257,7 @@ LSpecDecl :: { MethodSpecDecl }
 LSpecDecl : 'assume'      Expr              { Assume      (tokPos $1) $2    }
           | 'ensures'     Expr ':=' Expr    { Ensures     (tokPos $1) $2 $4 }
           | 'modifies' ':' Exprs1           { Modifies    (tokPos $1) $3    }
+          | 'let'         var '='  Expr     { MethodLet   (tokPos $1) (tokStr $2) $4 }
 
 JavaType :: { JavaType }
 JavaType : Qvar               { RefType    (fst $1)    (snd $1) }

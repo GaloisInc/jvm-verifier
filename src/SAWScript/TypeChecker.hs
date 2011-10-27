@@ -55,13 +55,13 @@ tcType cfg t = runTI cfg (tcT t)
 data JavaExpr
   = This String -- | Name of classname for this object.
   | Arg Int JSS.Type
-  | Local Int JSS.Type
+  | Local String JSS.Type
   | InstanceField JavaExpr JSS.FieldId
 
 instance Eq JavaExpr where
   This _      == This _      = True
   Arg i _     == Arg j _     = i == j
-  Local i _   == Local j _   = i == j
+  Local nm _  == Local nm' _ = nm == nm'
   InstanceField r1 f1 == InstanceField r2 f2 = r1 == r2 && f1 == f2
   _               == _               = False
 
@@ -72,7 +72,7 @@ instance Ord JavaExpr where
   Arg i _     `compare` Arg j _     = i `compare` j
   Arg _ _     `compare` _           = LT
   _           `compare` Arg _ _     = GT
-  Local i _   `compare` Local j _   = i `compare` j
+  Local nm _  `compare` Local nm' _ = nm `compare` nm'
   Local _ _   `compare` _           = LT
   _           `compare` Local _ _   = GT
   InstanceField r1 f1 `compare` InstanceField r2 f2 =
@@ -83,7 +83,7 @@ instance Ord JavaExpr where
 instance Show JavaExpr where
   show (This _)    = "this"
   show (Arg i _)   = "args[" ++ show i ++ "]"
-  show (Local i _) = "locals[" ++ show i ++ "]"
+  show (Local nm _) = "locals[" ++ nm ++ "]"
   show (InstanceField r f) = show r ++ "." ++ JSS.fieldIdName f
 
 -- | Returns JSS Type of JavaExpr
@@ -244,6 +244,11 @@ tcASTJavaExpr (AST.ArgExpr pos i) = do
     typeErr pos (ftext "Invalid argument index for method.")
   checkJSSTypeIsValid pos (params V.! i)
   return $ Arg i (params V.! i)
+tcASTJavaExpr (AST.LocalExpr pos name) = do
+  (method, _) <- getMethodInfo
+  case JSS.lookupLocalVariableTypeByName method name of
+    Just tp -> return $ Local name tp
+    Nothing -> typeErr pos (ftext $ "Local variable " ++ name ++ " not found")
 tcASTJavaExpr (AST.DerefField pos astLhs fName) = do
   lhs <- tcASTJavaExpr astLhs
   case getJSSTypeOfJavaExpr lhs of
@@ -436,6 +441,9 @@ tcE (AST.DerefField p e f) = do
                                          Nothing -> unexpected p "record field selection" ("record containing field " ++ show f) rt
                                          Just fop -> return $ Apply (mkOp fop recSubst) [e']
      rt  -> unexpected p "record field selection" ("record containing field " ++ show f) rt
+tcE (AST.ThisExpr pos) = typeErr pos (ftext "Use of 'this' without 'valueOf'.")
+tcE (AST.ArgExpr pos _) = typeErr pos (ftext "Use of 'args' without 'valueOf'.")
+tcE (AST.LocalExpr pos _) = typeErr pos (ftext "Use of 'locals' without 'valueOf'.")
 
 lift1Bool :: Pos -> String -> Op -> AST.Expr -> SawTI LogicExpr
 lift1Bool p nm o l = do

@@ -29,6 +29,8 @@ let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
 
 // Array operation verification {{{1
 
+set verification off;
+
 method com.galois.ecc.P384ECC64.is_zero {
   var args[0] :: int[12];
   returns: if join(valueOf(args[0])) == 0:[384] then 1:[32] else 0:[32];
@@ -241,34 +243,36 @@ method com.galois.ecc.P384ECC64.mod_half {
   verifyUsing: abc;
 };
 
+set verification on;
+
 // mod_div {{{2
 method com.galois.ecc.P384ECC64.mod_div {
   var args[0], args[1], args[2], args[3] :: int[12];
   var this.t1, this.t2, this.t3 :: int[12];
-  //var locals[0] :: int[12];
-  //var locals[1] :: int[12];
-  //var locals[2] :: int[12];
-  //var locals[3] :: boolean;
-  //let a = locals[0];
-  //let ra = args[0];
-  //let b = locals[1];
-  //let rb = locals[2];
-  //let sw = locals[3];
+  var locals[a] :: int[12];
+  var locals[b] :: int[12];
+  var locals[rb] :: int[12];
+  //var locals[swapped] :: int;
+  let a = valueOf(locals[a]);
+  let ra = valueOf(args[0]);
+  let b = valueOf(locals[b]);
+  let rb = valueOf(locals[rb]);
+  let p = valueOf(args[3]);
+  let sw = 0 : [32]; //valueOf(locals[swapped]);
   const this.field_prime := split(field_prime) : [12][32];
-  /*
   localSpec 143 {
-    let res = field_div_step(a, ra, b, rb, sw);
-    ensures valueOf(a) := res.a;
-    ensures valueOf(ra) := res.ra;
-    ensures valueOf(b) := res.b;
-    ensures valueOf(rb) := res.rb;
-    ensures valueOf(sw) := res.sw;
+    //let res = field_div_step(a, ra, b, rb, p, sw);
+    //ensures valueOf(locals[a]) := res.a;
+    //ensures valueOf(args[0]) := res.ra;
+    //ensures valueOf(locals[b]) := res.b;
+    //ensures valueOf(locals[rb]) := res.rb;
+    //ensures valueOf(locals[sw]) := res.sw;
+    modifies: valueOf(args[0]);
   };
-  */
 
   modifies: valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 
-  verifyUsing: skip;
+  verifyUsing: abc;
 };
 
 // Point operation verification {{{1

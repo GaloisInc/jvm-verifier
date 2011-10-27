@@ -3,8 +3,8 @@ CLASSES_JAR=../../jdk1.6/classes.jar
 
 build :
 	mkdir -p build
-	javac -cp src:../../support src/com/galois/ecc/*.java -d build
-	javac -cp build:tests tests/com/galois/ecc/*.java -d build
+	javac -g:vars -cp src:../../support src/com/galois/ecc/*.java -d build
+	javac -g:vars -cp build:tests tests/com/galois/ecc/*.java -d build
 
 # Build java doc documentation.
 doc :

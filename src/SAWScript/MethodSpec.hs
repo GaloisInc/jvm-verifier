@@ -813,6 +813,7 @@ resolveMethodSpecIR oc gb pos thisClass mName cmds = do
     let allRefs = Map.keysSet (refTypeMap st') `Set.union` Map.keysSet (constExprMap st')
     let checkRef (TC.This _) = return ()
         checkRef (TC.Arg _ _) = return ()
+        checkRef (TC.Local _ _) = return () -- TODO: is this right?
         checkRef (TC.InstanceField lhs f) = do
           when (Map.member lhs (mayAliasRefs st')) $
             let msg = "This specification contains a mayAlias declaration "
@@ -1560,8 +1561,6 @@ methodSpecVCs
            "Creating evaluation state for simulation of " ++ methodSpecName ir
       -- Add method spec overrides.
       mapM_ (overrideFromSpec pos (methodSpecName ir)) overrides
-      -- Register breakpoints
-      JSS.registerBreakpoints $ map (\bpc -> (cls, meth, bpc)) assertPCs
       -- Create map from specification entries to JSS simulator values.
       jvs <- initializeJavaVerificationState ir cm
       -- JavaEvalContext for inital verification state.
@@ -1587,6 +1586,10 @@ methodSpecVCs
          liftIO $ putStrLn $ "Executing " ++ methodSpecName ir
          when (pc /= 0) $
               liftIO $ putStrLn $ "  starting from PC " ++ show pc
+      -- Register breakpoints
+      when (vrb >= 4 && not (null assertPCs)) $
+         liftIO $ putStrLn $ "Registering breakpoints: " ++ show assertPCs
+      JSS.registerBreakpoints $ map (\bpc -> (cls, meth, bpc)) assertPCs
       -- Execute method.
       (jssResult, jec) <- runMethod de ir ssi' jec'
       let ssi = createSpecStateInfo de ir jec

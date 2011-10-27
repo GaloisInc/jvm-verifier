@@ -81,7 +81,8 @@ module JavaParser (
   , classSourceFile
   , sourceLineNumber
   , sourceLineNumberOrPrev
-  , sourceLocalVariableName) where
+  , sourceLocalVariableName
+  , lookupLocalVariableTypeByName) where
 
   import Control.Monad
   import Data.Array (Array,(!),assocs,listArray)
@@ -1079,6 +1080,17 @@ module JavaParser (
           lookupLocalVariable (LocalVariableTableEntry startPc' len name tp lvi : _rest)
             | lvi == i && startPc' <= pc && pc <= startPc' + len
             = Just (name,tp)
+          lookupLocalVariable (_ : rest) = lookupLocalVariable rest
+          lookupLocalVariable [] = Nothing
+
+  lookupLocalVariableTypeByName :: Method -> String -> Maybe Type
+  lookupLocalVariableTypeByName method name =
+    case methodBody method of
+      Code _ _ _ _ _ lvars _ -> lookupLocalVariable lvars
+      _ -> error "internal: unexpected method body form"
+    where lookupLocalVariable :: LocalVariableTable -> Maybe Type
+          lookupLocalVariable (LocalVariableTableEntry _ _ name' tp _ : _)
+            | name == name' = Just tp
           lookupLocalVariable (_ : rest) = lookupLocalVariable rest
           lookupLocalVariable [] = Nothing
 
