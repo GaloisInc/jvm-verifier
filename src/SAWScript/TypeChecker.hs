@@ -8,8 +8,9 @@ module SAWScript.TypeChecker
   ( JavaExpr(..)
   , getJSSTypeOfJavaExpr
   , DefinedJavaExprType(..)
-  , Expr(..)
+  , LogicExpr(..)
   , getTypeOfExpr
+  , MixedExpr(..)
   , typedExprVarNames
   , globalEval
   , GlobalBindings(..)
@@ -21,6 +22,7 @@ module SAWScript.TypeChecker
   ) where
 
 import Control.Monad
+import Control.Monad.Identity (runIdentity)
 import Control.Monad.Trans
 import Data.Map(Map)
 import qualified Data.Map as Map
@@ -38,10 +40,10 @@ import SAWScript.Utils
 
 import Verinf.Symbolic
 
-tcJavaExpr :: TCConfig -> AST.JavaRef -> IO JavaExpr
+tcJavaExpr :: TCConfig -> AST.Expr -> IO JavaExpr
 tcJavaExpr cfg e = runTI cfg (tcASTJavaExpr e)
 
-tcExpr :: TCConfig -> AST.Expr -> IO Expr
+tcExpr :: TCConfig -> AST.Expr -> IO LogicExpr
 tcExpr cfg e = runTI cfg (tcE e)
 
 tcType :: TCConfig -> AST.ExprType -> IO DagType
@@ -127,42 +129,50 @@ tcT (AST.Record _ fields)   = do let names = [ nm | (_,nm,_) <- fields ]
                                  return $ SymRec def sub
 tcT (AST.ShapeVar _ v)      = return (SymShapeVar v)
 
--- Expr {{{1
+-- LogicExpr {{{1
 
 -- | A type-checked expression which appears insider a global let binding,
 -- method declaration, or rule term.
-data Expr
-   = Apply Op [Expr]
+data LogicExpr
+   = Apply Op [LogicExpr]
    | Cns CValue DagType
-   | JavaValue JavaExpr DagType
+   | ArrayValue JavaExpr DagType
    | Var String DagType
    deriving (Show)
 
 -- | Return type of a typed expression.
-getTypeOfExpr :: Expr -> DagType
-getTypeOfExpr (Apply       op _) = opResultType op
-getTypeOfExpr (Cns         _ tp) = tp
-getTypeOfExpr (JavaValue   _ tp) = tp
-getTypeOfExpr (Var         _ tp) = tp
+getTypeOfExpr :: LogicExpr -> DagType
+getTypeOfExpr (Apply      op _) = opResultType op
+getTypeOfExpr (Cns        _ tp) = tp
+getTypeOfExpr (ArrayValue _ tp) = tp
+getTypeOfExpr (Var        _ tp) = tp
 
 -- | Returns names of variables appearing in typedExpr.
-typedExprVarNames :: Expr -> Set String
-typedExprVarNames (Apply _ exprs) = Set.unions (map typedExprVarNames exprs)
-typedExprVarNames (Cns _ _)       = Set.empty
-typedExprVarNames (JavaValue _ _) = Set.empty
-typedExprVarNames (Var nm _)      = Set.singleton nm
+typedExprVarNames :: LogicExpr -> Set String
+typedExprVarNames (Apply _ exprs)  = Set.unions (map typedExprVarNames exprs)
+typedExprVarNames (Cns _ _)        = Set.empty
+typedExprVarNames (ArrayValue _ _) = Set.empty
+typedExprVarNames (Var nm _)       = Set.singleton nm
 
 -- | Evaluate a ground typed expression to a constant value.
-globalEval :: OpCache -> Expr -> IO CValue
-globalEval oc expr = do
-  let mkNode :: Expr -> SymbolicMonad Node
-      mkNode (Var _nm _tp) =
-        error "internal: globalEval called with non-ground expression"
-      mkNode (JavaValue _nm _tp) =
-        error "internal: globalEval called with expression containing Java references."
-      mkNode (Cns c tp) = makeConstant c tp
-      mkNode (Apply op args) = applyOp op =<< mapM mkNode args
-  runSymbolic oc $ mkConcreteEval V.empty `ap` mkNode expr
+globalEval :: LogicExpr -> CValue
+globalEval expr = eval expr
+  where ts = evalTermSemantics
+        eval (Var _nm _tp) =
+          error "internal: globalEval called with non-ground expression"
+        eval (ArrayValue _nm _tp) =
+          error "internal: globalEval called with expression containing Java references."
+        eval (Cns c tp) = runIdentity (tsConstant ts c tp)
+        eval (Apply op args) = runIdentity (tsApplyOp ts op (V.map eval (V.fromList args)))
+
+-- MixedExpr {{{1
+
+-- | An expression that can refer to logic or Java expressions.
+
+data MixedExpr
+  = LE LogicExpr
+  | JE JavaExpr
+  deriving (Show)
 
 -- DefinedJavaExprType {{{1
 
@@ -186,16 +196,16 @@ data TCConfig = TCC {
          opCache        :: OpCache
        , globalBindings :: GlobalBindings
        , methodInfo     :: Maybe (JSS.Method, JSS.Class)
-       , localBindings  :: Map String Expr
+       , localBindings  :: Map String MixedExpr
        , toJavaExprType :: Maybe (JavaExpr -> Maybe DefinedJavaExprType)
        }
 
-mkGlobalTCConfig :: OpCache -> GlobalBindings -> Map String Expr -> TCConfig
-mkGlobalTCConfig opCache globalBindings localBindings = do
+mkGlobalTCConfig :: OpCache -> GlobalBindings -> Map String LogicExpr -> TCConfig
+mkGlobalTCConfig opCache globalBindings lb = do
   TCC { opCache
       , globalBindings
       , methodInfo = Nothing
-      , localBindings
+      , localBindings = Map.map LE lb
       , toJavaExprType = Nothing }
 
 type SawTI = TI IO TCConfig
@@ -214,19 +224,20 @@ getMethodInfo = do
     Nothing -> error $ "internal: getMethodInfo called when parsing outside a method declaration"
     Just p -> return p
 
-tcASTJavaExpr :: AST.JavaRef -> SawTI JavaExpr
-tcASTJavaExpr (AST.This pos) = do
+tcASTJavaExpr :: AST.Expr -> SawTI JavaExpr
+tcASTJavaExpr (AST.ThisExpr pos) = do
   (method, cl) <- getMethodInfo
   when (JSS.methodIsStatic method) $ typeErr pos (ftext "\'this\' is not defined on static methods.")
   return (This (JSS.className cl))
-tcASTJavaExpr (AST.Arg pos i) = do
+tcASTJavaExpr (AST.ArgExpr pos i) = do
   (method, _) <- getMethodInfo
   let params = V.fromList (JSS.methodParameterTypes method)
   -- Check that arg index is valid.
-  unless (0 <= i && i < V.length params) $ typeErr pos (ftext "Invalid argument index for method.")
+  unless (0 <= i && i < V.length params) $
+    typeErr pos (ftext "Invalid argument index for method.")
   checkJSSTypeIsValid pos (params V.! i)
   return $ Arg i (params V.! i)
-tcASTJavaExpr (AST.InstanceField pos astLhs fName) = do
+tcASTJavaExpr (AST.DerefField pos astLhs fName) = do
   lhs <- tcASTJavaExpr astLhs
   case getJSSTypeOfJavaExpr lhs of
     JSS.ClassType lhsClassName -> do
@@ -236,9 +247,11 @@ tcASTJavaExpr (AST.InstanceField pos astLhs fName) = do
       return $ InstanceField lhs f
     _ -> typeErrWithR pos (ftext ("Could not find a field named " ++ fName ++ " in " ++ show lhs ++ "."))
                           "Please check to make sure the field name is correct."
+tcASTJavaExpr e =
+  typeErr (AST.exprPos e) (ftext $ "Could not parse " ++ show e ++ " as Java expression.")
 
 -- | Check argument count matches expected length
-checkArgCount :: Pos -> String -> [Expr] -> Int -> SawTI ()
+checkArgCount :: Pos -> String -> [a] -> Int -> SawTI ()
 checkArgCount pos nm (length -> foundOpCnt) expectedCnt = do
   unless (expectedCnt == foundOpCnt) $
     typeErr pos $ ftext $ "Incorrect number of arguments to \'" ++ nm ++ "\'.  "
@@ -246,7 +259,7 @@ checkArgCount pos nm (length -> foundOpCnt) expectedCnt = do
                         ++ show foundOpCnt ++ " arguments were found."
 
 -- | Convert an AST expression from parser into a typed expression.
-tcE :: AST.Expr -> SawTI Expr
+tcE :: AST.Expr -> SawTI LogicExpr
 tcE (AST.ConstantInt p _)
   = typeErrWithR p (ftext ("The use of constant literal requires a type-annotation")) "Please provide the bit-size of the constant with a type-annotation"
 tcE (AST.ApplyExpr p nm _)
@@ -256,7 +269,10 @@ tcE (AST.Var pos name) = do
   locals  <- gets localBindings
   globals <- gets (constBindings . globalBindings)
   case name `Map.lookup` locals of
-    Just res -> return res
+    Just (LE res) -> return res
+    Just (JE _) -> typeErr pos $ ftext $ "Encountered variable \'" ++ name
+                      ++ "\' that is bound to a Java expression when a logic "
+                      ++ "expression is expected."
     Nothing -> do
       case name `Map.lookup` globals of
         Just (c,tp) -> return $ Cns c tp
@@ -322,7 +338,25 @@ tcE (AST.TypeExpr p e astResType) = do
    if tet /= resType
       then mismatch p "type-annotation" tet resType
       else return te
-tcE (AST.JavaValue p jref) = tcJRef p jref
+tcE (AST.ApplyExpr p "valueOf" [jr]) = do
+  sje <- tcASTJavaExpr jr
+  mbToJavaT <- gets toJavaExprType
+  case mbToJavaT of
+    Nothing ->
+      let msg = "The Java value \'" ++ show sje ++ "\' appears in a global context."
+          res = "Java values may not be references outside method declarations."
+       in typeErrWithR p (ftext msg) res
+    Just toJavaT -> do
+      case toJavaT sje of
+        Nothing ->
+          let msg = "The Java value \'" ++ show sje ++ "\' is missing a \'type\' annotation."
+              res = "Please add a type declaration to Java values before "
+                     ++ "referring to them in SAWScript expressions."
+           in typeErrWithR p (ftext msg) res
+        Just (DefinedClass _) ->
+          let msg = "The expression " ++ show sje ++ " does not refer to an array,"
+           in typeErrWithR p (ftext msg) ""
+        Just (DefinedType t) -> return $ ArrayValue sje t
 tcE (AST.ApplyExpr appPos "join" astArgs) = do
   args <- mapM tcE astArgs
   checkArgCount appPos "join" args 1
@@ -396,31 +430,7 @@ tcE (AST.DerefField p e f) = do
                                          Just fop -> return $ Apply (mkOp fop recSubst) [e']
      rt  -> unexpected p "record field selection" ("record containing field " ++ show f) rt
 
-tcJRef :: Pos -> AST.JavaRef -> SawTI Expr
-tcJRef p jr = do
-  sje <- tcASTJavaExpr jr
-  mbToJavaT <- gets toJavaExprType
-  case mbToJavaT of
-    Nothing ->
-      let msg = "The Java value \'" ++ show sje ++ "\' appears in a global context."
-          res = "Java values may not be references outside method declarations."
-       in typeErrWithR p (ftext msg) res
-    Just toJavaT -> do
-      case toJavaT sje of
-        Nothing ->
-          let msg = "The Java value \'" ++ show sje ++ "\' is missing a \'type\' annotation."
-              res = "Please add a type declaration to Java values before "
-                     ++ "referring to them in SAWScript expressions."
-           in typeErrWithR p (ftext msg) res
-        Just (DefinedClass _) ->
-          let msg = "The Java value " ++ show sje ++ " denotes a Java reference,"
-                    ++ " and cannot be directly used in a SAWScript expression."
-              res = "Please alter the expression, perhaps by referring to "
-                    ++ "an field in the reference."
-           in typeErrWithR p (ftext msg) res
-        Just (DefinedType t) -> return $ JavaValue sje t
-
-lift1Bool :: Pos -> String -> Op -> AST.Expr -> SawTI Expr
+lift1Bool :: Pos -> String -> Op -> AST.Expr -> SawTI LogicExpr
 lift1Bool p nm o l = do
   l' <- tcE l
   let lt = getTypeOfExpr l'
@@ -428,7 +438,7 @@ lift1Bool p nm o l = do
     SymBool -> return $ Apply o [l']
     _       -> mismatch p ("argument to operator '" ++ nm ++ "'")  lt SymBool
 
-lift1Word :: Pos -> String -> (WidthExpr -> Op) -> AST.Expr -> SawTI Expr
+lift1Word :: Pos -> String -> (WidthExpr -> Op) -> AST.Expr -> SawTI LogicExpr
 lift1Word p nm opMaker l = do
   l' <- tcE l
   let lt = getTypeOfExpr l'
@@ -436,7 +446,7 @@ lift1Word p nm opMaker l = do
     SymInt wl -> return $ Apply (opMaker wl) [l']
     _         -> unexpected p ("Argument to operator '" ++ nm ++ "'") "word" lt
 
-lift2Bool :: Pos -> String -> Op -> AST.Expr -> AST.Expr -> SawTI Expr
+lift2Bool :: Pos -> String -> Op -> AST.Expr -> AST.Expr -> SawTI LogicExpr
 lift2Bool p nm o l r = do
   l' <- tcE l
   r' <- tcE r
@@ -447,13 +457,13 @@ lift2Bool p nm o l r = do
     (SymBool, _      ) -> mismatch p ("second argument to operator '" ++ nm ++ "'") rt SymBool
     (_      , _      ) -> mismatch p ("first argument to operator '"  ++ nm ++ "'") lt SymBool
 
-lift2Word :: Pos -> String -> (WidthExpr -> WidthExpr -> Op) -> AST.Expr -> AST.Expr -> SawTI Expr
+lift2Word :: Pos -> String -> (WidthExpr -> WidthExpr -> Op) -> AST.Expr -> AST.Expr -> SawTI LogicExpr
 lift2Word = lift2WordGen False
-lift2WordEq :: Pos -> String -> (WidthExpr -> WidthExpr -> Op) -> AST.Expr -> AST.Expr -> SawTI Expr
+lift2WordEq :: Pos -> String -> (WidthExpr -> WidthExpr -> Op) -> AST.Expr -> AST.Expr -> SawTI LogicExpr
 lift2WordEq = lift2WordGen True
 
 -- The bool argument says if the args should be of the same type
-lift2WordGen :: Bool -> Pos -> String -> (WidthExpr -> WidthExpr -> Op) -> AST.Expr -> AST.Expr -> SawTI Expr
+lift2WordGen :: Bool -> Pos -> String -> (WidthExpr -> WidthExpr -> Op) -> AST.Expr -> AST.Expr -> SawTI LogicExpr
 lift2WordGen checkEq p nm opMaker l r = do
   l' <- tcE l
   r' <- tcE r
@@ -466,7 +476,7 @@ lift2WordGen checkEq p nm opMaker l r = do
     (SymInt _,  _)         -> unexpected p ("Second argument to operator '" ++ nm ++ "'") "word" rt
     (_       ,  _)         -> unexpected p ("First argument to operator '"  ++ nm ++ "'") "word" lt
 
-lift2ShapeCmp :: Pos -> String -> (DagType -> Op) -> AST.Expr -> AST.Expr -> SawTI Expr
+lift2ShapeCmp :: Pos -> String -> (DagType -> Op) -> AST.Expr -> AST.Expr -> SawTI LogicExpr
 lift2ShapeCmp p nm opMaker l r = do
   l' <- tcE l
   r' <- tcE r
@@ -476,7 +486,7 @@ lift2ShapeCmp p nm opMaker l r = do
      then return $ Apply (opMaker lt) [l', r']
      else mismatch p ("arguments to operator '" ++ nm ++ "'") lt rt
 
-lift2WordCmp :: Pos -> String -> (WidthExpr -> Op) -> AST.Expr -> AST.Expr -> SawTI Expr
+lift2WordCmp :: Pos -> String -> (WidthExpr -> Op) -> AST.Expr -> AST.Expr -> SawTI LogicExpr
 lift2WordCmp p nm opMaker l r = do
   l' <- tcE l
   r' <- tcE r
@@ -489,14 +499,14 @@ lift2WordCmp p nm opMaker l r = do
     (SymInt _,  _)         -> unexpected p ("Second argument to operator '" ++ nm ++ "'") "word" rt
     (_       ,  _)         -> unexpected p ("First argument to operator '"  ++ nm ++ "'") "word" lt
 
-flipBinOpArgs :: Expr -> Expr
+flipBinOpArgs :: LogicExpr -> LogicExpr
 flipBinOpArgs (Apply o [a, b]) = Apply o [b, a]
 flipBinOpArgs e                     = error $ "internal: flipBinOpArgs: received: " ++ show e
 
 findClass :: Pos -> String -> SawTI JSS.Class
 findClass p s = do
-        debugTI $ "Trying to find the class " ++ show s
-        lookupClass p s
+  debugTI $ "Trying to find the class " ++ show s
+  lookupClass p s
 
 -- Only warn if the constant is beyond range for both signed/unsigned versions
 -- This is less precise than it can be, but less annoying too..

@@ -655,7 +655,7 @@ stdOverrides = do
         error "debug dag eval / bitblast integrity checker NYI"
     ]
   where
-    intVal = fmap fromInteger . getSVal
+    intVal = fmap fromInteger  . getSVal
     abortWhenMultiPath msg = do
       finished <- snd <$> splitFinishedPaths
       when (length finished > 1) $ do
@@ -849,7 +849,7 @@ isPathFinished ps =
                         (breakpoints ps) &&
                -- Because breakpoints are typically used to cut loops,
                -- a path involing a breakpoint may start and end at
-               -- the same instruction. So we don't want to terminate
+               -- the same instruction. So we don\'t want to terminate
                -- it as soon as it starts.
                (insnCount ps /= 0)
   || case finalResult ps of
@@ -1698,8 +1698,8 @@ doMerge _clNm _methNm = do
   case breakpoint topMF of
     CallExit -> do
       remainingPaths <- terminateCurrentPath False
-                        -- ^ don't collpase frames, because we need to continue
-                        -- execution on the merged path
+                 -- (above) don't collpase frames, because we need to continue
+                 -- execution on the merged path
       when (remainingPaths == 0) $ do
         mergeFinishedPaths
 
@@ -2004,7 +2004,7 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
                       and [ c1 == c2
                           , methodKey m1 == methodKey m2
                           , pc1 == pc2
-                            -- ^ PCs differ -> both frames at a return instruction
+                            -- (above) PCs differ -> both frames at a return instruction
                           , length opds1 == length opds2
                           , and $ map (uncurry opdTypesMatch) $
                               opds1 `zip` opds2

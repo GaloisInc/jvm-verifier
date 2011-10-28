@@ -38,14 +38,12 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'mayAlias'     { TReserved _ "mayAlias"     }
    'assume'       { TReserved _ "assume"       }
    'ensures'      { TReserved _ "ensures"      }
-   'arbitrary'    { TReserved _ "arbitrary"    }
+   'modifies'     { TReserved _ "modifies"     }
    'returns'      { TReserved _ "returns"      }
    'const'        { TReserved _ "const"        }
    'verifyUsing'  { TReserved _ "verifyUsing"  }
    'enable'       { TReserved _ "enable"       }
    'disable'      { TReserved _ "disable"      }
-   'abc'          { TReserved _ "abc"          }
-   'rewriter'     { TReserved _ "rewriter"     }
    'auto'         { TReserved _ "auto"         }
    'skip'         { TReserved _ "skip"         }
    'set'          { TReserved _ "set"          }
@@ -64,10 +62,12 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'if'           { TReserved _ "if"           }
    'then'         { TReserved _ "then"         }
    'else'         { TReserved _ "else"         }
-   'fromJava'     { TReserved _ "fromJava"     }
+   'abc'          { TReserved _ "abc"          }
    'quickcheck'   { TReserved _ "quickcheck"   }
+   'rewriter'     { TReserved _ "rewriter"     }
    'smtlib'       { TReserved _ "smtlib"       }
    'yices'        { TReserved _ "yices"        }
+   'localSpec'    { TReserved _ "localSpec"    }
    var            { TVar      _ _              }
    str            { TLit      _ $$             }
    num            { TNum      _ _ _            }
@@ -79,6 +79,7 @@ import {-# SOURCE #-} SAWScript.ParserActions
    '{'            { TPunct    _ "{"            }
    '}'            { TPunct    _ "}"            }
    ':'            { TPunct    _ ":"            }
+   '::'           { TPunct    _ "::"           }
    ','            { TPunct    _ ","            }
    '.'            { TPunct    _ "."            }
    '='            { TPunct    _ "="            }
@@ -137,15 +138,15 @@ SAWScript : termBy(VerifierCommand, ';') { $1 }
 
 -- Verifier commands
 VerifierCommand :: { VerifierCommand }
-VerifierCommand : 'import' str                              { ImportCommand     (tokPos $1) $2                   }
-                | 'extern' 'SBV' var '(' str ')' ':' FnType { ExternSBV         (tokPos $1) (tokStr $3) $5 $8    }
-                | 'let' var '=' Expr                        { GlobalLet         (tokPos $1) (tokStr $2) $4       }
-                | 'set' 'verification' 'on'                 { SetVerification   (tokPos $1) True                 }
-                | 'set' 'verification' 'off'                { SetVerification   (tokPos $1) False                }
-                | 'enable' var                              { Enable            (tokPos $1) (tokStr $2)          }
-                | 'disable' var                             { Disable           (tokPos $1) (tokStr $2)          }
-                | 'method' Qvar '{' MethodSpecDecls '}'     { DeclareMethodSpec (tokPos $1) (snd $2) $4          }
-                | 'rule' var ':' RuleParams Expr '->' Expr  { Rule              (tokPos $1) (tokStr $2) $4 $5 $7 }
+VerifierCommand : 'import' str                               { ImportCommand     (tokPos $1) $2                   }
+                | 'extern' 'SBV' var '(' str ')' ':' FnType  { ExternSBV         (tokPos $1) (tokStr $3) $5 $8    }
+                | 'let' var '=' Expr                         { GlobalLet         (tokPos $1) (tokStr $2) $4       }
+                | 'set' 'verification' 'on'                  { SetVerification   (tokPos $1) True                 }
+                | 'set' 'verification' 'off'                 { SetVerification   (tokPos $1) False                }
+                | 'enable' var                               { Enable            (tokPos $1) (tokStr $2)          }
+                | 'disable' var                              { Disable           (tokPos $1) (tokStr $2)          }
+                | 'method' Qvar '{' MethodSpecDecls '}'      { DeclareMethodSpec (tokPos $1) (snd $2) $4          }
+                | 'rule' var ':' RuleParams Expr '->' Expr   { Rule              (tokPos $1) (tokStr $2) $4 $5 $7 }
 
 -- Types
 FnType  :: { FnType }
@@ -178,6 +179,10 @@ Param : var ':' ExprType { (tokPos $1, tokStr $1, $3) }
 -- Comma separated expressions, potentially none
 Exprs :: { [Expr] }
 Exprs : sepBy(Expr, ',') { $1 }
+
+-- Comma separated sequence of expressions, at least one
+Exprs1 :: { [Expr] }
+Exprs1 : sepBy1(Expr, ',') { $1 }
 
 -- Expressions
 Expr :: { Expr }
@@ -218,7 +223,8 @@ Expr : var                               { Var          (tokPos $1) (tokStr $1) 
      | Expr '<u'  Expr                   { ULtExpr      (tokPos $2) $1 $3          }
      | Expr '&&'  Expr                   { AndExpr      (tokPos $2) $1 $3          }
      | Expr '||'  Expr                   { OrExpr       (tokPos $2) $1 $3          }
-     | 'fromJava' '(' JavaRef ')'        { JavaValue    (tokPos $1) $3             }
+     | 'this'                            { ThisExpr     (tokPos $1)                }
+     | 'args' '[' int ']'                { ArgExpr      (tokPos $1) (snd $3)       }
      | '(' Expr ')'                      { $2                                      }
      | 'if' Expr 'then' Expr 'else' Expr { IteExpr      (tokPos $1) $2 $4 $6       }
 
@@ -234,25 +240,22 @@ MethodSpecDecls :: { [MethodSpecDecl] }
 MethodSpecDecls : termBy(MethodSpecDecl, ';') { $1 }
 
 MethodSpecDecl :: { MethodSpecDecl }
-MethodSpecDecl : 'var'         JavaRefs ':' JavaType  { Type        (tokPos $1) $2 $4          }
-               | 'mayAlias'    '{' JavaRefs '}'       { MayAlias    (tokPos $1) $3             }
-               | 'const'       JavaRef ':=' Expr      { Const       (tokPos $1) $2 $4          }
-               | 'let'         var '='  Expr          { MethodLet   (tokPos $1) (tokStr $2) $4 }
-               | 'assume'      Expr                   { Assume      (tokPos $1) $2             }
-               | 'ensures'     JavaRef ':=' Expr      { Ensures     (tokPos $1) $2 $4          }
-               | 'arbitrary'   ':' JavaRefs           { Arbitrary   (tokPos $1) $3             }
-               | 'returns'     ':' Expr               { Returns     (tokPos $1) $3             }
-               | 'verifyUsing' ':' VerificationMethod { VerifyUsing (tokPos $1) $3             }
+MethodSpecDecl : 'var'         Exprs1 '::' JavaType    { Type        (tokPos $1) $2 $4          }
+               | 'mayAlias'    '{' Exprs1 '}'          { MayAlias    (tokPos $1) $3             }
+               | 'const'       Expr ':=' Expr          { Const       (tokPos $1) $2 $4          }
+               | 'let'         var '='  Expr           { MethodLet   (tokPos $1) (tokStr $2) $4 }
+               | 'localSpec'   num '{' LSpecDecls '}'  { LocalSpec   (tokPos $3) (tokNum $2) $4 }
+               | 'returns' ':' Expr                    { Returns     (tokPos $1) $3             }
+               | 'verifyUsing' ':' VerificationTactics { VerifyUsing (tokPos $1) $3             }
+               | LSpecDecl                             { $1                                     }
 
--- Comma separated Sequence of JavaRef's, at least one
-JavaRefs :: { [JavaRef] }
-JavaRefs : sepBy1(JavaRef, ',') { $1 }
+LSpecDecls :: { [MethodSpecDecl] }
+LSpecDecls : termBy(LSpecDecl, ';') { $1 }
 
-JavaRef :: { JavaRef }
-JavaRef : 'this'             { This          (tokPos $1)                }
-        | 'args' '[' int ']' { Arg           (tokPos $1) (snd $3)       }
-        | JavaRef '.' var    { InstanceField (tokPos $2) $1 (tokStr $3) }
-        | '(' JavaRef ')'    { $2                                       }
+LSpecDecl :: { MethodSpecDecl }
+LSpecDecl : 'assume'      Expr              { Assume      (tokPos $1) $2    }
+          | 'ensures'     Expr ':=' Expr    { Ensures     (tokPos $1) $2 $4 }
+          | 'modifies' ':' Exprs1           { Modifies    (tokPos $1) $3    }
 
 JavaType :: { JavaType }
 JavaType : Qvar               { RefType    (fst $1)    (snd $1) }
@@ -262,14 +265,17 @@ JavaType : Qvar               { RefType    (fst $1)    (snd $1) }
          | 'boolean'          { BoolScalar (tokPos $1)          }
          | 'long'             { LongScalar (tokPos $1)          }
 
-VerificationMethod :: { VerificationMethod }
-VerificationMethod : 'abc'      { ABC     }
-                   | 'rewriter' { Rewrite }
+-- Comma separated Sequence of VerificationTactic's, at least one
+VerificationTactics :: { [VerificationTactic] }
+VerificationTactics : sepBy1(VerificationTactic, ',') { $1 }
+
+VerificationTactic :: { VerificationTactic }
+VerificationTactic : 'rewriter' { Rewrite }
                    | 'skip'     { Skip    }
-                   | 'auto'     { Auto    }
+                   | 'abc'      { ABC     }
                    | 'quickcheck' int opt(int) { QuickCheck (snd $2)
                                                             (fmap snd $3) }
-                   | 'smtlib' opt(str)  { SmtLib $2 }
+                   | 'smtlib' opt(int) opt(str)  { SmtLib (fmap snd $2) $3 }
                    | 'yices'  opt(int)  { Yices (fmap snd $2) }
 
 -- A qualified variable
