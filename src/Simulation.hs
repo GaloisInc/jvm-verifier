@@ -845,16 +845,10 @@ isPathFinished :: PathState m -> Bool
 isPathFinished ps =
   case frames ps of
     [] -> True
-    (f : _) -> S.member (frmClass f, methodKey (frmMethod f), frmPC f)
-                        (breakpoints ps) &&
-               -- Because breakpoints are typically used to cut loops,
-               -- a path involing a breakpoint may start and end at
-               -- the same instruction. So we don\'t want to terminate
-               -- it as soon as it starts.
-               (insnCount ps /= 0)
-  || case finalResult ps of
-       Unassigned -> False
-       _          -> True
+    (f : _) ->
+      case finalResult ps of
+        Unassigned -> False
+        _          -> True
 
 -- | Add assumption to current path.
 assume :: AigOps sym => MonadTerm sym -> Simulator sym ()
@@ -960,14 +954,15 @@ registerBreakpoints bkpts =
 
 -- | Set the appropriate finalResult if we've stopped at a breakpoint.
 -- assertion.
-handleBreakpoints :: MonadIO sym => Simulator sym ()
-handleBreakpoints = do
-  ps <- getPathState
+handleBreakpoints :: MonadIO sym => PathState (MonadTerm sym) -> Simulator sym ()
+handleBreakpoints ps =
   case frames ps of
-    f : _ ->
-      when (S.member (frmClass f, methodKey (frmMethod f), frmPC f)
-             (breakpoints ps)) $
-        modifyPathState (setFinalResult . Breakpoint . frmPC $ f)
+    f : _ -> do
+      let pc = frmPC f
+      let meth = methodKey (frmMethod f)
+      when (S.member (frmClass f, meth, pc) (breakpoints ps)) $ do
+        whenVerbosity (>= 3) $ dbugM $ "Breaking at PC = " ++ show pc
+        modifyPathState (setFinalResult . Breakpoint $ pc)
     _ -> return ()
 
 resumeBreakpoint :: (MonadIO sym, PrettyTerm (MonadTerm sym))
@@ -1655,11 +1650,12 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
     done <- isPathFinished <$> getPathState
     let term = terminateCurrentPath True >> return ()
     if done
-      then handleBreakpoints >> term
+      then term
       else stepCommon doStep term
 
 stepCommon :: AigOps sym => Simulator sym a -> Simulator sym a -> Simulator sym a
 stepCommon onOK onException = do
+  ps <- getPathState
   method <- getCurrentMethod
   pc     <- getPc
   let inst    = lookupInstruction method pc
@@ -1681,6 +1677,7 @@ stepCommon onOK onException = do
            NextInst           -> step inst >> count -- Run normally
            CustomRA _desc act -> onCurrPath =<< act -- Run overridden sequence
      dbugFrm
+     handleBreakpoints ps
      onOK
   `catchMIO` \e ->
     case CE.fromException e of

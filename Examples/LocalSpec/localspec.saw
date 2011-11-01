@@ -1,7 +1,7 @@
 /* Check that we generate multiple verification conditions. */
 method LocalSpec.test1 {
     var args[0] :: int[12];
-    localSpec 4 {
+    localSpec 3 {
         modifies: valueOf(args[0]);
     };
     modifies: valueOf(args[0]);
@@ -9,25 +9,24 @@ method LocalSpec.test1 {
 };
 
 /* Test that we can check intermediate values. */
-/* Disabled until we implement evaluation of ensures clauses at the
-beginning of execution fragments. */
-/*
 method LocalSpec.test2 {
     var args[0] :: int[1];
-    localSpec 4 {
+    localSpec 3 {
         ensures valueOf(args[0]) := [1 : [32]];
     };
-    ensures valueOf(args[0]) := [2 : [32]];
+    modifies: valueOf(args[0]);
+    /* Disabled until we implement evaluation of ensures clauses at the
+       beginning of execution fragments. */
+    //ensures valueOf(args[0]) := [2 : [32]];
     verifyUsing: abc;
 };
-*/
 
 /* Test that we can handle arbitrary iteration counts. */
 method LocalSpec.test3 {
     var args[0] :: int[1];
     var args[1] :: int[1];
     /* The one back edge in this method is from "goto 4". */
-    localSpec 4 {
+    localSpec 19 {
         modifies: valueOf(args[0]);
     };
     modifies: valueOf(args[0]);
@@ -36,8 +35,7 @@ method LocalSpec.test3 {
 
 method LocalSpec.test4 {
     var args[0] :: int[1];
-    /* The one back edge in this method is from location 14. */
-    localSpec 14 {
+    localSpec 13 {
         ensures valueOf(args[0]) := [join(valueOf(args[0])) - (1 : [32])];
     };
     modifies: valueOf(args[0]);
