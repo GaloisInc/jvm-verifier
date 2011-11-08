@@ -1,0 +1,13 @@
+// This SAWScript file contains definitions common to many proofs.  It
+// also imports the SBV representations of functions from the
+// Cryptol reference implementation.
+
+// Define field prime for P384 curve (taken from NIST and NSA documents).
+let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
+
+extern SBV ref_field_add("../spec/sbv/generated/ref_p384_add.sbv") 
+  : ([384],[384]) -> [384];
+
+extern SBV ref_field_sub("../spec/sbv/generated/ref_p384_sub.sbv") 
+  : ([384],[384]) -> [384];
+

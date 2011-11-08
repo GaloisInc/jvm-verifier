@@ -2,56 +2,65 @@ Unless otherwise noted, all Java functions are assumed to be in the
 galois.ecc.P384ECC64 class or its superclasses.
 
 * Tasks
-** TODO Marshall Cryptol spec into Verifier repo (and sbv-generation scripts etc.)
-   DEADLINE: <2011-11-08 Tue>
-- teardrop/isabelle/ECC
-- teardrop/isabelle/ECC/sbv/make_sbvs
 ** TODO Capture Cryptol verification targets in these tables
    DEADLINE: <2011-11-08 Tue>
-
-* Primary proofs
 
 * Primary Proofs
 This section that correspond directly to the operation names on the ECC proof
 hierarchy diagram.
 
+The "Status" column uses the following status codes: 
+  DONE: no work remaining, this proof is complete
+  INPR: in progress, some work started; see comments for brief details
+  TODO: has not yet been started, further status unknown
+
+The "Prereqs" column indicates sub-proofs that are necessary to efficiently
+discharge a given proof.
+
+The "Best" column indicates the best running time of proof completion seen so
+far on a typical developer system. 
+
 ** Level 1: Finite field arithmetic
-| Name                 | Java      | Cryptol    | Quickchecks | Verifies | Prereqs | Comments           |
-| Field Addition       | field_add |            | ?           | ?        |         | DONE, but re-check |
-| Field Subtraction    | field_sub |            | ?           | ?        |         | DONE, but re-check |
-| Field Doubling       | field_dbl |            | ?           | ?        |         | DONE, but re-check |
-| Field Division       | mod_div   | field_div? | ?           | ?        |         |                    |
-| Field Squaring       | field_sq  |            | ?           | ?        |         |                    |
-| Field Multiplication | field_mul |            | ?           | ?        |         |                    |
+| Status | Name                 | Java      | Cryptol      | Impl directly calls     | Prereqs | Quickchecks | Verifies | Best | Comments |
+| DONE   | Field Addition       | field_add | ref_p384_add | leq, add, decFieldPrime | None    | 1000        | Yes, abc | 37s  |          |
+| DONE   | Field Subtraction    | field_sub | ref_p384_sub | sub, incFieldPrime      | None    | 1000        | Yes, abc | 47s  |          |
+| DONE   | Field Doubling       | field_dbl | [fn:1]       | dbl, leq, decFieldPrime | None    | 1000        | Yes, abc | 4s   |          |
+| TODO   | Field Division       | mod_div   | field_div?   |                         |         | ?           | ?        |      |          |
+| TODO   | Field Squaring       | field_sq  |              |                         |         | ?           | ?        |      |          |
+| TODO   | Field Multiplication | field_mul |              |                         |         | ?           | ?        |      |          |
 
 ** Level 2: Curve operations over points
-| Name                   | Java        | Cryptol | Quickchecks | Verifies | Prereqs | Comments           |
-| Point Doubling         | ec_double   |         | ?           | ?        |         | DONE, but re-check |
-| Point Full Addition    | ec_full_add |         | ?           | ?        |         |                    |
-| Point Full Subtraction | ec_full_sub |         | ?           | ?        |         |                    |
+| Status | Name                   | Java        | Cryptol | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments           |
+| TODO   | Point Doubling         | ec_double   |         |                     |         | ?           | ?        | DONE, but re-check |
+| TODO   | Point Full Addition    | ec_full_add |         |                     |         | ?           | ?        |                    |
+| TODO   | Point Full Subtraction | ec_full_sub |         |                     |         | ?           | ?        |                    |
 
 ** Level 3: Scalar multiplication operations
-| Name                          | Java          | Cryptol | Quickchecks | Verifies | Prereqs | Comments                                          |
-| SD Multiply                   | ec_mul        |         | ?           | ?        |         |                                                   |
-| SD Multiply w/ sliding window | ec_mul_window |         | ?           | ?        |         | Efficient/currently used, but more complex than ^ |
-| Twin multiplication           | ec_twin_mul   |         | ?           | ?        |         | High risk                                         |
+| Status | Name                          | Java          | Cryptol | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments                        |
+| TODO   | SD Multiply                   | ec_mul        |         |                     |         | ?           | ?        |                                 |
+| TODO   | SD Multiply w/ sliding window | ec_mul_window |         |                     |         | ?           | ?        | In use, but more complex than ^ |
+| TODO   | Twin multiplication           | ec_twin_mul   |         |                     |         | ?           | ?        | High risk                       |
 
 ** Level 4: ECDSA
-| Name           | Java                | Cryptol | Quickchecks | Verifies | Prereqs | Comments  |
-| Signing        | signHash            |         | ?           | ?        |         | High risk |
-| Initialization | initializePublicKey |         |             |          |         | High risk |
-| Verification   | verifySignature     |         | ?           | ?        |         | High risk |
+| Status | Name           | Java                | Cryptol | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments  |
+| TODO   | Signing        | signHash            |         |                     |         | ?           | ?        | High risk |
+| TODO   | Initialization | initializePublicKey |         |                     |         |             |          | High risk |
+| TODO   | Verification   | verifySignature     |         |                     |         | ?           | ?        | High risk |
 
-* Auxiliary proofs
-| Name                   | Java          | Cryptol | Quickchecks | Verifies | Prereqs | Comments           |
-| Field Double Decrement | field_dbl_dec |         | ?           | ?        |         | DONE, but re-check |
-| Field Multiply x3      | field_mul3    |         | ?           | ?        |         | DONE, but re-check |
-| Field Multiply x4      | field_mul4    |         | ?           | ?        |         | DONE, but re-check |
-| Field Multiply x8      | field_mul8    |         | ?           | ?        |         | DONE, but re-check |
-| Field Reduction        | field_red     |         | 100         | ?        |         |                    |
-| Large-Word Multiply    | mul           |         | ?           | ?        |         |                    |
-| Add mod group size     | group_add     |         | ?           | ?        |         |                    |
-| Mult mod group size    | group_mul     |         | ?           | ?        |         |                    |
+* Auxiliary Proofs
+| Status | Name                   | Java          | Cryptol | Impl directly calls | Prereqs   | Quickchecks | Verifies | Best     | Comments                                                                      |
+| DONE   | Field Double Decrement | field_dbl_dec | [fn:2]  | field_sub           | field_sub | 1000        | Yes, abc | 3s[fn:3] | Uses composition w/ field_sub; may want to show rewriter as in proofs-old.saw |
+| HERE   | Field Multiply x3      | field_mul3    |         |                     |           | ?           | ?        |          | DONE, but re-check                                                            |
+| TODO   | Field Multiply x4      | field_mul4    |         |                     |           | ?           | ?        |          | DONE, but re-check                                                            |
+| TODO   | Field Multiply x8      | field_mul8    |         |                     |           | ?           | ?        |          | DONE, but re-check                                                            |
+| TODO   | Field Reduction        | field_red     |         |                     |           | 100         | ?        |          |                                                                               |
+| TODO   | Large-Word Multiply    | mul           |         |                     |           | ?           | ?        |          |                                                                               |
+| TODO   | Add mod group size     | group_add     |         |                     |           | ?           | ?        |          |                                                                               |
+| TODO   | Mult mod group size    | group_mul     |         |                     |           | ?           | ?        |          |                                                                               |
   
+* Footnotes
+[fn:1] \x -> ref_p384_add(x,x)
+[fn:2] \(x,y) -> ref_p384_sub(ref_p384_sub(x, y), y)
+[fn:3] Not counting field_sub verification time, since this is a compositional proof
 
 
