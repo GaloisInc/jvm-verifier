@@ -1,0 +1,87 @@
+#!/bin/sh
+
+# This file creates a subdirectory sbv and stores the sbvs needed for
+# ecc verification.
+#
+# SBV Files are created for the following types:
+# * Reference versions of field operations that are split over 32-bit words.
+# * Reference versions of field operations
+# * EC double routine that uses field operations split over 32-bit words with
+#   uninterpreted field operations.
+# * EC double routine that uses field operations split over 384-bit integers 
+#   with uninterpreted field operations.
+
+mkdir -p generated
+
+cryptol << EndScript
+:set sbv
+:set +v
+
+:load ../ecc.cry
+
+# :fm ref_p384_mod "generated/ref_p384_mod.sbv"
+
+:load sbv_p384_abs_declarations.cry
+
+:fm ref_p384_mul_384 "generated/ref_p384_mul.sbv"
+:fm ref_p384_sq_384  "generated/ref_p384_sq.sbv"
+
+:load p384_split_join.cry
+
+:fm p384_split          "generated/p384_split.sbv"
+:fm p384_join           "generated/p384_join.sbv"
+:fm p384_join768        "generated/p384_join768.sbv"
+:fm p384_join_add_split "generated/p384_join_add_split.sbv"
+
+:load affine_split_join.cry
+
+:fm asplit          "generated/affine_split.sbv"
+:fm ajoin           "generated/affine_join.sbv"
+
+:load jacobian_split_join.cry
+
+:fm jsplit          "generated/jacobian_split.sbv"
+:fm jjoin           "generated/jacobian_join.sbv"
+
+:load sbv_field_declarations.cry
+
+:fm sref_p384_is_val "generated/sref_p384_is_val.sbv"
+:fm sref_p384_add    "generated/sref_p384_add.sbv"
+:fm sref_p384_sub    "generated/sref_p384_sub.sbv"
+:fm sref_p384_neg    "generated/sref_p384_neg.sbv"
+:fm sref_p384_mul    "generated/sref_p384_mul.sbv"
+:fm sref_p384_half   "generated/sref_p384_half.sbv"
+
+:fm ref_p384_is_val "generated/ref_p384_is_val.sbv"
+:fm ref_p384_add    "generated/ref_p384_add.sbv"
+:fm ref_p384_sub    "generated/ref_p384_sub.sbv"
+:fm ref_p384_neg    "generated/ref_p384_neg.sbv"
+:fm ref_p384_mul    "generated/ref_p384_mul.sbv"
+:fm ref_p384_half   "generated/ref_p384_half.sbv"
+
+:load sbv_ec_declarations.cry
+
+:fm sref_p384_ec_double "generated/sref_p384_ec_double.sbv"
+:fm sref_p384_ec_full_add "generated/sref_p384_ec_full_add.sbv"
+:fm sref_p384_ec_full_sub "generated/sref_p384_ec_full_sub.sbv"
+
+:fm ref_p384_ec_double "generated/p384_ref_double.sbv"
+:fm ref_p384_ec_full_add "generated/p384_ref_full_add.sbv"
+:fm ref_p384_ec_full_sub "generated/p384_ref_full_sub.sbv"
+
+:set sbv_strictWords=True
+
+:load sbv_ec_mul_aux_declarations.cry
+
+:fm sref_p384_ec_mul_aux "generated/sref_p384_ec_mul_aux.sbv"
+
+:fm ref_p384_ec_mul_aux "generated/p384_ref_mul_aux.sbv"
+
+:load sbv_ec_mul_declarations.cry
+
+:fm sref_p384_ec_mul "generated/sref_p384_ec_mul.sbv"
+
+:fm ref_p384_ec_mul "generated/p384_ref_mul.sbv"
+
+:quit
+EndScript
