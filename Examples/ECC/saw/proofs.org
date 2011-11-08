@@ -1,0 +1,57 @@
+Unless otherwise noted, all Java functions are assumed to be in the
+galois.ecc.P384ECC64 class or its superclasses.
+
+* Tasks
+** TODO Marshall Cryptol spec into Verifier repo (and sbv-generation scripts etc.)
+   DEADLINE: <2011-11-08 Tue>
+- teardrop/isabelle/ECC
+- teardrop/isabelle/ECC/sbv/make_sbvs
+** TODO Capture Cryptol verification targets in these tables
+   DEADLINE: <2011-11-08 Tue>
+
+* Primary proofs
+
+* Primary Proofs
+This section that correspond directly to the operation names on the ECC proof
+hierarchy diagram.
+
+** Level 1: Finite field arithmetic
+| Name                 | Java      | Cryptol    | Quickchecks | Verifies | Prereqs | Comments           |
+| Field Addition       | field_add |            | ?           | ?        |         | DONE, but re-check |
+| Field Subtraction    | field_sub |            | ?           | ?        |         | DONE, but re-check |
+| Field Doubling       | field_dbl |            | ?           | ?        |         | DONE, but re-check |
+| Field Division       | mod_div   | field_div? | ?           | ?        |         |                    |
+| Field Squaring       | field_sq  |            | ?           | ?        |         |                    |
+| Field Multiplication | field_mul |            | ?           | ?        |         |                    |
+
+** Level 2: Curve operations over points
+| Name                   | Java        | Cryptol | Quickchecks | Verifies | Prereqs | Comments           |
+| Point Doubling         | ec_double   |         | ?           | ?        |         | DONE, but re-check |
+| Point Full Addition    | ec_full_add |         | ?           | ?        |         |                    |
+| Point Full Subtraction | ec_full_sub |         | ?           | ?        |         |                    |
+
+** Level 3: Scalar multiplication operations
+| Name                          | Java          | Cryptol | Quickchecks | Verifies | Prereqs | Comments                                          |
+| SD Multiply                   | ec_mul        |         | ?           | ?        |         |                                                   |
+| SD Multiply w/ sliding window | ec_mul_window |         | ?           | ?        |         | Efficient/currently used, but more complex than ^ |
+| Twin multiplication           | ec_twin_mul   |         | ?           | ?        |         | High risk                                         |
+
+** Level 4: ECDSA
+| Name           | Java                | Cryptol | Quickchecks | Verifies | Prereqs | Comments  |
+| Signing        | signHash            |         | ?           | ?        |         | High risk |
+| Initialization | initializePublicKey |         |             |          |         | High risk |
+| Verification   | verifySignature     |         | ?           | ?        |         | High risk |
+
+* Auxiliary proofs
+| Name                   | Java          | Cryptol | Quickchecks | Verifies | Prereqs | Comments           |
+| Field Double Decrement | field_dbl_dec |         | ?           | ?        |         | DONE, but re-check |
+| Field Multiply x3      | field_mul3    |         | ?           | ?        |         | DONE, but re-check |
+| Field Multiply x4      | field_mul4    |         | ?           | ?        |         | DONE, but re-check |
+| Field Multiply x8      | field_mul8    |         | ?           | ?        |         | DONE, but re-check |
+| Field Reduction        | field_red     |         | 100         | ?        |         |                    |
+| Large-Word Multiply    | mul           |         | ?           | ?        |         |                    |
+| Add mod group size     | group_add     |         | ?           | ?        |         |                    |
+| Mult mod group size    | group_mul     |         | ?           | ?        |         |                    |
+  
+
+
