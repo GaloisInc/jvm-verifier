@@ -1310,7 +1310,9 @@ runMethod de ir ssi jec = do
     else do
       let Just thisRef = jecThis jec
       JSS.invokeInstanceMethod clName (methodKey method) thisRef args
-  when (pc /= 0) $ Sem.setPc (pc + 1)
+  when (pc /= 0) $ do
+    let pc' = nextPc method pc
+    Sem.setPc pc'
   -- Update the starting state with any 'ensures' located at the
   -- starting PC.
   --
