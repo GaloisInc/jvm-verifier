@@ -813,6 +813,7 @@ resolveMethodSpecIR oc gb pos thisClass mName cmds = do
     let allRefs = Map.keysSet (refTypeMap st') `Set.union` Map.keysSet (constExprMap st')
     let checkRef (TC.This _) = return ()
         checkRef (TC.Arg _ _) = return ()
+        checkRef (TC.Local _ _) = return () -- TODO: is this right?
         checkRef (TC.InstanceField lhs f) = do
           when (Map.member lhs (mayAliasRefs st')) $
             let msg = "This specification contains a mayAlias declaration "
@@ -1287,21 +1288,46 @@ initializeJavaVerificationState ir cm = do
 
 -- Java execution {{{2
 
--- Run method and get final path state
-runMethod :: MethodSpecIR
+-- Run method and get final path state, along with the evaluation
+-- context describing the initial state after all initial ensures
+-- clauses applied.
+runMethod :: DagEngine Node Lit
+          -> MethodSpecIR
+          -> SpecStateInfo Node
           -> JavaEvalContext Node
-          -> JSS.Simulator SymbolicMonad [(JSS.PathDescriptor, JSS.FinalResult Node)]
-runMethod ir jec = do
+          -> JSS.Simulator SymbolicMonad
+             ( [(JSS.PathDescriptor, JSS.FinalResult Node)]
+             , JavaEvalContext Node
+             )
+runMethod de ir ssi jec = do
   let clName = className (methodSpecIRMethodClass ir)
   let method = methodSpecIRMethod ir
   let args = V.toList (jecArgs jec)
+  let pc = jecInitPC jec
+  let specs = Map.findWithDefault emptyLocalSpecs pc (localSpecs ir)
   if methodIsStatic method
     then JSS.invokeStaticMethod clName (methodKey method) args
     else do
       let Just thisRef = jecThis jec
       JSS.invokeInstanceMethod clName (methodKey method) thisRef args
-  Sem.setPc (jecInitPC jec)
-  JSS.run
+  when (pc /= 0) $ Sem.setPc (pc + 1)
+  -- Update the starting state with any 'ensures' located at the
+  -- starting PC.
+  --
+  -- NB: eventually we'll do this, but only once we've settled on a
+  -- state semantics for MethodSpecs.
+  {-
+  forM_ (Map.toList $ arrayPostconditions specs) $ \(javaExpr,post) ->
+    evalArrayPost de ssi javaExpr post
+  forM_ (instanceFieldPostconditions specs) $ \(refExpr,f,post) ->
+    evalInstanceFieldPost ssi refExpr f post
+  -}
+  -- Retrieve the path state after these updates and build a new
+  -- JEC based on it.
+  newPS <- JSS.getPathState
+  let jec' = jec { jecPathState = newPS }
+  res <- JSS.run
+  return (res, jec')
 
 -- ExpectedStateDef {{{2
 
@@ -1360,6 +1386,7 @@ expectedStateDef de ir jvs ssi fr = do
 data VerificationCheck
   = PathCheck Node
   | EqualityCheck String -- ^ Name of value to compare
+                  Node -- ^ Condition under which this equality should hold.
                   Node -- ^ Value returned by JVM symbolic simulator.
                   Node -- ^ Expected value in Spec.
   deriving (Eq, Ord, Show)
@@ -1367,16 +1394,18 @@ data VerificationCheck
 -- | Returns goal that one needs to prove.
 checkGoal :: DagEngine Node Lit -> VerificationCheck -> Node
 checkGoal _ (PathCheck n) = n
-checkGoal de (EqualityCheck _ x y) = deApplyBinary de (eqOp (termType x)) x y
+checkGoal de (EqualityCheck _ c x y) =
+  deApplyBinary de bImpliesOp c $ deApplyBinary de (eqOp (termType x)) x y
 
 checkName :: VerificationCheck -> String
 checkName (PathCheck _) = "the path condition"
-checkName (EqualityCheck nm _ _) = nm
+checkName (EqualityCheck nm _ _ _) = nm
 
 -- | Returns documentation for check that fails.
 checkCounterexample :: VerificationCheck -> (Node -> CValue) -> Doc
-checkCounterexample (PathCheck _) _ = text "The path conditions were unsatisfied."
-checkCounterexample (EqualityCheck nm jvmNode specNode) evalFn =
+checkCounterexample (PathCheck n) evalFn =
+  text "The path conditions were unsatisfied:" <+> prettyTermD n
+checkCounterexample (EqualityCheck nm _cond jvmNode specNode) evalFn =
   text nm $$
     nest 2 (text "Encountered: " <> ppCValueD Mixfix (evalFn jvmNode)) $$
     nest 2 (text "Expected:    " <> ppCValueD Mixfix (evalFn specNode))
@@ -1396,9 +1425,9 @@ methodAssumptions de ir ssi = do
         map (evalExpr de ssi) (assumptions spec)
 
 -- | Add verification condition to list.
-addEqVC :: String -> Node -> Node -> State [VerificationCheck] ()
-addEqVC name jvmNode specNode = do
-  modify $ \l -> EqualityCheck name jvmNode specNode : l
+addEqVC :: String -> Node -> Node -> Node -> State [VerificationCheck] ()
+addEqVC name cond jvmNode specNode = do
+  modify $ \l -> EqualityCheck name cond jvmNode specNode : l
 
 -- | Compare old and new states.
 comparePathStates :: MethodSpecIR
@@ -1408,16 +1437,16 @@ comparePathStates :: MethodSpecIR
                   -> Maybe (JSS.Value Node)
                   -> [VerificationCheck]
 comparePathStates ir jvs esd newPathState mbRetVal =
-  flip execState initialVCS $ do
+  flip execState [] $ do
     -- Check return value.
     case mbRetVal of
       Nothing -> return ()
       Just (JSS.IValue rv) -> do
         let Just (JSS.IValue expRetVal) = esdReturnValue esd
-         in addEqVC "return value" rv expRetVal
-      Just (JSS.LValue rv) -> 
+         in addEqVC "return value" c rv expRetVal
+      Just (JSS.LValue rv) ->
         let Just (JSS.LValue expRetVal) = esdReturnValue esd
-         in addEqVC "return value" rv expRetVal
+         in addEqVC "return value" c rv expRetVal
       Just _ ->  error "internal: The Java method has a return type unsupported by JavaVerifier."
     -- Check initialization
     do let specInits = Set.fromList (initializedClasses ir)
@@ -1472,9 +1501,9 @@ comparePathStates ir jvs esd newPathState mbRetVal =
         (JSS.FValue _, _) -> throwIfModificationUnsupported "floating point"
         (JSS.RValue _, _) -> throwIfModificationUnsupported "reference"
         (JSS.IValue jvmNode, Just (JSS.IValue specNode)) ->
-          addEqVC fieldName jvmNode specNode
+          addEqVC fieldName c jvmNode specNode
         (JSS.LValue jvmNode, Just (JSS.LValue specNode)) ->
-          addEqVC fieldName jvmNode specNode
+          addEqVC fieldName c jvmNode specNode
         (_, Just _) -> error "internal: comparePathStates encountered illegal field type."
     -- Check ref arrays
     do let jvmRefArrays = JSS.refArrays newPathState
@@ -1490,10 +1519,11 @@ comparePathStates ir jvs esd newPathState mbRetVal =
         Nothing -> error "internal: Unexpected undefined array reference."
         Just Nothing -> return ()
         Just (Just specNode) ->
-          addEqVC refName jvmNode specNode
+          addEqVC refName c jvmNode specNode
  where pos = methodSpecPos ir
        mName = methodSpecName ir
-       initialVCS  = [PathCheck (JSS.psAssumptions newPathState)]
+       --initialVCS  = [PathCheck (JSS.psAssumptions newPathState)]
+       c = JSS.psAssumptions newPathState
 
 -- verifyMethodSpec and friends {{{2
 
@@ -1529,14 +1559,13 @@ methodSpecVCs
       when (vrb >= 6) $
          liftIO $ putStrLn $
            "Creating evaluation state for simulation of " ++ methodSpecName ir
+      -- Add method spec overrides.
+      mapM_ (overrideFromSpec pos (methodSpecName ir)) overrides
       -- Create map from specification entries to JSS simulator values.
       jvs <- initializeJavaVerificationState ir cm
       -- JavaEvalContext for inital verification state.
       initialPS <- JSS.getPathState
-      let specs = Map.findWithDefault emptyLocalSpecs pc (localSpecs ir)
-          jec =
-            -- TODO: does any of this need to be different for an
-            -- intermediate starting state?
+      let jec' =
             let evm = jvsExprValueMap jvs
                 mbThis = case Map.lookup (TC.This cls) evm of
                            Nothing -> Nothing
@@ -1550,25 +1579,20 @@ methodSpecVCs
              in JSI { jecThis = mbThis
                     , jecArgs = args
                     , jecPathState = initialPS
-                    , jecInitPC = pc 
+                    , jecInitPC = pc
                     }
-      -- Add method spec overrides.
-      mapM_ (overrideFromSpec pos (methodSpecName ir)) overrides
-      -- Register breakpoints
-      JSS.registerBreakpoints $ map (\bpc -> (cls, meth, bpc)) assertPCs
+          ssi' = createSpecStateInfo de ir jec'
       when (vrb >= 6) $ do
          liftIO $ putStrLn $ "Executing " ++ methodSpecName ir
          when (pc /= 0) $
               liftIO $ putStrLn $ "  starting from PC " ++ show pc
-      let ssi = createSpecStateInfo de ir jec
-      -- Update local arrayPostconditions for starting PC
-      forM_ (Map.toList $ arrayPostconditions specs) $ \(javaExpr,post) ->
-        evalArrayPost de ssi javaExpr post
-      -- Update local scalarPostconditions for starting PC
-      forM_ (instanceFieldPostconditions specs) $ \(refExpr,f,post) ->
-        evalInstanceFieldPost ssi refExpr f post
+      -- Register breakpoints
+      when (vrb >= 4 && not (null assertPCs)) $
+         liftIO $ putStrLn $ "Registering breakpoints: " ++ show assertPCs
+      JSS.registerBreakpoints $ map (\bpc -> (cls, meth, bpc)) assertPCs
       -- Execute method.
-      jssResult <- runMethod ir jec
+      (jssResult, jec) <- runMethod de ir ssi' jec'
+      let ssi = createSpecStateInfo de ir jec
           -- isReturn returns True if result is a normal return value.
       let isReturn JSS.ReturnVal{} = True
           isReturn JSS.Terminated = True
@@ -1594,7 +1618,10 @@ methodSpecVCs
                      (JSS.Breakpoint bpc) ->
                        methodSpecName ir ++
                        "[" ++ show pc ++ "->" ++ show bpc ++ "]"
-                     _ -> methodSpecName ir
+                     _ -> case pc of
+                            0 -> methodSpecName ir
+                            _ -> methodSpecName ir ++
+                                 "[" ++ show pc ++ "->end]"
         -- Build final equation and functions for generating counterexamples.
         newPathState <- JSS.getPathStateByName ps
         JSS.liftSymbolic $ do
@@ -1618,8 +1645,10 @@ runABC :: DagEngine Node Lit
        -> Node
        -> IO ()
 runABC de v ir inputs vc goal = do
-  when (v >= 3) $
+  when (v >= 3) $ do
     putStrLn $ "Running ABC on " ++ methodSpecName ir
+    putStrLn $ "Goal is:"
+    putStrLn $ prettyTerm goal
   let LV value = deBitBlast de goal
   unless (SV.length value == 1) $
     error "internal: Unexpected number of in verification condition"
@@ -1695,8 +1724,7 @@ verifyMethodSpec
       setVerbosity v
       de <- getDagEngine
       vcs <- mVC
-      let goal de vc check = deApplyBinary de bImpliesOp (vcAssumptions vc) (checkGoal de check)
-      -- Run verification
+      let goal vc check = deApplyBinary de bImpliesOp (vcAssumptions vc) (checkGoal de check)
       case methodSpecVerificationTactics ir of
         [AST.Rewrite] -> liftIO $ do
           rew <- mkRewriter pgm (deTermSemantics de)
@@ -1704,7 +1732,7 @@ verifyMethodSpec
             forM_ (vcChecks vc) $ \check -> do
               when (v >= 2) $
                 putStrLn $ "Verify " ++ checkName check
-              newGoal <- reduce rew (goal de vc check)
+              newGoal <- reduce rew (goal vc check)
               case getBool newGoal of
                 Just True -> return ()
                 _ -> do
@@ -1717,21 +1745,21 @@ verifyMethodSpec
                      res = "Please add new rewrite rules or modify existing ones to reduce the goal to True."
                   in throwIOExecException pos msg res
         [AST.QuickCheck n lim] -> liftIO $ do
-          liftIO $ forM_ vcs $ \vc ->
+          forM_ vcs $ \vc ->
             testRandom de v ir n lim vc
         [AST.ABC] -> liftIO $ do
           forM_ vcs $ \vc -> do
             forM_ (vcChecks vc) $ \check -> do
               when (v >= 2) $
-                liftIO $ putStrLn $ "Verify " ++ checkName check
-              runABC de v ir (vcInputs vc) check (goal de vc check)
+                putStrLn $ "Verify " ++ checkName check
+              runABC de v ir (vcInputs vc) check (goal vc check)
         [AST.Rewrite, AST.ABC] -> liftIO $ do
           rew <- mkRewriter pgm (deTermSemantics de)
           forM_ vcs $ \vc -> do
             forM_ (vcChecks vc) $ \check -> do
               when (v >= 2) $
                 liftIO $ putStrLn $ "Verify " ++ checkName check
-              newGoal <- reduce rew (goal de vc check)
+              newGoal <- reduce rew (goal vc check)
               runABC de v ir (vcInputs vc) check newGoal
         [AST.SmtLib ver nm] -> do
           forM_ vcs $ \vc -> do
@@ -1793,7 +1821,7 @@ testRandom de v ir test_num lim vc =
     $$ nest 2 (vcat
      [ text "Method:" <+> text (methodSpecName ir)
      , case g of
-         EqualityCheck n x y ->
+         EqualityCheck n _c x y ->
             text "Unexpected value for:" <+> text n
             $$ nest 2 (text "Expected:" <+> ppCValueD Mixfix (eval y)
                     $$ text "Found:"    <+> ppCValueD Mixfix (eval x))

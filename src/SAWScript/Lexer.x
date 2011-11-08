@@ -43,7 +43,7 @@ $nl        = [\n\r]
              | method|var|mayAlias|const|localSpec|assume|ensures|modifies|returns
              | verifyUsing|rewriter|skip|abc|quickcheck|smtlib|yices
              |int|long|boolean
-             |args|this|True|False|if|then|else
+             |args|locals|this|True|False|if|then|else
 @reservedop  = "~"  | "-" | "*" | "+" | "/s" | "%s" | ">>" | "<<" | ">>u" | "|" | "&" | "^"
              | "#"  | "==" | "!=" | ">=s" | ">=u" | ">s" | ">u" | "<=s" | "<=u" | "<s" | "<u"
              | "&&" | "||" | "not"

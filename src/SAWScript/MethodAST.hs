@@ -58,6 +58,7 @@ exprPos (MkArray p _) = p
 exprPos (MkRecord p _) = p
 exprPos (ThisExpr p) = p
 exprPos (ArgExpr p _) = p
+exprPos (LocalExpr p _) = p
 exprPos (TypeExpr p _ _) = p
 exprPos (DerefField p _ _) = p
 exprPos (ApplyExpr p _ _) = p
@@ -105,6 +106,7 @@ data Expr
     -- | Making a record
     | MkRecord Pos [(Pos, String, Expr)]
     | ArgExpr Pos Int
+    | LocalExpr Pos String
 
     -- Precedence 13
     -- | Type annotation on an expression.
