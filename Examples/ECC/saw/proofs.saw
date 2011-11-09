@@ -245,29 +245,113 @@ set verification off;
 
 // mod_div {{{2
 method com.galois.ecc.P384ECC64.mod_div {
+  /* Arguments: ra, x, y, p */
+
+  /* We'll use the convention that args[0] refers to the initial value
+  of the first argument, while locals[ra] refers to the current value
+  of the local variable associated with the argument. Similarly for
+  other arguments. All of the following variables are distinct. None
+  of these refereces alias. */
+
   var args[0], args[1], args[2], args[3] :: int[12];
   var this.t1, this.t2, this.t3 :: int[12];
-  var locals[a] :: int[12];
-  var locals[b] :: int[12];
-  var locals[rb] :: int[12];
+
+  /*
+  State:
+  ra -- interpreted as rb when sw is true
+  x -- never changes
+  y -- never changes
+  p -- never changes
+  a -- interpreted as b when sw is true
+  b -- interpreted as a when sw is true
+  rb -- interpreted as ra when sw is true
+  swapped -- indicates whether a and b are swapped
+  */
   //var locals[swapped] :: int;
-  let a = valueOf(locals[a]);
-  let ra = valueOf(args[0]);
-  let b = valueOf(locals[b]);
-  let rb = valueOf(locals[rb]);
-  let p = valueOf(args[3]);
-  let sw = 0 : [32]; //valueOf(locals[swapped]);
+
+  /* The following locals each alias one of the arrays declared above.
+  In practice, we don't need separate names for x, y, and p. They
+  always point to args[1], args[2], and args[3], respectively, and
+  never change. We might leave them out of this list to indicate that
+  they never change? */
+
+  var locals[ra], locals[x], locals[y], locals[p], locals[a],
+      locals[b], locals[rb] :: int[12];
+
   const valueOf(this.field_prime) := split(field_prime) : [12][32];
-  localSpec 143 {
-    //let res = field_div_step(a, ra, b, rb, p, sw);
-    //ensures valueOf(locals[a]) := res.a;
-    //ensures valueOf(args[0]) := res.ra;
-    //ensures valueOf(locals[b]) := res.b;
-    //ensures valueOf(locals[rb]) := res.rb;
-    //ensures valueOf(locals[sw]) := res.sw;
-    modifies: valueOf(args[0]);
+
+  /* One local specification for the point right before the while loop
+  starts. This spec states that the initialization happens correctly.
+  Ultimately, the model of this initialization may come from an
+  external file, for easy comparison with Cryptol (as in the comments
+  below), but for the moment we encode it explicitly using SAWScript
+  primitives. Essentially, this describes what initial arguments are
+  provided to the Cryptol EGCD function, in terms of the arguments
+  provided to the division function . */
+  localSpec 42 {
+    // let initres = field_div_init(args[0], args[1], args[2], args[3],
+    //                              this.t1, this.t2, this.t3,
+    //                              locals[swapped]);
+    // ensures valueOf(this.t1) := initres.a;
+    // ensures valueOf(args[0]) := initres.ra
+    // ensures valueOf(this.t2) := initres.b;
+    // ensures valueOf(this.t3) := initres.rb;
+    // ensures locals[swapped] := false;
+    ensures valueOf(this.t1) := valueOf(args[3]);
+    ensures valueOf(args[0]) := split(0 : [384]) : [12][32];
+    ensures valueOf(this.t2) := valueOf(args[2]);
+    ensures valueOf(this.t3) := valueOf(args[1]);
+    ensures locals[a] := this.t1;
+    ensures locals[b] := this.t2;
+    ensures locals[ra] := args[0];
+    ensures locals[rb] := this.t3;
+    //ensures swapped := 0;
   };
 
+  /* One local specification for the end of the body of the while
+  loop. This states that the loop body performs the same operation as
+  the field_div_step function from the Cryptol spec. */
+  localSpec 142 {
+    /* Question: should we pass the 'canonical' names here (such as
+    args[0]), along with the 'swapped' variable? Or should we pass the
+    'local' names (such as ra), and leave out 'swapped'? */
+    /*
+    let stepres = field_div_step(args[0], args[1], args[2], args[3],
+                                 this.t1, this.t2, this.t3,
+                                 locals[swapped]);
+    ensures valueOf(this.t1) := stepres.a;
+    ensures valueOf(args[0]) := stepres.ra;
+    ensures valueOf(this.t2) := stepres.b;
+    ensures valueOf(this.t3) := stepres.rb;
+    */
+    //ensures locals[swapped] :=  stepres.sw;
+
+    /* One possible implementation choice for the moment would be that
+    when we re-start we only execute 'ensures' clauses that describe
+    reference values. And, for those, if they're conditional, they all
+    need the same condition, and we fork: one execution where that
+    condition is true and one where it's false. */
+
+    /*
+    if local[swapped] {
+      ensures
+    } else {
+    }
+    */
+    //ensures locals[a] := ite(locals[swapped], this.t2, this.t1);
+    //ensures locals[b] := ite(locals[swapped], this.t1, this.t2);
+    //ensures locals[ra] := ite(locals[swapped], this.t3, args[0]);
+    //ensures locals[rb] := ite(locals[swapped], args[0], this.t3);
+  };
+
+  /* This final cleanup code just copies ra into rb if swapped is
+  true. */
+  /*
+  let finalres = field_div_finish(args[0], args[1], args[2], args[3],
+                                  this.t1, this.t2, this.t3,
+                                  locals[swapped]);
+  ensures valueOf(args[0]) := finalres.ra;
+  */
   modifies: valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 
   verifyUsing: abc;
