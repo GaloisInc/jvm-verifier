@@ -151,6 +151,7 @@ executable sawScript
         SAWScript.Lexer
         SAWScript.MethodAST
         SAWScript.MethodSpec
+        SAWScript.MethodSpecIR
         SAWScript.Parser
         SAWScript.ParserActions
         SAWScript.SmtLib

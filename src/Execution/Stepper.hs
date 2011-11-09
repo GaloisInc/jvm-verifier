@@ -8,6 +8,7 @@ Point-of-contact : jhendrix, jstanley
 module Execution.Stepper (step) where
 
 import Control.Monad
+import Control.Monad.Trans (liftIO)
 
 import Execution.Codebase
 import Execution.JavaSemantics
@@ -299,9 +300,10 @@ step Fsub = {-# SCC "Fsub" #-}  do
 
 step (Getfield fldId) = {-# SCC "Getfield" #-}  do
   objectRef <- rPop
+  cb <- getCodebase
   forkM (isNull objectRef)
         (createAndThrow "java/lang/NullPointerException")
-        (do pushInstanceFieldValue objectRef =<< locateField fldId
+        (do pushInstanceFieldValue objectRef =<< liftIO (locateField cb fldId)
             gotoNextInstruction
         )
 
@@ -506,13 +508,12 @@ step (Invokespecial (ClassType methodClass) key) = {-# SCC "Invokespecial" #-}  
   currentClassName <- getCurrentClassName
   reverseArgs      <- replicateM (length (methodKeyParameterTypes key)) popValue
   objectRef        <- rPop
-  currentClass     <- lookupClass currentClassName
+  cb <- getCodebase
+  currentClass <- liftIO $ lookupClass cb currentClassName
   let args         = reverse reverseArgs
       call cl      = do gotoNextInstruction
                         invokeInstanceMethod cl key objectRef args
-
-  b <- isStrictSuper methodClass currentClass
-
+  b <- liftIO $ isStrictSuper cb methodClass currentClass
   if classHasSuperAttribute currentClass && b && methodKeyName key /= "<init>"
     then do
       dynBind' methodClass key objectRef $ \cl ->
@@ -774,6 +775,7 @@ step Pop2 = {-# SCC "Pop2" #-}  popType2 >> gotoNextInstruction
 step (Putfield fldId) = {-# SCC "Putfield" #-}  do
   val <- popValue
   objectRef <- rPop
+  cb <- getCodebase
   forkM (isNull objectRef)
         (createAndThrow "java/lang/NullPointerException")
         (do value <- case (fieldIdType fldId, val) of
@@ -782,7 +784,7 @@ step (Putfield fldId) = {-# SCC "Putfield" #-}  do
                       (CharType,    IValue i) -> return . IValue =<< charFromInt  i
                       (ShortType,   IValue i) -> return . IValue =<< shortFromInt i
                       _ -> return val
-            fld <- locateField fldId
+            fld <- liftIO $ locateField cb fldId
             setInstanceFieldValue objectRef fld value
             gotoNextInstruction)
 

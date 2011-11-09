@@ -54,9 +54,15 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'args'         { TReserved _ "args"         }
    'locals'       { TReserved _ "locals"       }
    'this'         { TReserved _ "this"         }
+   -- Java types
+   'boolean'      { TReserved _ "boolean"      }
+   'byte'         { TReserved _ "byte"         }
+   'char'         { TReserved _ "char"         }
+   'double'       { TReserved _ "double"       }
+   'float'        { TReserved _ "float"        }
    'int'          { TReserved _ "int"          }
    'long'         { TReserved _ "long"         }
-   'boolean'      { TReserved _ "boolean"      }
+   'short'        { TReserved _ "short"        }
    'True'         { TReserved _ "True"         }
    'False'        { TReserved _ "False"        }
    'forAll'       { TReserved _ "forAll"       }
@@ -260,12 +266,16 @@ LSpecDecl : 'assume'      Expr              { Assume      (tokPos $1) $2    }
           | 'let'         var '='  Expr     { MethodLet   (tokPos $1) (tokStr $2) $4 }
 
 JavaType :: { JavaType }
-JavaType : Qvar               { RefType    (fst $1)    (snd $1) }
-         | 'int'  '[' int ']' { IntArray   (tokPos $1) (snd $3) }
-         | 'long' '[' int ']' { LongArray  (tokPos $1) (snd $3) }
-         | 'int'              { IntScalar  (tokPos $1)          }
-         | 'boolean'          { BoolScalar (tokPos $1)          }
-         | 'long'             { LongScalar (tokPos $1)          }
+JavaType : 'boolean'            { BoolType (tokPos $1)      }
+         | 'byte'               { ByteType (tokPos $1)      }
+         | 'char'               { CharType (tokPos $1)      }
+         | 'int'                { IntType (tokPos $1)       }
+         | 'long'               { LongType (tokPos $1)      }
+         | 'short'              { ShortType (tokPos $1)     }
+         | 'float'              { FloatType (tokPos $1)     }
+         | 'double'             { DoubleType (tokPos $1)    }
+         | JavaType '[' int ']' { ArrayType $1 (snd $3)     }
+         | Qvar                 { RefType (fst $1) (snd $1) }
 
 -- Comma separated Sequence of VerificationTactic's, at least one
 VerificationTactics :: { [VerificationTactic] }
