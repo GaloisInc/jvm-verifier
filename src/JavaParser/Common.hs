@@ -20,7 +20,7 @@ data Type
   | BooleanType
   | ByteType
   | CharType
-  | ClassType String
+  | ClassType String -- ^ ClassType with name of packages separated by slash '/'
   | DoubleType
   | FloatType
   | IntType
@@ -43,10 +43,44 @@ byteArrayTy = ArrayType ByteType
 charArrayTy :: Type
 charArrayTy = ArrayType CharType
 
+-- | Returns true if Java type is a primitive type.  Primitive types are
+-- the Boolean type or numeric types.
+isPrimitiveType :: Type -> Bool
+isPrimitiveType (ArrayType _) = False
+isPrimitiveType BooleanType   = True
+isPrimitiveType ByteType      = True
+isPrimitiveType CharType      = True
+isPrimitiveType (ClassType _) = False
+isPrimitiveType DoubleType    = True
+isPrimitiveType FloatType     = True
+isPrimitiveType IntType       = True
+isPrimitiveType LongType      = True
+isPrimitiveType ShortType     = True
+
+-- | Returns number of bits that a Java type is expected to take on the stack.
+-- Type should be a primitive type.
+stackWidth :: Type -> Int
+stackWidth BooleanType = 32
+stackWidth ByteType    = 32
+stackWidth CharType    = 32
+stackWidth DoubleType  = 64
+stackWidth FloatType   = 32
+stackWidth IntType     = 32
+stackWidth LongType    = 64
+stackWidth ShortType   = 32
+stackWidth _ = error "internal: illegal type"
+
+-- | Returns true if Java type denotes a floating point.
 isFloatType :: Type -> Bool
 isFloatType FloatType = True
 isFloatType DoubleType = True
 isFloatType _ = False
+
+-- | Returns true if Java type denotes a reference.
+isRefType :: Type -> Bool
+isRefType (ArrayType _) = True
+isRefType (ClassType _) = True
+isRefType _ = False
 
 -- | Unique identifier of field
 data FieldId = FieldId {

@@ -8,6 +8,10 @@ Point-of-contact : jhendrix, jstanley
 module JavaParser (
   -- * Basic types
     Type(..)
+  , isPrimitiveType
+  , stackWidth
+  , isFloatType
+  , isRefType
   , ConstantPoolValue(..)
   , Attribute(..)
   , Visibility(..)
