@@ -788,7 +788,7 @@ methodSpecVCs
       when (vrb >= 3) $
         liftIO $ putStrLn $ "Running " ++ methodSpecName ir ++
                             " starting from " ++ show pc
-      (jssResult, jec) <- runMethod ir sec' jec'
+      (jssResult, jec) <- runMethod ir sec'
       let sec = createSpecEvalContext de ir jec
           -- isReturn returns True if result is a normal return value.
       let isReturn JSS.ReturnVal{} = True
