@@ -1,4 +1,0 @@
-import "common.saw";
-import "P384ECC64.field_sub.spec";
-import "P384ECC64.field_dbl.spec";
-

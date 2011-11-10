@@ -12,12 +12,12 @@ make_sbvs:
 	(cd spec/sbv && sh make_sbvs)
 
 PROOFS :=                     \
-  P384ECC64.is_zero.saw       \
-  P384ECC64.set_zero.saw      \
-  P384ECC64.field_add.saw     \
-  P384ECC64.field_sub.saw     \
-  P384ECC64.field_dbl.saw     \
-  P384ECC64.field_dbl_dec.saw
+  is_zero.saw       \
+  set_zero.saw      \
+  field_add.saw     \
+  field_sub.saw     \
+  field_dbl.saw     \
+  field_dbl_dec.saw
 
 # Run SAWScript verfication using the toplevel orchestration script
 verify:

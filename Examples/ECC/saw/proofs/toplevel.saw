@@ -4,13 +4,14 @@
 import "common.saw";
 
 // Misc
-import "P384ECC64.is_zero.saw";
-import "P384ECC64.set_zero.saw";
+import "is_zero.saw";
+import "set_zero.saw";
 
 // Field operations
-import "P384ECC64.field_add.spec";
-import "P384ECC64.field_sub.spec";
-import "P384ECC64.field_dbl.spec";
-import "P384ECC64.field_dbl_dec.spec";
+import "field_add.spec";
+import "field_sub.spec";
+import "field_dbl.spec";
+import "field_dbl_dec.spec";
+
 
 

@@ -62,5 +62,3 @@ far on a typical developer system.
 [fn:1] \x -> ref_p384_add(x,x)
 [fn:2] \(x,y) -> ref_p384_sub(ref_p384_sub(x, y), y)
 [fn:3] Not counting field_sub verification time, since this is a compositional proof
-
-

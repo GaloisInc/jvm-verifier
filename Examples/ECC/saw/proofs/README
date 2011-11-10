@@ -1,5 +1,7 @@
 This directory contains the SAWScript method specification and proof
-orchestration scripts.
+orchestration scripts.  Unless specifically noted, they all pertain to
+the 64-bit Java implementation of ECC (i.e., the verification targets
+all come from the P384ECC64 class and its superclasses).
 
 SUMMARY
 
