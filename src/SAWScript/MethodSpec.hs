@@ -502,7 +502,9 @@ runMethod ir sec = do
     else do
       let Just thisRef = jecThis jec
       JSS.invokeInstanceMethod clName (methodKey method) thisRef args
-  when (pc /= 0) $ Sem.setPc (pc + 1)
+  when (pc /= 0) $ do
+    let pc' = nextPc method pc
+    Sem.setPc pc'
   -- Update the starting state with any 'ensures' located at the
   -- starting PC.
   --
@@ -783,7 +785,10 @@ methodSpecVCs
          liftIO $ putStrLn $ "Registering breakpoints: " ++ show assertPCs
       JSS.registerBreakpoints $ map (\bpc -> (cls, meth, bpc)) assertPCs
       -- Execute method.
-      (jssResult, jec) <- runMethod ir sec'
+      when (vrb >= 3) $
+        liftIO $ putStrLn $ "Running " ++ methodSpecName ir ++
+                            " starting from " ++ show pc
+      (jssResult, jec) <- runMethod ir sec' jec'
       let sec = createSpecEvalContext de ir jec
           -- isReturn returns True if result is a normal return value.
       let isReturn JSS.ReturnVal{} = True
@@ -850,7 +855,7 @@ runABC de v ir inputs vc goal = do
     Just checkSat -> do
       b <- checkSat (beNeg be (value SV.! 0))
       case b of
-        UnSat -> return ()
+        UnSat -> when (v >= 3) $ putStrLn "Verification succeeded."
         Unknown -> do
           let msg = "ABC has returned a status code indicating that it could not "
                      ++ "determine whether the specification is correct.  This "

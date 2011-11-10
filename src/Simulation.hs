@@ -109,6 +109,7 @@ import System.IO (hFlush, hPutStr, stderr, stdout)
 
 import Analysis.CFG (ppInst)
 import Execution
+import Execution.Codebase
 import JavaParser
 import JavaParser.Common
 import Utils
@@ -951,8 +952,17 @@ terminateCurrentPath collapseOnAllFinished = do
 registerBreakpoints :: MonadIO sym
                     => [(String, MethodKey, PC)]
                     -> Simulator sym ()
-registerBreakpoints bkpts =
-  modifyPathState (\ps -> ps { breakpoints = S.fromList bkpts })
+registerBreakpoints bkpts = do
+  bkpts' <- mapM updateBreakpoint bkpts
+  modifyPathState (\ps -> ps { breakpoints = S.fromList bkpts' })
+  where updateBreakpoint (cl, mk, pc) = do
+          cb <- getCodebase
+          cls <- liftIO $ findVirtualMethodsByRef cb cl mk cl
+          case cls of
+            (cl' : _) -> return (cl', mk, pc)
+            [] -> error $
+                  "internal: method " ++ show (methodKeyName mk) ++
+                  "not found"
 
 -- | Set the appropriate finalResult if we've stopped at a breakpoint.
 -- assertion.
@@ -963,7 +973,7 @@ handleBreakpoints ps =
       let pc = frmPC f
       let meth = methodKey (frmMethod f)
       when (S.member (frmClass f, meth, pc) (breakpoints ps)) $ do
-        whenVerbosity (>= 3) $ dbugM $ "Breaking at PC = " ++ show pc
+        whenVerbosity (>= 2) $ dbugM $ "Breaking at PC = " ++ show pc
         modifyPathState (setFinalResult . Breakpoint $ pc)
     _ -> return ()
 
@@ -1684,8 +1694,8 @@ stepCommon onOK onException = do
          ((_,ra):_) -> case ra of
            NextInst           -> step inst >> count -- Run normally
            CustomRA _desc act -> onCurrPath =<< act -- Run overridden sequence
-     dbugFrm
      handleBreakpoints ps
+     dbugFrm
      onOK
   `catchMIO` \e ->
     case CE.fromException e of

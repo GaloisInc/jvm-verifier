@@ -45,4 +45,43 @@ class LocalSpec {
         }
         return a[0];
     }
+
+    public static boolean check(int a[]) {
+        return true;
+    }
+
+    public static void step(int a[]) {
+        int i;
+        for(i = 0; i < a.length; i++) {
+            a[i]++;
+        }
+        for(i = 0; i < a.length; i++) {
+            a[i]++;
+        }
+        for(i = 0; i < a.length; i++) {
+            a[i]++;
+        }
+        for(i = 0; i < a.length; i++) {
+            a[i]++;
+        }
+        for(i = 0; i < a.length; i++) {
+            a[i]++;
+        }
+        for(i = 0; i < a.length; i++) {
+            a[i] = 0;
+        }
+    }
+
+    public static void div_like(int a[]) {
+        int i;
+        for(i = 0; i < a.length; i++) {
+            a[i] = 0;
+        }
+        i = 0;
+        while (i < 10) {
+            step(a);
+            i++;
+        }
+        step(a);
+    }
 }

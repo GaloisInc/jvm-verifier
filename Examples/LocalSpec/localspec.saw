@@ -33,11 +33,27 @@ method LocalSpec.test3 {
     verifyUsing: abc;
 };
 
+/* Test that we can check the body of a loop for an arbitrary
+   iteration. */
 method LocalSpec.test4 {
     var args[0] :: int[1];
     localSpec 13 {
         ensures valueOf(args[0]) := [join(valueOf(args[0])) - (1 : [32])];
     };
     modifies: valueOf(args[0]);
+    verifyUsing: abc;
+};
+
+/* Test that we can analyze a method with a similar shape to the
+   mod_div method. */
+method LocalSpec.div_like {
+    var args[0] :: int[8];
+    localSpec 19 {
+        ensures valueOf(args[0]) := split(0:[256]) : [8][32];
+    };
+    localSpec 30 {
+        ensures valueOf(args[0]) := split(0:[256]) : [8][32];
+    };
+    ensures valueOf(args[0]) := split(0:[256]) : [8][32];
     verifyUsing: abc;
 };
