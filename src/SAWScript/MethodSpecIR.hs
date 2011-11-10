@@ -200,11 +200,6 @@ typecheckGlobalLogicExpr astExpr = do
   let cfg = TC.mkGlobalTCConfig oc bindings Map.empty
   lift $ TC.tcLogicExpr cfg astExpr
 
-typecheckMixedExpr :: AST.Expr -> MethodSpecTranslator TC.MixedExpr
-typecheckMixedExpr astExpr = do
-  cfg <- gets typecheckerConfig
-  lift $ TC.tcMixedExpr cfg astExpr
-
 -- Actual type utilities {{{1
 
 -- | Returns actual type of Java expression (which it checks is in fact a reference).
@@ -270,9 +265,9 @@ throwInvalidAssignment pos lhs tp =
   let msg = lhs ++ " cannot be assigned a value with type " ++ tp ++ "."
    in throwIOExecException pos (ftext msg) ""
 
-coerceValueExpr :: Pos -> TC.LogicExpr -> JSS.Type
+coercePrimitiveExpr :: Pos -> TC.LogicExpr -> JSS.Type
                 -> MethodSpecTranslator TC.LogicExpr
-coerceValueExpr pos expr javaType = do
+coercePrimitiveExpr pos expr javaType = do
   oc <- gets mstsOpCache
   let valueType = TC.typeOfLogicExpr expr
   case javaType of
@@ -323,8 +318,15 @@ checkValuePostconditionIsUndefined pos expr = do
   cem <- gets constExprMap
   vpm <- gets mstsValuePostconditions
   let postIsDefined e =  Map.member e cem || Map.member e vpm
+  --TODO: Fix this to properly handle expressions correctly.
   when (any postIsDefined equivClass) $
     throwMultiplePostconditions pos expr
+
+getValuePostcondition :: TC.JavaExpr -> MethodSpecTranslatorState -> Postcondition
+getValuePostcondition expr msts =
+  case Map.lookup expr (mstsValuePostconditions msts) of
+    Nothing -> PostUnchanged
+    Just (_,cond) -> cond
 
 -- | Set array postcondition and verify that it has not yet been assigned.
 setValuePostcondition :: Pos -> TC.JavaExpr -> Postcondition
@@ -382,8 +384,7 @@ resolveType astExpr astTp = do
          tgtType = TC.jssTypeOfASTJavaType astTp
      b <- liftIO $ JSS.isSubtype cb tgtType javaExprType
      unless b $ do
-      let pos = AST.exprPos astExpr
-          msg = ftext ("The expression " ++ show javaExpr ++ " is incompatible with")
+      let msg = ftext ("The expression " ++ show javaExpr ++ " is incompatible with")
                  <+> TC.ppASTJavaType astTp <> char '.'
       throwIOExecException (AST.exprPos astExpr) msg ""
   -- Update actual type if this is a reference.
@@ -411,7 +412,7 @@ resolveMayAlias astRefs = do
     return (astPos,expr)
   -- Check types of references are the same.
   firstType <- getRefActualType firstPos firstRef
-  forM restRefs $ \(pos,r) -> do
+  forM_ restRefs $ \(pos,r) -> do
     rct <- getRefActualType pos r
     when (rct /= firstType) $ do
       let msg = "Different types are assigned to " ++ show firstRef ++ " and " ++ show r ++ "."
@@ -458,10 +459,10 @@ resolveConst astLhsExpr astValueExpr = do
         res = "To assign a constant value to an array, pass the variable to 'valueOf'."
      in throwIOExecException pos (ftext msg) res
   -- Coerce valueExpr to compatible type.
-  let pos = AST.exprPos astValueExpr
   valueExpr <- typecheckGlobalLogicExpr astValueExpr
   -- Evaluate expression.
-  val <- TC.globalEval <$> coerceValueExpr pos valueExpr javaType
+  val <- TC.globalEval <$>
+           coercePrimitiveExpr (AST.exprPos astValueExpr) valueExpr javaType
   -- Update state.
   setConstExpr lhsExpr val (jssStackDagType javaType)
 
@@ -469,9 +470,9 @@ resolveConst astLhsExpr astValueExpr = do
 
 -- | Code for parsing a method spec declaration.
 resolveDecl :: AST.MethodSpecDecl -> MethodSpecTranslator ()
-resolveDecl (AST.Type pos astExprs astTp) = return ()
-resolveDecl (AST.MayAlias pos astRefs) = return ()
-resolveDecl (AST.Const pos astJavaExpr astValueExpr) = return ()
+resolveDecl (AST.Type _ _ _) = return ()
+resolveDecl (AST.MayAlias _ _) = return ()
+resolveDecl (AST.Const _ _ _) = return ()
 resolveDecl (AST.MethodLet pos name astExpr) = do
   -- Check var is not already bound within method.
   checkVarIsUndefined pos name
@@ -493,7 +494,8 @@ resolveDecl (AST.Assume _ astExpr) = do
           in throwIOExecException (AST.exprPos astExpr) (ftext msg) ""
   -- Update current expressions
   modify $ \s -> s { currentAssumptions = expr : currentAssumptions s }
-resolveDecl (AST.Ensures pos astJavaExpr@(AST.ApplyExpr _ "valueOf" _) astValueExpr) = do
+resolveDecl (AST.Ensures _ astJavaExpr@(AST.ApplyExpr _ "valueOf" _) astValueExpr) = do
+  let pos = AST.exprPos astJavaExpr
   -- Typecheck lhs
   (javaExpr, javaLen, javaEltType) <- typecheckArrayPostconditionExpr astJavaExpr
   -- Parse expression to assign to array.
@@ -503,20 +505,17 @@ resolveDecl (AST.Ensures pos astJavaExpr@(AST.ApplyExpr _ "valueOf" _) astValueE
   let javaValueType = jssArrayDagType javaLen javaEltType
   let valueType = TC.typeOfLogicExpr valueExpr
   when (javaValueType /= valueType) $ do
-    throwInvalidAssignment (AST.exprPos astJavaExpr)
-                           ("\'valueOf(" ++ show javaExpr ++ ")\'")
-                           (ppType valueType)
+    let formattedExpr = "\'valueOf(" ++ show javaExpr ++ ")\'"
+    throwInvalidAssignment pos formattedExpr (ppType valueType)
   -- Update final type.
   setArrayPostcondition pos javaExpr (PostResult (TC.LE valueExpr))
 
 resolveDecl (AST.Ensures pos astLhsExpr astRhsExpr) = do
-  cb <- gets (TC.codeBase . mstsGlobalBindings)
   -- Typecheck lhs expression.
   let lhsPos = AST.exprPos astLhsExpr
   lhsExpr <- typecheckRecordedJavaExpr TC.tcJavaExpr astLhsExpr
   -- Check lhs postcondition is undefined.
   checkValuePostconditionIsUndefined pos lhsExpr
-  
   -- Get rhs position.
   let rhsPos = AST.exprPos astRhsExpr
   -- Add ensures depending on whether we are assigning to reference.
@@ -526,48 +525,39 @@ resolveDecl (AST.Ensures pos astLhsExpr astRhsExpr) = do
       -- Typecheck rhs expression.
       rhsExpr <- typecheckRecordedJavaExpr TC.tcJavaExpr astRhsExpr
       -- Check lhs can be assigned value on rhs.
-      lhsType <- getRefActualType lhsPos lhsExpr
-      rhsType <- getRefActualType rhsPos rhsExpr
-      typeOk <- liftIO $ TC.isActualSubtype cb rhsType lhsType
+      -- TODO: Consider if this is too strong.
+      cb <- gets (TC.codeBase . mstsGlobalBindings)
+      lhsActualType <- getRefActualType lhsPos lhsExpr
+      rhsActualType <- getRefActualType rhsPos rhsExpr
+      typeOk <- liftIO $ TC.isActualSubtype cb rhsActualType lhsActualType
       unless (typeOk) $ do
         let formattedLhs = "\'" ++ show lhsExpr ++ "\'"
-        throwInvalidAssignment lhsPos formattedLhs (TC.ppActualType rhsType)
-      -- Add postcondition
+        throwInvalidAssignment lhsPos formattedLhs (TC.ppActualType rhsActualType)
       return (TC.JE rhsExpr)
     else do
       -- Typecheck rhs expression.
-       cfg <- gets typecheckerConfig
-       rhsExpr <- lift $ TC.tcLogicExpr cfg astRhsExpr
-       -- Check lhs can be assigned value in rhs (coercing if necessary.
-       valueExpr <- coerceValueExpr rhsPos rhsExpr lhsType
-       -- Add postcondition.
-       return (TC.LE valueExpr)
+      cfg <- gets typecheckerConfig
+      rhsExpr <- lift $ TC.tcLogicExpr cfg astRhsExpr
+      -- Check lhs can be assigned value in rhs (coercing if necessary.
+      TC.LE <$> coercePrimitiveExpr rhsPos rhsExpr lhsType
+  -- Add postcondition
   setValuePostcondition pos lhsExpr (PostResult res)
-    {-
-  let javaExprType = 
-      valueExprType = TC.getTypeOfExpr valueExpr
-  checkValuePostconditionIsUndefined pos javaExpr
-  let post = PostResult (LE valueExpr)
-  modify $ \s ->
-    s { mstsValuePostconditions = Map.insert javaExpr (pos, post) (mstsValuePostconditions s) }
-    -}
 
-resolveDecl (AST.Modifies pos astExprs) = do
-  let resolveExpr astJavaExpr@(AST.ApplyExpr _ "valueOf" _) = do
-        (javaExpr, l, eltType) <- typecheckArrayPostconditionExpr astJavaExpr
-        let post = PostArbitrary (jssArrayDagType l eltType)
-        setArrayPostcondition pos javaExpr post
-      resolveExpr astExpr = do
-        javaExpr <- typecheckRecordedJavaExpr TC.tcJavaExpr astExpr
-        let javaExprType = TC.jssTypeOfJavaExpr javaExpr
-        when (JSS.isRefType javaExprType)  $ do
-          let msg = "Modifies postconditions may not be applied to reference types."
-          throwIOExecException pos (ftext msg) ""
-        -- TODO: Check postcondition for javaExpr has not been set.
-        let post = PostArbitrary (jssStackDagType javaExprType)
-        setValuePostcondition pos javaExpr post
-  mapM_ resolveExpr astExprs
-resolveDecl (AST.LocalSpec _pos pc specs) = do
+resolveDecl (AST.Modifies _ astExprs) = mapM_ resolveExpr astExprs
+  where resolveExpr astExpr@(AST.ApplyExpr _ "valueOf" _) = do
+          (javaExpr, l, eltType) <- typecheckArrayPostconditionExpr astExpr
+          let post = PostArbitrary (jssArrayDagType l eltType)
+          setArrayPostcondition (AST.exprPos astExpr) javaExpr post
+        resolveExpr astExpr = do
+          let pos = AST.exprPos astExpr
+          javaExpr <- typecheckRecordedJavaExpr TC.tcJavaExpr astExpr
+          let javaExprType = TC.jssTypeOfJavaExpr javaExpr
+          when (JSS.isRefType javaExprType)  $ do
+            let msg = "Modifies postconditions may not be applied to reference types."
+            throwIOExecException pos (ftext msg) ""
+          let resultType = jssStackDagType javaExprType
+          setValuePostcondition pos javaExpr (PostArbitrary resultType)
+resolveDecl (AST.LocalSpec _ pc specs) = do
   s <- get
   let initState = s { currentAssumptions = []
                     , mstsValuePostconditions = Map.empty
@@ -586,30 +576,43 @@ resolveReturns :: Pos
                -> [AST.MethodSpecDecl]
                -> MethodSpecTranslator (Maybe TC.MixedExpr)
 resolveReturns mpos method cmds
-  | Nothing <- JSS.methodReturnType method = do
-     case returns of
-       [] -> return Nothing
-       ((pos,_):_) ->
-         let msg = "Return value specified for \'" ++ JSS.methodName method ++ "\', but method returns \'void\'."
-          in throwIOExecException pos (ftext msg) ""
   | Just returnType <- JSS.methodReturnType method = do
      case returns of
        [] -> do
          let msg = "The Java method \'" ++ JSS.methodName method
                      ++ "\' has a return value, but the spec does not define it."
          throwIOExecException mpos (ftext msg) ""
-       ((absPrevPos,_):(pos,_):_) -> do
-         relPos <- liftIO $ posRelativeToCurrentDirectory absPrevPos
-         let msg = "Multiple return values specified in a single method spec.  The previous return value was given at " ++ show relPos ++ "."
-         throwIOExecException pos (ftext msg) ""
-       [(_,astValueExpr)] -> do
-         --TODO: Support references.
-         -- Resolve astValueExpr
-         valueExpr <- typecheckMixedExpr astValueExpr
-         -- TODO: Check javaExpr and valueExpr have compatible types.
-         -- Return return value.
-         return $ Just valueExpr
- where returns = [ (p,e) | AST.Returns p e <- cmds ]
+       (prevExpr:expr:_) -> do
+         relPos <- liftIO $ posRelativeToCurrentDirectory (AST.exprPos prevExpr)
+         let msg = "Multiple return values specified in a single method spec.  "
+                       ++ "The previous return value was given at "
+                       ++ show relPos ++ "."
+         throwIOExecException (AST.exprPos expr) (ftext msg) ""
+       [astExpr] 
+         | JSS.isRefType returnType -> do
+            -- Typecheck return expression.
+            expr <- typecheckRecordedJavaExpr TC.tcJavaExpr astExpr
+            let exprType = TC.jssTypeOfJavaExpr expr
+            cb <- gets (TC.codeBase . mstsGlobalBindings)
+            typeOk <- liftIO $ JSS.isSubtype cb exprType returnType
+            unless (typeOk) $ do
+              let formattedLhs = "The return value"
+              throwInvalidAssignment (AST.exprPos astExpr) formattedLhs (show exprType)
+            -- Return expression
+            return $ Just (TC.JE expr)
+         | otherwise -> do
+            -- Typecheck rhs expression.
+            cfg <- gets typecheckerConfig
+            expr <- lift $ TC.tcLogicExpr cfg astExpr
+            -- Check lhs can be assigned value in rhs (coercing if necessary.
+            (Just . TC.LE) <$> coercePrimitiveExpr (AST.exprPos astExpr) expr returnType
+  | otherwise = -- No return expected
+     case returns of
+       [] -> return Nothing
+       astExpr:_ ->
+         let msg = "Return value specified for \'" ++ JSS.methodName method ++ "\', but method returns \'void\'."
+          in throwIOExecException (AST.exprPos astExpr) (ftext msg) ""
+ where returns = [ e | AST.Returns _ e <- cmds ]
 
 -- resolveVerifyUsing {{{1
 
@@ -691,18 +694,17 @@ methodSpecName ir =
   in slashesToDots clName ++ ('.' : mName)
 
 mkLocalSpecs :: MethodSpecTranslatorState -> LocalSpecs
-mkLocalSpecs st =
+mkLocalSpecs msts =
   LocalSpecs {
-      assumptions = currentAssumptions st
+      assumptions = currentAssumptions msts
+    , localPostconditions =
+        [ (undefined, getValuePostcondition expr msts)
+          --TODO: Find map from names to integers.
+        | expr@(TC.Local _ _)  <- Set.toList (seenJavaExprs msts) ]
     , instanceFieldPostconditions =
-        [ ( r
-          , f
-          , case Map.lookup expr (mstsValuePostconditions st) of
-              Nothing -> PostUnchanged
-              Just (_pos,cond) -> cond
-          )
-        | expr@(TC.InstanceField r f) <- Set.toList (seenJavaExprs st) ]
-    , arrayPostconditions = Map.map snd (mstsArrayPostconditions st)
+        [ (r, f, getValuePostcondition expr msts)
+        | expr@(TC.InstanceField r f) <- Set.toList (seenJavaExprs msts) ]
+    , arrayPostconditions = Map.map snd (mstsArrayPostconditions msts)
     }
 
 -- | Interprets AST method spec commands to construct an intermediate
@@ -801,6 +803,3 @@ resolveMethodSpecIR oc gb pos thisClass mName cmds = do
                 , localSpecs = currentLocalSpecs st'
                 , methodSpecVerificationTactics = tactics
                 }
-
-
-

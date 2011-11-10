@@ -245,16 +245,16 @@ jssTypeOfASTJavaType tp =
 ppASTJavaType :: AST.JavaType -> Doc
 ppASTJavaType tp =
   case tp of
-    AST.BoolType _     -> text "boolean"
-    AST.ByteType _     -> text "byte"
-    AST.CharType _     -> text "char"
-    AST.DoubleType _   -> text "double"
-    AST.FloatType _    -> text "float"
-    AST.IntType _      -> text "int"
-    AST.LongType _     -> text "long"
-    AST.ShortType _    -> text "short"
-    AST.RefType _ nm   -> text (intercalate "." nm)
-    AST.ArrayType tp l -> ppASTJavaType tp <> brackets (int l)
+    AST.BoolType _      -> text "boolean"
+    AST.ByteType _      -> text "byte"
+    AST.CharType _      -> text "char"
+    AST.DoubleType _    -> text "double"
+    AST.FloatType _     -> text "float"
+    AST.IntType _       -> text "int"
+    AST.LongType _      -> text "long"
+    AST.ShortType _     -> text "short"
+    AST.RefType _ nm    -> text (intercalate "." nm)
+    AST.ArrayType etp l -> ppASTJavaType etp <> brackets (int l)
 
 
 

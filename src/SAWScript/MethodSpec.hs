@@ -99,7 +99,7 @@ mkJSSValue _ _ = error "internal: illegal type"
 -- JavaEvalContext {{{1
 
 -- | Stores information about a particular Java state.
-data JavaEvalContext n = JSI {
+data JavaEvalContext n = EvalContext {
          jecThis :: Maybe JSS.Ref
        , jecArgs :: V.Vector (JSS.Value n)
        , jecPathState :: JSS.PathState n
@@ -112,16 +112,16 @@ data JavaEvalContext n = JSI {
 -- the JavaExpression syntactically referes to the correct type of method
 -- (static versus instance), and correct well-typed arguments.  It does
 -- not assume that all the instanceFields in the JavaEvalContext are initialized.
-javaExprValue :: JavaEvalContext Node -> TC.JavaExpr -> Maybe (JSS.Value Node)
-javaExprValue jec (TC.This _) =
+evalJavaExpr :: JavaEvalContext Node -> TC.JavaExpr -> Maybe (JSS.Value Node)
+evalJavaExpr jec (TC.This _) =
   case jecThis jec of
     Just r -> Just (JSS.RValue r)
-    Nothing -> error "internal: javaExprValue given TC.This for static method"
-javaExprValue jec (TC.Arg i _) =
+    Nothing -> error "internal: evalJavaExpr given TC.This for static method"
+evalJavaExpr jec (TC.Arg i _) =
   CE.assert (i < V.length (jecArgs jec)) $
     Just (jecArgs jec V.! i)
-javaExprValue jec (TC.InstanceField e f) = do
-  JSS.RValue r <- javaExprValue jec e
+evalJavaExpr jec (TC.InstanceField e f) = do
+  JSS.RValue r <- evalJavaExpr jec e
   Map.lookup (r,f) (JSS.instanceFields (jecPathState jec))
 
 -- SpecEvalContext {{{1
@@ -136,9 +136,9 @@ data SpecEvalContext n = SSI {
 
 -- | Create spec state info from a Java state info and method spec IR.
 createSpecEvalContext :: DagEngine Node Lit 
-                    -> MethodSpecIR
-                    -> JavaEvalContext Node
-                    -> SpecEvalContext Node
+                      -> MethodSpecIR
+                      -> JavaEvalContext Node
+                      -> SpecEvalContext Node
 createSpecEvalContext de ir jec =
   flip execState initialState $
     forM_ (methodLetBindings ir) $ \(name,expr) -> do
@@ -148,22 +148,23 @@ createSpecEvalContext de ir jec =
  where initialState = SSI jec Map.empty
 
 -- | Evaluates a typed expression.
-evalExpr :: DagEngine Node Lit -> SpecEvalContext Node -> TC.LogicExpr -> Node
-evalExpr de sec (TC.Apply op exprs) =
-  deApplyOp de op (V.map (evalExpr de sec) (V.fromList exprs))
-evalExpr de _   (TC.Cns c tp) = deConstantTerm de c tp
-evalExpr _  (secJavaEvalContext -> jec) (TC.JavaValue javaExpr _) =
-  case javaExprValue jec javaExpr of
+evalLogicExpr :: DagEngine Node Lit -> SpecEvalContext Node -> TC.LogicExpr -> Node
+evalLogicExpr de sec (TC.Apply op exprs) =
+  deApplyOp de op (V.map (evalLogicExpr de sec) (V.fromList exprs))
+evalLogicExpr de _   (TC.Cns c tp) = deConstantTerm de c tp
+evalLogicExpr _  (secJavaEvalContext -> jec) (TC.JavaValue javaExpr _) =
+  case evalJavaExpr jec javaExpr of
     Just (JSS.RValue r) ->
       let Just (_,n) = Map.lookup r (JSS.arrays (jecPathState jec))
        in n
     Just (JSS.IValue n) -> n
     Just (JSS.LValue n) -> n
-    _ -> error "internal: evalExpr failed to evaluated Java expression"
-evalExpr _  sec (TC.Var name _tp) = do
+    _ -> error "internal: evalLogicExpr failed to evaluated Java expression"
+evalLogicExpr _  sec (TC.Var name _tp) = do
   case Map.lookup name (secLetNodeBindings sec) of
-    Nothing -> error $ "internal: evalExpr given invalid variable " ++ name
+    Nothing -> error $ "internal: evalLogicExpr given invalid variable " ++ name
     Just (MVNode n) -> n
+    Just (MVRef _) -> error "internal: evalLogicExpr given an invalid reference."
 
 -- | Value of mixed expression in a particular context.
 data MixedValue n
@@ -176,7 +177,16 @@ evalMixedExpr :: DagEngine Node Lit
               -> SpecEvalContext Node
               -> TC.MixedExpr
               -> MixedValue Node
-evalMixedExpr de sec (LE expr) = MVNode $ evalExpr de sec expr
+evalMixedExpr de sec (LE expr) = MVNode $ evalLogicExpr de sec expr
+evalMixedExpr  _ sec (JE expr) =
+  case evalJavaExpr (secJavaEvalContext sec) expr of 
+    Just (JSS.AValue _) -> error "internal: evalMixedExpr given address value"
+    Just (JSS.DValue _) -> error "internal: evalMixedExpr given floating point value"
+    Just (JSS.FValue _) -> error "internal: evalMixedExpr given floating point value"
+    Just (JSS.IValue n) -> MVNode n
+    Just (JSS.LValue n) -> MVNode n
+    Just (JSS.RValue r) -> MVRef r
+    Nothing -> error "internal: evalMixedExpr given value that could not be evaluated."
 
 -- | Return Java value associated with mixed expression.
 mixedExprValue :: DagEngine Node Lit -> SpecEvalContext Node -> TC.MixedExpr -> JSS.Value Node
@@ -188,7 +198,6 @@ mixedExprValue de sec expr =
         SymInt (widthConstant -> Just 32) -> JSS.IValue n
         SymInt (widthConstant -> Just 64) -> JSS.LValue n
         _ -> error "internal: mixedExprValue called with malformed result type."
-
 
 -- Method specification overrides {{{1
 
@@ -202,13 +211,16 @@ execOverride pos nm ir mbThis args = do
   -- Check Java expressions referenced in IR are defined in the path state.
   ps <- JSS.getPathState
   -- Create JavaEvalContext and SpecEvalContext from current simulator state.
-  let jec = JSI { jecThis = mbThis
+  de <- JSS.liftSymbolic getDagEngine
+  let jec = EvalContext {
+                  jecThis = mbThis
                 , jecArgs = V.fromList args
                 , jecPathState = ps
                 , jecInitPC = 0
                 }
+  let sec = createSpecEvalContext de ir jec
   forM_ (methodSpecJavaExprs ir) $ \javaExpr -> do
-    when (isNothing (javaExprValue jec javaExpr)) $ do
+    when (isNothing (evalJavaExpr jec javaExpr)) $ do
       let msg = "The override for \'" ++ methodSpecName ir
                   ++ "\' was called while symbolically simulating " ++ nm
                   ++ ".  However, the method specification of \'"
@@ -218,8 +230,6 @@ execOverride pos nm ir mbThis args = do
                   ++ "to the specification of \'" ++ nm
                   ++ "\' to define \'" ++ show javaExpr ++ "\'."
        in throwIOExecException pos (ftext msg) res
-  de <- JSS.liftSymbolic getDagEngine
-  let sec = createSpecEvalContext de ir jec
   -- Check initialization status
   forM_ (initializedClasses ir) $ \c -> do
     status <- JSS.getInitializationStatus c
@@ -230,14 +240,14 @@ execOverride pos nm ir mbThis args = do
        in throwIOExecException pos (ftext msg) ""
   let rs = returnSpec ir
   -- Assume all assumptions
-  mapM_ (\e -> JSS.assume (evalExpr de sec e)) (assumptions rs)
+  mapM_ (\e -> JSS.assume (evalLogicExpr de sec e)) (assumptions rs)
   -- Check references have correct type.
   liftIO $ do
     seenRefsIORef <- liftIO $ newIORef (Map.empty :: Map JSS.Ref TC.JavaExpr)
     forM_ (specReferences ir) $ \(ec, _iv) -> do
       seenRefs <- liftIO $ readIORef seenRefsIORef
       refs <- forM ec $ \javaExpr -> do
-                let Just (JSS.RValue r) = javaExprValue jec javaExpr
+                let Just (JSS.RValue r) = evalJavaExpr jec javaExpr
                 case Map.lookup r seenRefs of
                   Nothing -> return ()
                   Just prevExpr -> do
@@ -253,7 +263,7 @@ execOverride pos nm ir mbThis args = do
   -- Check constants are really constants.
   forM_ (specConstants ir) $ \(javaExpr,c,tp) -> do
     let jvmNode =
-          case javaExprValue jec javaExpr of
+          case evalJavaExpr jec javaExpr of
             Just (JSS.IValue n) -> n
             Just (JSS.LValue n) -> n
             Just (JSS.RValue r) -> -- Must be an array.
@@ -297,9 +307,9 @@ evalArrayPost de sec javaExpr pc =
   case pc of
     PostUnchanged -> return ()
     PostArbitrary tp     -> JSS.setSymbolicArray r =<< liftIO (mkInputWithType de tp)
-    PostResult (LE expr) -> JSS.setSymbolicArray r (evalExpr de sec expr)
+    PostResult (LE expr) -> JSS.setSymbolicArray r (evalLogicExpr de sec expr)
     PostResult (JE _) -> error "internal: Encountered Java expression in evalArrayPost"
-  where Just (JSS.RValue r) = javaExprValue (secJavaEvalContext sec) javaExpr
+  where Just (JSS.RValue r) = evalJavaExpr (secJavaEvalContext sec) javaExpr
 
 evalInstanceFieldPost :: SpecEvalContext Node
                       -> JavaExpr
@@ -307,7 +317,7 @@ evalInstanceFieldPost :: SpecEvalContext Node
                       -> Postcondition
                       -> JSS.Simulator SymbolicMonad ()
 evalInstanceFieldPost sec refExpr f pc = do
-  let Just (JSS.RValue r) = javaExprValue (secJavaEvalContext sec) refExpr
+  let Just (JSS.RValue r) = evalJavaExpr (secJavaEvalContext sec) refExpr
   let tp = JSS.fieldIdType f
   de <- JSS.liftSymbolic getDagEngine
   case pc of
@@ -476,12 +486,12 @@ initializeJavaVerificationState ir cm = do
 -- clauses applied.
 runMethod :: MethodSpecIR
           -> SpecEvalContext Node
-          -> JavaEvalContext Node
           -> JSS.Simulator SymbolicMonad
              ( [(JSS.PathDescriptor, JSS.FinalResult Node)]
              , JavaEvalContext Node
              )
-runMethod ir ssi jec = do
+runMethod ir sec = do
+  let jec = secJavaEvalContext sec
   let clName = className (methodSpecIRMethodClass ir)
   let method = methodSpecIRMethod ir
   let args = V.toList (jecArgs jec)
@@ -540,7 +550,7 @@ expectedStateDef de ir jvs sec fr = do
                 PostResult expr -> Just $ mixedExprValue de sec expr
             )
           | (refExpr,fid,cond) <- instanceFieldPostconditions spec
-          , let Just (JSS.RValue ref) = javaExprValue jec refExpr
+          , let Just (JSS.RValue ref) = evalJavaExpr jec refExpr
           ]
       , esdArrays = Map.fromList
           [ ( r
@@ -548,7 +558,7 @@ expectedStateDef de ir jvs sec fr = do
                 Nothing -> Just initValue
                 Just PostUnchanged -> Just initValue
                 Just (PostArbitrary _) -> Nothing
-                Just (PostResult (LE expr)) -> Just $ evalExpr de sec expr
+                Just (PostResult (LE expr)) -> Just $ evalLogicExpr de sec expr
                 Just (PostResult (JE _)) -> error "internal: illegal post result for array"
             )
           | (r,refEquivClass,initValue) <- jvsArrayNodeList jvs ]
@@ -604,7 +614,7 @@ methodAssumptions de ir sec = do
                        Nothing -> error $ "internal: no specification found for pc " ++ show pc
                        Just s -> s
    in foldl' (deApplyBinary de bAndOp) (mkCBool True) $
-        map (evalExpr de sec) (assumptions spec)
+        map (evalLogicExpr de sec) (assumptions spec)
 
 -- | Add verification condition to list.
 addEqVC :: String -> Node -> Node -> Node -> State [VerificationCheck] ()
@@ -754,15 +764,15 @@ methodSpecVCs
                            Just (JSS.RValue r) -> Just r
                            Just _ -> error "internal: Unexpected value for This"
                 method = methodSpecIRMethod ir
-                args = V.map (evm Map.!)
-                     $ V.map (uncurry TC.Arg)
-                     $ V.fromList
-                     $ [0..] `zip` methodParameterTypes method
-             in JSI { jecThis = mbThis
-                    , jecArgs = args
-                    , jecPathState = initialPS
-                    , jecInitPC = pc
-                    }
+             in EvalContext {
+                    jecThis = mbThis
+                  , jecArgs = V.map (evm Map.!)
+                            $ V.map (uncurry TC.Arg)
+                            $ V.fromList
+                            $ [0..] `zip` methodParameterTypes method
+                  , jecPathState = initialPS
+                  , jecInitPC = pc
+                  }
       let sec' = createSpecEvalContext de ir jec'
       when (vrb >= 6) $ do
          liftIO $ putStrLn $ "Executing " ++ methodSpecName ir
@@ -773,7 +783,7 @@ methodSpecVCs
          liftIO $ putStrLn $ "Registering breakpoints: " ++ show assertPCs
       JSS.registerBreakpoints $ map (\bpc -> (cls, meth, bpc)) assertPCs
       -- Execute method.
-      (jssResult, jec) <- runMethod ir sec' jec'
+      (jssResult, jec) <- runMethod ir sec'
       let sec = createSpecEvalContext de ir jec
           -- isReturn returns True if result is a normal return value.
       let isReturn JSS.ReturnVal{} = True
@@ -1106,6 +1116,7 @@ useSMTLIB ir mbVer mbNm vc gs =
 
          2 -> do (script,_) <- SmtLib2.translate params
                  return (SmtLib2.pp script)
+         _ -> error "Unexpected version"
 
      -- XXX: THERE IS A RACE CONDITION HERE!
      let pickName n = do let cand = name ++ (if n == 0 then "" else show n)
