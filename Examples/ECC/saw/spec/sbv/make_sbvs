@@ -19,7 +19,7 @@ cryptol << EndScript
 
 :load ../ecc.cry
 
-# :fm ref_p384_mod "generated/ref_p384_mod.sbv"
+:fm ref_p384_mod "generated/ref_p384_mod.sbv"
 
 :load sbv_p384_abs_declarations.cry
 
@@ -65,9 +65,9 @@ cryptol << EndScript
 :fm sref_p384_ec_full_add "generated/sref_p384_ec_full_add.sbv"
 :fm sref_p384_ec_full_sub "generated/sref_p384_ec_full_sub.sbv"
 
-:fm ref_p384_ec_double "generated/p384_ref_double.sbv"
-:fm ref_p384_ec_full_add "generated/p384_ref_full_add.sbv"
-:fm ref_p384_ec_full_sub "generated/p384_ref_full_sub.sbv"
+:fm ref_p384_ec_double "generated/ref_p384_ec_double.sbv"
+:fm ref_p384_ec_full_add "generated/ref_p384_ec_full_add.sbv"
+:fm ref_p384_ec_full_sub "generated/ref_p384_ec_full_sub.sbv"
 
 :set sbv_strictWords=True
 

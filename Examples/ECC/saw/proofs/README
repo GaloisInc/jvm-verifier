@@ -29,9 +29,3 @@ writing compositional proofs.
 This hassle should go away when we implement a better "module" system;
 right now we only have the import directive at our disposal, and must
 avoid name collisions the hard way.
-
-
-
-
-
-

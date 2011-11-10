@@ -11,13 +11,16 @@ all: make_sbvs verify-individually
 make_sbvs: 
 	(cd spec/sbv && sh make_sbvs)
 
-PROOFS :=                     \
+PROOFS :=           \
   is_zero.saw       \
   set_zero.saw      \
   field_add.saw     \
   field_sub.saw     \
   field_dbl.saw     \
-  field_dbl_dec.saw
+  field_dbl_dec.saw \
+  field_mul3.saw    \
+  field_mul4.saw    \
+  field_mul8.saw    \
 
 # Run SAWScript verfication using the toplevel orchestration script
 verify:
