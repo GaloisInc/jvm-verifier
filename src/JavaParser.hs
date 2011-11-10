@@ -59,6 +59,8 @@ module JavaParser (
   , methodMaxLocals
   , methodIsNative
   , methodIsAbstract
+  , methodBody
+  , MethodBody(..)
   , methodExceptionTable
   , methodKey
   , methodIsStatic
