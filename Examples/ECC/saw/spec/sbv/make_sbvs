@@ -83,5 +83,7 @@ cryptol << EndScript
 
 :fm ref_p384_ec_mul "generated/p384_ref_mul.sbv"
 
+:fm ref_p384_incFieldPrime "generated/ref_p384_incFieldPrime"
+
 :quit
 EndScript

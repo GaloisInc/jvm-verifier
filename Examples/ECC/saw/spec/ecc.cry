@@ -478,6 +478,11 @@ ref_p384_div(x,y)      = ref_prime_div(p384_prime, x, y);
 ref_p384_is_equal : ([384],[384]) -> Bit;
 ref_p384_is_equal(x,y) = x == y;
 
+type RsltWithCarry = { carry : Bit; rslt : [384] };
+ref_p384_incFieldPrime : [384] -> RsltWithCarry;
+ref_p384_incFieldPrime x = { carry = bs ! 0; rslt = take(384, bs) }
+  where bs = safe_add(x, p384_prime);
+
 /* Defines a reference prime field that uses normalized numbers and
    large word bit operations. */
 ref_p384_field :  Field [384];

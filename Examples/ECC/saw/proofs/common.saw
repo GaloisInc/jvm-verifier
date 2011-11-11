@@ -26,6 +26,9 @@ extern SBV ref_field_sub("../spec/sbv/generated/ref_p384_sub.sbv")
 extern SBV ref_ec_double("../spec/sbv/generated/ref_p384_ec_double.sbv")
   : { x : [384]; y : [384]; z : [384] } -> { x : [384]; y : [384]; z : [384] };
 
+extern SBV ref_incFieldPrime("../spec/sbv/generated/ref_p384_incFieldPrime.sbv")
+  : [384] -> { carry : Bit; rslt : [384] };
+
 ////////////////////////////////////////////////////////////////////////////////
 // Rewrite Rules
 //

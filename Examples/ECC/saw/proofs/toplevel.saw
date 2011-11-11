@@ -9,6 +9,7 @@ import "set_zero.saw";
 import "set_unit.saw";
 
 // Field operations
+import "incFieldPrime.spec";
 import "field_add.spec";
 import "field_sub.spec";
 import "field_dbl.spec";
@@ -18,6 +19,7 @@ import "field_mul3.spec";
 import "field_mul4.spec";
 import "field_mul8.spec";
 import "field_sq.spec";
+import "field_red.spec";
 
 // Curve operations
 import "ec_double.spec";
