@@ -240,7 +240,7 @@ execOverride pos nm ir mbThis args = do
        in throwIOExecException pos (ftext msg) ""
   let rs = returnSpec ir
   -- Assume all assumptions
-  mapM_ (\e -> JSS.assume (evalLogicExpr de sec e)) (assumptions rs)
+  mapM_ (\e -> JSS.assume (evalLogicExpr de sec e)) (localAssumptions rs)
   -- Check references have correct type.
   liftIO $ do
     seenRefsIORef <- liftIO $ newIORef (Map.empty :: Map JSS.Ref TC.JavaExpr)
@@ -616,7 +616,7 @@ methodAssumptions de ir sec = do
                        Nothing -> error $ "internal: no specification found for pc " ++ show pc
                        Just s -> s
    in foldl' (deApplyBinary de bAndOp) (mkCBool True) $
-        map (evalLogicExpr de sec) (assumptions spec)
+        map (evalLogicExpr de sec) (localAssumptions spec)
 
 -- | Add verification condition to list.
 addEqVC :: String -> Node -> Node -> Node -> State [VerificationCheck] ()

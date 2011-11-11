@@ -78,19 +78,23 @@ ppJavaExprEquivClass cl = "{ " ++ intercalate ", " (map show (sort cl)) ++ " }"
 -- LocalSpecs {{{1
 
 data LocalSpecs = LocalSpecs {
-    assumptions :: [TC.LogicExpr]
+    localAssumptions :: [TC.LogicExpr]
+  , localImpAssumptions :: [(TC.JavaExpr, TC.MixedExpr)]
   , localPostconditions :: [(Int, Postcondition)]
   , instanceFieldPostconditions :: [(TC.JavaExpr, JSS.FieldId, Postcondition)]
   , arrayPostconditions :: Map TC.JavaExpr Postcondition
+  , localChoiceBlocks :: [(LocalSpecs, LocalSpecs)]
   -- TODO: postconditions on static fields.
   } deriving (Show)
 
 emptyLocalSpec :: LocalSpecs
 emptyLocalSpec = 
-  LocalSpecs { assumptions = []
+  LocalSpecs { localAssumptions = []
+             , localImpAssumptions = []
              , localPostconditions = []
              , instanceFieldPostconditions = []
              , arrayPostconditions = Map.empty
+             , localChoiceBlocks = []
              }
 
 -- MethodSpecTranslation immediate state {{{1
@@ -118,8 +122,10 @@ data MethodSpecTranslatorState = MSTS {
        , definedLetBindingMap :: Map String Pos
        -- | List of let bindings encountered in reverse order.
        , reversedLetBindings :: [(String, TC.MixedExpr)]
-       -- | Lift of assumptions parsed so far in reverse order.
+       -- | List of assumptions parsed so far in reverse order.
        , currentAssumptions :: [TC.LogicExpr]
+       -- | List of imperative assumptions parsed so far in reverse order.
+       , currentImpAssumptions :: [(TC.JavaExpr, TC.MixedExpr)]
          -- | Maps Java expressions to associated constant expression.
        , constExprMap :: Map TC.JavaExpr (CValue, DagType)
        -- | Map Java expressions to typed expression in ensures clause.
@@ -130,6 +136,8 @@ data MethodSpecTranslatorState = MSTS {
        , mstsArrayPostconditions :: Map TC.JavaExpr (Pos, Postcondition)
        -- | List of local specs parsed so far in reverse order.
        , currentLocalSpecs :: Map JSS.PC LocalSpecs
+       -- | List of choice blocks parsed so far, in reverse order.
+       , currentChoiceBlocks :: [(LocalSpecs, LocalSpecs)]
        }
 
 type MethodSpecTranslator = StateT MethodSpecTranslatorState IO
@@ -356,6 +364,13 @@ setArrayPostcondition pos expr post = do
     msts { mstsArrayPostconditions 
              = Map.insert expr (pos, post) (mstsArrayPostconditions msts) }
 
+-- | Set imperative assumption.
+setImpAssumption :: TC.JavaExpr -> TC.MixedExpr
+                 -> MethodSpecTranslator ()
+setImpAssumption lhs rhs =
+  modify $ \msts ->
+    msts { currentImpAssumptions = (lhs, rhs) : (currentImpAssumptions msts) }
+
 -- | Parses arguments from Array expression and returns JavaExpression.
 -- throws exception if expression cannot be parsed.
 typecheckArrayPostconditionExpr :: AST.Expr
@@ -494,6 +509,37 @@ resolveDecl (AST.Assume _ astExpr) = do
           in throwIOExecException (AST.exprPos astExpr) (ftext msg) ""
   -- Update current expressions
   modify $ \s -> s { currentAssumptions = expr : currentAssumptions s }
+resolveDecl (AST.AssumeImp pos astLhsExpr astRhsExpr) = do
+  -- TODO: reduce redundancy with type checking of Ensures
+  -- Typecheck lhs expression.
+  let lhsPos = AST.exprPos astLhsExpr
+  lhsExpr <- typecheckRecordedJavaExpr TC.tcJavaExpr astLhsExpr
+  -- TODO: Check that we don't have another assumption for this lhs?
+  -- Get rhs position.
+  let rhsPos = AST.exprPos astRhsExpr
+  -- Add ensures depending on whether we are assigning to reference.
+  let lhsType = TC.jssTypeOfJavaExpr lhsExpr
+  res <-
+    if JSS.isRefType lhsType then do
+      -- Typecheck rhs expression.
+      rhsExpr <- typecheckRecordedJavaExpr TC.tcJavaExpr astRhsExpr
+      -- Check lhs can be assigned value on rhs.
+      -- TODO: Consider if this is too strong.
+      cb <- gets (TC.codeBase . mstsGlobalBindings)
+      lhsActualType <- getRefActualType lhsPos lhsExpr
+      rhsActualType <- getRefActualType rhsPos rhsExpr
+      typeOk <- liftIO $ TC.isActualSubtype cb rhsActualType lhsActualType
+      unless (typeOk) $ do
+        let formattedLhs = "\'" ++ show lhsExpr ++ "\'"
+        throwInvalidAssignment lhsPos formattedLhs (TC.ppActualType rhsActualType)
+      return (TC.JE rhsExpr)
+    else do
+      -- Typecheck rhs expression.
+      cfg <- gets typecheckerConfig
+      rhsExpr <- lift $ TC.tcLogicExpr cfg astRhsExpr
+      -- Check lhs can be assigned value in rhs (coercing if necessary.
+      TC.LE <$> coercePrimitiveExpr rhsPos rhsExpr lhsType
+  setImpAssumption lhsExpr res
 resolveDecl (AST.Ensures _ astJavaExpr@(AST.ApplyExpr _ "valueOf" _) astValueExpr) = do
   let pos = AST.exprPos astJavaExpr
   -- Typecheck lhs
@@ -567,6 +613,18 @@ resolveDecl (AST.LocalSpec _ pc specs) = do
   let locSpecs = mkLocalSpecs locState
   put $ s { currentLocalSpecs =
               Map.insert (fromIntegral pc) locSpecs (currentLocalSpecs s) }
+resolveDecl (AST.Choice pos specs specs') = do
+  s <- get
+  let initState = s { currentAssumptions = []
+                    , mstsValuePostconditions = Map.empty
+                    , mstsArrayPostconditions = Map.empty
+                    }
+  locState <- lift $ execStateT (mapM_ resolveDecl specs) initState
+  locState' <- lift $ execStateT (mapM_ resolveDecl specs') initState
+  let locSpecs = mkLocalSpecs locState
+      locSpecs' = mkLocalSpecs locState'
+  put $ s { currentChoiceBlocks =
+              (locSpecs, locSpecs') : currentChoiceBlocks s }
 resolveDecl (AST.Returns _ _) = return ()
 resolveDecl (AST.VerifyUsing _ _) = return ()
 
@@ -696,7 +754,8 @@ methodSpecName ir =
 mkLocalSpecs :: MethodSpecTranslatorState -> LocalSpecs
 mkLocalSpecs msts =
   LocalSpecs {
-      assumptions = currentAssumptions msts
+      localAssumptions = currentAssumptions msts
+    , localImpAssumptions = currentImpAssumptions msts
     , localPostconditions =
         [ (undefined, getValuePostcondition expr msts)
           --TODO: Find map from names to integers.
@@ -705,6 +764,7 @@ mkLocalSpecs msts =
         [ (r, f, getValuePostcondition expr msts)
         | expr@(TC.InstanceField r f) <- Set.toList (seenJavaExprs msts) ]
     , arrayPostconditions = Map.map snd (mstsArrayPostconditions msts)
+    , localChoiceBlocks = reverse $ currentChoiceBlocks msts
     }
 
 -- | Interprets AST method spec commands to construct an intermediate
@@ -738,10 +798,12 @@ resolveMethodSpecIR oc gb pos thisClass mName cmds = do
                 , definedLetBindingMap = Map.empty
                 , reversedLetBindings = []
                 , currentAssumptions = []
+                , currentImpAssumptions = []
                 , constExprMap = Map.empty
                 , mstsValuePostconditions = Map.empty
                 , mstsArrayPostconditions = Map.empty
                 , currentLocalSpecs = Map.empty
+                , currentChoiceBlocks = []
                 }
   flip evalStateT st $ do
     -- Initialize necessary values in translator state.

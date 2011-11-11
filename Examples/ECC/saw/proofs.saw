@@ -241,38 +241,42 @@ method com.galois.ecc.P384ECC64.mod_half {
   verifyUsing: abc;
 };
 
-set verification off;
-
 // mod_div {{{2
 method com.galois.ecc.P384ECC64.mod_div {
   var args[0], args[1], args[2], args[3] :: int[12];
   var this.t1, this.t2, this.t3 :: int[12];
+  //var locals[swapped] :: bool;
+  var locals[a], locals[ra], locals[b], locals[rb] :: int[12];
 
   ensures valueOf(args[0]) 
-    := split(p384_prime_div(join(valueOf(args[3])),
+    := valueOf(args[0]);
+       /*
+       split(p384_prime_div(join(valueOf(args[3])),
                             join(valueOf(args[1])),
-                            join(valueOf(args[2])))) : [12][32];
+                            join(valueOf(args[2])))) : [12][32];*/
   modifies: valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 
   localSpec 44 {
     choice {
-      assume swapped := 0;
-      assume a := this.t1;
-      assume ra := args[0];
-      assume b := this.t2;
-      assume rb := this.t3;
+      //assume swapped := false;
+      assume locals[a] := this.t1;
+      assume locals[ra] := args[0];
+      assume locals[b] := this.t2;
+      assume locals[rb] := this.t3;
     } { 
-      assume swapped := 1;
-      assume a := this.t2;
-      assume ra := this.t3;
-      assume b := this.t1;
-      assume rb := args[0];
+      //assume swapped := true;
+      assume locals[a] := this.t2;
+      assume locals[ra] := this.t3;
+      assume locals[b] := this.t1;
+      assume locals[rb] := args[0];
     };
     ensures valueOf(args[0]) 
-       := split(p384_egcd(join(valueOf(a)),
+       := valueOf(args[0]);
+          /*
+          split(p384_egcd(join(valueOf(a)),
                           join(valueOf(ra)),
                           join(valueOf(b)),
-                          join(valueOf(rb)))) : [12][32];
+                          join(valueOf(rb)))) : [12][32];*/
     modifies: valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   };
 
