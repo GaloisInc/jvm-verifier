@@ -2,8 +2,9 @@ Unless otherwise noted, all Java functions are assumed to be in the
 galois.ecc.P384ECC64 class or its superclasses.
 
 * Tasks
-** TODO Capture Cryptol verification targets in these tables
-   DEADLINE: <2011-11-08 Tue>
+** incFieldPrime, decFieldPrime, assign, etc., specifications written
+** Quickcheckable specs for every operation
+   DEADLINE: <2011-11-18 Fri>
 
 * Primary Proofs
 This section that correspond directly to the operation names on the ECC proof
@@ -22,19 +23,19 @@ The "Best" column indicates the best running time of proof completion seen so
 far on a typical developer system. 
 
 ** Level 1: Finite field arithmetic
-| Status | Name                 | Java      | Cryptol      | Impl directly calls     | Prereqs | Quickchecks | Verifies | Best | Comments |
-| DONE   | Field Addition       | field_add | ref_p384_add | leq, add, decFieldPrime | None    | 1000        | Yes, abc | 37s  |          |
-| DONE   | Field Subtraction    | field_sub | ref_p384_sub | sub, incFieldPrime      | None    | 1000        | Yes, abc | 47s  |          |
-| DONE   | Field Doubling       | field_dbl | [fn:1]       | dbl, leq, decFieldPrime | None    | 1000        | Yes, abc | 4s   |          |
-| TODO   | Field Division       | mod_div   | field_div?   |                         |         | ?           | ?        |      |          |
-| TODO   | Field Squaring       | field_sq  |              |                         |         | ?           | ?        |      |          |
-| TODO   | Field Multiplication | field_mul |              |                         |         | ?           | ?        |      |          |
+| Status | Name                 | Java      | Cryptol       | Impl directly calls     | Prereqs | Quickchecks | Verifies | Best | Comments |
+| DONE   | Field Addition       | field_add | ref_p384_add  | leq, add, decFieldPrime | None    |        1000 | Yes, abc | 37s  |          |
+| DONE   | Field Subtraction    | field_sub | ref_p384_sub  | sub, incFieldPrime      | None    |        1000 | Yes, abc | 47s  |          |
+| DONE   | Field Doubling       | field_dbl | [fn:1]        | dbl, leq, decFieldPrime | None    |        1000 | Yes, abc | 4s   |          |
+| TODO   | Field Division       | mod_div   | field_div?    |                         |         |           ? | ?        |      |          |
+| INPR   | Field Squaring       | field_sq  | ref_field_mul | sq, field_red           |         |         100 | ?        |      |          |
+| INPR   | Field Multiplication | field_mul | ref_field_mul | mul, field_red          |         |         100 | ?        |      |          |
 
 ** Level 2: Curve operations over points
-| Status | Name                   | Java        | Cryptol         | Impl directly calls | Prereqs | Quickchecks | Verifies          | Comments                                                                                                  |
-| BUG    | Point Doubling         | ec_double   | p384_ref_double | [fn:7]              |         | BUG         | Need to reproduce | DONE in proofs-old.saw, using rewriter; "naive" simpler spec crashes simulator when attempting quickcheck |
-| TODO   | Point Full Addition    | ec_full_add |                 |                     |         | ?           | ?                 |                                                                                                           |
-| TODO   | Point Full Subtraction | ec_full_sub |                 |                     |         | ?           | ?                 |                                                                                                           |
+| Status | Name                   | Java        | Cryptol         | Impl directly calls | Prereqs | Quickchecks | Verifies      | Comments                                         |
+| INPR   | Point Doubling         | ec_double   | p384_ref_double | [fn:7]              | [fn:8]  | 1000        | Yes, rewriter | TODO: split out spec file into constituent specs |
+| TODO   | Point Full Addition    | ec_full_add |                 |                     |         | ?           | ?             |                                                  |
+| TODO   | Point Full Subtraction | ec_full_sub |                 |                     |         | ?           | ?             |                                                  |
 
 ** Level 3: Scalar multiplication operations
 | Status | Name                          | Java          | Cryptol | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments                        |
@@ -58,6 +59,11 @@ far on a typical developer system.
 | TODO   | Large-Word Multiply    | mul           |         |                      |           |           ? | ?        |          |                                                                       |
 | TODO   | Add mod group size     | group_add     |         |                      |           |           ? | ?        |          |                                                                       |
 | TODO   | Mult mod group size    | group_mul     |         |                      |           |           ? | ?        |          |                                                                       |
+| DONE   | array-valued zero test | is_zero       | trivial |                      |           |          -- | Yes, abc | <2s      |                                                                       |
+| DONE   | array set zero         | set_zero      | trivial |                      |           |          -- | Yes, abc | <2s      |                                                                       |
+| DONE   | array set one          | set_unit      | trivial |                      |           |          -- | Yes, abc | <2s      |                                                                       |
+
+
   
 * Footnotes
 [fn:1] \x -> ref_p384_add(x,x)
@@ -67,4 +73,4 @@ far on a typical developer system.
 [fn:5] \x -> let d = ref_p384_add(x,x) in ref_p384_add(d,d)
 [fn:6] \x -> let x2 = ref_p384_add(x,x) ; x4 = ref_p384_add(x2,x2) in ref_p384_add(x4,x4)
 [fn:7] is_zero, set_unit, set_zero, field_{sq,sub,add,mul,mul3,dbl,mul4,dbl_dec,mul8}
-
+[fn:8] is_zero, set_zero, set_unit, field_add, field_sub, field_dbl, field_mul, field_sq
