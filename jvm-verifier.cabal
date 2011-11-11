@@ -163,7 +163,7 @@ executable sawScript
   build-tools:
      alex, happy
 
-  hs-source-dirs   : src
+  hs-source-dirs   : sawscript
   main-is          : SAWScript/SAWScriptMain.hs
   ghc-options      : -O2 -Wall -fno-ignore-asserts
   ghc-prof-options : -prof -auto-all
