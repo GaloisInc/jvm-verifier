@@ -219,9 +219,11 @@ data MethodSpecDecl
   | MethodLet Pos String Expr
   -- | Assume a given precondition is true when method is called.
   | Assume Pos Expr
+  | AssumeImp Pos Expr Expr
   | Ensures Pos Expr Expr
   | Modifies Pos [Expr]
   | LocalSpec Pos Integer [MethodSpecDecl]
+  | Choice Pos [MethodSpecDecl] [MethodSpecDecl]
   | Returns Pos Expr
   | VerifyUsing Pos [VerificationTactic]
  deriving (Show)

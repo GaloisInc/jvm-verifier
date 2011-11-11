@@ -35,6 +35,8 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'Bit'          { TReserved _ "Bit"          }
    'method'       { TReserved _ "method"       }
    'rule'         { TReserved _ "rule"         }
+   'localSpec'    { TReserved _ "localSpec"    }
+   'choice'       { TReserved _ "choice"       }
    'mayAlias'     { TReserved _ "mayAlias"     }
    'assume'       { TReserved _ "assume"       }
    'ensures'      { TReserved _ "ensures"      }
@@ -74,7 +76,6 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'rewriter'     { TReserved _ "rewriter"     }
    'smtlib'       { TReserved _ "smtlib"       }
    'yices'        { TReserved _ "yices"        }
-   'localSpec'    { TReserved _ "localSpec"    }
    var            { TVar      _ _              }
    str            { TLit      _ $$             }
    num            { TNum      _ _ _            }
@@ -261,9 +262,12 @@ LSpecDecls : termBy(LSpecDecl, ';') { $1 }
 
 LSpecDecl :: { MethodSpecDecl }
 LSpecDecl : 'assume'      Expr              { Assume      (tokPos $1) $2    }
+          | 'assume'      Expr ':=' Expr    { AssumeImp   (tokPos $1) $2 $4 }
           | 'ensures'     Expr ':=' Expr    { Ensures     (tokPos $1) $2 $4 }
           | 'modifies' ':' Exprs1           { Modifies    (tokPos $1) $3    }
           | 'let'         var '='  Expr     { MethodLet   (tokPos $1) (tokStr $2) $4 }
+          | 'choice'     '{' LSpecDecls '}'
+                         '{' LSpecDecls '}' { Choice      (tokPos $1) $3 $6 }
 
 JavaType :: { JavaType }
 JavaType : 'boolean'            { BoolType (tokPos $1)      }
