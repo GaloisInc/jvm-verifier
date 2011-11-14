@@ -18,6 +18,7 @@ PROOFS :=           \
   field_add.saw     \
   field_sub.saw     \
   incFieldPrime.saw \
+  decFieldPrime.saw \
   field_dbl.saw     \
   field_dbl_dec.saw \
   field_mul3.saw    \
