@@ -395,11 +395,13 @@ resolveType astExpr astTp = do
   -- Typecheck Java expression.
   javaExpr <- typecheckNewJavaExpr TC.tcJavaExpr astExpr
   -- Check that type of astExpr and the type of tp are compatible.
-  do let javaExprType = TC.jssTypeOfJavaExpr javaExpr
+  do let javaExprType, tgtType :: JSS.Type
+         javaExprType = TC.jssTypeOfJavaExpr javaExpr
          tgtType = TC.jssTypeOfASTJavaType astTp
      b <- liftIO $ JSS.isSubtype cb tgtType javaExprType
      unless b $ do
-      let msg = ftext ("The expression " ++ show javaExpr ++ " is incompatible with")
+      let msg = ftext ("The expression " ++ show javaExpr ++ " has type " ++
+                       show javaExprType ++ " which is incompatible with ")
                  <+> TC.ppASTJavaType astTp <> char '.'
       throwIOExecException (AST.exprPos astExpr) msg ""
   -- Update actual type if this is a reference.
