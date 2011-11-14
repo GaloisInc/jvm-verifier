@@ -761,7 +761,7 @@ mkLocalSpecs msts =
     , localPostconditions =
         [ (undefined, getValuePostcondition expr msts)
           --TODO: Find map from names to integers.
-        | expr@(TC.Local _ _)  <- Set.toList (seenJavaExprs msts) ]
+        | expr@(TC.Local _ _ _)  <- Set.toList (seenJavaExprs msts) ]
     , instanceFieldPostconditions =
         [ (r, f, getValuePostcondition expr msts)
         | expr@(TC.InstanceField r f) <- Set.toList (seenJavaExprs msts) ]
@@ -827,7 +827,7 @@ resolveMethodSpecIR oc gb pos thisClass mName cmds = do
     let allRefs = Map.keysSet (refTypeMap st')
     let checkRef (TC.This _) = return ()
         checkRef (TC.Arg _ _) = return ()
-        checkRef (TC.Local _ _) = return () -- TODO: is this right?
+        checkRef (TC.Local _ _ _) = return () -- TODO: is this right?
         checkRef (TC.InstanceField lhs f) = do
           when (Map.member lhs (mayAliasRefs st')) $
             let msg = "This specification contains a mayAlias declaration "

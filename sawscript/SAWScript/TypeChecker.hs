@@ -114,13 +114,13 @@ mkGlobalTCConfig opCache globalBindings lb = do
 data JavaExpr
   = This String -- | Name of classname for this object.
   | Arg Int JSS.Type
-  | Local String JSS.Type
+  | Local String JSS.LocalVariableIndex JSS.Type
   | InstanceField JavaExpr JSS.FieldId
 
 instance Eq JavaExpr where
   This _      == This _      = True
   Arg i _     == Arg j _     = i == j
-  Local nm _  == Local nm' _ = nm == nm'
+  Local _ i _ == Local _ i' _ = i == i'
   InstanceField r1 f1 == InstanceField r2 f2 = r1 == r2 && f1 == f2
   _               == _               = False
 
@@ -131,9 +131,9 @@ instance Ord JavaExpr where
   Arg i _     `compare` Arg j _     = i `compare` j
   Arg _ _     `compare` _           = LT
   _           `compare` Arg _ _     = GT
-  Local nm _  `compare` Local nm' _ = nm `compare` nm'
-  Local _ _   `compare` _           = LT
-  _           `compare` Local _ _   = GT
+  Local _ i _ `compare` Local _ i' _ = i `compare` i'
+  Local _ _ _ `compare` _           = LT
+  _           `compare` Local _ _ _ = GT
   InstanceField r1 f1 `compare` InstanceField r2 f2 =
         case r1 `compare` r2 of
           EQ -> f1 `compare` f2
@@ -142,14 +142,14 @@ instance Ord JavaExpr where
 instance Show JavaExpr where
   show (This _)    = "this"
   show (Arg i _)   = "args[" ++ show i ++ "]"
-  show (Local nm _) = "locals[" ++ nm ++ "]"
+  show (Local nm _ _) = "locals[" ++ nm ++ "]"
   show (InstanceField r f) = show r ++ "." ++ JSS.fieldIdName f
 
 -- | Returns JSS Type of JavaExpr
 jssTypeOfJavaExpr :: JavaExpr -> JSS.Type
 jssTypeOfJavaExpr (This cl)   = JSS.ClassType cl
 jssTypeOfJavaExpr (Arg _ tp)  = tp
-jssTypeOfJavaExpr (Local _ tp)  = tp
+jssTypeOfJavaExpr (Local _ _ tp)  = tp
 jssTypeOfJavaExpr (InstanceField _ f) = JSS.fieldIdType f
 
 tcJavaExpr :: TCConfig -> AST.Expr -> IO JavaExpr
@@ -551,10 +551,10 @@ tcE (AST.ArgExpr pos i) = do
   return $ JE (Arg i (params V.! i))
 tcE (AST.LocalExpr pos name) = do
   (method, _) <- getMethodInfo
-  case JSS.lookupLocalVariableTypeByName method name of
+  case JSS.lookupLocalVariableByName method name of
     Nothing -> typeErr pos (ftext $ "Local variable " ++ name ++ " not found")
     -- TODO: check that the type exists
-    Just tp -> return $ JE (Local name tp)
+    Just l -> return $ JE (Local name (JSS.localIdx l) (JSS.localType l))
 
 lift1Bool :: Pos -> String -> Op -> AST.Expr -> SawTI MixedExpr
 lift1Bool p nm o l = do
