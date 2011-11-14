@@ -29,6 +29,8 @@ let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
 
 // Array operation verification {{{1
 
+set verification off;
+
 method com.galois.ecc.P384ECC64.is_zero {
   var args[0] :: int[12];
   returns: if join(valueOf(args[0])) == 0:[384] then 1:[32] else 0:[32];
@@ -245,7 +247,7 @@ method com.galois.ecc.P384ECC64.mod_half {
 method com.galois.ecc.P384ECC64.mod_div {
   var args[0], args[1], args[2], args[3] :: int[12];
   var this.t1, this.t2, this.t3 :: int[12];
-  //var locals[swapped] :: bool;
+  var locals[swapped] :: boolean;
   var locals[a], locals[ra], locals[b], locals[rb] :: int[12];
 
   ensures valueOf(args[0]) 
@@ -258,13 +260,13 @@ method com.galois.ecc.P384ECC64.mod_div {
 
   localSpec 44 {
     choice {
-      //assume swapped := false;
+      assume locals[swapped] := False;
       assume locals[a] := this.t1;
       assume locals[ra] := args[0];
       assume locals[b] := this.t2;
       assume locals[rb] := this.t3;
     } { 
-      //assume swapped := true;
+      assume locals[swapped] := True;
       assume locals[a] := this.t2;
       assume locals[ra] := this.t3;
       assume locals[b] := this.t1;
