@@ -8,6 +8,6 @@ method com.galois.ecc.P384ECC64.incFieldPrime
   let r  = ref_incFieldPrime(vx);
 
   ensures valueOf(args[0]) := split(r.rslt) : [12][32];
-  returns: if r.carry == 0:[32] then 0:[32] else 1:[32];
+  returns: r.carry;
   verifyUsing: abc;
 };
