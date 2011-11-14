@@ -553,6 +553,7 @@ tcE (AST.LocalExpr pos name) = do
   (method, _) <- getMethodInfo
   case JSS.lookupLocalVariableTypeByName method name of
     Nothing -> typeErr pos (ftext $ "Local variable " ++ name ++ " not found")
+    -- TODO: check that the type exists
     Just tp -> return $ JE (Local name tp)
 
 lift1Bool :: Pos -> String -> Op -> AST.Expr -> SawTI MixedExpr
