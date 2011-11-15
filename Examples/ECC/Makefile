@@ -1,5 +1,6 @@
 SAWSCRIPT=../../dist/build/sawScript/sawScript
 CLASSES_JAR=../../jdk1.6/classes.jar
+RUNSAWSCRIPT=$(SAWSCRIPT) -c build -j$(CLASSES_JAR)
 
 build :
 	mkdir -p build
@@ -22,8 +23,13 @@ run64 :
 	java -cp build -d64 com.galois.ecc.ECC
 
 # Run SAWScript verification.
-verify :
-	$(SAWSCRIPT) -c build -j$(CLASSES_JAR) saw/proofs.saw
+verify: 
+	@(cd saw && make verify)
+
+# Run old SAWScript verification script (i.e., the one bundled with
+# beta-rc3).
+verify-old:
+	$(SAWSCRIPT) -c build -j$(CLASSES_JAR) saw/proofs-old.saw
 
 .PHONY : build clean doc run32 run64 verify
 

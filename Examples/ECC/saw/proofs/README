@@ -1,0 +1,31 @@
+This directory contains the SAWScript method specification and proof
+orchestration scripts.  Unless specifically noted, they all pertain to
+the 64-bit Java implementation of ECC (i.e., the verification targets
+all come from the P384ECC64 class and its superclasses).
+
+SUMMARY
+
+Run SAWScript on toplevel.saw to run all proofs, or type "make verify"
+from the parent directory.
+
+DETAILS
+
+By convention, 
+
+  - method specification files for individual Java methods are named
+    with the .spec file suffix.
+
+   - orchestration scripts (which are often just series of import
+     statements) are named with the .saw suffix.
+
+This is for convenience; both forms are written in the SAWScript
+language.
+
+Orchestration scripts should be used when invoking the sawScript tool to
+perform a given proof.  Method specification filenames should be used
+inside orchestration scripts to specify proof discharge order when
+writing compositional proofs.
+
+This hassle should go away when we implement a better "module" system;
+right now we only have the import directive at our disposal, and must
+avoid name collisions the hard way.

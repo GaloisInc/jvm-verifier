@@ -38,13 +38,16 @@ $idchar    = [$alpha $digit \' \_]
 $symchar   = [$symbol \:]
 $nl        = [\n\r]
 
-@reservedid  = import|extern|SBV|let|Bit|method|verifyUsing|abc|rewriter|skip|auto
-             |type|var|args|this|int|long|boolean|mayAlias|const|True|False|ensures|set|verification|on|off
-             |assume|returns|arbitrary|enable|disable|rule|forAll|if|then|else|fromJava|quickcheck|smtlib|yices
+@reservedid  = import|extern|SBV|let|Bit
+             | set|verification|on|off|rule|enable|disable|forAll
+             | method|var|mayAlias|const|localSpec|assume|ensures|modifies|returns
+             | verifyUsing|rewriter|skip|abc|quickcheck|smtlib|yices
+             |int|long|boolean
+             |args|this|True|False|if|then|else
 @reservedop  = "~"  | "-" | "*" | "+" | "/s" | "%s" | ">>" | "<<" | ">>u" | "|" | "&" | "^"
              | "#"  | "==" | "!=" | ">=s" | ">=u" | ">s" | ">u" | "<=s" | "<=u" | "<s" | "<u"
              | "&&" | "||" | "not"
-@punct       = "," | ";" | "(" | ")" | ":" | "[" | "]" | "->" | "=" | "{" | "}" | "." | ":=" | "<|" | "|>"
+@punct       = "," | ";" | "(" | ")" | ":" | "::" | "[" | "]" | "->" | "=" | "{" | "}" | "." | ":=" | "<|" | "|>"
 @varid       = $alpha $idchar*
 @decimal     = $digit+
 @binary      = $binit+

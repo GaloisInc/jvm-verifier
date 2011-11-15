@@ -50,12 +50,53 @@ data ExprType
 data FnType = FnType [ExprType] ExprType
   deriving (Show)
 
+exprPos :: Expr -> Pos
+exprPos (Var p _) = p
+exprPos (ConstantBool p _) = p
+exprPos (ConstantInt p _) = p
+exprPos (MkArray p _) = p
+exprPos (MkRecord p _) = p
+exprPos (ThisExpr p) = p
+exprPos (ArgExpr p _) = p
+exprPos (TypeExpr p _ _) = p
+exprPos (DerefField p _ _) = p
+exprPos (ApplyExpr p _ _) = p
+exprPos (NotExpr p _) = p
+exprPos (BitComplExpr p _) = p
+exprPos (NegExpr p _) = p
+exprPos (MulExpr p _ _) = p
+exprPos (SDivExpr p _ _) = p
+exprPos (SRemExpr p _ _) = p
+exprPos (PlusExpr p _ _) = p
+exprPos (SubExpr p _ _) = p
+exprPos (ShlExpr p _ _) = p
+exprPos (SShrExpr p _ _) = p
+exprPos (UShrExpr p _ _) = p
+exprPos (BitAndExpr p _ _) = p
+exprPos (BitXorExpr p _ _) = p
+exprPos (BitOrExpr  p _ _) = p
+exprPos (AppendExpr p _ _) = p
+exprPos (EqExpr   p _ _) = p
+exprPos (IneqExpr p _ _) = p
+exprPos (SGeqExpr p _ _) = p
+exprPos (UGeqExpr p _ _) = p
+exprPos (SGtExpr  p _ _) = p
+exprPos (UGtExpr  p _ _) = p
+exprPos (SLeqExpr p _ _) = p
+exprPos (ULeqExpr p _ _) = p
+exprPos (SLtExpr  p _ _) = p
+exprPos (ULtExpr  p _ _) = p
+exprPos (AndExpr  p _ _) = p
+exprPos (OrExpr   p _ _) = p
+exprPos (IteExpr  p _ _ _) = p
+
 -- | Roughly correspond to Cryptol expressions, but can also reference
 -- Java variables.
 data Expr
     = Var Pos String
     | ConstantBool Pos Bool
     | ConstantInt  Pos Integer
+    | ThisExpr Pos
 
     -- * Highest precedence
 
@@ -63,6 +104,7 @@ data Expr
     | MkArray Pos [Expr]
     -- | Making a record
     | MkRecord Pos [(Pos, String, Expr)]
+    | ArgExpr Pos Int
 
     -- Precedence 13
     -- | Type annotation on an expression.
@@ -71,8 +113,6 @@ data Expr
     | DerefField Pos Expr String
 
     -- Precedence 12
-    -- | Java Value
-    | JavaValue Pos JavaRef
     -- | Uninterpreted functions.
     | ApplyExpr Pos String [Expr]
 
@@ -160,16 +200,6 @@ data Expr
 
 type JavaFieldName = String
 
--- | An expression representing a particular JVM value.
-data JavaRef
-    = This Pos
-    -- | "args[0]" corresponds to argument in Java function.
-    | Arg Pos Int
-    -- | @InstanceField x "foo"@ corresponds to Java "x.foo"
-    -- Same precedence as deref field.
-    | InstanceField Pos JavaRef JavaFieldName
-  deriving (Show)
-
 data RewriteVar = RewriteVar Pos String
   deriving (Show)
 
@@ -185,17 +215,18 @@ data VerificationTactic = Skip
 
 -- | Commands in a method spec.
 data MethodSpecDecl
-  = Type Pos [JavaRef] JavaType
+  = Type Pos [Expr] JavaType
   -- | List of Java expressions that may alias.
-  | MayAlias Pos [JavaRef]
+  | MayAlias Pos [Expr]
   -- | Contant value in reference.
-  | Const Pos JavaRef Expr
+  | Const Pos Expr Expr
   -- | Local binding within a method spec.
   | MethodLet Pos String Expr
   -- | Assume a given precondition is true when method is called.
   | Assume Pos Expr
-  | Ensures Pos JavaRef Expr
-  | Arbitrary Pos [JavaRef]
+  | Ensures Pos Expr Expr
+  | Modifies Pos [Expr]
+  | LocalSpec Pos Integer [MethodSpecDecl]
   | Returns Pos Expr
   | VerifyUsing Pos [VerificationTactic]
  deriving (Show)

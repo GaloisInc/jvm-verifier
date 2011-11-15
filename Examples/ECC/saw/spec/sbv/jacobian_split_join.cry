@@ -1,0 +1,7 @@
+include "../ecc.cry";
+
+jsplit : JacobianPoint [384] -> JacobianPoint [12][32];
+jsplit = JacobianPoint_mor split;
+
+jjoin : JacobianPoint [12][32] -> JacobianPoint [384];
+jjoin = JacobianPoint_mor join;

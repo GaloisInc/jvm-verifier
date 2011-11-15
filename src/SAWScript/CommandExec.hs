@@ -297,7 +297,7 @@ execute (AST.GlobalLet pos name astExpr) = do
     bindings <- getGlobalBindings
     let config = TC.mkGlobalTCConfig oc bindings Map.empty
     lift $ TC.tcExpr config astExpr
-  val <- lift $ TC.globalEval oc valueExpr
+  let val = TC.globalEval valueExpr
   let tp = TC.getTypeOfExpr valueExpr
   modify $ \s -> s { definedNames = Map.insert name pos (definedNames s)
                    , globalLetBindings = Map.insert name (val, tp) (globalLetBindings s) }
@@ -331,6 +331,7 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
       let vnm = case tactics of
                   [AST.QuickCheck _ _] -> "testing"
                   _                    -> "verification of"
+      --liftIO $ putStrLn "Running test"
       whenVerbosityWrite (>1) $
         "[" ++ ts ++ "] Starting " ++ vnm  ++ " \"" ++ specName ++ "\"."
       ((), elapsedTime) <- timeIt $ do
@@ -403,10 +404,10 @@ execute (AST.Rule pos ruleName params astLhsExpr astRhsExpr) = do
                ++ " does not refer to variables unbound in the left-hand side."
      in throwIOExecException pos (ftext msg) res
   -- TODO: Parse lhsExpr and rhsExpr and add rule.
-  let mkRuleTerm :: TC.Expr -> Term
+  let mkRuleTerm :: TC.LogicExpr -> Term
       mkRuleTerm (TC.Apply op args) = appTerm op (map mkRuleTerm args)
       mkRuleTerm (TC.Cns cns tp) = mkConst cns tp
-      mkRuleTerm (TC.JavaValue _ _) = error "internal: Java value given to mkRuleTerm"
+      mkRuleTerm (TC.ArrayValue _ _) = error "internal: Java value given to mkRuleTerm"
       mkRuleTerm (TC.Var name tp) = mkVar name tp
   let rl = Rule ruleName (evalTerm (mkRuleTerm lhsExpr)) (evalTerm (mkRuleTerm rhsExpr))
   modify $ \s -> s { rules = Map.insert ruleName rl (rules s)
