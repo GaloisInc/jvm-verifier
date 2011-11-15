@@ -50,6 +50,12 @@ extern SBV ref_ec_full_add("../spec/sbv/generated/ref_p384_ec_full_add.sbv")
 extern SBV ref_ec_full_sub("../spec/sbv/generated/ref_p384_ec_full_sub.sbv") 
   : ({ x: [384]; y: [384]; z: [384] }, { x:[384]; y:[384] }) -> { x:[384]; y:[384]; z:[384] };
 
+extern SBV ref_ec_mul_aux("../spec/sbv/generated/ref_p384_ec_mul_aux.sbv")
+  : ({ x: [384]; y: [384]; z: [384] }, { x:[384]; y:[384] }, [32], [32], [32]) -> { x: [384]; y: [384]; z: [384] };
+
+extern SBV ref_ec_mul("../spec/sbv/generated/ref_p384_ec_mul.sbv")
+  : ([384], { x: [384]; y: [384]}) -> { x:[384]; y:[384]; z:[384] };
+
 ////////////////////////////////////////////////////////////////////////////////
 // Rewrite Rules
 //

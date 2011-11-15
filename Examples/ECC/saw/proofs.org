@@ -36,10 +36,10 @@ far on a typical developer system.
 | TODO   | Point Full Subtraction | ec_full_sub |                      | ec_full_add, sub    | ec_full_add |         100 | No            | "" ""                                                            |
 
 ** Level 3: Scalar multiplication operations
-| Status | Name                          | Java          | Cryptol | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments                        |
-| TODO   | SD Multiply                   | ec_mul        |         |                     |         | no spec     | No       |                                 |
-| TODO   | SD Multiply w/ sliding window | ec_mul_window |         |                     |         | no spec     | No       | In use, but more complex than ^ |
-| TODO   | Twin multiplication           | ec_twin_mul   |         |                     |         | no spec     | No       | High risk                       |
+| Status | Name                          | Java          | Cryptol      | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments                        |
+| INPR   | SD Multiply                   | ec_mul        | p384_ref_mul | [fn:10]             |         | no spec     | No       |                                 |
+| TODO   | SD Multiply w/ sliding window | ec_mul_window |              |                     |         | no spec     | No       | In use, but more complex than ^ |
+| TODO   | Twin multiplication           | ec_twin_mul   |              |                     |         | no spec     | No       | High risk                       |
 
 ** Level 4: ECDSA
 | Status | Name           | Java                | Cryptol | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments  |
@@ -73,3 +73,6 @@ far on a typical developer system.
 [fn:7] is_zero, set_unit, set_zero, field_{sq,sub,add,mul,mul3,dbl,mul4,dbl_dec,mul8}
 [fn:8] is_zero, set_zero, set_unit, field_add, field_sub, field_dbl, field_mul, field_sq
 [fn:9] is_zero, field_eq, field_mul, field_sub, ec_double, set_unit, set_zero, field_dbl, field_dbl_dec, mod_half
+[fn:10] assign, set_unit, set_zero, ec_mul_merge_aux (which calls ec_double, ec_full_add/sub)
+
+
