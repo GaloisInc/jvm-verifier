@@ -1,0 +1,25 @@
+// Test a propertye on 100 randomly generated tests.
+//
+// This shows what happens when we find a counter example.
+
+method Example.m1 {
+  var args[0] : int;
+  returns: 0 : [32];
+  verifyUsing: quickcheck 100;
+};
+
+
+// This is what happens when we find a counter example:
+//
+// "example4.saw":5:1
+//   Random testing found a counter example:
+//     Method: Example.m1
+//     Unexpected value for: return value
+//       Expected: 0:[32]
+//       Found: 1745204022:[32]
+//     Random arguments:
+//       args[0] = 872602011:[32]
+
+
+
+
