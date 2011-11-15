@@ -490,6 +490,9 @@ ref_p384_decFieldPrime : [384] -> RsltWithCarry;
 ref_p384_decFieldPrime x = { carry = if (bs ! 0) then -1 else 0; rslt = take(384, bs)}
   where bs = safe_sub(x, p384_prime);
 
+ref_p384_prime_div : ([384],[384],[384]) -> [384];
+ref_p384_prime_div (p,x,y) = ref_prime_div(p,x,y);
+
 /* Defines a reference prime field that uses normalized numbers and
    large word bit operations. */
 ref_p384_field :  Field [384];

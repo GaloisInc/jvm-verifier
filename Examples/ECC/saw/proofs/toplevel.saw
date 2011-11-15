@@ -25,4 +25,9 @@ import "field_red.spec";
 // Curve operations
 import "ec_double.spec";
 
+// TODO: enable ec_full_add/sub.  Right now there is an internal SAWScript
+// error when either field_sq or field_mul are imported above
+// (see ec_full_add_bug.saw).
 
+// import "ec_full_add.spec";
+// import "ec_full_sub.spec";

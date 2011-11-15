@@ -8,8 +8,20 @@ let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
 ////////////////////////////////////////////////////////////////////////////////
 // Imported functions from the Cryptol specification
 
+extern SBV ref_neg("../spec/sbv/generated/ref_p384_neg.sbv")
+  : [384] -> [384];
+
+extern SBV ref_is_field("../spec/sbv/generated/ref_p384_is_val.sbv")  
+  : [384] -> Bit;
+
+extern SBV ref_field_half("../spec/sbv/generated/ref_p384_half.sbv")
+  : [384] -> [384];
+
 extern SBV ref_field_mul("../spec/sbv/generated/ref_p384_mul.sbv")
   : ([384],[384]) -> [384];
+
+// extern SBV ref_prime_div("../spec/sbv/generated/ref_p384_prime_div.sbv")
+//  : ([384],[384],[384]) -> [384];
 
 extern SBV ref_field_mod("../spec/sbv/generated/ref_p384_mod.sbv")
   : [768] -> [384];
@@ -31,6 +43,12 @@ extern SBV ref_incFieldPrime("../spec/sbv/generated/ref_p384_incFieldPrime.sbv")
 
 extern SBV ref_decFieldPrime("../spec/sbv/generated/ref_p384_decFieldPrime.sbv")
   : [384] -> { carry : [32]; rslt : [384] };
+
+extern SBV ref_ec_full_add("../spec/sbv/generated/ref_p384_ec_full_add.sbv") 
+  : ({ x: [384]; y: [384]; z: [384] }, { x:[384]; y:[384] }) -> { x:[384]; y:[384]; z:[384] };
+
+extern SBV ref_ec_full_sub("../spec/sbv/generated/ref_p384_ec_full_sub.sbv") 
+  : ({ x: [384]; y: [384]; z: [384] }, { x:[384]; y:[384] }) -> { x:[384]; y:[384]; z:[384] };
 
 ////////////////////////////////////////////////////////////////////////////////
 // Rewrite Rules

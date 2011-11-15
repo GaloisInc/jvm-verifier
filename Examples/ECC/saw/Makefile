@@ -28,6 +28,8 @@ PROOFS :=           \
   field_sq.saw      \
   field_red.saw     \
   ec_double.saw     \
+  ec_full_add.saw   \
+  ec_full_sub.saw   \
 
 # Run SAWScript verfication using the toplevel orchestration script
 verify:

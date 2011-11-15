@@ -9,5 +9,5 @@ method com.galois.ecc.P384ECC64.field_red
   ensures 
     valueOf(args[0]) := split(ref_field_mod(va)) : [12][32];
 
-  verifyUsing: quickcheck 100;
+  verifyUsing: quickcheck 10;
 };
