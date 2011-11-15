@@ -43,7 +43,9 @@ pickRandomSize ty spec =
                      replicateM (numBits n) (pickRandomSize ty1 spec)
         Nothing   -> qcFail "arrays of non-constant size"
 
-    SymRec _ _    -> qcFail "record values"
+    SymRec def su ->
+      CRec def su `fmap` V.mapM (`pickRandomSize` spec) (recFieldTypes def su)
+
     SymShapeVar _ -> qcFail "polymorphic values"
   where
   qcFail x = fail $
