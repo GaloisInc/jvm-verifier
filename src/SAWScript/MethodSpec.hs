@@ -31,7 +31,6 @@ import qualified Data.Set as Set
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector as V
 import Text.PrettyPrint.HughesPJ
-import System.Random(randomIO, randomRIO)
 import System.Directory(doesFileExist)
 
 import qualified Execution.Codebase as JSS
@@ -40,6 +39,7 @@ import JavaParser as JSS
 import MethodSpec (partitions)
 import qualified SAWScript.SmtLib as SmtLib
 import qualified SAWScript.SmtLib2 as SmtLib2
+import qualified SAWScript.QuickCheck as QuickCheck
 import qualified SAWScript.Yices  as Yices
 import qualified SAWScript.MethodAST as AST
 import qualified SAWScript.TypeChecker as TC
@@ -1775,8 +1775,8 @@ testRandom de v ir test_num lim vc =
   loop run passed | Just l <- lim, run >= l = return (passed,run)
   loop run passed = loop (run + 1) =<< testOne passed
 
-  testOne passed = do 
-    vs   <- mapM (pickRandom . termType . viNode) (vcInputs vc)
+  testOne passed = do
+    vs   <- mapM (QuickCheck.pickRandom . termType . viNode) (vcInputs vc)
     eval <- deConcreteEval (V.fromList vs)
     if not (toBool $ eval $ vcAssumptions vc)
       then return passed
@@ -1813,63 +1813,6 @@ testRandom de v ir test_num lim vc =
                                  , "  Expected: boolean value"
                                  , "  Result:   " ++ ppCValue Mixfix value ""
                                  ]
-
--- Or, perhaps, short, tall, grande, venti :-)
-data RandomSpec = Least | Small | Medium | Large | Largest
-
-
-pickRandomSize :: DagType -> RandomSpec -> IO CValue
-pickRandomSize ty spec =
-  case ty of
-
-    SymBool -> CBool `fmap`
-      case spec of
-        Least   -> return False
-        Small   -> return False
-        Medium  -> randomIO
-        Large   -> return True
-        Largest -> return True
-
-    SymInt w ->
-      case widthConstant w of
-         Just n  -> mkCInt n `fmap`
-           do let least   = 0
-                  largest = bitWidthSize n - 1
-              case spec of
-                Least   -> return least
-                Small   -> randomRIO (least, min largest (least + 100))
-                Medium  -> randomRIO (least, largest)
-                Large   -> randomRIO (max least (largest - 100), largest)
-                Largest -> return largest
-
-         Nothing -> qcFail "integers of non-constant size"
-
-    SymArray els ty1 ->
-      case widthConstant els of
-        Just n    -> (CArray . V.fromList) `fmap`
-                     replicateM (numBits n) (pickRandomSize ty1 spec)
-        Nothing   -> qcFail "arrays of non-constant size"
-
-    SymRec _ _    -> qcFail "record values"
-    SymShapeVar _ -> qcFail "polymorphic values"
-  where
-  qcFail x = fail $
-                "QuickCheck: Generating random " ++ x ++ " is not supported."
-
--- Distribution of tests.  The choice is somewhat arbitrary.
-pickRandom :: DagType -> IO CValue
-pickRandom ty = pickRandomSize ty =<< ((`pick` distr) `fmap` randomRIO (0,99))
-  where
-  pick n ((x,s) : ds) = if n < x then s else pick (n-x) ds
-  pick _ _            = Medium
-
-  distr :: [(Int, RandomSpec)]
-  distr = [ (5,  Least)
-          , (30, Small)
-          , (30, Medium)
-          , (30, Large)
-          , (5,  Largest)
-          ]
 
 
 announce :: String -> SymbolicMonad ()
