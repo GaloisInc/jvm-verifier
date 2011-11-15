@@ -35,7 +35,7 @@ pickRandomSize ty spec =
                 Large   -> randomRIO (max least (largest - 100), largest)
                 Largest -> return largest
 
-         Nothing -> qcFail "integers of non-constant size"
+         Nothing -> qcFail "integers of polymorphic size"
 
     SymArray els ty1 ->
       case widthConstant els of
