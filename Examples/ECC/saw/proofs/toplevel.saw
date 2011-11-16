@@ -1,0 +1,33 @@
+// Toplevel orchestration script; proofs should not exist in this file
+// unless they are complete!
+
+import "common.saw";
+
+// Misc/primitive operations
+import "is_zero.saw";
+import "set_zero.saw";
+import "set_unit.saw";
+
+// Field operations
+import "incFieldPrime.spec";
+import "decFieldPrime.spec";
+import "field_add.spec";
+import "field_sub.spec";
+import "field_dbl.spec";
+import "field_dbl_dec.spec";
+import "field_mul.spec";
+import "field_mul3.spec";
+import "field_mul4.spec";
+import "field_mul8.spec";
+import "field_sq.spec";
+import "field_red.spec";
+
+// Curve operations
+import "ec_double.spec";
+
+// TODO: enable ec_full_add/sub.  Right now there is an internal SAWScript
+// error when either field_sq or field_mul are imported above
+// (see ec_full_add_bug.saw).
+
+// import "ec_full_add.spec";
+// import "ec_full_sub.spec";

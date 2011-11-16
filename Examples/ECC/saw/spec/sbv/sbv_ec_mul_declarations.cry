@@ -1,0 +1,10 @@
+include "affine_split_join.cry";
+include "jacobian_split_join.cry";
+
+pragma p384_ref_mul_aux : SBV uninterpret;
+
+sref_p384_ec_mul : ([12][32], AffinePoint [12][32]) -> JacobianPoint [12][32];
+sref_p384_ec_mul(x,p) = jsplit (p384_ref_mul(join x, ajoin p));
+
+ref_p384_ec_mul : ([384], AffinePoint [384]) -> JacobianPoint [384];
+ref_p384_ec_mul(x, p) = p384_ref_mul(x, p);

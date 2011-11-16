@@ -1,0 +1,25 @@
+import "common.saw";
+
+// Importing either field_mul or field_sq specifications creates an
+// internal error when attempting to discharge ec_full_add, but the
+// error messages differ somewhat.
+//
+// With only the import of field_mul.spec, we get:
+// [12:33:37 PM] Testing "com.galois.ecc.P384ECC64.field_mul"... Skipped.
+// [12:33:37 PM] Testing "com.galois.ecc.P384ECC64.ec_full_add"... sawScript: internal: illegal arguments to applySetArrayValue
+// 
+// With only the import of field_sq.spec, we get:
+// [12:33:43 PM] Testing "com.galois.ecc.P384ECC64.field_sq"... Skipped.
+// [12:33:43 PM] Testing "com.galois.ecc.P384ECC64.ec_full_add"... sawScript: internal: illegal arguments to applySetArrayValue
+//
+// However, with both enabled, we get:
+//
+// [12:33:26 PM] Testing "com.galois.ecc.P384ECC64.field_mul"... Skipped.
+// [12:33:26 PM] Testing "com.galois.ecc.P384ECC64.field_sq"... Skipped.
+// [12:33:26 PM] Testing "com.galois.ecc.P384ECC64.ec_full_add"... sawScript: src/Verinf/Symbolic/Dag.hs:399:9-17: Assertion failed
+
+set verification off;
+import "field_mul.spec";
+import "field_sq.spec";
+set verification on;
+import "ec_full_add.spec";
