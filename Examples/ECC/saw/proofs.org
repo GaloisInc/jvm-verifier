@@ -36,10 +36,10 @@ far on a typical developer system.
 | TODO   | Point Full Subtraction | ec_full_sub |                      | ec_full_add, sub    | ec_full_add |         100 | No            | "" ""                                                            |
 
 ** Level 3: Scalar multiplication operations
-| Status | Name                          | Java          | Cryptol      | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments                        |
-| INPR   | SD Multiply                   | ec_mul        | p384_ref_mul | [fn:10]             |         | no spec     | No       |                                 |
-| TODO   | SD Multiply w/ sliding window | ec_mul_window |              |                     |         | no spec     | No       | In use, but more complex than ^ |
-| TODO   | Twin multiplication           | ec_twin_mul   |              |                     |         | no spec     | No       | High risk                       |
+| Status | Name                          | Java          | Cryptol      | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments                                                                                                 |
+| INPR   | SD Multiply                   | ec_mul        | p384_ref_mul | [fn:10]             |         | no spec     | No       | quickcheck 1 goes OOM; guess is that this cannot simulate in its current form? (more exploration needed) |
+| TODO   | SD Multiply w/ sliding window | ec_mul_window |              |                     |         | no spec     | No       | In use, but more complex than ^                                                                          |
+| TODO   | Twin multiplication           | ec_twin_mul   |              |                     |         | no spec     | No       | High risk                                                                                                |
 
 ** Level 4: ECDSA
 | Status | Name           | Java                | Cryptol | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments  |
