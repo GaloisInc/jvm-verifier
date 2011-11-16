@@ -799,6 +799,42 @@ imp_prime_div(p,x,y) = egcd(p,zero,y,x)
                (b, rb, half(ripple_sub(a, b)), imp_prime_half(imp_prime_sub(p, ra, rb), p)));
   };
 
+/* The previous algorithm specialized to 384 bits, but not specialized
+ * to a specific prime, because that's how the Java implementation is
+ * structured. */
+
+/* We separate the key computation from the recursive combinator. */
+/* In code below, a is always odd. */
+imp_p384_egcd_step : ([12][32], [12][32], [12][32], [12][32], [12][32]) ->
+                     ([12][32], [12][32], [12][32], [12][32], [12][32]);
+imp_p384_egcd_step(a,ra,b,rb,p) =
+  if even(b) then
+    (a, ra, half(b), imp_prime_half(rb, p), p)
+  else if ripple_lt(a, b) then
+    (a, ra, half(ripple_sub(b, a)),
+     imp_prime_half(imp_prime_sub(p, rb, ra), p), p)
+  else
+    (b, rb, half(ripple_sub(a, b)),
+     imp_prime_half(imp_prime_sub(p, ra, rb), p), p)
+  where {
+    even xl = ~(xl@0@0);
+    half x = ripple_shr(x,False);
+  };
+
+/* In code below, a is always odd. */
+imp_p384_egcd : ([12][32], [12][32], [12][32], [12][32], [12][32]) -> [12][32];
+imp_p384_egcd(a,ra,b,rb,p) =
+  if b == zero then
+    ra
+  else
+    imp_p384_egcd(imp_p384_egcd_step(a, ra, b, rb, p));
+
+imp_prime_384_div : ([12][32],[12][32],[12][32]) -> [12][32];
+imp_prime_384_div(p,x,y) = imp_p384_egcd(p,zero,y,x,p);
+
+theorem imp_prime_div_correct: {p x y}.
+  imp_prime_384_div (p, x, y) == imp_prime_div (p, x, y);
+
 /********************
    REVISIT:
      With the definition of imp_p384_mod below,
