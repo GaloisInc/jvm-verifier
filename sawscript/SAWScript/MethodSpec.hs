@@ -63,6 +63,8 @@ import qualified SMTLib2 as SmtLib2
 
 -- Utilities {{{1
 
+nyi msg = error $ "Not yet implemented: " ++ msg
+
 -- | Return value of field in path state.
 instanceFieldValue :: JSS.Ref -> JSS.FieldId -> JSS.PathState Node -> Maybe (JSS.Value Node)
 instanceFieldValue r f ps = Map.lookup (r,f) (JSS.instanceFields ps)
@@ -81,7 +83,8 @@ mkInputLitResultWithType (SymInt (widthConstant -> Just (Wx w))) =
   LV <$> SV.replicateM w lMkInput
 mkInputLitResultWithType (SymArray (widthConstant -> Just (Wx l)) eltTp) =
   LVN <$> V.replicateM l (mkInputLitResultWithType eltTp)
-mkInputLitResultWithType _ = error "internal: mkInputLitResultWithType called with unsupported type."
+mkInputLitResultWithType _ =
+  error "internal: mkInputLitResultWithType called with unsupported type."
 
 -- | Create ani node with given number of bits.
 mkInputWithType :: (SV.Storable l) => DagEngine n l -> DagType -> IO n
@@ -201,32 +204,34 @@ checkClassesInitialized pos specName requiredClasses = do
                   ++ "currently support methods that initialize new classes."
        in throwIOExecException pos (ftext msg) ""
 
--- | State during running the behavior specifications.
-data BCState n l = BCState {
+-- | State for running the behavior specifications in a method override.
+data OCState n l = OCState {
          bcsEvalContext :: EvalContext n l
        , bcsResultState :: JSS.PathState n
        }
 
-type BehaviorComputation n l = StateT (BCState n l) (ErrorT String IO)
+-- | Monad used to execute statements in a behavior specification for a method
+-- override. 
+type OverrideComputation n l = StateT (OCState n l) (ErrorT String IO)
 
-runEval :: (EvalContext n l -> a -> ExprEvaluator b) -> a -> BehaviorComputation n l b
-runEval fn v = do
+-- | Runs an evaluate within an override computation.
+ocEval :: (EvalContext n l -> a -> ExprEvaluator b) -> a -> OverrideComputation n l b
+ocEval fn v = do
   ec <- gets bcsEvalContext
   let res = runIdentity (runErrorT (fn ec v))
   case res of
     Left expr -> throwError $ "Could not evaluate " ++ show expr ++ "."
     Right v -> return v
 
-
-modifyResultState :: (JSS.PathState n -> BehaviorComputation n l (JSS.PathState n))
-                  -> BehaviorComputation n l ()
+modifyResultState :: (JSS.PathState n -> OverrideComputation n l (JSS.PathState n))
+                  -> OverrideComputation n l ()
 modifyResultState m = do
   bcs <- get
   ps <- m (bcsResultState bcs)
   put bcs { bcsResultState = ps }
 
 -- | Add assumption for predicate.
-addAssumption :: ConstantProjection n => n -> BehaviorComputation n l ()
+addAssumption :: ConstantProjection n => n -> OverrideComputation n l ()
 addAssumption x =
   case getBool x of
     Just True -> return ()
@@ -237,43 +242,42 @@ addAssumption x =
            return ps { JSS.psAssumptions = res }
 
 addEqAssumption :: (ConstantProjection n, TypedTerm n)
-                => n -> n -> BehaviorComputation n l ()
+                => n -> n -> OverrideComputation n l ()
 addEqAssumption x y = do
   de <- gets (ecDagEngine . bcsEvalContext)
   addAssumption (deApplyBinary de (eqOp (termType x)) x y)
 
-setArrayValue :: TypedTerm n => TC.JavaExpr -> n -> BehaviorComputation n l ()
+setArrayValue :: TypedTerm n => TC.JavaExpr -> n -> OverrideComputation n l ()
 setArrayValue lhsExpr rhsVal = do
-  JSS.RValue lhsRef <- runEval evalJavaExpr lhsExpr
+  JSS.RValue lhsRef <- ocEval evalJavaExpr lhsExpr
   let SymArray (widthConstant -> Just (Wx w)) _ = termType rhsVal
   modifyResultState $ \ps ->
     return ps { JSS.arrays =
                   Map.insert lhsRef (fromIntegral w, rhsVal) (JSS.arrays ps) }
 
-setInstanceField :: TC.JavaExpr -> JSS.FieldId -> JSS.Value n -> BehaviorComputation n l ()
+setInstanceField :: TC.JavaExpr -> JSS.FieldId -> JSS.Value n -> OverrideComputation n l ()
 setInstanceField refExpr fid value = do
-  JSS.RValue lhsRef <- runEval evalJavaExpr refExpr
+  JSS.RValue lhsRef <- ocEval evalJavaExpr refExpr
   modifyResultState $ \ps ->
     return ps { JSS.instanceFields = 
                   Map.insert (lhsRef,fid) value (JSS.instanceFields ps) }
 
 
-execStatement :: (ConstantProjection n, TypedTerm n, SV.Storable l)
-              => Statement -> BehaviorComputation n l ()
-
-execStatement (AssumePred expr) =
-  addAssumption =<< runEval evalLogicExpr expr
-execStatement (AssumeValueEq lhs rhs) = do
+ocStep :: (ConstantProjection n, TypedTerm n, SV.Storable l)
+       => Statement -> OverrideComputation n l ()
+ocStep (AssumePred expr) =
+  addAssumption =<< ocEval evalLogicExpr expr
+ocStep (AssumeValueEq lhs rhs) = do
   -- Check left-hand side equals right-hand side.
-  lhsVal <- runEval evalMixedExpr (JE lhs)
-  rhsVal <- runEval evalMixedExpr rhs
+  lhsVal <- ocEval evalMixedExpr (JE lhs)
+  rhsVal <- ocEval evalMixedExpr rhs
   case (lhsVal, rhsVal) of
     (MVNode lhsNode, MVNode rhsNode) -> addEqAssumption lhsNode rhsNode
     (MVRef  lhsRef,  MVRef  rhsRef) -> do
       when (lhsRef /= rhsRef) $ throwError "Incompatible references"
-execStatement (AssumeArrayEq lhs rhs) = do
-  JSS.RValue lhsRef <- runEval evalJavaExpr lhs
-  rhsVal <- runEval evalLogicExpr rhs
+ocStep (AssumeArrayEq lhs rhs) = do
+  JSS.RValue lhsRef <- ocEval evalJavaExpr lhs
+  rhsVal <- ocEval evalLogicExpr rhs
   --TODO ps <- gets (ecPathState . bcsEvalContext)
   ps <- undefined
   case Map.lookup lhsRef (JSS.arrays ps) of
@@ -283,22 +287,22 @@ execStatement (AssumeArrayEq lhs rhs) = do
       addEqAssumption lhsVal rhsVal
 
 
-execStatement (EnsureInstanceField refExpr fid rhsExpr) =
-  setInstanceField refExpr fid =<< runEval jssEvalMixedExpr rhsExpr
-execStatement (EnsureArray lhsExpr rhsExpr) =
-  setArrayValue lhsExpr =<< runEval evalLogicExpr rhsExpr
+ocStep (EnsureInstanceField refExpr fid rhsExpr) =
+  setInstanceField refExpr fid =<< ocEval jssEvalMixedExpr rhsExpr
+ocStep (EnsureArray lhsExpr rhsExpr) =
+  setArrayValue lhsExpr =<< ocEval evalLogicExpr rhsExpr
 
-execStatement (ModifyInstanceField refExpr f) = do
+ocStep (ModifyInstanceField refExpr f) = do
   de <- gets (ecDagEngine . bcsEvalContext)
   let tp = JSS.fieldIdType f
   n <- liftIO $ mkIntInput de (JSS.stackWidth tp)
   setInstanceField refExpr f (mkJSSValue tp n)
-execStatement (ModifyArray refExpr tp) = do
+ocStep (ModifyArray refExpr tp) = do
   de <- gets (ecDagEngine . bcsEvalContext)
   setArrayValue refExpr =<< liftIO (mkInputWithType de tp)
 
-execStatement (Return expr) = do
-  val <- runEval jssEvalMixedExpr expr
+ocStep (Return expr) = do
+  val <- ocEval jssEvalMixedExpr expr
   modifyResultState $ \ps ->
     return $
       case JSS.frames ps of
@@ -324,12 +328,12 @@ execOverride pos ir mbThis args = do
                        , ecArgs = V.fromList args
                        , ecPathState = ps
                        }
-      initBCS = BCState { bcsEvalContext = ec
+      initBCS = OCState { bcsEvalContext = ec
                         , bcsResultState = ps
                         }
   res <- liftIO $ forM bsl $ \bs ->
     runErrorT $ flip evalStateT initBCS $ do
-       mapM_ execStatement (bsStatements bs)
+       mapM_ ocStep (bsStatements bs)
        gets bcsResultState
   case rights res of
     _:_:_ ->
@@ -553,11 +557,13 @@ runMethod ir sec = do
   let method = methodSpecIRMethod ir
   let args = V.toList (jecArgs jec)
   let pc = jecInitPC jec
-  if methodIsStatic method
-    then JSS.invokeStaticMethod clName (methodKey method) args
-    else do
-      let Just thisRef = jecThis jec
-      JSS.invokeInstanceMethod clName (methodKey method) thisRef args
+  if methodIsStatic method then
+    JSS.invokeStaticMethod clName (methodKey method) args
+    JSS.pushFrame clName method (RValue objectref : operands)
+
+  else
+    let Just thisRef = jecThis jec
+     in JSS.invokeInstanceMethod clName (methodKey method) thisRef args
   when (pc /= 0) $ do
     let pc' = nextPc method pc
     Sem.setPc pc'
@@ -805,8 +811,6 @@ data ExecutionResult = ExecutionResult {
         , erEnabled :: Set OpIndex
         }
 
-nyi msg = error $ "Not yet implemented: " ++ msg
-
 -- | Analyze the specification, and return a list of symbolic executions to run
 -- that will generate the different paths we need to verify.
 methodSpecVCs :: VerifyParams -> [SymbolicMonad [ExecutionResult]]
@@ -828,23 +832,49 @@ methodSpecVCs
     setVerbosity vrb
     JSS.runSimulator cb $ do
       setVerbosity vrb
+      -- Log execution.
       -- TODO: Create initial Java state.
-      jvs <- undefined
+      initPS <- nyi "create initial java state."
+      JSS.putPathState initPS
       -- Add method spec overrides.
       mapM_ (overrideFromSpec pos) overrides
-      nyi "methodSpecVCs"
+      -- Register breakpoints
+      {-
+      when (vrb >= 4 && not (null assertPCs)) $
+         liftIO $ putStrLn $ "Registering breakpoints: " ++ show assertPCs
+      JSS.registerBreakpoints $ map (\bpc -> (cls, meth, bpc)) assertPCs
+      -}
+      -- Execute code.
+      let pc = bsPC bs
+      when (vrb >= 3) $ do
+        liftIO $ putStrLn $ "Executing " ++ methodSpecName ir ++ " at PC " ++ show pc ++ "."
+      jssResults <- JSS.run
+      forM jssResults $ \(pd, fr) -> do
+        finalPS <- JSS.getPathStateByName pd :: JSS.Simulator SymbolicMonad (JSS.PathState Node)  
+        case fr of
+          JSS.ReturnVal val -> do
+            -- TODO: Build VCs by comparing finalPS with Ensure statements from bs. 
+            nyi "methodSpecVCs ReturnVal"
+          JSS.Terminated -> nyi "methodSpecVCs Terminated"
+          JSS.Breakpoint pc -> do
+            -- TODO: Build VCs by
+            -- * Comparing Ensures statements from bs with Ensures statement at pc.
+            -- * Verifying assumptions hold at current breakpoint.
+           nyi "methodSpecVCs Breakpoint"
+          JSS.Exc JSS.SimExtErr{} -> nyi "methodSpecVCs SimExtErr"
+          JSS.Exc JSS.JavaException{} -> nyi "methodSpecVCs JavaException"
+          JSS.Aborted -> nyi "methodSpecVCs Aborted"
+          JSS.Unassigned -> error "internal: run terminated before completing."
+      nyi "methodSpecVCs merging VCS from all jssResults"
+
+
 {-
-      when (vrb >= 6) $ do
-         liftIO $ putStrLn $ "Executing " ++ methodSpecName ir "
-         when (pc /= 0) $
-              liftIO $ putStrLn $ "  starting from PC " ++ show pc
   let refEquivClasses = 
   let assertPCs = Map.keys (localSpecs ir)
   let cls = JSS.className $ methodSpecIRThisClass ir
   let meth = JSS.methodKey $ methodSpecIRMethod ir
   flip concatMap refEquivClasses $ \cm -> flip map (0 : assertPCs) $ \pc -> do
     de <- getDagEngine
-    JSS.runSimulator cb $ do
       -- Create map from specification entries to JSS simulator values.
       jvs <- initializeJavaVerificationState ir cm
       -- JavaEvalContext for inital verification state.
@@ -866,19 +896,6 @@ methodSpecVCs
                   , jecInitPC = pc
                   }
       let sec' = createSpecEvalContext de ir jec'
-      when (vrb >= 6) $ do
-         liftIO $ putStrLn $ "Executing " ++ methodSpecName ir
-         when (pc /= 0) $
-              liftIO $ putStrLn $ "  starting from PC " ++ show pc
-      -- Register breakpoints
-      when (vrb >= 4 && not (null assertPCs)) $
-         liftIO $ putStrLn $ "Registering breakpoints: " ++ show assertPCs
-      JSS.registerBreakpoints $ map (\bpc -> (cls, meth, bpc)) assertPCs
-      -- Execute method.
-      when (vrb >= 3) $
-        liftIO $ putStrLn $ "Running " ++ methodSpecName ir ++
-                            " starting from " ++ show pc
-      (jssResult, jec) <- runMethod ir sec'
           -- isReturn returns True if result is a normal return value.
       let isReturn JSS.ReturnVal{} = True
           isReturn JSS.Terminated = True
@@ -993,14 +1010,16 @@ validateMethodSpec
   let verb = verbose opts
   let specName = methodSpecName ir
   when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName
-
-  error "Not yet implemented: validateMethodSpec"
+  let vcList = methodSpecVCs params
+  forM_ vcList $ \vcGenerator -> do
+    runSymbolic oc $ do
+      results <- vcGenerator
+      nyi "Not yet implemented: validateMethodSpec"
 
 
 {- TODO: Fix below
   let pgm = foldl' addRule emptyProgram rules
 
-  let vcList = methodSpecVCs params
   forM_ vcList $ \mVC -> do
     when (v >= 6) $
       liftIO $ putStrLn $ "Considering new alias configuration of " ++ methodSpecName ir
