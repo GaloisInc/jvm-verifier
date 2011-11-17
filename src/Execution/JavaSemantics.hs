@@ -630,7 +630,6 @@ invokeInstanceMethod cName key objectRef args = do
        "Could not find instance method " ++ show key ++ " in " ++ cName
          ++ "\n  objectRef = " ++ show objectRef ++ ", args = " ++ show args
 
-
 -- | Invokes a static method in a particular class.
 invokeStaticMethod :: JavaSemantics m
                    => String      -- ^ Name of class
