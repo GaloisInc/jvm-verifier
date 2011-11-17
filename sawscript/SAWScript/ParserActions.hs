@@ -90,7 +90,7 @@ parseSSPgm ssOpts = go [(entry, Nothing)] M.empty M.empty
        route _ (ExternSBV p n fp t)     = ExternSBV p n (routePathThroughPos p fp) t
        route _ c = c
 
-parseJV :: SSOpts -> (FilePath, Maybe Pos) -> IO ([(FilePath, Pos)], [VerifierCommand])
+parseJV :: SSOpts -> (FilePath, Maybe Pos) -> IO ([(FilePath, Pos)], [SAWScriptCommand])
 parseJV ssOpts (f, mbP) = do
        notQuiet ssOpts $ do rf <- makeRelativeToCurrentDirectory f
                             case mbP of

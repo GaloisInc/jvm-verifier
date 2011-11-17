@@ -25,7 +25,9 @@ module SAWScript.TypeChecker
   -- * Java types
   , ppASTJavaType
   , jssTypeOfASTJavaType
-  , JavaRefActualType(..)
+  -- * Actual type
+  , JavaActualType(..)
+  , isActualRef
   , jssTypeOfActual
   , isActualSubtype
   , ppActualType
@@ -78,13 +80,14 @@ tcType oc (AST.Record _ fields)  = SymRec def sub
 tcType _ (AST.ShapeVar _ v)        = SymShapeVar v
 
 tcT :: AST.ExprType -> SawTI DagType
-tcT tp = (\oc -> tcType oc tp) `fmap` gets opCache
+tcT tp = (\oc -> tcType oc tp) <$> gets (opCache . globalBindings)
 
 -- Typechecking configuration {{{1
 
 -- | Context for resolving top level expressions.
 data GlobalBindings = GlobalBindings {
-         codeBase      :: JSS.Codebase
+         opCache       :: OpCache
+       , codeBase      :: JSS.Codebase
        , ssOpts        :: SSOpts
        , opBindings    :: Map String OpDef
        , constBindings :: Map String (CValue,DagType)
@@ -92,17 +95,15 @@ data GlobalBindings = GlobalBindings {
 
 -- | Context for resolving expressions at the top level or within a method.
 data TCConfig = TCC {
-         opCache        :: OpCache
-       , globalBindings :: GlobalBindings
+         globalBindings :: GlobalBindings
        , methodInfo     :: Maybe (JSS.Method, JSS.Class)
        , localBindings  :: Map String MixedExpr
-       , toJavaExprType :: Maybe (JavaExpr -> Maybe JavaRefActualType)
+       , toJavaExprType :: Maybe (JavaExpr -> Maybe JavaActualType)
        }
 
-mkGlobalTCConfig :: OpCache -> GlobalBindings -> Map String LogicExpr -> TCConfig
-mkGlobalTCConfig opCache globalBindings lb = do
-  TCC { opCache
-      , globalBindings
+mkGlobalTCConfig :: GlobalBindings -> Map String LogicExpr -> TCConfig
+mkGlobalTCConfig globalBindings lb = do
+  TCC { globalBindings
       , methodInfo = Nothing
       , localBindings = Map.map LE lb
       , toJavaExprType = Nothing }
@@ -158,13 +159,11 @@ tcJavaExpr cfg e = runTI cfg (tcJE e)
 -- | Typecheck expression with form valueOf(args), returning java expression
 -- inside args.
 tcValueOfExpr ::  TCConfig -> AST.Expr -> IO JavaExpr
-tcValueOfExpr cfg (AST.ApplyExpr _po "valueOf" [astExpr]) = do
-  tcJavaExpr cfg astExpr
-tcValueOfExpr _ (AST.ApplyExpr pos "valueOf" _) =
-  let msg = ftext "Unexpected number of arguments to \"valueOf\"."
-   in throwIOExecException pos msg ""
-tcValueOfExpr _ _ = error "internal: tcValueOfExpr given illegal expression"
-
+tcValueOfExpr cfg ast = do
+  expr <- runTI cfg (tcE ast)
+  case expr of
+    LE (JavaValue je _) -> return je
+    _ -> error "internal: tcValueOfExpr given illegal expression"
 
 -- LogicExpr {{{1
 
@@ -173,12 +172,12 @@ tcValueOfExpr _ _ = error "internal: tcValueOfExpr given illegal expression"
 data LogicExpr
    = Apply Op [LogicExpr]
    | Cns CValue DagType
-   | Var String DagType
      -- | Refers to the logical value of a Java expression.  For scalars,
      -- this is the value of the scalar with the number of bits equal to
      -- the stack width.  For arrays, this is the value of the array.
      -- Other reference types are unsupported.
    | JavaValue JavaExpr DagType
+   | Var String DagType
    deriving (Show)
 
 -- | Return type of a typed expression.
@@ -193,18 +192,18 @@ logicExprVarNames :: LogicExpr -> Set String
 logicExprVarNames (Apply _ exprs) = Set.unions (map logicExprVarNames exprs)
 logicExprVarNames (Cns _ _)       = Set.empty
 logicExprVarNames (JavaValue _ _) = Set.empty
-logicExprVarNames (Var nm _)      = Set.singleton nm
+logicExprVarNames (Var nm _) = Set.singleton nm
 
 -- | Evaluate a ground typed expression to a constant value.
 globalEval :: LogicExpr -> CValue
 globalEval expr = eval expr
   where ts = evalTermSemantics
-        eval (Var _nm _tp) =
-          error "internal: globalEval called with non-ground expression"
+        eval (Apply op args) = runIdentity (tsApplyOp ts op (V.map eval (V.fromList args)))
+        eval (Cns c tp) = runIdentity (tsConstant ts c tp)
         eval (JavaValue _nm _tp) =
           error "internal: globalEval called with expression containing Java expressions."
-        eval (Cns c tp) = runIdentity (tsConstant ts c tp)
-        eval (Apply op args) = runIdentity (tsApplyOp ts op (V.map eval (V.fromList args)))
+        eval (Var _nm _tp) =
+          error "internal: globalEval called with non-ground expression"
 
 -- | Internal utility for flipping arguments to binary logic expressions.
 flipBinOpArgs :: LogicExpr -> LogicExpr
@@ -256,48 +255,56 @@ ppASTJavaType tp =
     AST.RefType _ nm    -> text (intercalate "." nm)
     AST.ArrayType etp l -> ppASTJavaType etp <> brackets (int l)
 
-
-
--- | Identifies concrete type of a Java expression, and possible initial value.
-data JavaRefActualType
+-- | Identifies concrete type of a Java expression.
+data JavaActualType
   = ClassInstance JSS.Class
-  | ArrayInstance Int JSS.Type (Maybe CValue)
+  | ArrayInstance Int JSS.Type
+  | PrimitiveType JSS.Type
   deriving (Show)
 
-instance Eq JavaRefActualType where
+instance Eq JavaActualType where
   ClassInstance c1 == ClassInstance c2 = JSS.className c1 == JSS.className c2
-  ArrayInstance l1 tp1 v1 == ArrayInstance l2 tp2 v2 = l1 == l2 && tp1 == tp2 && v1 == v2
+  ArrayInstance l1 tp1 == ArrayInstance l2 tp2 = l1 == l2 && tp1 == tp2
+  PrimitiveType tp1 == PrimitiveType tp2 = tp1 == tp2
   _ == _ = False
 
-jssTypeOfActual :: JavaRefActualType -> JSS.Type
+-- | Returns true if this represents a reference.
+isActualRef :: JavaActualType -> Bool
+isActualRef ClassInstance{} = True
+isActualRef ArrayInstance{} = True
+isActualRef PrimitiveType{} = False
+
+-- | Returns Java symbolic simulator type that actual type represents.
+jssTypeOfActual :: JavaActualType -> JSS.Type
 jssTypeOfActual (ClassInstance x) = JSS.ClassType (JSS.className x)
-jssTypeOfActual (ArrayInstance _ tp _) = JSS.ArrayType tp
+jssTypeOfActual (ArrayInstance _ tp) = JSS.ArrayType tp
+jssTypeOfActual (PrimitiveType tp) = tp
 
 -- @isActualSubtype cb x y@ returns True if @x@ is a subtype of @y@.
-isActualSubtype :: JSS.Codebase -> JavaRefActualType -> JavaRefActualType -> IO Bool
-isActualSubtype cb (ArrayInstance lx ex _) (ArrayInstance ly ey _)
+isActualSubtype :: JSS.Codebase -> JavaActualType -> JavaActualType -> IO Bool
+isActualSubtype cb (ArrayInstance lx ex) (ArrayInstance ly ey)
   | lx == ly = JSS.isSubtype cb ex ey
   | otherwise = return False
-isActualSubtype _ _ ArrayInstance{} = return False
 isActualSubtype cb x y 
   = JSS.isSubtype cb (jssTypeOfActual x) (jssTypeOfActual y)
 
-ppActualType :: JavaRefActualType -> String
+ppActualType :: JavaActualType -> String
 ppActualType (ClassInstance x) = slashesToDots (JSS.className x)
-ppActualType (ArrayInstance l tp _) = show tp ++ "[" ++ show l ++ "]"
+ppActualType (ArrayInstance l tp) = show tp ++ "[" ++ show l ++ "]"
+ppActualType (PrimitiveType tp) = show tp
 
--- | Convert AST.JavaType into JavaRefActualType if it is a reference.
-tcActualType :: JSS.Codebase -> AST.JavaType -> IO (Maybe JavaRefActualType)
+-- | Convert AST.JavaType into JavaActualType.
+tcActualType :: JSS.Codebase -> AST.JavaType -> IO JavaActualType
 tcActualType _ (AST.ArrayType eltTp l) = do
   unless (0 <= l && toInteger l < toInteger (maxBound :: Int32)) $ do
     let msg  = "Array length " ++ show l ++ " is invalid."
     throwIOExecException (AST.javaTypePos eltTp) (ftext msg) ""
   let jssType = jssTypeOfASTJavaType eltTp
-  return $ Just (ArrayInstance (fromIntegral l) jssType Nothing)
+  return (ArrayInstance (fromIntegral l) jssType)
 tcActualType cb (AST.RefType pos names) = do
   cl <- lookupClass cb pos (intercalate "/" names)
-  return $ Just (ClassInstance cl)
-tcActualType _ _ = return Nothing
+  return (ClassInstance cl)
+tcActualType _ tp = return (PrimitiveType (jssTypeOfASTJavaType tp))
 
 -- SawTI {{{1
 
@@ -334,6 +341,16 @@ tcJE astExpr = do
      let msg = ftext $ "\'" ++ show astExpr ++ "\' is not a valid Java expression."
       in typeErr (AST.exprPos astExpr) msg
 
+checkedGetIntType :: Pos -> JSS.Type -> SawTI DagType
+checkedGetIntType pos javaType = do
+  when (JSS.isRefType javaType) $ do
+    let msg = "Encountered a Java expression denoting a reference where a logical expression is expected."
+    typeErr pos (ftext msg)
+  when (JSS.isFloatType javaType) $ do
+    let msg = "Encountered a Java expression denoting a floating point value where a logical expression is expected."
+    typeErr pos (ftext msg)
+  return $ SymInt (constantWidth (Wx (JSS.stackWidth javaType)))
+
 -- | Typecheck expression as a logic expression.
 tcLE :: AST.Expr -> SawTI LogicExpr
 tcLE astExpr = do
@@ -342,13 +359,7 @@ tcLE astExpr = do
     LE e -> return e
     JE e -> do
       let javaType = jssTypeOfJavaExpr e
-      when (JSS.isRefType javaType) $ do
-        let msg = "Encountered a Java expression denoting a reference where a logical expression is expected."
-        typeErr (AST.exprPos astExpr) (ftext msg)
-      when (JSS.isFloatType javaType) $ do
-        let msg = "Encountered a Java expression denoting a floating point value where a logical expression is expected."
-        typeErr (AST.exprPos astExpr) (ftext msg)
-      let dagType = SymInt (constantWidth (Wx (JSS.stackWidth javaType)))
+      dagType <- checkedGetIntType (AST.exprPos astExpr) javaType
       return $ JavaValue e dagType
 
 -- | Convert AST expression into expression.
@@ -380,7 +391,7 @@ tcE (AST.MkArray p (es@(_:_))) = do
         | x == y = go rs 
         | otherwise = mismatch p ("array elements " ++ show i ++ " and " ++ show j) x y
   t   <- go $ zip [(1::Int)..] $ map typeOfLogicExpr es'
-  oc <- gets opCache
+  oc <- gets (opCache . globalBindings)
   return $ LE $ Apply (mkArrayOp oc (length es') t) es'
 tcE (AST.TypeExpr pos (AST.ConstantInt posCnst i) astTp) = do
   tp <- tcT astTp
@@ -403,7 +414,7 @@ tcE (AST.TypeExpr _ (AST.ApplyExpr appPos "split" astArgs) astResType) = do
     (  SymInt (widthConstant -> Just wl)
      , SymArray (widthConstant -> Just l) (SymInt (widthConstant -> Just w)))
       | wl == l * w -> do
-        oc <- gets opCache
+        oc <- gets (opCache . globalBindings)
         return $ LE $ Apply (splitOp oc l w) args
     _ -> typeErr appPos $ ftext $ "Illegal arguments and result type given to \'split\'."
                                 ++ " SAWScript currently requires that the argument is ground type, "
@@ -413,24 +424,25 @@ tcE (AST.TypeExpr p (AST.MkArray _ []) astResType) = do
   case resType of
     SymArray we _
       | Just (Wx 0) <- widthConstant we -> do
-         oc <- gets opCache
+         oc <- gets (opCache . globalBindings)
          return $ LE $ Apply (mkArrayOp oc 0 resType) []
     _  -> unexpected p "Empty-array comprehension" "empty-array type" resType
 tcE (AST.MkRecord _ flds) = do
    flds' <- mapM tcLE [e | (_, _, e) <- flds]
    let names = [nm | (_, nm, _) <- flds]
-   oc <- gets opCache
+   oc <- gets (opCache . globalBindings)
    let def = getStructuralRecord oc (Set.fromList names)
    let fldTps = map typeOfLogicExpr flds'
    let sub = emptySubst { shapeSubst = Map.fromList $ names `zip` fldTps }
    return $ LE $ Apply (mkOp (recDefCtor def) sub) flds'
-tcE (AST.TypeExpr p e astResType) = do
-   te <- tcLE e
-   let tet = typeOfLogicExpr te
-   resType <- tcT astResType
-   if tet /= resType
-      then mismatch p "type-annotation" tet resType
-      else return (LE te)
+tcE (AST.TypeExpr p astExpr astResType) = do
+  r <- tcE astExpr
+  et <- case r of
+          LE e -> return (typeOfLogicExpr e)
+          JE e -> checkedGetIntType p (jssTypeOfJavaExpr e)
+  resType <- tcT astResType
+  when (et /= resType) $ mismatch p "type-annotation" et resType
+  return r
 tcE (AST.ApplyExpr p "valueOf" [jr]) = do
   sje <- tcJE jr
   unless (JSS.isRefType (jssTypeOfJavaExpr sje)) $ do
@@ -439,30 +451,33 @@ tcE (AST.ApplyExpr p "valueOf" [jr]) = do
      in typeErrWithR p (ftext msg) res
   mbToJavaT <- gets toJavaExprType
   case mbToJavaT of
-    Nothing ->
-      let msg = "The Java value \'" ++ show sje ++ "\' appears in a global context."
-          res = "Java values may not be references outside method declarations."
-       in typeErrWithR p (ftext msg) res
     Just toJavaT -> do
       case toJavaT sje of
+        Just (ArrayInstance l tp) -> do
+          let arrayTp = jssArrayDagType l tp
+          return $ LE $ JavaValue sje arrayTp
         Nothing ->
           let msg = "The Java value \'" ++ show sje ++ "\' is missing a \'type\' annotation."
               res = "Please add a type declaration to Java values before "
                      ++ "referring to them in SAWScript expressions."
            in typeErrWithR p (ftext msg) res
-        Just (ClassInstance _) ->
+        Just _  ->
           let msg = "The expression " ++ show sje ++ " does not refer to an array,"
            in typeErrWithR p (ftext msg) ""
-        Just (ArrayInstance l tp _) -> do
-          let arrayTp = jssArrayDagType l tp
-          return $ LE $ JavaValue sje arrayTp
+    Nothing ->
+      let msg = "The Java value \'" ++ show sje ++ "\' appears in a global context."
+          res = "Java values may not be references outside method declarations."
+       in typeErrWithR p (ftext msg) res
+tcE (AST.ApplyExpr pos "valueOf" _) =
+  let msg = ftext "Unexpected number of arguments to \"valueOf\"."
+   in throwIOExecException pos msg ""
 tcE (AST.ApplyExpr appPos "join" astArgs) = do
   args <- mapM tcLE astArgs
   checkArgCount appPos "join" args 1
   let argType = typeOfLogicExpr (head args)
   case argType of
     SymArray (widthConstant -> Just l) (SymInt (widthConstant -> Just w)) -> do
-         oc <- gets opCache
+         oc <- gets (opCache . globalBindings)
          return $ LE $ Apply (joinOp oc l w) args
     _ -> typeErr appPos $ ftext $ "Illegal arguments and result type given to \'join\'."
                                 ++ " SAWScript currently requires that the argument is ground"

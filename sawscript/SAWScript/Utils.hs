@@ -35,6 +35,7 @@ data Pos = Pos !FilePath -- file
                !Int      -- line
                !Int      -- col
          | PosInternal String
+  deriving (Eq)
 
 endPos :: FilePath -> Pos
 endPos f = Pos f 0 0

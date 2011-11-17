@@ -40,8 +40,8 @@ $nl        = [\n\r]
 
 @reservedid  = import|extern|SBV|let|Bit
              | set|verification|on|off|rule|enable|disable|forAll
-             | method|var|mayAlias|const|localSpec|choice|assume|ensures|modifies|returns
-             | verifyUsing|rewriter|skip|abc|quickcheck|smtlib|yices
+             | method|var|mayAlias|at|assume|ensures|modifies|return
+             |quickcheck|verify|rewrite|abc|smtlib|yices|expand
              |boolean|byte|char|double|float|int|long|short
              |args|locals|this|True|False|if|then|else
 @reservedop  = "~"  | "-" | "*" | "+" | "/s" | "%s" | ">>" | "<<" | ">>u" | "|" | "&" | "^"

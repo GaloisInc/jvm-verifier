@@ -11,7 +11,7 @@ import SAWScript.Utils
 import qualified Data.Map as M
 
 -- result of parsing a bunch of method specs
-type SSPgm = M.Map FilePath [VerifierCommand]
+type SSPgm = M.Map FilePath [SAWScriptCommand]
 
 type BitWidth = Int
 
@@ -200,37 +200,50 @@ data RewriteVar = RewriteVar Pos String
 
 type SpecName = String
 
-data VerificationTactic = Skip 
-                        | Rewrite
-                        | QuickCheck Int (Maybe Int)
-                        | ABC
-                        | SmtLib (Maybe Int) (Maybe String) -- version, file
-                        | Yices (Maybe Int)
-  deriving (Eq, Show)
+data VerifyCommand
+   = Rewrite
+   | ABC
+   | SmtLib (Maybe Int) (Maybe String) -- version, file
+   | Yices (Maybe Int)
+   | Expand Expr
+   | VerifyAt Pos Integer VerifyCommand
+    -- | Enable use of a rule or extern definition.
+   | VerifyEnable Pos String
+     -- | Disable use of a rule or extern definition.
+   | VerifyDisable Pos String
+   | VerifyBlock [VerifyCommand]
+  deriving (Show)
 
--- | Commands in a method spec.
-data MethodSpecDecl
-  = Type Pos [Expr] JavaType
-  -- | List of Java expressions that may alias.
-  | MayAlias Pos [Expr]
-  -- | Contant value in reference.
-  | Const Pos Expr Expr
+data BehaviorDecl
+  = VarDecl Pos [Expr] JavaType
   -- | Local binding within a method spec.
   | MethodLet Pos String Expr
   -- | Assume a given precondition is true when method is called.
-  | Assume Pos Expr
+  | AssumePred Pos Expr
   | AssumeImp Pos Expr Expr
-  | Ensures Pos Expr Expr
+-- Disabled until Java support is added.
+--  | EnsuresPred Pos Expr
+  | EnsuresImp Pos Expr Expr
   | Modifies Pos [Expr]
-  | LocalSpec Pos Integer [MethodSpecDecl]
-  | Choice Pos [MethodSpecDecl] [MethodSpecDecl]
-  | Returns Pos Expr
-  | VerifyUsing Pos [VerificationTactic]
+  | Return Pos Expr
+  | MethodIf Pos Expr BehaviorDecl
+  | MethodIfElse Pos Expr BehaviorDecl BehaviorDecl
+  | Block [BehaviorDecl]
+  deriving (Show)
+
+-- | Commands in a method spec.
+data MethodSpecDecl
+  -- | List of Java expressions that may alias.
+  = MayAlias Pos [Expr]
+  | SpecAt Pos Integer BehaviorDecl
+  | QuickCheck Pos Integer (Maybe Integer)
+  | Verify Pos VerifyCommand
+  | Behavior BehaviorDecl
  deriving (Show)
 
 type RuleName = String
 
-data VerifierCommand
+data SAWScriptCommand
   -- | Import declarations from another Java verifier file.
   = ImportCommand Pos FilePath
   -- | Load a SBV function from the given file path, and give
