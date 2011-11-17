@@ -31,26 +31,26 @@ let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
 
 method com.galois.ecc.P384ECC64.is_zero {
   var args[0] :: int[12];
-  returns: if join(valueOf(args[0])) == 0:[384] then 1:[32] else 0:[32];
-  verifyUsing: abc;
+  return if join(valueOf(args[0])) == 0:[384] then 1:[32] else 0:[32];
+  verify abc;
 };
 
 method com.galois.ecc.P384ECC64.set_zero {
   var args[0] :: int[12];
   ensures valueOf(args[0]) := split(0:[384]) : [12][32];
-  verifyUsing: abc;
+  verify abc;
 };
 
 method com.galois.ecc.P384ECC64.set_unit {
   var args[0] :: int[12];
   ensures valueOf(args[0]) := split(1:[384]) : [12][32];
-  verifyUsing: abc;
+  verify abc;
 };
 
 method com.galois.ecc.P384ECC64.assign {
   var args[0], args[1] :: int[12];
   ensures valueOf(args[0]) := valueOf(args[1]);
-  verifyUsing: abc;
+  verify abc;
 };
 
 // Field operation verification {{{1
@@ -67,6 +67,7 @@ method com.galois.ecc.P384ECC64.field_add {
   // using the argument names from the Java debugging information.  However, for
   // our initial release, arguments must be refered to by position.
   var args[0], args[1], args[2] :: int[12];
+  var this.field_prime :: int[12];
 
   // Allow any of the valueOfs to alias the other valueOfs.
   // Complicates verification, but necessary for correctness of higher-level
@@ -74,7 +75,7 @@ method com.galois.ecc.P384ECC64.field_add {
   mayAlias { args[0], args[1], args[2] };
 
   // Require Java this.field_prime field equals SAWScript field_prime constant.
-  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   // Result of executing method.
   // In this case, we store the result of adding args[1] and args[2] inside of
@@ -82,36 +83,31 @@ method com.galois.ecc.P384ECC64.field_add {
   ensures valueOf(args[0]) := 
     split(field_add(join(valueOf(args[1])), join(valueOf(args[2])))) : [12][32];
 
-  // Verification method:
-  //  Can be one of:
-  //   * "skip" for skiping verification.
-  //   * "abc" for bitblasting and using ABC to solve resulting SAT problem.
-  //   * "rewriter" for using rewriting, and succeeding if verification reduces
-  //      to "True".
-  // verifyUsing: abc;
-  verifyUsing: quickcheck 100;
+  quickcheck 100;
 };
 
 // field_sub {{{2
 
 method com.galois.ecc.P384ECC64.field_sub {
   var args[0], args[1], args[2] :: int[12];
+  var this.field_prime :: int[12];
   mayAlias { args[0], args[1], args[2] };
-  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
   ensures valueOf(args[0]) :=
     split(field_sub(join(valueOf(args[1])), join(valueOf(args[2])))) : [12][32];
-  verifyUsing: abc;
+  verify abc;
 };
 
 // field_dbl {{{2
 
 method com.galois.ecc.P384ECC64.field_dbl {
   var args[0], args[1] :: int[12];
+  var this.field_prime :: int[12];
   mayAlias { args[0], args[1] };
-  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
   let jarg1 = join(valueOf(args[1]));
   ensures valueOf(args[0]) := split(field_add(jarg1, jarg1)) : [12][32];
-  verifyUsing: abc;
+  verify abc;
 };
 
 // field_dbl_dec {{{2
@@ -123,7 +119,8 @@ rule join_split : forAll {x:[384]}.
 
 method com.galois.ecc.P384ECC64.field_dbl_dec {
   var args[0], args[1] :: int[12];
-  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+  var this.field_prime :: int[12];
+  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   // Require that args[0] and args[1] are valid field elements.
   // assume is_field(join(valueOf(args[0])));
@@ -132,7 +129,7 @@ method com.galois.ecc.P384ECC64.field_dbl_dec {
   let jarg0 = join(valueOf(args[0]));
   let jarg1 = join(valueOf(args[1]));
   ensures valueOf(args[0]) := split(field_sub(field_sub(jarg0, jarg1), jarg1)) : [12][32];
-  verifyUsing: rewriter;
+  verify rewrite;
 };
 
 // field_mul3 {{{2
@@ -140,9 +137,10 @@ method com.galois.ecc.P384ECC64.field_dbl_dec {
 method com.galois.ecc.P384ECC64.field_mul3 {
   // Require arguments are 12-element integer valueOfs.
   var args[0], args[1] :: int[12];
+  var this.field_prime :: int[12];
 
   // Require Java this.field_prime field equals SAWScript field_prime constant.
-  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   // assume is_field(join(valueOf(args[0])));
   // assume is_field(join(valueOf(args[1])));
@@ -153,41 +151,44 @@ method com.galois.ecc.P384ECC64.field_mul3 {
   // Store result of jarg1 + jarg1 + jarg1 inside first argument valueOf.
   ensures valueOf(args[0]) := split(field_add(jarg1, field_add(jarg1, jarg1))) : [12][32];
 
-  verifyUsing: abc;
+  verify abc;
 };
 
 // field_mul4 {{{2
 method com.galois.ecc.P384ECC64.field_mul4 {
   var args[0], args[1] :: int[12];
+  var this.field_prime :: int[12];
   mayAlias { args[0], args[1] };
-  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
   let jarg1 = join(valueOf(args[1]));
   let dbl = field_add(jarg1, jarg1);
   ensures valueOf(args[0]) := split(field_add(dbl, dbl)) : [12][32];
-  verifyUsing: abc;
+  verify abc;
 };
 
 // field_mul8 {{{2
 method com.galois.ecc.P384ECC64.field_mul8 {
   var args[0], args[1] :: int[12];
+  var this.field_prime :: int[12];
   mayAlias { args[0], args[1] };
-  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
   let jarg1 = join(valueOf(args[1]));
   let dbl = field_add(jarg1, jarg1);
   let quad = field_add(dbl, dbl);
   ensures valueOf(args[0]) := split(field_add(quad, quad)) : [12][32];
-  verifyUsing: abc;
+  verify abc;
 };
 
 // field_red {{{2
 method com.galois.ecc.P384ECC64.field_red {
   var args[0] :: int[12];
   var args[1] :: int[24];
+  var this.field_prime :: int[12];
 
-  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
   ensures valueOf(args[0]) := split(field_mod(join(valueOf(args[1])))) : [12][32];
 
-  verifyUsing: quickcheck 100;
+  quickcheck 100;
 };
 
 // field_mul {{{2
@@ -196,6 +197,7 @@ method com.galois.ecc.P384ECC64.field_mul {
   var args[0], args[1], args[2] :: int[12];
   // Require "this.a" is a temporary buffer capable of storing 24 integers.
   var this.a :: int[24];
+  var this.field_prime :: int[12];
 
   // Allow three arguments to alias.
   mayAlias { args[0], args[1], args[2] };
@@ -205,7 +207,7 @@ method com.galois.ecc.P384ECC64.field_mul {
   // assume is_field(join(valueOf(args[2])));
 
   // Require Java this.field_prime field equals SAWScript field_prime constant.
-  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   // Store result of args[1] * args[2] inside args[0].
   ensures valueOf(args[0]) := split(field_mul(join(valueOf(args[1])), join(valueOf(args[2])))) : [12][32];
@@ -213,32 +215,32 @@ method com.galois.ecc.P384ECC64.field_mul {
   // Indicate that the value of this.a after execution may be an arbitrary value.
   // This is implemented in symbolic simulator by creating a new fresh variable
   // after executing field_mul.
-  modifies: valueOf(this.a);
+  modifies valueOf(this.a);
 
   // Test field_mul using quickcheck.
-  //verifyUsing: quickcheck 100;
-  verifyUsing: skip;
+  //verify quickcheck 100;
 };
 
 // field_sq {{{2
 method com.galois.ecc.P384ECC64.field_sq {
   var args[0], args[1] :: int[12];
   var this.a :: int[24];
+  var this.field_prime :: int[12];
   mayAlias { args[0], args[1] };
   // assume is_field(join(valueOf(args[1])));
-  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
   ensures valueOf(args[0]) := split(field_mul(join(valueOf(args[1])), join(valueOf(args[1])))) : [12][32];
-  modifies: valueOf(this.a);
-  verifyUsing: skip;
+  modifies valueOf(this.a);
 };
 
 // mod_half {{{2
 method com.galois.ecc.P384ECC64.mod_half {
   var args[0] :: int[12];
+  var args[1] :: int[12];
   // assume that second argument is field_prime;
-  const valueOf(args[1]) := split(field_prime) : [12][32];
+  assume valueOf(args[1]) := split(field_prime) : [12][32];
   ensures valueOf(args[0]) := split(field_half(join(valueOf(args[0])))) : [12][32];
-  verifyUsing: abc;
+  verify abc;
 };
 
 // mod_div {{{2
@@ -254,16 +256,16 @@ method com.galois.ecc.P384ECC64.mod_div {
        split(p384_prime_div(join(valueOf(args[3])),
                             join(valueOf(args[1])),
                             join(valueOf(args[2])))) : [12][32];*/
-  modifies: valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  modifies valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 
-  localSpec 44 {
-    choice {
+  at 44 {
+    if (swapped == 0:[32]) {
       //assume swapped := false;
       assume locals[a] := this.t1;
       assume locals[ra] := args[0];
       assume locals[b] := this.t2;
       assume locals[rb] := this.t3;
-    } { 
+    } else { 
       //assume swapped := true;
       assume locals[a] := this.t2;
       assume locals[ra] := this.t3;
@@ -277,7 +279,7 @@ method com.galois.ecc.P384ECC64.mod_div {
                           join(valueOf(ra)),
                           join(valueOf(b)),
                           join(valueOf(rb)))) : [12][32];*/
-    modifies: valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+    modifies valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   };
 
   /*
@@ -292,7 +294,6 @@ method com.galois.ecc.P384ECC64.mod_div {
     yices;
   };
   */
-  verifyUsing: skip;
 };
 
 set verification on;
@@ -458,7 +459,7 @@ method com.galois.ecc.P384ECC64.ec_double {
   // assume is_field(join(valueOf(args[0].z)));
 
   // Constants
-  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   // Let res denote the Cryptol struct formed from Cryptol ec_double operation.
   let res = ec_double({ x = join(valueOf(args[0].x)) ; y = join(valueOf(args[0].y)) ; z = join(valueOf(args[0].z)) });
@@ -469,10 +470,10 @@ method com.galois.ecc.P384ECC64.ec_double {
   ensures valueOf(args[0].z) := split(res.z) : [12][32];
 
   // Indicate temporary buffers are modifies.
-  modifies: valueOf(this.a), valueOf(this.t1), valueOf(this.t2);
+  modifies valueOf(this.a), valueOf(this.t1), valueOf(this.t2);
 
   // Use rewriting to verify ec_double.
-  verifyUsing: rewriter;
+  verify rewrite;
 };
 disable ec_double;
 
@@ -490,7 +491,7 @@ method com.galois.ecc.P384ECC64.ec_full_add {
   assume is_field(join(valueOf(args[0].z)));
   assume is_field(join(valueOf(args[1].x)));
   assume is_field(join(valueOf(args[1].y)));
-  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
   let res =
     ec_full_add(
       { x = join(valueOf(args[0].x)) ; y = join(valueOf(args[0].y)) ; z = join(valueOf(args[0].z)) },
@@ -499,8 +500,7 @@ method com.galois.ecc.P384ECC64.ec_full_add {
   ensures valueOf(args[0].x) := split(res.x) : [12][32];
   ensures valueOf(args[0].y) := split(res.y) : [12][32];
   ensures valueOf(args[0].z) := split(res.z) : [12][32];
-  modifies: valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-  verifyUsing: skip;
+  modifies valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 };
 
 // ec_full_sub {{{2
@@ -516,7 +516,7 @@ method com.galois.ecc.P384ECC64.ec_full_sub {
   assume is_field(join(valueOf(args[0].z)));
   assume is_field(join(valueOf(args[1].x)));
   assume is_field(join(valueOf(args[1].y)));
-  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
   let res =
     ec_full_sub(
       { x = join(valueOf(args[0].x)) ; y = join(valueOf(args[0].y)) ; z = join(valueOf(args[0].z)) },
@@ -525,8 +525,7 @@ method com.galois.ecc.P384ECC64.ec_full_sub {
   ensures valueOf(args[0].x) := split(res.x) : [12][32];
   ensures valueOf(args[0].y) := split(res.y) : [12][32];
   ensures valueOf(args[0].z) := split(res.z) : [12][32];
-  modifies: valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-  verifyUsing: skip;
+  modifies valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 };
 
 // ec_mul_merge_aux {{{2
@@ -545,7 +544,7 @@ method com.galois.ecc.P384ECC64.ec_mul_merge_aux {
   assume is_field(join(valueOf(args[0].z)));
   assume is_field(join(valueOf(args[1].x)));
   assume is_field(join(valueOf(args[1].y)));
-  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
   let res = ec_mul_aux({ x = join(valueOf(args[0].x))
                        ; y = join(valueOf(args[0].y))
                        ; z = join(valueOf(args[0].z))
@@ -559,9 +558,8 @@ method com.galois.ecc.P384ECC64.ec_mul_merge_aux {
   ensures valueOf(args[0].x) := split(res.x) : [12][32];
   ensures valueOf(args[0].y) := split(res.y) : [12][32];
   ensures valueOf(args[0].z) := split(res.z) : [12][32];
-  modifies: valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-  verifyUsing: skip;
-  //verifyUsing: rewriter;
+  modifies valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  //verify rewrite;
 };
 
 // ec_mul {{{2
@@ -581,7 +579,7 @@ method com.galois.ecc.P384ECC64.ec_mul {
   assume is_field(join(valueOf(args[2].x)));
   assume is_field(join(valueOf(args[2].y)));
 
-  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   /*
   localSpec 162 {
@@ -611,8 +609,7 @@ method com.galois.ecc.P384ECC64.ec_mul {
   ensures valueOf(args[0].x) := split(res.x) : [12][32];
   ensures valueOf(args[0].y) := split(res.y) : [12][32];
   ensures valueOf(args[0].z) := split(res.z) : [12][32];
-  /*modifies: valueOf(args[0].x), valueOf(args[0].y), valueOf(args[0].z);*/
-  modifies: valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  /*modifies valueOf(args[0].x), valueOf(args[0].y), valueOf(args[0].z);*/
+  modifies valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 
-  verifyUsing: skip;
 };
