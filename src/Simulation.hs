@@ -49,6 +49,7 @@ module Simulation
   -- * PathState operations.
   , PathState(..)
   , getPathState
+  , putPathState
   , getPathStateByName
   , getPSS
   , withPathState
