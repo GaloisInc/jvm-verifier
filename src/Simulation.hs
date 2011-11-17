@@ -1023,7 +1023,7 @@ updateFrame fn = {-# SCC "uF" #-} do
       ps' `seq` putPathState ps'
     _ -> error "internal: updateFrame: frame list is empty"
 
--- (pushFrame st m vals) pushes frame to the stack.
+-- (pushFrame st m vals) pushes frame to the stack for PC 0.
 pushFrame :: MonadIO sym =>
              String
           -> Method
