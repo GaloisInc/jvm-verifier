@@ -1,27 +1,24 @@
 // Define operators from SBV files.
-extern SBV is_field("sbv/ref_p384_is_val.sbv")  : [384] -> Bit;
-extern SBV field_add("sbv/ref_p384_add.sbv") : ([384],[384]) -> [384];
-extern SBV field_sub("sbv/ref_p384_sub.sbv") : ([384],[384]) -> [384];
-extern SBV field_mul("sbv/ref_p384_mul.sbv") : ([384],[384]) -> [384];
-extern SBV field_mod("sbv/ref_p384_mod.sbv") : [768] -> [384];
-extern SBV field_sq("sbv/ref_p384_sq.sbv") : [384] -> [384];
-extern SBV field_div_step("sbv/ref_p384_div_step.sbv") :
-  ([12][32], [12][32], [12][32], [12][32], [12][32], [32]) ->
-  { a:[12][32]; ra:[12][32]; b:[12][32]; rb:[12][32]; sw:[32] };
-extern SBV ec_double("sbv/p384_ref_double.sbv") :
+extern SBV is_field("sbv-old/ref_p384_is_val.sbv")  : [384] -> Bit;
+extern SBV field_add("sbv-old/ref_p384_add.sbv") : ([384],[384]) -> [384];
+extern SBV field_sub("sbv-old/ref_p384_sub.sbv") : ([384],[384]) -> [384];
+extern SBV field_mul("sbv-old/ref_p384_mul.sbv") : ([384],[384]) -> [384];
+extern SBV field_mod("sbv-old/ref_p384_mod.sbv") : [768] -> [384];
+extern SBV field_sq("sbv-old/ref_p384_sq.sbv") : [384] -> [384];
+extern SBV ec_double("sbv-old/p384_ref_double.sbv") :
   { x: [384]; y: [384]; z: [384] } -> { x:[384]; y:[384]; z:[384] };
-extern SBV field_half("sbv/ref_p384_half.sbv") : [384] -> [384];
-extern SBV field_neg("sbv/ref_p384_neg.sbv") : [384] -> [384];
-extern SBV ec_full_add("sbv/p384_ref_full_add.sbv") :
+extern SBV field_half("sbv-old/ref_p384_half.sbv") : [384] -> [384];
+extern SBV field_neg("sbv-old/ref_p384_neg.sbv") : [384] -> [384];
+extern SBV ec_full_add("sbv-old/p384_ref_full_add.sbv") :
   ({ x: [384]; y: [384]; z: [384] }, { x:[384]; y:[384] }) ->
   { x:[384]; y:[384]; z:[384] };
-extern SBV ec_full_sub("sbv/p384_ref_full_sub.sbv") :
+extern SBV ec_full_sub("sbv-old/p384_ref_full_sub.sbv") :
   ({ x: [384]; y: [384]; z: [384] }, { x:[384]; y:[384] }) ->
   { x:[384]; y:[384]; z:[384] };
-extern SBV ec_mul_aux("sbv/p384_ref_mul_aux.sbv") :
+extern SBV ec_mul_aux("sbv-old/p384_ref_mul_aux.sbv") :
   ({ x: [384]; y: [384]; z: [384] }, { x:[384]; y:[384] }, [32], [32], [32]) ->
   { x:[384]; y:[384]; z:[384] };
-extern SBV ec_mul("sbv/p384_ref_mul.sbv") :
+extern SBV ec_mul("sbv-old/p384_ref_mul.sbv") :
   ([384], { x:[384]; y:[384] }) -> { x:[384]; y:[384]; z:[384] };
 
 // Define field prime for P384 curve (taken from NIST and NSA documents).
@@ -37,19 +34,19 @@ method com.galois.ecc.P384ECC64.is_zero {
 
 method com.galois.ecc.P384ECC64.set_zero {
   var args[0] :: int[12];
-  ensures valueOf(args[0]) := split(0:[384]) : [12][32];
+  ensure valueOf(args[0]) := split(0:[384]) : [12][32];
   verify abc;
 };
 
 method com.galois.ecc.P384ECC64.set_unit {
   var args[0] :: int[12];
-  ensures valueOf(args[0]) := split(1:[384]) : [12][32];
+  ensure valueOf(args[0]) := split(1:[384]) : [12][32];
   verify abc;
 };
 
 method com.galois.ecc.P384ECC64.assign {
   var args[0], args[1] :: int[12];
-  ensures valueOf(args[0]) := valueOf(args[1]);
+  ensure valueOf(args[0]) := valueOf(args[1]);
   verify abc;
 };
 
@@ -75,12 +72,12 @@ method com.galois.ecc.P384ECC64.field_add {
   mayAlias { args[0], args[1], args[2] };
 
   // Require Java this.field_prime field equals SAWScript field_prime constant.
-  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   // Result of executing method.
   // In this case, we store the result of adding args[1] and args[2] inside of
   // args[0].
-  ensures valueOf(args[0]) := 
+  ensure valueOf(args[0]) := 
     split(field_add(join(valueOf(args[1])), join(valueOf(args[2])))) : [12][32];
 
   quickcheck 100;
@@ -92,8 +89,8 @@ method com.galois.ecc.P384ECC64.field_sub {
   var args[0], args[1], args[2] :: int[12];
   var this.field_prime :: int[12];
   mayAlias { args[0], args[1], args[2] };
-  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
-  ensures valueOf(args[0]) :=
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
+  ensure valueOf(args[0]) :=
     split(field_sub(join(valueOf(args[1])), join(valueOf(args[2])))) : [12][32];
   verify abc;
 };
@@ -104,9 +101,9 @@ method com.galois.ecc.P384ECC64.field_dbl {
   var args[0], args[1] :: int[12];
   var this.field_prime :: int[12];
   mayAlias { args[0], args[1] };
-  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   let jarg1 = join(valueOf(args[1]));
-  ensures valueOf(args[0]) := split(field_add(jarg1, jarg1)) : [12][32];
+  ensure valueOf(args[0]) := split(field_add(jarg1, jarg1)) : [12][32];
   verify abc;
 };
 
@@ -120,15 +117,15 @@ rule join_split : forAll {x:[384]}.
 method com.galois.ecc.P384ECC64.field_dbl_dec {
   var args[0], args[1] :: int[12];
   var this.field_prime :: int[12];
-  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   // Require that args[0] and args[1] are valid field elements.
-  // assume is_field(join(valueOf(args[0])));
-  // assume is_field(join(valueOf(args[1])));
+  // assert is_field(join(valueOf(args[0])));
+  // assert is_field(join(valueOf(args[1])));
 
   let jarg0 = join(valueOf(args[0]));
   let jarg1 = join(valueOf(args[1]));
-  ensures valueOf(args[0]) := split(field_sub(field_sub(jarg0, jarg1), jarg1)) : [12][32];
+  ensure valueOf(args[0]) := split(field_sub(field_sub(jarg0, jarg1), jarg1)) : [12][32];
   verify rewrite;
 };
 
@@ -140,16 +137,16 @@ method com.galois.ecc.P384ECC64.field_mul3 {
   var this.field_prime :: int[12];
 
   // Require Java this.field_prime field equals SAWScript field_prime constant.
-  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
 
-  // assume is_field(join(valueOf(args[0])));
-  // assume is_field(join(valueOf(args[1])));
+  // assert is_field(join(valueOf(args[0])));
+  // assert is_field(join(valueOf(args[1])));
 
   // Let jarg1 equals args[1] value as a single 384-bit number.
   let jarg1 = join(valueOf(args[1]));
 
   // Store result of jarg1 + jarg1 + jarg1 inside first argument valueOf.
-  ensures valueOf(args[0]) := split(field_add(jarg1, field_add(jarg1, jarg1))) : [12][32];
+  ensure valueOf(args[0]) := split(field_add(jarg1, field_add(jarg1, jarg1))) : [12][32];
 
   verify abc;
 };
@@ -159,10 +156,10 @@ method com.galois.ecc.P384ECC64.field_mul4 {
   var args[0], args[1] :: int[12];
   var this.field_prime :: int[12];
   mayAlias { args[0], args[1] };
-  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   let jarg1 = join(valueOf(args[1]));
   let dbl = field_add(jarg1, jarg1);
-  ensures valueOf(args[0]) := split(field_add(dbl, dbl)) : [12][32];
+  ensure valueOf(args[0]) := split(field_add(dbl, dbl)) : [12][32];
   verify abc;
 };
 
@@ -171,11 +168,11 @@ method com.galois.ecc.P384ECC64.field_mul8 {
   var args[0], args[1] :: int[12];
   var this.field_prime :: int[12];
   mayAlias { args[0], args[1] };
-  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   let jarg1 = join(valueOf(args[1]));
   let dbl = field_add(jarg1, jarg1);
   let quad = field_add(dbl, dbl);
-  ensures valueOf(args[0]) := split(field_add(quad, quad)) : [12][32];
+  ensure valueOf(args[0]) := split(field_add(quad, quad)) : [12][32];
   verify abc;
 };
 
@@ -185,8 +182,8 @@ method com.galois.ecc.P384ECC64.field_red {
   var args[1] :: int[24];
   var this.field_prime :: int[12];
 
-  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
-  ensures valueOf(args[0]) := split(field_mod(join(valueOf(args[1])))) : [12][32];
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
+  ensure valueOf(args[0]) := split(field_mod(join(valueOf(args[1])))) : [12][32];
 
   quickcheck 100;
 };
@@ -203,19 +200,19 @@ method com.galois.ecc.P384ECC64.field_mul {
   mayAlias { args[0], args[1], args[2] };
 
   // Require that args[1] and args[2] are valid field elements.
-  // assume is_field(join(valueOf(args[1])));
-  // assume is_field(join(valueOf(args[2])));
+  // assert is_field(join(valueOf(args[1])));
+  // assert is_field(join(valueOf(args[2])));
 
   // Require Java this.field_prime field equals SAWScript field_prime constant.
-  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   // Store result of args[1] * args[2] inside args[0].
-  ensures valueOf(args[0]) := split(field_mul(join(valueOf(args[1])), join(valueOf(args[2])))) : [12][32];
+  ensure valueOf(args[0]) := split(field_mul(join(valueOf(args[1])), join(valueOf(args[2])))) : [12][32];
 
   // Indicate that the value of this.a after execution may be an arbitrary value.
   // This is implemented in symbolic simulator by creating a new fresh variable
   // after executing field_mul.
-  modifies valueOf(this.a);
+  modify valueOf(this.a);
 
   // Test field_mul using quickcheck.
   //verify quickcheck 100;
@@ -227,19 +224,19 @@ method com.galois.ecc.P384ECC64.field_sq {
   var this.a :: int[24];
   var this.field_prime :: int[12];
   mayAlias { args[0], args[1] };
-  // assume is_field(join(valueOf(args[1])));
-  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
-  ensures valueOf(args[0]) := split(field_mul(join(valueOf(args[1])), join(valueOf(args[1])))) : [12][32];
-  modifies valueOf(this.a);
+  // assert is_field(join(valueOf(args[1])));
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
+  ensure valueOf(args[0]) := split(field_mul(join(valueOf(args[1])), join(valueOf(args[1])))) : [12][32];
+  modify valueOf(this.a);
 };
 
 // mod_half {{{2
 method com.galois.ecc.P384ECC64.mod_half {
   var args[0] :: int[12];
   var args[1] :: int[12];
-  // assume that second argument is field_prime;
-  assume valueOf(args[1]) := split(field_prime) : [12][32];
-  ensures valueOf(args[0]) := split(field_half(join(valueOf(args[0])))) : [12][32];
+  // assert that second argument is field_prime;
+  assert valueOf(args[1]) := split(field_prime) : [12][32];
+  ensure valueOf(args[0]) := split(field_half(join(valueOf(args[0])))) : [12][32];
   verify abc;
 };
 
@@ -250,36 +247,36 @@ method com.galois.ecc.P384ECC64.mod_div {
   //var locals[swapped] :: bool;
   var locals[a], locals[ra], locals[b], locals[rb] :: int[12];
 
-  ensures valueOf(args[0]) 
+  ensure valueOf(args[0]) 
     := valueOf(args[0]);
        /*
        split(p384_prime_div(join(valueOf(args[3])),
                             join(valueOf(args[1])),
                             join(valueOf(args[2])))) : [12][32];*/
-  modifies valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  modify valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 
   at 44 {
     if (swapped == 0:[32]) {
-      //assume swapped := false;
-      assume locals[a] := this.t1;
-      assume locals[ra] := args[0];
-      assume locals[b] := this.t2;
-      assume locals[rb] := this.t3;
+      //assert swapped := false;
+      assert locals[a] := this.t1;
+      assert locals[ra] := args[0];
+      assert locals[b] := this.t2;
+      assert locals[rb] := this.t3;
     } else { 
-      //assume swapped := true;
-      assume locals[a] := this.t2;
-      assume locals[ra] := this.t3;
-      assume locals[b] := this.t1;
-      assume locals[rb] := args[0];
+      //assert swapped := true;
+      assert locals[a] := this.t2;
+      assert locals[ra] := this.t3;
+      assert locals[b] := this.t1;
+      assert locals[rb] := args[0];
     };
-    ensures valueOf(args[0]) 
+    ensure valueOf(args[0]) 
        := valueOf(args[0]);
           /*
           split(p384_egcd(join(valueOf(a)),
                           join(valueOf(ra)),
                           join(valueOf(b)),
                           join(valueOf(rb)))) : [12][32];*/
-    modifies valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+    modify valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   };
 
   /*
@@ -441,7 +438,7 @@ rule ite_zero_field_mul :
 // ec_double {{{2
 enable ec_double;
 // Point doubling spec.
-// Point doubling take a single Jacobian point and modifies it's fields so that
+// Point doubling take a single Jacobian point and modify it's fields so that
 // they refer to the point after it has been doubled.
 // It uses some temporary buffers for storing results, but allocates no new memory.
 method com.galois.ecc.P384ECC64.ec_double {
@@ -454,23 +451,23 @@ method com.galois.ecc.P384ECC64.ec_double {
   var this.t1, this.t2 :: int[12];
 
   // Require that fields for Jacobian point are valid field elements.
-  // assume is_field(join(valueOf(args[0].x)));
-  // assume is_field(join(valueOf(args[0].y)));
-  // assume is_field(join(valueOf(args[0].z)));
+  // assert is_field(join(valueOf(args[0].x)));
+  // assert is_field(join(valueOf(args[0].y)));
+  // assert is_field(join(valueOf(args[0].z)));
 
   // Constants
-  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   // Let res denote the Cryptol struct formed from Cryptol ec_double operation.
   let res = ec_double({ x = join(valueOf(args[0].x)) ; y = join(valueOf(args[0].y)) ; z = join(valueOf(args[0].z)) });
 
   // Split results of Cryptol operation into Java fields.
-  ensures valueOf(args[0].x) := split(res.x) : [12][32];
-  ensures valueOf(args[0].y) := split(res.y) : [12][32];
-  ensures valueOf(args[0].z) := split(res.z) : [12][32];
+  ensure valueOf(args[0].x) := split(res.x) : [12][32];
+  ensure valueOf(args[0].y) := split(res.y) : [12][32];
+  ensure valueOf(args[0].z) := split(res.z) : [12][32];
 
-  // Indicate temporary buffers are modifies.
-  modifies valueOf(this.a), valueOf(this.t1), valueOf(this.t2);
+  // Indicate temporary buffers are modify.
+  modify valueOf(this.a), valueOf(this.t1), valueOf(this.t2);
 
   // Use rewriting to verify ec_double.
   verify rewrite;
@@ -486,21 +483,21 @@ method com.galois.ecc.P384ECC64.ec_full_add {
   var this.t1, this.t2, this.t3 :: int[12];
   var args[0].x, args[0].y, args[0].z :: int[12];
   var args[1].x, args[1].y :: int[12];
-  assume is_field(join(valueOf(args[0].x)));
-  assume is_field(join(valueOf(args[0].y)));
-  assume is_field(join(valueOf(args[0].z)));
-  assume is_field(join(valueOf(args[1].x)));
-  assume is_field(join(valueOf(args[1].y)));
-  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assert is_field(join(valueOf(args[0].x)));
+  assert is_field(join(valueOf(args[0].y)));
+  assert is_field(join(valueOf(args[0].z)));
+  assert is_field(join(valueOf(args[1].x)));
+  assert is_field(join(valueOf(args[1].y)));
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   let res =
     ec_full_add(
       { x = join(valueOf(args[0].x)) ; y = join(valueOf(args[0].y)) ; z = join(valueOf(args[0].z)) },
       { x = join(valueOf(args[1].x)) ; y = join(valueOf(args[1].y)) }
       );
-  ensures valueOf(args[0].x) := split(res.x) : [12][32];
-  ensures valueOf(args[0].y) := split(res.y) : [12][32];
-  ensures valueOf(args[0].z) := split(res.z) : [12][32];
-  modifies valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  ensure valueOf(args[0].x) := split(res.x) : [12][32];
+  ensure valueOf(args[0].y) := split(res.y) : [12][32];
+  ensure valueOf(args[0].z) := split(res.z) : [12][32];
+  modify valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 };
 
 // ec_full_sub {{{2
@@ -511,21 +508,21 @@ method com.galois.ecc.P384ECC64.ec_full_sub {
   var this.t1, this.t2, this.t3 :: int[12];
   var args[0].x, args[0].y, args[0].z :: int[12];
   var args[1].x, args[1].y            :: int[12];
-  assume is_field(join(valueOf(args[0].x)));
-  assume is_field(join(valueOf(args[0].y)));
-  assume is_field(join(valueOf(args[0].z)));
-  assume is_field(join(valueOf(args[1].x)));
-  assume is_field(join(valueOf(args[1].y)));
-  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assert is_field(join(valueOf(args[0].x)));
+  assert is_field(join(valueOf(args[0].y)));
+  assert is_field(join(valueOf(args[0].z)));
+  assert is_field(join(valueOf(args[1].x)));
+  assert is_field(join(valueOf(args[1].y)));
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   let res =
     ec_full_sub(
       { x = join(valueOf(args[0].x)) ; y = join(valueOf(args[0].y)) ; z = join(valueOf(args[0].z)) },
       { x = join(valueOf(args[1].x)) ; y = join(valueOf(args[1].y)) }
       );
-  ensures valueOf(args[0].x) := split(res.x) : [12][32];
-  ensures valueOf(args[0].y) := split(res.y) : [12][32];
-  ensures valueOf(args[0].z) := split(res.z) : [12][32];
-  modifies valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  ensure valueOf(args[0].x) := split(res.x) : [12][32];
+  ensure valueOf(args[0].y) := split(res.y) : [12][32];
+  ensure valueOf(args[0].z) := split(res.z) : [12][32];
+  modify valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 };
 
 // ec_mul_merge_aux {{{2
@@ -539,12 +536,12 @@ method com.galois.ecc.P384ECC64.ec_mul_merge_aux {
   var this.t1, this.t2, this.t3 :: int[12];
   var args[0].x, args[0].y, args[0].z :: int[12];
   var args[1].x, args[1].y :: int[12];
-  assume is_field(join(valueOf(args[0].x)));
-  assume is_field(join(valueOf(args[0].y)));
-  assume is_field(join(valueOf(args[0].z)));
-  assume is_field(join(valueOf(args[1].x)));
-  assume is_field(join(valueOf(args[1].y)));
-  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assert is_field(join(valueOf(args[0].x)));
+  assert is_field(join(valueOf(args[0].y)));
+  assert is_field(join(valueOf(args[0].z)));
+  assert is_field(join(valueOf(args[1].x)));
+  assert is_field(join(valueOf(args[1].y)));
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   let res = ec_mul_aux({ x = join(valueOf(args[0].x))
                        ; y = join(valueOf(args[0].y))
                        ; z = join(valueOf(args[0].z))
@@ -555,10 +552,10 @@ method com.galois.ecc.P384ECC64.ec_mul_merge_aux {
                        args[2],
                        args[3],
                        args[4]);
-  ensures valueOf(args[0].x) := split(res.x) : [12][32];
-  ensures valueOf(args[0].y) := split(res.y) : [12][32];
-  ensures valueOf(args[0].z) := split(res.z) : [12][32];
-  modifies valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  ensure valueOf(args[0].x) := split(res.x) : [12][32];
+  ensure valueOf(args[0].y) := split(res.y) : [12][32];
+  ensure valueOf(args[0].z) := split(res.z) : [12][32];
+  modify valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   //verify rewrite;
 };
 
@@ -575,11 +572,11 @@ method com.galois.ecc.P384ECC64.ec_mul {
   var this.h  :: int[12];
   var this.t1, this.t2, this.t3       :: int[12];
 
-  assume is_field(join(valueOf(args[1])));
-  assume is_field(join(valueOf(args[2].x)));
-  assume is_field(join(valueOf(args[2].y)));
+  assert is_field(join(valueOf(args[1])));
+  assert is_field(join(valueOf(args[2].x)));
+  assert is_field(join(valueOf(args[2].y)));
 
-  assume valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   /*
   localSpec 162 {
@@ -594,9 +591,9 @@ method com.galois.ecc.P384ECC64.ec_mul {
                    TODO,
                    TODO,
                    TODO);
-      ensures: valueOf(args[0].x) := split(lres.x);
-      ensures: valueOf(args[0].y) := split(lres.y);
-      ensures: valueOf(args[0].z) := split(lres.z);
+      ensure: valueOf(args[0].x) := split(lres.x);
+      ensure: valueOf(args[0].y) := split(lres.y);
+      ensure: valueOf(args[0].z) := split(lres.z);
 
   }
   */
@@ -606,10 +603,10 @@ method com.galois.ecc.P384ECC64.ec_mul {
                    ; y = join(valueOf(args[2].y))
                    });
 
-  ensures valueOf(args[0].x) := split(res.x) : [12][32];
-  ensures valueOf(args[0].y) := split(res.y) : [12][32];
-  ensures valueOf(args[0].z) := split(res.z) : [12][32];
-  /*modifies valueOf(args[0].x), valueOf(args[0].y), valueOf(args[0].z);*/
-  modifies valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  ensure valueOf(args[0].x) := split(res.x) : [12][32];
+  ensure valueOf(args[0].y) := split(res.y) : [12][32];
+  ensure valueOf(args[0].z) := split(res.z) : [12][32];
+  /*modify valueOf(args[0].x), valueOf(args[0].y), valueOf(args[0].z);*/
+  modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 
 };

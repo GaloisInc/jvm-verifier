@@ -218,13 +218,11 @@ data BehaviorDecl
   = VarDecl Pos [Expr] JavaType
   -- | Local binding within a method spec.
   | MethodLet Pos String Expr
-  -- | Assume a given precondition is true when method is called.
-  | AssumePred Pos Expr
-  | AssumeImp Pos Expr Expr
--- Disabled until Java support is added.
---  | EnsuresPred Pos Expr
-  | EnsuresImp Pos Expr Expr
-  | Modifies Pos [Expr]
+  -- | Assert a given precondition is true when method is called.
+  | AssertPred Pos Expr
+  | AssertImp Pos Expr Expr
+  | EnsureImp Pos Expr Expr
+  | Modify Pos [Expr]
   | Return Pos Expr
   | MethodIf Pos Expr BehaviorDecl
   | MethodIfElse Pos Expr BehaviorDecl BehaviorDecl

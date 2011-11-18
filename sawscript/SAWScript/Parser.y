@@ -37,9 +37,9 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'rule'         { TReserved _ "rule"         }
    'at'           { TReserved _ "at"           }
    'mayAlias'     { TReserved _ "mayAlias"     }
-   'assume'       { TReserved _ "assume"       }
-   'ensures'      { TReserved _ "ensures"      }
-   'modifies'     { TReserved _ "modifies"     }
+   'assert'       { TReserved _ "assert"       }
+   'ensure'       { TReserved _ "ensure"       }
+   'modify'       { TReserved _ "modify"       }
    'return'       { TReserved _ "return"       }
    'quickcheck'   { TReserved _ "quickcheck"   }
    'verify'       { TReserved _ "verify"       }
@@ -259,12 +259,11 @@ LSpecBlock : '{' termBy(LSpecDecl, ';') '}' { Block $2 }
 
 LSpecDecl :: { BehaviorDecl }
 LSpecDecl : 'var' Exprs1 '::' JavaType   { VarDecl      (tokPos $1) $2 $4 }
-          | 'let'         var '='  Expr  { MethodLet    (tokPos $1) (tokStr $2) $4 }
-          | 'assume'      Expr           { AssumePred   (tokPos $1) $2    }
-          | 'assume'      Expr ':=' Expr { AssumeImp    (tokPos $1) $2 $4 }
---          | 'ensures'     Expr           { EnsuresPred  (tokPos $1) $2    }
-          | 'ensures'     Expr ':=' Expr { EnsuresImp   (tokPos $1) $2 $4 }
-          | 'modifies'    Exprs1         { Modifies     (tokPos $1) $2    }
+          | 'let' var '=' Expr           { MethodLet    (tokPos $1) (tokStr $2) $4 }
+          | 'assert' Expr                { AssertPred   (tokPos $1) $2    }
+          | 'assert' Expr ':=' Expr      { AssertImp    (tokPos $1) $2 $4 }
+          | 'ensure' Expr ':=' Expr      { EnsureImp    (tokPos $1) $2 $4 }
+          | 'modify' Exprs1              { Modify       (tokPos $1) $2    }
           | 'return' Expr                { Return       (tokPos $1) $2    }
           | 'if' '(' Expr ')' LSpecBlock { MethodIf     (tokPos $1) $3 $5 }
           | 'if' '(' Expr ')' LSpecBlock

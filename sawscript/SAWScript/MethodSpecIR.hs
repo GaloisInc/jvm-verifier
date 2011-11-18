@@ -79,12 +79,9 @@ checkJavaExprIsDefined pos expr seenExprs =
      in throwIOExecException pos (ftext msg) res
 
 -- | Returns actual type of Java expression (which it checks is in fact a reference).
-getRefActualType :: MonadIO m => ExprActualTypeMap -> Pos -> TC.JavaExpr -> m TC.JavaActualType
-getRefActualType refTypeMap pos expr = do
-  unless (JSS.isRefType (TC.jssTypeOfJavaExpr expr)) $ do
-    let msg = "Found primitive value " ++ show expr ++ " where reference is expected."
-    throwIOExecException pos (ftext msg) ""
-  case Map.lookup expr refTypeMap of
+getActualType :: MonadIO m => ExprActualTypeMap -> Pos -> TC.JavaExpr -> m TC.JavaActualType
+getActualType typeMap pos expr = do
+  case Map.lookup expr typeMap of
     Just tp -> return tp
     Nothing -> do
       let msg = "The type of " ++ show expr ++ " has not been defined."
@@ -253,10 +250,10 @@ resolveMayAlias astRefs = do
     -- Return typechecked expression.
     return (astPos,expr)
   -- Check types of references are the same.
-  refTypeMap <- gets mstsActualTypeMap
-  firstType <- getRefActualType refTypeMap firstPos firstRef
+  typeMap <- gets mstsActualTypeMap
+  firstType <- getActualType typeMap firstPos firstRef
   forM_ restRefs $ \(pos,r) -> do
-    rct <- getRefActualType refTypeMap pos r
+    rct <- getActualType typeMap pos r
     when (rct /= firstType) $ do
       let msg = "Different types are assigned to " ++ show firstRef ++ " and " ++ show r ++ "."
           res = "All references that may alias must be assigned the same type."
@@ -271,8 +268,10 @@ data BehaviorTypecheckContext = BTC {
          btcMSTC :: MethodSpecTypecheckContext
          -- | Java expressions seen at method level.
        , btcActualTypeMap :: ExprActualTypeMap
+         -- | Contains pairs consisting of mutally joint lists of potentially
+         -- equivalent expressions, and the actual type expected of the elements.
+       , btcEquivClasses :: [(JavaExprEquivClass, TC.JavaActualType)]
        , btcMayAliasMap  :: Map TC.JavaExpr JavaExprEquivClass
-       , btcRefEquivClasses :: [(JavaExprEquivClass, TC.JavaActualType)]
        }
 
 resolveBTC :: MethodSpecTypecheckContext
@@ -285,12 +284,12 @@ resolveBTC mstc cmds =
               | AST.Behavior (AST.VarDecl _ astExprs astTp) <- cmds ]
     -- 2. Resolve may alias expressions.
     sequence_ [ resolveMayAlias astRefs | AST.MayAlias _ astRefs <- cmds ]
-    -- 3. Find unaliased references and add implicit unary mayAlias values.
+    -- 3. Find unaliased expressions and add implicit unary mayAlias values.
     rtm <- gets mstsActualTypeMap
-    forM_ (Map.toList rtm) $ \(r,tp) -> do
+    forM_ (Map.toList rtm) $ \(expr, tp) -> do
       mam <- gets mstsMayAliasMap
-      when (TC.isActualRef tp && Map.notMember r mam) $ do
-        addMayAliasEquivClass [r] tp
+      when (Map.notMember expr mam) $ do
+        addMayAliasEquivClass [expr] tp
     -- Get state
     msts <- get
     -- Check that each declaration of a field does not have the base
@@ -311,7 +310,7 @@ resolveBTC mstc cmds =
     return BTC { btcMSTC = mstc
                , btcActualTypeMap = mstsActualTypeMap msts
                , btcMayAliasMap = mstsMayAliasMap msts
-               , btcRefEquivClasses = mstsRevAliasSets msts
+               , btcEquivClasses = mstsRevAliasSets msts
                }
 
 -- BehaviorTypechecker {{{1
@@ -320,14 +319,16 @@ resolveBTC mstc cmds =
 
 -- | Statements used for implementing behavior specification.
 data Statement
-   = AssumePred TC.LogicExpr
-   | AssumeValueEq TC.JavaExpr TC.MixedExpr
-   | AssumeArrayEq TC.JavaExpr TC.LogicExpr
---   | EnsurePred TC.LogicExpr
+   = AssertPred TC.LogicExpr
+   | AssertValueEq TC.JavaExpr TC.MixedExpr
+   | AssertArrayEq TC.JavaExpr TC.LogicExpr
+
    | EnsureInstanceField TC.JavaExpr JSS.FieldId TC.MixedExpr
    | EnsureArray TC.JavaExpr TC.LogicExpr
+
    | ModifyInstanceField TC.JavaExpr JSS.FieldId
    | ModifyArray TC.JavaExpr DagType
+
    | Return TC.MixedExpr
   deriving (Show)
 
@@ -345,14 +346,11 @@ data BehaviorTypecheckState = BTS {
        , btsActualTypeMap :: ExprActualTypeMap
          -- | Maps let bindings already seen to position they were defined.
        , btsLetBindings :: Map String (Pos, TC.MixedExpr)
-         -- | Maps Java expression to associated value assumption.
-       , btsValueAssumptions :: Set TC.JavaExpr
-         -- | Maps Java expression to associated array assumption.
-       , btsArrayAssumptions :: Set TC.JavaExpr
-         -- | Maps Java expression to associated value postcondition.
+         -- | Set of Java expressions with assigned value postcondition.
        , btsValuePostconditions :: Set TC.JavaExpr
-         -- | Maps Java expression to associated array postcondition.
+         -- | Set of Java expression with assigned array postcondition.
        , btsArrayPostconditions :: Set TC.JavaExpr
+         -- | Indicates if a return value has been specified.
        , btsReturnSet :: Bool
        }
 
@@ -420,9 +418,12 @@ typecheckValueOfLhs astExpr maybeExpectedType = do
   let pos = AST.exprPos astExpr
   expr <- typecheckRecordedJavaExpr TC.tcValueOfExpr astExpr
   -- Check expression is a compatible array type.
-  rtm <- asks btcActualTypeMap
-  rct <- getRefActualType rtm pos expr
-  case rct of
+  unless (JSS.isRefType (TC.jssTypeOfJavaExpr expr)) $ do
+    let msg = "Found primitive value " ++ show expr ++ " where reference is expected."
+    throwIOExecException pos (ftext msg) ""
+  typeMap <- asks btcActualTypeMap
+  at <- getActualType typeMap pos expr
+  case at of
     TC.ArrayInstance l tp -> do
       let javaValueType = jssArrayDagType l tp
       case maybeExpectedType of
@@ -503,22 +504,6 @@ checkFreshAssignment pos assignmentType expr prevSet = do
     let msg = "Multiple " ++ assignmentType ++ " defined for " ++ show expr ++ "."
      in throwIOExecException pos (ftext msg) ""
 
--- | Set imperative assumption.
-recordArrayAssumption :: Pos -> TC.JavaExpr -> BehaviorTypechecker ()
-recordArrayAssumption pos expr = do
-  bts <- get
-  let prevSet = btsArrayAssumptions bts
-  checkFreshAssignment pos "assumptions" expr prevSet
-  put bts { btsArrayAssumptions = Set.insert expr prevSet }
-
--- | Set imperative assumption.
-recordValueAssumption :: Pos -> TC.JavaExpr -> BehaviorTypechecker ()
-recordValueAssumption pos expr = do
-  bts <- get
-  let prevSet = btsValueAssumptions bts
-  checkFreshAssignment pos "assumptions" expr prevSet
-  put bts { btsValueAssumptions = Set.insert expr prevSet }
-
 -- | Set array postcondition and verify that it has not yet been assigned.
 recordArrayPostcondition :: Pos -> TC.JavaExpr -> BehaviorTypechecker ()
 recordArrayPostcondition pos expr = do
@@ -579,52 +564,43 @@ resolveDecl (AST.MethodLet pos lhs rhsAst:r) = do
   -- Resolve remaining declarations.
   resolveDecl r
 
-resolveDecl (AST.AssumePred _ ast:r) = do
+resolveDecl (AST.AssertPred _ ast:r) = do
   -- Typecheck expression.
   expr <- runExprTypechecker TC.tcLogicExpr ast
   -- Check expr is a Boolean
   checkLogicExprIsPred (AST.exprPos ast) expr
-  -- Add assumption.
-  addStatement $ AssumePred expr
+  -- Add assertion.
+  addStatement $ AssertPred expr
   -- Resolve remaining declarations.
   resolveDecl r
-resolveDecl (AST.AssumeImp _ lhsAst@(AST.ApplyExpr _ "valueOf" _) rhsAst:r) = do
+resolveDecl (AST.AssertImp _ lhsAst@(AST.ApplyExpr _ "valueOf" _) rhsAst:r) = do
   -- Typecheck rhs
   rhsExpr <- runExprTypechecker TC.tcLogicExpr rhsAst
   let rhsType = TC.typeOfLogicExpr rhsExpr
   -- Typecheck lhs
   let lhsPos = AST.exprPos lhsAst
   (lhsExpr, _) <- typecheckValueOfLhs lhsAst (Just rhsType)
-  -- Update assumption.
-  recordArrayAssumption lhsPos lhsExpr
-  addStatement $ AssumeArrayEq lhsExpr rhsExpr
+  -- Record assertion.
+  addStatement $ AssertArrayEq lhsExpr rhsExpr
   -- Resolve remaining declarations.
   resolveDecl r
-resolveDecl (AST.AssumeImp _ lhsAst rhsAst:r) = do
+resolveDecl (AST.AssertImp _ lhsAst rhsAst:r) = do
   -- Typecheck lhs expression.
   let lhsPos = AST.exprPos lhsAst
   lhsExpr <- typecheckRecordedJavaExpr TC.tcJavaExpr lhsAst
   let lhsName = "\'" ++ show lhsExpr ++ "\'"
-  let lhsType = TC.jssTypeOfJavaExpr lhsExpr
   -- Typecheck mixed expression.
+  -- TODO: Check actual type map for type associated with lhsExpr.
+  --  If one is defined, then check actual type is compatible with rhsExpr type.
+  --  If undefined, then check Java type is compatible with rhsExpr type, and add
+  --  actual type.
+  let lhsType = TC.jssTypeOfJavaExpr lhsExpr
   rhsExpr <- typecheckMixedExpr lhsPos lhsName lhsType rhsAst
   -- Add assumption.
-  recordValueAssumption lhsPos lhsExpr
-  addStatement $ AssumeValueEq lhsExpr rhsExpr
+  addStatement $ AssertValueEq lhsExpr rhsExpr
   -- Resolve remaining declarations.
   resolveDecl r
-{-
-resolveDecl (AST.EnsuresPred _ astExpr:r) = do
-  -- Typecheck expression.
-  expr <- runExprTypechecker TC.tcLogicExpr astExpr
-  -- Check expr is a Boolean
-  checkLogicExprIsPred (AST.exprPos astExpr) expr
-  -- Update current expressions
-  addStatement $ EnsurePred expr
-  -- Resolve remaining declarations.
-  resolveDecl r
-  -}
-resolveDecl (AST.EnsuresImp _ lhsAst@(AST.ApplyExpr _ "valueOf" _) rhsAst:r) = do
+resolveDecl (AST.EnsureImp _ lhsAst@(AST.ApplyExpr _ "valueOf" _) rhsAst:r) = do
   -- Typecheck rhs
   rhsExpr <- runExprTypechecker TC.tcLogicExpr rhsAst
   let rhsType = TC.typeOfLogicExpr rhsExpr
@@ -635,7 +611,7 @@ resolveDecl (AST.EnsuresImp _ lhsAst@(AST.ApplyExpr _ "valueOf" _) rhsAst:r) = d
   addStatement $ EnsureArray lhsExpr rhsExpr
   -- Resolve remaining declarations.
   resolveDecl r
-resolveDecl (AST.EnsuresImp _ astLhsExpr astRhsExpr:r) = do
+resolveDecl (AST.EnsureImp _ astLhsExpr astRhsExpr:r) = do
   -- Typecheck lhs expression.
   let lhsPos = AST.exprPos astLhsExpr
   lhsExpr <- typecheckRecordedJavaExpr TC.tcJavaExpr astLhsExpr
@@ -650,7 +626,7 @@ resolveDecl (AST.EnsuresImp _ astLhsExpr astRhsExpr:r) = do
     _ -> error "internal: Unexpected expression"
   -- Resolve remaining declarations.
   resolveDecl r
-resolveDecl (AST.Modifies _ astExprs:r) = mapM_ resolveExpr astExprs >> resolveDecl r
+resolveDecl (AST.Modify _ astExprs:r) = mapM_ resolveExpr astExprs >> resolveDecl r
   where resolveExpr ast@(AST.ApplyExpr _ "valueOf" _) = do
           (expr, tp) <- typecheckValueOfLhs ast Nothing
           -- Update postcondition
@@ -665,7 +641,7 @@ resolveDecl (AST.Modifies _ astExprs:r) = mapM_ resolveExpr astExprs >> resolveD
           -- Check this type is valid for a modifies clause.
           let exprType = TC.jssTypeOfJavaExpr expr
           when (JSS.isRefType exprType)  $ do
-            let msg = "Modifies postconditions may not be applied to reference types."
+            let msg = "Modify may not refer to reference types."
             throwIOExecException pos (ftext msg) ""
           -- Add statement
           case expr of
@@ -702,11 +678,11 @@ resolveDecl (AST.MethodIfElse pos condAst t f:r) = do
   bts <- get
   lift $ do
     tBts <- flip execStateT bts $ do
-      addStatement $ AssumePred cond
+      addStatement $ AssertPred cond
       resolveDecl [t]
     fBts <- flip execStateT bts $ do
       let negCond = TC.Apply bNotOp [cond]
-      addStatement $ AssumePred negCond
+      addStatement $ AssertPred negCond
       resolveDecl [f]
     when (btsReturnSet tBts /= btsReturnSet fBts) $ do
       let msg = "Return value set in one branch, but not the other."
@@ -717,10 +693,6 @@ resolveDecl (AST.MethodIfElse pos condAst t f:r) = do
                    , btsActualTypeMap = btsActualTypeMap bts
                    , btsLetBindings = btsLetBindings bts
                      -- Use other values from tBts
-                   , btsValueAssumptions = btsValueAssumptions tBts
-                               `Set.union` btsValueAssumptions fBts
-                   , btsArrayAssumptions = btsArrayAssumptions tBts
-                               `Set.union` btsArrayAssumptions fBts
                    , btsValuePostconditions = btsValuePostconditions tBts
                                   `Set.union` btsValuePostconditions fBts
                    , btsArrayPostconditions = btsArrayPostconditions tBts
@@ -737,51 +709,17 @@ resolveDecl (AST.Block ast:r) = do
   -- Resolve remaining declarations.
   resolveDecl r
 
--- resolveReturns {{{2
-{- TODO: Fix this
-resolveReturns :: Pos
-               -> JSS.Method
-               -> [AST.BehaviorDecl]
-               -> BehaviorTypechecker (Maybe TC.MixedExpr)
-resolveReturns mpos method cmds
-  | Just returnType <- JSS.methodReturnType method = do
-     case returns of
-       [] -> do
-         let msg = "The Java method \'" ++ JSS.methodName method
-                     ++ "\' has a return value, but the spec does not define it."
-         throwIOExecException mpos (ftext msg) ""
-       (prevExpr:expr:_) -> do
-         relPos <- liftIO $ posRelativeToCurrentDirectory (AST.exprPos prevExpr)
-         let msg = "Multiple return values specified in a single method spec.  "
-                       ++ "The previous return value was given at "
-                       ++ show relPos ++ "."
-         throwIOExecException (AST.exprPos expr) (ftext msg) ""
-       [astExpr] -> Just <$>
-         typecheckMixedExpr (AST.exprPos astExpr) "The return value" returnType astExpr
-  | otherwise = -- No return expected
-     case returns of
-       [] -> return Nothing
-       astExpr:_ ->
-         let msg = "Return value specified for \'" ++ JSS.methodName method 
-                      ++ "\', but method returns \'void\'."
-          in throwIOExecException (AST.exprPos astExpr) (ftext msg) ""
- where returns = [ e | AST.Return _ e <- cmds ]
-       -}
-
 -- BehaviorSpec {{{1
 
 data BehaviorSpec = BehaviorSpec {
          -- | Program counter for spec.
          bsPC :: JSS.PC
-             {-
-         -- All expressions in specification, used to validate all expected
-         -- expressions are defined in simulator.
-         bsJavaExprs :: [TC.JavaExpr]
-       -}
-         -- | References in specification, grouped by alias equivalence class and
-         -- concrete type expected.
-       , bsRefEquivClasses :: [(JavaExprEquivClass, TC.JavaActualType)]
-         -- | Let bindings (stored in order they should be evaluated).
+         -- | Expressions in specification grouped by may-alias equivalence
+         -- class and concrete type expected.
+         -- N.B. The values for these expressions should be When verifying
+         -- this behavior is correct, the expressions sho
+       , bsEquivClasses :: [(JavaExprEquivClass, TC.JavaActualType)]
+         -- | List of statements to execute.
        , bsStatements :: [Statement]
        } deriving (Show)
 
@@ -795,8 +733,6 @@ resolveBehaviorSpecs mpos btc pc block = do
       initBts = BTS { btsPaths = [initBtp]
                     , btsActualTypeMap = btcActualTypeMap btc
                     , btsLetBindings = Map.empty
-                    , btsValueAssumptions = Set.empty
-                    , btsArrayAssumptions = Set.empty
                     , btsValuePostconditions = Set.empty
                     , btsArrayPostconditions = Set.empty
                     , btsReturnSet = False
@@ -816,14 +752,14 @@ resolveBehaviorSpecs mpos btc pc block = do
      in throwIOExecException mpos (ftext msg) ""
   -- Return paths parsed from this spec.
   let mkSpec p = BehaviorSpec { bsPC = pc
-                              , bsRefEquivClasses = btcRefEquivClasses btc
+                              , bsEquivClasses = btcEquivClasses btc
                               , bsStatements = reverse (btpReversedStatements p) }
   return ( btsActualTypeMap bts
          , map mkSpec (btsPaths bts))
 
 -- resolveValidationPlan {{{1
 
--- TODO: Replace this with a more meaningful command.
+-- | Commands issued to verify method.
 data VerifyCommand
    = Rewrite
    | ABC
@@ -871,7 +807,7 @@ resolveVerifyCommand cmd =
     AST.SmtLib v f -> return [SmtLib v f]
     AST.Yices v -> return [Yices v]
     AST.Expand ast -> do
-      expr <- undefined -- TODO: Fix this
+      expr <- error "Not Yet implemented: resolveVerifyCommand Expand" -- TODO: Fix this
       return [Expand (AST.exprPos ast) expr]
     AST.VerifyEnable pos nm -> do
       ruleNames <- gets (mstcRuleNames . vtsMSTC)
@@ -904,26 +840,6 @@ resolveValidationPlan mstc exprTypes decls =
                          }
         in Verify <$> evalStateT (resolveVerifyCommand cmds) initVTS
     _ -> error "internal: resolveValidationPlan reached illegal state."
-
-{- TODO: Fix this
-resolveValidationPlan mpos method cmds =
-  [(pos,tactics)] -> do
-     let defList args = nest 2 (vcat (map (\(d,m) -> quotes (text d) <> char '.' <+> text m) args))
-         msg = ftext "The tactic specified in verifyUsing is unsupported." 
-               <+> ftext "SAWScript currently supports the following tactics:\n"
-               $+$ defList [ ("skip",       "Skip verification of this method.")
-                           , ("rewriter",   "Applies rewriting with the currently enabled rules.")
-                           , ("quickcheck", "Uses quickcheck testing to validate, but not verify method.")
-                           , ("abc",           "Uses abc to verify proof obligations.")
-                           , ("rewriter, abc", "Uses rewriting to simplify proof obligations, and uses abc to discharge result.")
-                           , ("smtLib [name]", "Generates SMTLib file with the given name that can be discharged independently.")
-                           , ("rewriter, smtLib [name]", "Uses rewriting to simplify proof obligations, and generates smtLib file with result.")
-                           , ("yices [version]", "Generates SMTLib and runs Yices to discharge goals.")
-                           , ("rewriter, yices [version]", "Uses rewriting to simplify proof obligations, and uses Yices to discharge result.")
-                           ]
-     unless (areValidTactics tactics) $ throwIOExecException pos msg ""
-     return tactics
-         -}
 
 -- MethodSpecIR {{{1
 

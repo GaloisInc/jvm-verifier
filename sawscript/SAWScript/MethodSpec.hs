@@ -36,7 +36,6 @@ import qualified Data.Set as Set
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector as V
 import Text.PrettyPrint.HughesPJ
-import System.Random(randomIO, randomRIO)
 import System.Directory(doesFileExist)
 
 import qualified Execution.Codebase as JSS
@@ -45,6 +44,7 @@ import qualified JavaParser as JSS
 import MethodSpec (partitions)
 import qualified SAWScript.SmtLib as SmtLib
 import qualified SAWScript.SmtLib2 as SmtLib2
+import qualified SAWScript.QuickCheck as QuickCheck
 import qualified SAWScript.Yices  as Yices
 import qualified SAWScript.MethodAST as AST
 import qualified SAWScript.TypeChecker as TC
@@ -193,31 +193,24 @@ jssEvalMixedExpr ec expr = do
         _ -> error "internal: mixedExprValue called with malformed result type."
 
 -- Method specification overrides {{{1
-
-checkClassesInitialized :: Pos -> String -> [String] -> JSS.Simulator SymbolicMonad ()
-checkClassesInitialized pos specName requiredClasses = do
-  forM_ requiredClasses $ \c -> do
-    status <- JSS.getInitializationStatus c
-    when (status /= Just JSS.Initialized) $
-      let msg = "The method spec " ++ specName ++ " requires that the class "
-                  ++ slashesToDots c ++ " is initialized.  SAWScript does not "
-                  ++ "currently support methods that initialize new classes."
-       in throwIOExecException pos (ftext msg) ""
+-- OverrideComputation definition {{{2
 
 -- | State for running the behavior specifications in a method override.
 data OCState n l = OCState {
-         bcsEvalContext :: EvalContext n l
-       , bcsResultState :: JSS.PathState n
+         ocsEvalContext :: EvalContext n l
+       , ocsResultState :: JSS.PathState n
        }
 
 -- | Monad used to execute statements in a behavior specification for a method
 -- override. 
 type OverrideComputation n l = StateT (OCState n l) (ErrorT String IO)
 
+-- OverrideComputation utilities {{{2
+
 -- | Runs an evaluate within an override computation.
 ocEval :: (EvalContext n l -> a -> ExprEvaluator b) -> a -> OverrideComputation n l b
 ocEval fn v = do
-  ec <- gets bcsEvalContext
+  ec <- gets ocsEvalContext
   let res = runIdentity (runErrorT (fn ec v))
   case res of
     Left expr -> throwError $ "Could not evaluate " ++ show expr ++ "."
@@ -227,8 +220,8 @@ modifyResultState :: (JSS.PathState n -> OverrideComputation n l (JSS.PathState 
                   -> OverrideComputation n l ()
 modifyResultState m = do
   bcs <- get
-  ps <- m (bcsResultState bcs)
-  put bcs { bcsResultState = ps }
+  ps <- m (ocsResultState bcs)
+  put bcs { ocsResultState = ps }
 
 -- | Add assumption for predicate.
 addAssumption :: ConstantProjection n => n -> OverrideComputation n l ()
@@ -237,14 +230,14 @@ addAssumption x =
     Just True -> return ()
     Just False -> throwError "Assumption is false."
     _ -> modifyResultState $ \ps -> do
-           de <- gets (ecDagEngine . bcsEvalContext)
+           de <- gets (ecDagEngine . ocsEvalContext)
            let res = deApplyBinary de bAndOp (JSS.psAssumptions ps) x
            return ps { JSS.psAssumptions = res }
 
 addEqAssumption :: (ConstantProjection n, TypedTerm n)
                 => n -> n -> OverrideComputation n l ()
 addEqAssumption x y = do
-  de <- gets (ecDagEngine . bcsEvalContext)
+  de <- gets (ecDagEngine . ocsEvalContext)
   addAssumption (deApplyBinary de (eqOp (termType x)) x y)
 
 setArrayValue :: TypedTerm n => TC.JavaExpr -> n -> OverrideComputation n l ()
@@ -262,30 +255,28 @@ setInstanceField refExpr fid value = do
     return ps { JSS.instanceFields = 
                   Map.insert (lhsRef,fid) value (JSS.instanceFields ps) }
 
+-- ocStep {{{2
 
 ocStep :: (ConstantProjection n, TypedTerm n, SV.Storable l)
        => Statement -> OverrideComputation n l ()
-ocStep (AssumePred expr) =
+ocStep (AssertPred expr) =
   addAssumption =<< ocEval evalLogicExpr expr
-ocStep (AssumeValueEq lhs rhs) = do
-  -- Check left-hand side equals right-hand side.
+ocStep (AssertValueEq lhs rhs) = do
   lhsVal <- ocEval evalMixedExpr (JE lhs)
   rhsVal <- ocEval evalMixedExpr rhs
   case (lhsVal, rhsVal) of
     (MVNode lhsNode, MVNode rhsNode) -> addEqAssumption lhsNode rhsNode
-    (MVRef  lhsRef,  MVRef  rhsRef) -> do
+    (MVRef  lhsRef,  MVRef  rhsRef) ->
       when (lhsRef /= rhsRef) $ throwError "Incompatible references"
-ocStep (AssumeArrayEq lhs rhs) = do
+ocStep (AssertArrayEq lhs rhs) = do
   JSS.RValue lhsRef <- ocEval evalJavaExpr lhs
   rhsVal <- ocEval evalLogicExpr rhs
-  --TODO ps <- gets (ecPathState . bcsEvalContext)
-  ps <- undefined
+  ps <- gets (ecPathState . ocsEvalContext)
   case Map.lookup lhsRef (JSS.arrays ps) of
     Nothing -> throwError $ "The array associated to " ++ show lhs ++ " is undefined."
     Just (_,lhsVal) -> 
       --TODO: Verify length matches rhsVal's length.
       addEqAssumption lhsVal rhsVal
-
 
 ocStep (EnsureInstanceField refExpr fid rhsExpr) =
   setInstanceField refExpr fid =<< ocEval jssEvalMixedExpr rhsExpr
@@ -293,12 +284,12 @@ ocStep (EnsureArray lhsExpr rhsExpr) =
   setArrayValue lhsExpr =<< ocEval evalLogicExpr rhsExpr
 
 ocStep (ModifyInstanceField refExpr f) = do
-  de <- gets (ecDagEngine . bcsEvalContext)
+  de <- gets (ecDagEngine . ocsEvalContext)
   let tp = JSS.fieldIdType f
   n <- liftIO $ mkIntInput de (JSS.stackWidth tp)
   setInstanceField refExpr f (mkJSSValue tp n)
 ocStep (ModifyArray refExpr tp) = do
-  de <- gets (ecDagEngine . bcsEvalContext)
+  de <- gets (ecDagEngine . ocsEvalContext)
   setArrayValue refExpr =<< liftIO (mkInputWithType de tp)
 
 ocStep (Return expr) = do
@@ -309,6 +300,18 @@ ocStep (Return expr) = do
         []  -> ps { JSS.finalResult = JSS.ReturnVal val }
         f:r -> ps { JSS.frames = f { JSS.frmOpds = val : JSS.frmOpds f } : r }
 
+-- Executing overrides {{{2
+
+checkClassesInitialized :: Pos -> String -> [String] -> JSS.Simulator SymbolicMonad ()
+checkClassesInitialized pos specName requiredClasses = do
+  forM_ requiredClasses $ \c -> do
+    status <- JSS.getInitializationStatus c
+    when (status /= Just JSS.Initialized) $
+      let msg = "The method spec " ++ specName ++ " requires that the class "
+                  ++ slashesToDots c ++ " is initialized.  SAWScript does not "
+                  ++ "currently support methods that initialize new classes."
+       in throwIOExecException pos (ftext msg) ""
+
 execOverride :: Pos
              -> MethodSpecIR
              -> Maybe JSS.Ref
@@ -318,6 +321,7 @@ execOverride pos ir mbThis args = do
   let specName = methodSpecName ir
   -- Check class initialization.
   checkClassesInitialized pos specName (initializedClasses ir)
+  -- TODO: Check references have correct type.
   -- Get state of current execution path in simulator.
   de <- JSS.liftSymbolic $ getDagEngine
   ps <- JSS.getPathState
@@ -328,13 +332,15 @@ execOverride pos ir mbThis args = do
                        , ecArgs = V.fromList args
                        , ecPathState = ps
                        }
-      initBCS = OCState { bcsEvalContext = ec
-                        , bcsResultState = ps
+      initBCS = OCState { ocsEvalContext = ec
+                        , ocsResultState = ps
                         }
   res <- liftIO $ forM bsl $ \bs ->
     runErrorT $ flip evalStateT initBCS $ do
+       -- Execute statements.
        mapM_ ocStep (bsStatements bs)
-       gets bcsResultState
+
+       gets ocsResultState
   case rights res of
     _:_:_ ->
       --TODO: Relax this internal limitation.
@@ -384,6 +390,66 @@ overrideFromSpec pos ir
  where cName = JSS.className (methodSpecIRMethodClass ir)
        method = methodSpecIRMethod ir
        key = JSS.methodKey method
+
+-- Initial state generation {{{1
+
+{-
+-- | State for running the behavior specifications in a method override.
+data ISGState t l = ISGState {
+         isgPathState :: JSS.PathState
+       }
+
+-- | Monad used to execute statements in a behavior specification for a method
+-- override. 
+type InitialStateGenerator t l = StateT (ISGState t l) (ErrorT String IO)
+
+isgEval :: Undefined
+
+isgStep :: Statement -> InitialStateGenerator t l ()
+
+isgStep (AssertPred expr) =
+  addAssumption =<< isgEval evalLogicExpr expr
+ocStep (AssumeValueEq lhs rhs) = do
+  -- Check left-hand side equals right-hand side.
+  lhsVal <- ocEval evalMixedExpr (JE lhs)
+  rhsVal <- ocEval evalMixedExpr rhs
+  case (lhsVal, rhsVal) of
+    (MVNode lhsNode, MVNode rhsNode) -> addEqAssumption lhsNode rhsNode
+    (MVRef  lhsRef,  MVRef  rhsRef) -> do
+      when (lhsRef /= rhsRef) $ throwError "Incompatible references"
+ocStep (AssumeArrayEq lhs rhs) = do
+  JSS.RValue lhsRef <- ocEval evalJavaExpr lhs
+  rhsVal <- ocEval evalLogicExpr rhs
+  --TODO ps <- gets (ecPathState . ocsEvalContext)
+  ps <- undefined
+  case Map.lookup lhsRef (JSS.arrays ps) of
+    Nothing -> throwError $ "The array associated to " ++ show lhs ++ " is undefined."
+    Just (_,lhsVal) -> 
+      --TODO: Verify length matches rhsVal's length.
+      addEqAssumption lhsVal rhsVal
+
+ocStep (EnsureInstanceField refExpr fid rhsExpr) =
+  setInstanceField refExpr fid =<< ocEval jssEvalMixedExpr rhsExpr
+ocStep (EnsureArray lhsExpr rhsExpr) =
+  setArrayValue lhsExpr =<< ocEval evalLogicExpr rhsExpr
+
+isgStep (ModifyInstanceField refExpr f) = do
+  de <- gets (ecDagEngine . ocsEvalContext)
+  let tp = JSS.fieldIdType f
+  n <- liftIO $ mkIntInput de (JSS.stackWidth tp)
+  setInstanceField refExpr f (mkJSSValue tp n)
+isgStep (ModifyArray refExpr tp) = do
+  de <- gets (ecDagEngine . ocsEvalContext)
+  setArrayValue refExpr =<< liftIO (mkInputWithType de tp)
+
+isgStep (Return expr) = do
+  val <- ocEval jssEvalMixedExpr expr
+  modifyResultState $ \ps ->
+    return $
+      case JSS.frames ps of
+        []  -> ps { JSS.finalResult = JSS.ReturnVal val }
+        f:r -> ps { JSS.frames = f { JSS.frmOpds = val : JSS.frmOpds f } : r }
+        -}
 
 -- MethodSpec verification {{{1
 -- EquivClassMap {{{2
@@ -826,7 +892,7 @@ methodSpecVCs
   let vrb = verbose opts
   -- Get list of behavior specs to start from and the equivclass for them.
   let executionParams = [ (bs,cl) | bs <- concat $ Map.elems $ methodSpecBehaviors ir
-                                  , cl <- partitions (bsRefEquivClasses bs)]
+                                  , cl <- partitions (bsEquivClasses bs)]
   -- Return executions
   flip map executionParams $ \(bs,cl) -> do
     setVerbosity vrb
@@ -834,7 +900,33 @@ methodSpecVCs
       setVerbosity vrb
       -- Log execution.
       -- TODO: Create initial Java state.
+      firstPSS <- JSS.pathStSel <$> JSS.getPathState
       initPS <- nyi "create initial java state."
+      let pc = bsPC bs
+      let callFrame = JSS.Call { JSS.frmClass = JSS.className (methodSpecIRThisClass ir)
+                               , JSS.frmMethod = methodSpecIRMethod ir
+                               , JSS.frmPC = pc
+                               , JSS.frmLocals = nyi "frmLocals" --(Map LocalVariableIndex (Value term))
+                               , JSS.frmOpds = [] -- TODO: Support breakpoints at stack locations. 
+                               }
+          initPS =
+            JSS.PathState {
+                JSS.frames         = [callFrame]
+              , JSS.finalResult    = JSS.Unassigned
+              , JSS.initialization = Map.fromList $
+                                       [ (cl, JSS.Initialized)
+                                       | cl <- initializedClasses ir ]
+              , JSS.staticFields   = Map.empty -- TODO: Support static fields.
+              , JSS.instanceFields = nyi "Map InstanceFieldRef (Value term)"
+              , JSS.arrays         = nyi "Map Ref (Int32, term)"
+              , JSS.refArrays      = nyi "Map Ref (Array Int32 Ref)"
+              , JSS.psAssumptions  = nyi "psAssumptions" -- !term
+              , JSS.pathStSel      = firstPSS
+              , JSS.classObjects   = Map.empty
+              , JSS.startingPC     = pc -- TODO: Investigate if startingPC is set correctly.
+              , JSS.breakpoints    = Set.fromList (nyi "JSS.breakpoints")
+              , JSS.insnCount      = 0
+              }
       JSS.putPathState initPS
       -- Add method spec overrides.
       mapM_ (overrideFromSpec pos) overrides
@@ -845,7 +937,6 @@ methodSpecVCs
       JSS.registerBreakpoints $ map (\bpc -> (cls, meth, bpc)) assertPCs
       -}
       -- Execute code.
-      let pc = bsPC bs
       when (vrb >= 3) $ do
         liftIO $ putStrLn $ "Executing " ++ methodSpecName ir ++ " at PC " ++ show pc ++ "."
       jssResults <- JSS.run
@@ -1107,8 +1198,8 @@ testRandom de v ir test_num lim vc =
   loop run passed | Just l <- lim, run >= l = return (passed,run)
   loop run passed = loop (run + 1) =<< testOne passed
 
-  testOne passed = do 
-    vs   <- mapM (pickRandom . termType . viNode) (erInputs vc)
+  testOne passed = do
+    vs   <- mapM (QuickCheck.pickRandom . termType . viNode) (erInputs vc)
     eval <- deConcreteEval (V.fromList vs)
     if not (toBool $ eval $ erAssumptions vc)
       then return passed
@@ -1145,64 +1236,6 @@ testRandom de v ir test_num lim vc =
                                  , "  Expected: boolean value"
                                  , "  Result:   " ++ ppCValue Mixfix value ""
                                  ]
-
--- Or, perhaps, short, tall, grande, venti :-)
-data RandomSpec = Least | Small | Medium | Large | Largest
-
-
-pickRandomSize :: DagType -> RandomSpec -> IO CValue
-pickRandomSize ty spec =
-  case ty of
-
-    SymBool -> CBool `fmap`
-      case spec of
-        Least   -> return False
-        Small   -> return False
-        Medium  -> randomIO
-        Large   -> return True
-        Largest -> return True
-
-    SymInt w ->
-      case widthConstant w of
-         Just n  -> mkCInt n `fmap`
-           do let least   = 0
-                  largest = bitWidthSize n - 1
-              case spec of
-                Least   -> return least
-                Small   -> randomRIO (least, min largest (least + 100))
-                Medium  -> randomRIO (least, largest)
-                Large   -> randomRIO (max least (largest - 100), largest)
-                Largest -> return largest
-
-         Nothing -> qcFail "integers of non-constant size"
-
-    SymArray els ty1 ->
-      case widthConstant els of
-        Just n    -> (CArray . V.fromList) `fmap`
-                     replicateM (numBits n) (pickRandomSize ty1 spec)
-        Nothing   -> qcFail "arrays of non-constant size"
-
-    SymRec _ _    -> qcFail "record values"
-    SymShapeVar _ -> qcFail "polymorphic values"
-  where
-  qcFail x = fail $
-                "QuickCheck: Generating random " ++ x ++ " is not supported."
-
--- Distribution of tests.  The choice is somewhat arbitrary.
-pickRandom :: DagType -> IO CValue
-pickRandom ty = pickRandomSize ty =<< ((`pick` distr) `fmap` randomRIO (0,99))
-  where
-  pick n ((x,s) : ds) = if n < x then s else pick (n-x) ds
-  pick _ _            = Medium
-
-  distr :: [(Int, RandomSpec)]
-  distr = [ (5,  Least)
-          , (30, Small)
-          , (30, Medium)
-          , (30, Large)
-          , (5,  Largest)
-          ]
-
 
 announce :: String -> SymbolicMonad ()
 announce msg = whenVerbosity (>= 3) (liftIO (putStrLn msg))
