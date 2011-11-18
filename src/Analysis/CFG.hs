@@ -15,6 +15,7 @@ module Analysis.CFG
   , buildCFG
   , cfgInstByPC
   , ppInst
+  , cfgToDot
   )
 where
 
@@ -375,7 +376,6 @@ ppBB bb =
   ++ unlines (map (\(pc,inst) -> "  " ++ show pc ++ ": " ++ ppInst inst) (bbInsts bb))
 
 ppInst :: Instruction -> String
-
 ppInst (Invokevirtual (ClassType cn) mk)
   = "Invokevirtual " ++ ppNm cn mk
 ppInst (Invokespecial (ClassType cn) mk)
@@ -462,7 +462,7 @@ _dummy_nowarn =
   [ undefined test1, undefined test1Code, undefined test1cfg
   , undefined test2, undefined test2Code, undefined test2cfg
   , undefined test3, undefined test4, undefined allTests
-  , undefined bbPCs, undefined ehsForBB, undefined cfgToDot
+  , undefined bbPCs, undefined ehsForBB
   , undefined test5Code, undefined test5cfg
   ]
 

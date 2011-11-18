@@ -35,6 +35,8 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'Bit'          { TReserved _ "Bit"          }
    'method'       { TReserved _ "method"       }
    'rule'         { TReserved _ "rule"         }
+   'localSpec'    { TReserved _ "localSpec"    }
+   'choice'       { TReserved _ "choice"       }
    'mayAlias'     { TReserved _ "mayAlias"     }
    'assume'       { TReserved _ "assume"       }
    'ensures'      { TReserved _ "ensures"      }
@@ -52,10 +54,17 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'off'          { TReserved _ "off"          }
    'var'          { TReserved _ "var"          }
    'args'         { TReserved _ "args"         }
+   'locals'       { TReserved _ "locals"       }
    'this'         { TReserved _ "this"         }
+   -- Java types
+   'boolean'      { TReserved _ "boolean"      }
+   'byte'         { TReserved _ "byte"         }
+   'char'         { TReserved _ "char"         }
+   'double'       { TReserved _ "double"       }
+   'float'        { TReserved _ "float"        }
    'int'          { TReserved _ "int"          }
    'long'         { TReserved _ "long"         }
-   'boolean'      { TReserved _ "boolean"      }
+   'short'        { TReserved _ "short"        }
    'True'         { TReserved _ "True"         }
    'False'        { TReserved _ "False"        }
    'forAll'       { TReserved _ "forAll"       }
@@ -67,7 +76,6 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'rewriter'     { TReserved _ "rewriter"     }
    'smtlib'       { TReserved _ "smtlib"       }
    'yices'        { TReserved _ "yices"        }
-   'localSpec'    { TReserved _ "localSpec"    }
    var            { TVar      _ _              }
    str            { TLit      _ $$             }
    num            { TNum      _ _ _            }
@@ -225,6 +233,7 @@ Expr : var                               { Var          (tokPos $1) (tokStr $1) 
      | Expr '||'  Expr                   { OrExpr       (tokPos $2) $1 $3          }
      | 'this'                            { ThisExpr     (tokPos $1)                }
      | 'args' '[' int ']'                { ArgExpr      (tokPos $1) (snd $3)       }
+     | 'locals' '[' var ']'              { LocalExpr    (tokPos $1) (tokStr $3)    }
      | '(' Expr ')'                      { $2                                      }
      | 'if' Expr 'then' Expr 'else' Expr { IteExpr      (tokPos $1) $2 $4 $6       }
 
@@ -243,7 +252,6 @@ MethodSpecDecl :: { MethodSpecDecl }
 MethodSpecDecl : 'var'         Exprs1 '::' JavaType    { Type        (tokPos $1) $2 $4          }
                | 'mayAlias'    '{' Exprs1 '}'          { MayAlias    (tokPos $1) $3             }
                | 'const'       Expr ':=' Expr          { Const       (tokPos $1) $2 $4          }
-               | 'let'         var '='  Expr           { MethodLet   (tokPos $1) (tokStr $2) $4 }
                | 'localSpec'   num '{' LSpecDecls '}'  { LocalSpec   (tokPos $3) (tokNum $2) $4 }
                | 'returns' ':' Expr                    { Returns     (tokPos $1) $3             }
                | 'verifyUsing' ':' VerificationTactics { VerifyUsing (tokPos $1) $3             }
@@ -254,16 +262,24 @@ LSpecDecls : termBy(LSpecDecl, ';') { $1 }
 
 LSpecDecl :: { MethodSpecDecl }
 LSpecDecl : 'assume'      Expr              { Assume      (tokPos $1) $2    }
+          | 'assume'      Expr ':=' Expr    { AssumeImp   (tokPos $1) $2 $4 }
           | 'ensures'     Expr ':=' Expr    { Ensures     (tokPos $1) $2 $4 }
           | 'modifies' ':' Exprs1           { Modifies    (tokPos $1) $3    }
+          | 'let'         var '='  Expr     { MethodLet   (tokPos $1) (tokStr $2) $4 }
+          | 'choice'     '{' LSpecDecls '}'
+                         '{' LSpecDecls '}' { Choice      (tokPos $1) $3 $6 }
 
 JavaType :: { JavaType }
-JavaType : Qvar               { RefType    (fst $1)    (snd $1) }
-         | 'int'  '[' int ']' { IntArray   (tokPos $1) (snd $3) }
-         | 'long' '[' int ']' { LongArray  (tokPos $1) (snd $3) }
-         | 'int'              { IntScalar  (tokPos $1)          }
-         | 'boolean'          { BoolScalar (tokPos $1)          }
-         | 'long'             { LongScalar (tokPos $1)          }
+JavaType : 'boolean'            { BoolType (tokPos $1)      }
+         | 'byte'               { ByteType (tokPos $1)      }
+         | 'char'               { CharType (tokPos $1)      }
+         | 'int'                { IntType (tokPos $1)       }
+         | 'long'               { LongType (tokPos $1)      }
+         | 'short'              { ShortType (tokPos $1)     }
+         | 'float'              { FloatType (tokPos $1)     }
+         | 'double'             { DoubleType (tokPos $1)    }
+         | JavaType '[' int ']' { ArrayType $1 (snd $3)     }
+         | Qvar                 { RefType (fst $1) (snd $1) }
 
 -- Comma separated Sequence of VerificationTactic's, at least one
 VerificationTactics :: { [VerificationTactic] }
