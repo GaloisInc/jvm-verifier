@@ -393,22 +393,25 @@ overrideFromSpec pos ir
 
 -- Initial state generation {{{1
 
-{-
 -- | State for running the behavior specifications in a method override.
 data ISGState t l = ISGState {
-         isgPathState :: JSS.PathState
+         isgPathState :: JSS.PathState t
        }
 
 -- | Monad used to execute statements in a behavior specification for a method
 -- override. 
 type InitialStateGenerator t l = StateT (ISGState t l) (ErrorT String IO)
 
-isgEval :: Undefined
+{-
+isgEval :: (EvalContext n l -> a -> ExprEvaluator b) -> a -> InitialStateGenerator n l b
+isg
 
 isgStep :: Statement -> InitialStateGenerator t l ()
-
 isgStep (AssertPred expr) =
   addAssumption =<< isgEval evalLogicExpr expr
+  -}
+
+{-
 ocStep (AssumeValueEq lhs rhs) = do
   -- Check left-hand side equals right-hand side.
   lhsVal <- ocEval evalMixedExpr (JE lhs)
@@ -941,17 +944,17 @@ methodSpecVCs
         liftIO $ putStrLn $ "Executing " ++ methodSpecName ir ++ " at PC " ++ show pc ++ "."
       jssResults <- JSS.run
       forM jssResults $ \(pd, fr) -> do
-        finalPS <- JSS.getPathStateByName pd :: JSS.Simulator SymbolicMonad (JSS.PathState Node)  
+        _finalPS <- JSS.getPathStateByName pd :: JSS.Simulator SymbolicMonad (JSS.PathState Node)  
         case fr of
           JSS.ReturnVal val -> do
             -- TODO: Build VCs by comparing finalPS with Ensure statements from bs. 
-            nyi "methodSpecVCs ReturnVal"
+            nyi "methodSpecVCs ReturnVal" val
           JSS.Terminated -> nyi "methodSpecVCs Terminated"
           JSS.Breakpoint pc -> do
             -- TODO: Build VCs by
             -- * Comparing Ensures statements from bs with Ensures statement at pc.
             -- * Verifying assumptions hold at current breakpoint.
-           nyi "methodSpecVCs Breakpoint"
+           nyi "methodSpecVCs Breakpoint" pc
           JSS.Exc JSS.SimExtErr{} -> nyi "methodSpecVCs SimExtErr"
           JSS.Exc JSS.JavaException{} -> nyi "methodSpecVCs JavaException"
           JSS.Aborted -> nyi "methodSpecVCs Aborted"
