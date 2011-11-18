@@ -13,6 +13,10 @@ iext(x) = x # (if x!0 then ~zero else zero);
 safe_add : {n} (fin n) => ([n],[n]) -> [n+1];
 safe_add(x,y) = uext(x) + uext(y);
 
+/* returns the (n+1)-bit subtraction of two n-bit numbers. */
+safe_sub : {n} (fin n) => ([n],[n]) -> [n+1];
+safe_sub(x,y) = uext(x) - uext(y);
+
 /* Is x in normalized form (relative to prime p)? */
 is_normal : {a} (fin a) => [a] -> [a] -> Bit;
 is_normal p x = (x < p);
@@ -478,6 +482,17 @@ ref_p384_div(x,y)      = ref_prime_div(p384_prime, x, y);
 ref_p384_is_equal : ([384],[384]) -> Bit;
 ref_p384_is_equal(x,y) = x == y;
 
+type RsltWithCarry = { carry : [32]; rslt : [384] };
+ref_p384_incFieldPrime : [384] -> RsltWithCarry;
+ref_p384_incFieldPrime x = {carry = [(bs ! 0)] # zero; rslt = take(384, bs)}
+  where bs = safe_add(x, p384_prime);
+ref_p384_decFieldPrime : [384] -> RsltWithCarry;
+ref_p384_decFieldPrime x = { carry = if (bs ! 0) then -1 else 0; rslt = take(384, bs)}
+  where bs = safe_sub(x, p384_prime);
+
+ref_p384_prime_div : ([384],[384],[384]) -> [384];
+ref_p384_prime_div (p,x,y) = ref_prime_div(p,x,y);
+
 /* Defines a reference prime field that uses normalized numbers and
    large word bit operations. */
 ref_p384_field :  Field [384];
@@ -783,6 +798,42 @@ imp_prime_div(p,x,y) = egcd(p,zero,y,x)
              else 
                (b, rb, half(ripple_sub(a, b)), imp_prime_half(imp_prime_sub(p, ra, rb), p)));
   };
+
+/* The previous algorithm specialized to 384 bits, but not specialized
+ * to a specific prime, because that's how the Java implementation is
+ * structured. */
+
+/* We separate the key computation from the recursive combinator. */
+/* In code below, a is always odd. */
+imp_p384_egcd_step : ([12][32], [12][32], [12][32], [12][32], [12][32]) ->
+                     ([12][32], [12][32], [12][32], [12][32], [12][32]);
+imp_p384_egcd_step(a,ra,b,rb,p) =
+  if even(b) then
+    (a, ra, half(b), imp_prime_half(rb, p), p)
+  else if ripple_lt(a, b) then
+    (a, ra, half(ripple_sub(b, a)),
+     imp_prime_half(imp_prime_sub(p, rb, ra), p), p)
+  else
+    (b, rb, half(ripple_sub(a, b)),
+     imp_prime_half(imp_prime_sub(p, ra, rb), p), p)
+  where {
+    even xl = ~(xl@0@0);
+    half x = ripple_shr(x,False);
+  };
+
+/* In code below, a is always odd. */
+imp_p384_egcd : ([12][32], [12][32], [12][32], [12][32], [12][32]) -> [12][32];
+imp_p384_egcd(a,ra,b,rb,p) =
+  if b == zero then
+    ra
+  else
+    imp_p384_egcd(imp_p384_egcd_step(a, ra, b, rb, p));
+
+imp_prime_384_div : ([12][32],[12][32],[12][32]) -> [12][32];
+imp_prime_384_div(p,x,y) = imp_p384_egcd(p,zero,y,x,p);
+
+theorem imp_prime_div_correct: {p x y}.
+  imp_prime_384_div (p, x, y) == imp_prime_div (p, x, y);
 
 /********************
    REVISIT:

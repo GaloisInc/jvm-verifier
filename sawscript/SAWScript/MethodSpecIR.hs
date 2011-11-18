@@ -523,7 +523,7 @@ recordValuePostcondition pos expr = do
     TC.Arg _ _ ->
       let msg = "Cannot defined post-conditions on argument values."
        in throwIOExecException pos (ftext msg) ""
-    TC.Local _ _ -> 
+    TC.Local _ _ _ -> 
       let msg = "Cannot defined post-conditions on local values."
        in throwIOExecException pos (ftext msg) ""
     TC.InstanceField{} -> return ()

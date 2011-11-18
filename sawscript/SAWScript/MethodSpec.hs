@@ -133,7 +133,12 @@ evalJavaExpr ec expr = eval expr
             Nothing -> error "internal: evalJavaExpr given TC.This for static method"
         eval (TC.Arg i _) = assert (i < V.length args) $ return (args V.! i)
           where args = ecArgs ec
-        eval (TC.Local _ _) = nyi "evalJavaExpr TC.Local"
+        eval e@(TC.Local _ idx _) =
+          -- TODO: Review this
+          let f:_ = JSS.frames (ecPathState jec) of
+           in case Map.lookup idx (JSS.frmLocals f) of
+                Just v -> return v
+                Nothing -> throwError e
         eval e@(TC.InstanceField r f) = do
           JSS.RValue ref <- eval r
           case Map.lookup (ref, f) (JSS.instanceFields (ecPathState ec)) of
@@ -454,6 +459,29 @@ isgStep (Return expr) = do
         f:r -> ps { JSS.frames = f { JSS.frmOpds = val : JSS.frmOpds f } : r }
         -}
 
+evalLocalPost :: SpecEvalContext Node
+              -> JSS.LocalVariableIndex
+              -> JSS.Type
+              -> Postcondition
+              -> JSS.Simulator SymbolicMonad ()
+evalLocalPost sec idx tp pc = do
+  de <- JSS.liftSymbolic getDagEngine
+  case pc of
+    PostUnchanged -> return ()
+    PostArbitrary _ -> do
+      n <- liftIO $ mkIntInput de (JSS.stackWidth tp)
+      JSS.setLocal idx (mkJSSValue tp n)
+    PostResult expr -> JSS.setLocal idx (mixedExprValue de sec expr)
+
+evalImpAssumption :: SpecEvalContext Node
+                  -> TC.JavaExpr
+                  -> TC.MixedExpr
+                  -> JSS.Simulator SymbolicMonad ()
+evalImpAssumption sec (Local _ i tp) rhs = do
+  de <- JSS.liftSymbolic getDagEngine
+  JSS.setLocal i (mixedExprValue de sec rhs)
+evalImpAssumption _ lhs _ = error "unsupported imperative assumption type"
+
 -- MethodSpec verification {{{1
 -- EquivClassMap {{{2
 type EquivClassMap = (Int, Map Int [TC.JavaExpr], Map Int TC.JavaActualType)
@@ -641,12 +669,10 @@ runMethod ir sec = do
   --
   -- NB: eventually we'll do this, but only once we've settled on a
   -- state semantics for MethodSpecs.
-  {-
   forM_ (Map.toList $ arrayPostconditions specs) $ \(javaExpr,post) ->
     evalArrayPost de ssi javaExpr post
   forM_ (instanceFieldPostconditions specs) $ \(refExpr,f,post) ->
     evalInstanceFieldPost ssi refExpr f post
-  -}
   -- Retrieve the path state after these updates and build a new
   -- JEC based on it.
   newPS <- JSS.getPathState
@@ -756,6 +782,18 @@ methodAssumptions de ir sec = do
    in foldl' (deApplyBinary de bAndOp) (mkCBool True) $
         map (evalLogicExpr de sec) (localAssumptions spec)
         -}
+
+-- | Returns imperative assumptions in method spec.
+methodImpAssumptions :: MethodSpecIR
+                     -> SpecEvalContext Node
+                     -> [(TC.JavaExpr, TC.MixedExpr)]
+methodImpAssumptions ir sec = do
+  let spec = case jecInitPC (secJavaEvalContext sec) of
+               0 -> returnSpec ir
+               pc -> case Map.lookup pc (localSpecs ir) of
+                       Nothing -> error $ "internal: no specification found for pc " ++ show pc
+                       Just s -> s
+   in localImpAssumptions spec
 
 -- | Add verification condition to list.
 addEqVC :: String -> Node -> Node -> Node -> State [VerificationCheck] ()

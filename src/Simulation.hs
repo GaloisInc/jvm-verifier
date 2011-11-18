@@ -849,10 +849,16 @@ isPathFinished :: PathState m -> Bool
 isPathFinished ps =
   case frames ps of
     [] -> True
-    (f : _) ->
-      case finalResult ps of
-        Unassigned -> False
-        _          -> True
+    (f : _) -> S.member (frmClass f, methodKey (frmMethod f), frmPC f)
+                 (breakpoints ps) &&
+               -- Because breakpoints are typically used to cut loops,
+               -- a path involing a breakpoint may start and end at
+               -- the same instruction. So we don\'t want to terminate
+               -- it as soon as it starts.
+               (insnCount ps /= 0)
+  || case finalResult ps of
+       Unassigned -> False
+       _          -> True
 
 -- | Add assumption to current path.
 assume :: AigOps sym => MonadTerm sym -> Simulator sym ()
@@ -967,8 +973,9 @@ registerBreakpoints bkpts = do
 
 -- | Set the appropriate finalResult if we've stopped at a breakpoint.
 -- assertion.
-handleBreakpoints :: MonadIO sym => PathState (MonadTerm sym) -> Simulator sym ()
-handleBreakpoints ps =
+handleBreakpoints :: MonadIO sym => Simulator sym ()
+handleBreakpoints = do
+  ps <- getPathState
   case frames ps of
     f : _ -> do
       let pc = frmPC f
@@ -1669,7 +1676,7 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
     done <- isPathFinished <$> getPathState
     let term = terminateCurrentPath True >> return ()
     if done
-      then term
+      then handleBreakpoints >> term
       else stepCommon doStep term
 
 stepCommon :: AigOps sym => Simulator sym a -> Simulator sym a -> Simulator sym a
@@ -1695,7 +1702,6 @@ stepCommon onOK onException = do
          ((_,ra):_) -> case ra of
            NextInst           -> step inst >> count -- Run normally
            CustomRA _desc act -> onCurrPath =<< act -- Run overridden sequence
-     handleBreakpoints ps
      dbugFrm
      onOK
   `catchMIO` \e ->

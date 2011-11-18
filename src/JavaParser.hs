@@ -66,6 +66,7 @@ module JavaParser (
   , methodIsStatic
   -- ** Instruction declarations
   , LocalVariableIndex
+  , LocalVariableTableEntry(..)
   , PC
   , Instruction(..)
   , lookupInstruction
@@ -88,7 +89,9 @@ module JavaParser (
   , sourceLineNumber
   , sourceLineNumberOrPrev
   , sourceLocalVariableName
-  , lookupLocalVariableTypeByName) where
+  , lookupLocalVariableByName
+  , lookupLocalVariableTypeByName
+  , lookupLocalVariableIdxByName) where
 
   import Control.Monad
   import Data.Array (Array,(!),assocs,listArray)
@@ -1090,12 +1093,19 @@ module JavaParser (
             Nothing -> Nothing
         _ -> error "internal: unexpected method body form"
 
+  lookupLocalVariableByName :: Method -> String -> Maybe LocalVariableTableEntry
+  lookupLocalVariableByName method name =
+    case methodBody method of
+      Code _ _ _ _ _ lvars _ -> find (\e -> localName e == name) lvars
+      _ -> error "internal: unexpected method body form"
+
   lookupLocalVariableTypeByName :: Method -> String -> Maybe Type
   lookupLocalVariableTypeByName method name =
-    case methodBody method of
-      Code _ _ _ _ _ lvars _ ->
-        localType `fmap` find (\e -> localName e == name) lvars
-      _ -> error "internal: unexpected method body form"
+    localType `fmap` lookupLocalVariableByName method name
+
+  lookupLocalVariableIdxByName :: Method -> String -> Maybe LocalVariableIndex
+  lookupLocalVariableIdxByName method name =
+    localIdx `fmap` lookupLocalVariableByName method name
 
   -- | Exception table entries for method.
   methodExceptionTable :: Method -> [ExceptionTableEntry]

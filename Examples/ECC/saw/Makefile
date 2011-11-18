@@ -14,13 +14,22 @@ make_sbvs:
 PROOFS :=           \
   is_zero.saw       \
   set_zero.saw      \
+  set_unit.saw      \
   field_add.saw     \
   field_sub.saw     \
+  incFieldPrime.saw \
+  decFieldPrime.saw \
   field_dbl.saw     \
   field_dbl_dec.saw \
   field_mul3.saw    \
   field_mul4.saw    \
   field_mul8.saw    \
+  field_mul.saw     \
+  field_sq.saw      \
+  field_red.saw     \
+  ec_double.saw     \
+  ec_full_add.saw   \
+  ec_full_sub.saw   \
 
 # Run SAWScript verfication using the toplevel orchestration script
 verify:
