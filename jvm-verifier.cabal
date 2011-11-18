@@ -169,12 +169,14 @@ executable sawScript
   ghc-prof-options : -prof -auto-all
   other-modules    :
         SAWScript.CommandExec
+        SAWScript.CongruenceClosure
         SAWScript.Lexer
         SAWScript.MethodAST
         SAWScript.MethodSpec
         SAWScript.MethodSpecIR
         SAWScript.Parser
         SAWScript.ParserActions
+        SAWScript.QuickCheck
         SAWScript.SmtLib
         SAWScript.SmtLib2
         SAWScript.Yices
