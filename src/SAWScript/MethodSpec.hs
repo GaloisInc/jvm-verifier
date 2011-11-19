@@ -22,7 +22,7 @@ import Control.Monad
 import Control.Monad.State (State, execState)
 import Data.Int
 import Data.IORef
-import Data.List (foldl', intercalate, sort,intersperse,sortBy)
+import Data.List (foldl', intercalate, sort,intersperse,sortBy,find)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -1783,10 +1783,16 @@ testRandom de v ir test_num lim vc =
       else do forM_ (vcChecks vc) $ \goal ->
                 do let goal_ok = toBool (eval (checkGoal de goal))
                    unless goal_ok $ do
+                     (vs1,goal1) <- QuickCheck.minimizeCounterExample
+                                            isCounterExample vs goal
                      throwIOExecException (methodSpecPos ir)
-                                          (msg eval vs goal) ""
+                                          (msg eval vs1 goal1) ""
               return $! passed + 1
 
+  isCounterExample vs =
+    do eval <- deConcreteEval (V.fromList vs)
+       return $ do guard $ toBool $ eval $ vcAssumptions vc
+                   find (not . toBool . eval . checkGoal de) (vcChecks vc)
 
   msg eval vs g =
       text "Random testing found a counter example:"
