@@ -22,7 +22,7 @@ import Control.Monad
 import Control.Monad.State (State, execState)
 import Data.Int
 import Data.IORef
-import Data.List (foldl', intercalate, sort,intersperse)
+import Data.List (foldl', intercalate, sort,intersperse,sortBy)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -1805,7 +1805,17 @@ testRandom de v ir test_num lim vc =
   ppInput inp value =
     case viExprs inp of
       [t] -> text (show t) <+> text "=" <+> ppCValueD Mixfix value
-      ts -> vcat [ text (show t) <+> text "=" | t <- ts ] <+> ppCValueD Mixfix value
+      []  -> text "No arguments."
+      tsUnsorted ->
+        let tsSorted = sortBy cmp tsUnsorted
+            t0       = last tsSorted
+            ts       = init tsSorted
+
+            cmp (Arg a _) (Arg b _) = compare a b
+            cmp _ _                 = EQ
+
+        in vcat [ text (show t) <+> text "=" <+> text (show t0) | t <- ts ]
+           $$ text (show t0) <+> text "=" <+> ppCValueD Mixfix value
 
 
   toBool (CBool b) = b
