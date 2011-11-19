@@ -1,2 +1,5 @@
+extern SBV ref_decFieldPrime("../spec/sbv/generated/ref_p384_decFieldPrime.sbv")
+  : [384] -> { carry : [32]; rslt : [384] };
+
 import "common.saw";
 import "decFieldPrime.spec";

@@ -1,4 +1,12 @@
+extern SBV ref_field_sub("../spec/sbv/generated/ref_p384_sub.sbv") 
+  : ([384],[384]) -> [384];
+extern SBV ref_field_add("../spec/sbv/generated/ref_p384_add.sbv") 
+  : ([384],[384]) -> [384];
+
+set verification off;
 import "common.saw";
 import "field_sub.spec";
+set verification on;
+
 import "field_dbl.spec";
 

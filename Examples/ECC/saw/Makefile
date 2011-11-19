@@ -31,18 +31,16 @@ PROOFS :=           \
   ec_full_add.saw   \
   ec_full_sub.saw   \
 
-# Run SAWScript verfication using the toplevel orchestration script
-verify:
-	$(RUNSAWSCRIPT) proofs/toplevel.saw
+.PHONY: clean verify
 
 # Run SAWScript verification on each operation individually
-verify-individually: 
+verify:
 	@echo ==================== Verification Started ==============================
 	@for i in $(PROOFS);\
           do echo === $$i === ;\
              $(RUNSAWSCRIPT) proofs/$$i;\
           done
 
-.PHONY: clean
+
 clean:
 	rm -rf spec/sbv/generated 
