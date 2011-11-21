@@ -1,8 +1,16 @@
-TOP=../../..
-JAVA_IMPL=../build
-SAWSCRIPT=$(TOP)/dist/build/sawScript/sawScript
-CLASSES_JAR=$(TOP)/jdk1.6/classes.jar
-RUNSAWSCRIPT=$(SAWSCRIPT) -c $(JAVA_IMPL) -j$(CLASSES_JAR) +RTS -K64M -RTS
+# NOTE: (TEMPORARY) The relative paths are from the point of view of the
+# "proofs" directory.
+#
+# This is to work around a bug in sawScript, where it seems # to be
+# having trouble finding file that are not in the current directory.
+
+TOP=../../../..
+JAVA_IMPL=../../build
+
+
+SAWSCRIPT:=$(TOP)/dist/build/sawScript/sawScript
+CLASSES_JAR:=$(TOP)/jdk1.6/classes.jar
+RUNSAWSCRIPT:=$(SAWSCRIPT) -c $(JAVA_IMPL) -j$(CLASSES_JAR) +RTS -K64M -RTS
 
 REF_IMPL_SOURCE := spec/ecc.cry spec/Set.cry spec/Morphism.cry spec/Field.cry
 
@@ -39,11 +47,11 @@ verify:
 	@echo ==================== Verification Started ==============================
 	@for i in $(PROOFS);\
           do echo === $$i === ;\
-             $(RUNSAWSCRIPT) proofs/$$i;\
+             cd proofs; $(RUNSAWSCRIPT) $$i;\
           done
 
 %.test: proofs/%.saw
-	$(RUNSAWSCRIPT) $<
+	cd proofs; $(RUNSAWSCRIPT) $*.saw
 
 clean:
 	rm -rf spec/sbv/generated 
