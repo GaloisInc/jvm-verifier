@@ -45,9 +45,10 @@ PROOFS :=              \
 # Run SAWScript verification on each operation individually
 verify:
 	@echo ==================== Verification Started ==============================
-	@for i in $(PROOFS);\
+	@cd proofs; \
+         for i in $(PROOFS);\
           do echo === $$i === ;\
-             cd proofs; $(RUNSAWSCRIPT) $$i;\
+             $(RUNSAWSCRIPT) $$i;\
           done
 
 %.test: proofs/%.saw
