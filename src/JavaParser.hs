@@ -8,6 +8,10 @@ Point-of-contact : jhendrix, jstanley
 module JavaParser (
   -- * Basic types
     Type(..)
+  , isPrimitiveType
+  , stackWidth
+  , isFloatType
+  , isRefType
   , ConstantPoolValue(..)
   , Attribute(..)
   , Visibility(..)
@@ -55,6 +59,8 @@ module JavaParser (
   , methodMaxLocals
   , methodIsNative
   , methodIsAbstract
+  , methodBody
+  , MethodBody(..)
   , methodExceptionTable
   , methodKey
   , methodIsStatic
@@ -81,7 +87,8 @@ module JavaParser (
   , classSourceFile
   , sourceLineNumber
   , sourceLineNumberOrPrev
-  , sourceLocalVariableName) where
+  , sourceLocalVariableName
+  , lookupLocalVariableTypeByName) where
 
   import Control.Monad
   import Data.Array (Array,(!),assocs,listArray)
@@ -823,11 +830,13 @@ module JavaParser (
 
   -- LocalVariableTableEntry {{{2
   data LocalVariableTableEntry
-    = LocalVariableTableEntry PC -- Start PC
-                              PC -- length
-                              String -- Name
-                              Type -- Type of local variable
-                              LocalVariableIndex -- Index of local variable
+    = LocalVariableTableEntry
+      { localStart  :: PC -- Start PC
+      , localExtent :: PC -- length
+      , localName   :: String -- Name
+      , localType   :: Type -- Type of local variable
+      , localIdx    :: LocalVariableIndex -- Index of local variable
+      }
     deriving (Eq,Show)
 
   -- Maps pc and local variable index to name and type of variable in source.
@@ -1073,14 +1082,20 @@ module JavaParser (
   sourceLocalVariableName :: Method -> PC -> LocalVariableIndex -> Maybe (String,Type)
   sourceLocalVariableName method pc i =
       case methodBody method of
-        Code _ _ _ _ _ lvars _ -> lookupLocalVariable lvars
+        Code _ _ _ _ _ lvars _ ->
+          case find (\e -> localIdx e == i &&
+                           localStart e <= pc &&
+                           pc <= localStart e + localExtent e) lvars of
+            Just e -> Just (localName e, localType e)
+            Nothing -> Nothing
         _ -> error "internal: unexpected method body form"
-    where lookupLocalVariable :: LocalVariableTable -> Maybe (String,Type)
-          lookupLocalVariable (LocalVariableTableEntry startPc' len name tp lvi : _rest)
-            | lvi == i && startPc' <= pc && pc <= startPc' + len
-            = Just (name,tp)
-          lookupLocalVariable (_ : rest) = lookupLocalVariable rest
-          lookupLocalVariable [] = Nothing
+
+  lookupLocalVariableTypeByName :: Method -> String -> Maybe Type
+  lookupLocalVariableTypeByName method name =
+    case methodBody method of
+      Code _ _ _ _ _ lvars _ ->
+        localType `fmap` find (\e -> localName e == name) lvars
+      _ -> error "internal: unexpected method body form"
 
   -- | Exception table entries for method.
   methodExceptionTable :: Method -> [ExceptionTableEntry]

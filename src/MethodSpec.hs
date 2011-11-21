@@ -323,7 +323,8 @@ overrideFromSpec :: AigOps sym => MethodSpec sym -> Simulator sym ()
 overrideFromSpec ms = do
   let cName = specClass ms
       key   = specMethodKey ms
-  cl <- lookupClass cName
+  cb <- getCodebase
+  cl <- liftIO $ lookupClass cb cName
   let method = maybe (error $ "Could not find instance method " ++ show key ++ " in " ++ cName) id
              $ cl `lookupMethod` key
   if methodIsStatic method
@@ -612,7 +613,8 @@ runEquivChoice spec classDefVec classTypeVec classTermVec = do
   -- Run method and get final path state
   let cName = specClass spec
   let key = specMethodKey spec
-  cl <- lookupClass cName
+  cb <- getCodebase
+  cl <- liftIO $ lookupClass cb cName
   let method = maybe (error $ "Could not find method " ++ show key ++ " in " ++ cName) id
              $ cl `lookupMethod` key
   let paramFn i = RValue (defRefFn (Arg i))
