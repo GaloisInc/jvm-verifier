@@ -1,11 +1,6 @@
 Unless otherwise noted, all Java functions are assumed to be in the
 galois.ecc.P384ECC64 class or its superclasses.
 
-* Tasks
-** incFieldPrime, decFieldPrime, assign, etc., specifications written
-** Quickcheckable specs for every operation
-   DEADLINE: <2011-11-18 Fri>
-
 * Primary Proofs
 The "Status" column uses the following status codes: 
   DONE: no work remaining, this proof is complete

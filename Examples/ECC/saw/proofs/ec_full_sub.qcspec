@@ -14,11 +14,13 @@ method com.galois.ecc.P384ECC64.ec_full_sub
   let ax = join(valueOf(args[1].x));
   let ay = join(valueOf(args[1].y));
 
+/*
   assume(ref_is_field(jx));
   assume(ref_is_field(jy));
   assume(ref_is_field(jz));    
   assume(ref_is_field(ax));    
   assume(ref_is_field(ay));    
+*/
 
   const valueOf(this.field_prime) := split(field_prime) : [12][32];
 
