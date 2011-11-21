@@ -14,7 +14,7 @@ RUNSAWSCRIPT:=$(SAWSCRIPT) -c $(JAVA_IMPL) -j$(CLASSES_JAR) +RTS -K64M -RTS
 
 REF_IMPL_SOURCE := spec/ecc.cry spec/Set.cry spec/Morphism.cry spec/Field.cry
 
-all: make_sbvs verify-individually
+all: make_sbvs verify
 
 make_sbvs: 
 	(cd spec/sbv && sh make_sbvs)
