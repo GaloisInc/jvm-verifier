@@ -17,6 +17,10 @@ Flag build-jss
   description: Build the JSS executable
   default: True
 
+Flag build-jvmgraph
+  description: Build the JVM cfg visualization tool.
+  default: False
+
 Flag build-examples
   description: Build the example executables
   default: False
@@ -56,6 +60,8 @@ library
   exposed-modules:
     Analysis.CFG
     Execution
+    Execution.Codebase
+    Execution.JavaSemantics
     JarReader
     JavaParser
     JavaParser.Common
@@ -65,11 +71,10 @@ library
     SBVParser
     Simulation
     Utils
+    Utils.Common
     Utils.Simulation
 
   other-modules:
-    Execution.Codebase
-    Execution.JavaSemantics
     Execution.Stepper
 
   if !flag(build-library)
@@ -107,6 +112,21 @@ executable jss
   ghc-options      : -O2 -Wall -fno-ignore-asserts
   ghc-prof-options : -prof -auto-all
 
+executable jvmgraph
+  if !flag(build-jvmgraph)
+    buildable: False
+
+  build-depends:
+      base >= 4
+    , cmdargs
+    , pretty
+    , jvm-verifier
+   
+  hs-source-dirs : jvmgraph
+  main-is : Main.hs
+  ghc-options      : -O2 -Wall -fno-ignore-asserts
+  ghc-prof-options : -prof -auto-all
+
 executable sawScript
   if !flag(build-SAWScript)
     buildable: False
@@ -126,6 +146,7 @@ executable sawScript
     , executable-path
     , filepath
     , fingertree
+    , jvm-verifier
     , monadLib
     , mtl == 2.0.*
     , old-locale >= 1.0.0.2
@@ -142,15 +163,16 @@ executable sawScript
   build-tools:
      alex, happy
 
-  hs-source-dirs   : src
+  hs-source-dirs   : sawscript
   main-is          : SAWScript/SAWScriptMain.hs
-  ghc-options      : -O2 -Wall -fno-ignore-asserts
+  ghc-options      : -O2 -Wall -fno-ignore-asserts -rtsopts
   ghc-prof-options : -prof -auto-all
   other-modules    :
         SAWScript.CommandExec
         SAWScript.Lexer
         SAWScript.MethodAST
         SAWScript.MethodSpec
+        SAWScript.MethodSpecIR
         SAWScript.Parser
         SAWScript.ParserActions
         SAWScript.SmtLib
