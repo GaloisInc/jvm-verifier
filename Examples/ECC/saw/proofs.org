@@ -48,20 +48,21 @@ far on a typical developer system.
 | TODO   | Verification   | verifySignature     |         |                     |         | no spec     | No       | High risk |
 
 * Auxiliary Proofs
-| Status | Name                     | Java          | Cryptol                | Impl directly calls          | Prereqs   | Quickchecks | Verifies | Best     | Comments |
-| DONE   | Field Double Decrement   | field_dbl_dec | [fn:2]                 | field_sub                    | field_sub |        1000 | Yes, abc | 3s[fn:3] |          |
-| DONE   | Field Multiply x3        | field_mul3    | [fn:4]                 | field_dbl, field_add         |           |        1000 | Yes, abc | 17s      |          |
-| DONE   | Field Multiply x4        | field_mul4    | [fn:5]                 | field_dbl                    |           |        1000 | Yes, abc | 6s       |          |
-| DONE   | Field Multiply x8        | field_mul8    | [fn:6]                 | field_dbl                    |           |        1000 | Yes, abc | 13s      |          |
-| INPR   | Field Reduction          | field_red     | ref_field_mod          | decFieldPrime, incFieldPrime |           |      100000 | No       |          |          |
-| DONE   | Increment by field prime | incFieldPrime | ref_p384_incFieldPrime |                              |           |      100000 | Yes, abc | 2s       |          |
-| DONE   | Decrement by field prime | decFieldPrime | ref_p384_decFieldPrime |                              |           |      100000 | Yes, abc | <2s      |          |
-| TODO   | Large-Word Multiply      | mul           |                        |                              |           |     no spec | No       |          |          |
-| TODO   | Add mod group size       | group_add     |                        |                              |           |     no spec | No       |          |          |
-| TODO   | Mult mod group size      | group_mul     |                        |                              |           |     no spec | No       |          |          |
-| DONE   | array-valued zero test   | is_zero       | trivial                |                              |           |          -- | Yes, abc | <2s      |          |
-| DONE   | array set zero           | set_zero      | trivial                |                              |           |          -- | Yes, abc | <2s      |          |
-| DONE   | array set one            | set_unit      | trivial                |                              |           |          -- | Yes, abc | <2s      |          |
+| Status | Name                     | Java             | Cryptol                | Impl directly calls          | Prereqs   | Quickchecks | Verifies | Best     | Comments |
+| DONE   | Field Double Decrement   | field_dbl_dec    | [fn:2]                 | field_sub                    | field_sub | 1000        | Yes, abc | 3s[fn:3] |          |
+| DONE   | Field Multiply x3        | field_mul3       | [fn:4]                 | field_dbl, field_add         |           | 1000        | Yes, abc | 17s      |          |
+| DONE   | Field Multiply x4        | field_mul4       | [fn:5]                 | field_dbl                    |           | 1000        | Yes, abc | 6s       |          |
+| DONE   | Field Multiply x8        | field_mul8       | [fn:6]                 | field_dbl                    |           | 1000        | Yes, abc | 13s      |          |
+| INPR   | Field Reduction          | field_red        | ref_field_mod          | decFieldPrime, incFieldPrime |           | 100000      | No       |          |          |
+| DONE   | Increment by field prime | incFieldPrime    | ref_p384_incFieldPrime |                              |           | 100000      | Yes, abc | 2s       |          |
+| DONE   | Decrement by field prime | decFieldPrime    | ref_p384_decFieldPrime |                              |           | 100000      | Yes, abc | <2s      |          |
+| HERE   | EC Mul Merge Aux         | ec_mul_merge_aux | p384_ref_mul_aux       | p384_ref_full_add/sub        |           | no spec     | No       | --       |          |
+| TODO   | Large-Word Multiply      | mul              |                        |                              |           | no spec     | No       |          |          |
+| TODO   | Add mod group size       | group_add        |                        |                              |           | no spec     | No       |          |          |
+| TODO   | Mult mod group size      | group_mul        |                        |                              |           | no spec     | No       |          |          |
+| DONE   | array-valued zero test   | is_zero          | trivial                |                              |           | --          | Yes, abc | <2s      |          |
+| DONE   | array set zero           | set_zero         | trivial                |                              |           | --          | Yes, abc | <2s      |          |
+| DONE   | array set one            | set_unit         | trivial                |                              |           | --          | Yes, abc | <2s      |          |
 
 * Footnotes
 [fn:1] \x -> ref_p384_add(x,x)
