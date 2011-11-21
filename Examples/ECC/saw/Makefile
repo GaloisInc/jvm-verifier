@@ -42,6 +42,8 @@ verify:
              $(RUNSAWSCRIPT) proofs/$$i;\
           done
 
+%.test: proofs/%.saw
+	$(RUNSAWSCRIPT) $<
 
 clean:
 	rm -rf spec/sbv/generated 
