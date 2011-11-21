@@ -1017,7 +1017,7 @@ testRandom de v ir test_num lim vc =
     if not (toBool $ eval $ vcAssumptions vc)
       then return passed
       else do when (v >= 4) $
-                dbugM $ "Begin concrete DAG eval on random test case for all VC checks ("
+                dbugM $ "Begin concrete DAG eval on random test case for all goals ("
                         ++ show (length $ vcChecks vc) ++ ")."
               forM_ (vcChecks vc) $ \goal ->
                 do let goal_ok = toBool (eval (checkGoal de goal))
