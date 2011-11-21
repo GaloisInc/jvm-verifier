@@ -20,7 +20,7 @@ method com.galois.ecc.P384ECC64.ec_full_add
   assume(ref_is_field(ax));    
   assume(ref_is_field(ay));    
 
-  const this.field_prime := split(field_prime) : [12][32];
+  const valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   let r = ref_ec_full_add({x = jx; y = jy; z = jz}, {x = ax; y = ay});
 

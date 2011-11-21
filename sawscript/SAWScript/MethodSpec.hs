@@ -72,7 +72,7 @@ mkIntInput de w = do
 -- | Create a lit result with input bits for the given ground dag type.
 mkInputLitResultWithType :: (?be :: BitEngine l, SV.Storable l)
                          => DagType -> IO (LitResult l)
-mkInputLitResultWithType (SymInt (widthConstant -> Just (Wx w))) = 
+mkInputLitResultWithType (SymInt (widthConstant -> Just (Wx w))) =
   LV <$> SV.replicateM w lMkInput
 mkInputLitResultWithType (SymArray (widthConstant -> Just (Wx l)) eltTp) =
   LVN <$> V.replicateM l (mkInputLitResultWithType eltTp)
@@ -135,7 +135,7 @@ data SpecEvalContext n = SSI {
        }
 
 -- | Create spec state info from a Java state info and method spec IR.
-createSpecEvalContext :: DagEngine Node Lit 
+createSpecEvalContext :: DagEngine Node Lit
                       -> MethodSpecIR
                       -> JavaEvalContext Node
                       -> SpecEvalContext Node
@@ -168,7 +168,7 @@ evalLogicExpr _  sec (TC.Var name _tp) = do
 
 -- | Value of mixed expression in a particular context.
 data MixedValue n
-   = MVNode n 
+   = MVNode n
    | MVRef JSS.Ref
 
 -- | Return value from expression.
@@ -179,7 +179,7 @@ evalMixedExpr :: DagEngine Node Lit
               -> MixedValue Node
 evalMixedExpr de sec (LE expr) = MVNode $ evalLogicExpr de sec expr
 evalMixedExpr  _ sec (JE expr) =
-  case evalJavaExpr (secJavaEvalContext sec) expr of 
+  case evalJavaExpr (secJavaEvalContext sec) expr of
     Just (JSS.AValue _) -> error "internal: evalMixedExpr given address value"
     Just (JSS.DValue _) -> error "internal: evalMixedExpr given floating point value"
     Just (JSS.FValue _) -> error "internal: evalMixedExpr given floating point value"
@@ -443,7 +443,7 @@ createJavaEvalScalar expr = do
              , viExprs = [expr]
              } : jvsInputs s
       }
- 
+
 -- | Create an evaluator state with the initial JVM state form the IR and
 -- equivalence class map.
 initializeJavaVerificationState :: MethodSpecIR
@@ -749,7 +749,7 @@ methodSpecVCs
     -- initial state for some of them.
     setVerbosity vrb
     JSS.runSimulator cb $ do
-      setVerbosity vrb
+      setVerbosity (simverbose opts)
       when (vrb >= 6) $
          liftIO $ putStrLn $
            "Creating evaluation state for simulation of " ++ methodSpecName ir
@@ -921,6 +921,17 @@ verifyMethodSpec
       setVerbosity v
       de <- getDagEngine
       vcs <- mVC
+
+      when (v >= 2) $ do
+        termCnt <- length <$> liftIO (deGetTerms de)
+        let txt = if length vcList > 1
+                    then "(one alias configuration of) "
+                    else ""
+        dbugM ""
+        dbugM $ "Completed simulation of " ++ txt ++ methodSpecName ir ++ "."
+        when (v >= 3) $ do
+          dbugM $ "Term DAG has " ++ show termCnt ++ " application nodes."
+
       let goal vc check = deApplyBinary de bImpliesOp (vcAssumptions vc) (checkGoal de check)
       case methodSpecVerificationTactics ir of
         [AST.Rewrite] -> liftIO $ do
@@ -998,15 +1009,25 @@ testRandom de v ir test_num lim vc =
   where
   loop run passed | passed >= test_num      = return (passed,run)
   loop run passed | Just l <- lim, run >= l = return (passed,run)
-  loop run passed = loop (run + 1) =<< testOne passed
+  loop run passed = do
+    when (v >= 6) $ do
+      dbugM $ "run      = " ++ show run
+      dbugM $ "passed   = " ++ show passed
+      dbugM $ "lim      = " ++ show lim
+      dbugM $ "test_num = " ++ show test_num
+    loop (run + 1) =<< testOne passed
 
-  testOne passed = do 
+  testOne passed = do
     vs   <- mapM (QuickCheck.pickRandom . termType . viNode) (vcInputs vc)
     eval <- deConcreteEval (V.fromList vs)
+    when (v >= 4) $ dbugM $
+      "Begin concrete DAG eval on random test case for all VC checks ("
+      ++ show (length $ vcChecks vc) ++ ")."
     if not (toBool $ eval $ vcAssumptions vc)
       then return passed
       else do forM_ (vcChecks vc) $ \goal ->
                 do let goal_ok = toBool (eval (checkGoal de goal))
+                   when (v >= 4) $ dbugM "End concrete DAG eval for one VC check."
                    unless goal_ok $ do
                      throwIOExecException (methodSpecPos ir)
                                           (msg eval vs goal) ""

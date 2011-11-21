@@ -71,6 +71,7 @@ data SSOpts = SSOpts {
          classpath  :: String
        , jars       :: String
        , verbose    :: Int
+       , simverbose :: Int
        , dump       :: Bool
        , entryPoint :: FilePath
        } deriving (Show, Data, Typeable)
