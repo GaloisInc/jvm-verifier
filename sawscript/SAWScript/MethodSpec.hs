@@ -1009,30 +1009,23 @@ testRandom de v ir test_num lim vc =
   where
   loop run passed | passed >= test_num      = return (passed,run)
   loop run passed | Just l <- lim, run >= l = return (passed,run)
-  loop run passed = do
-    when (v >= 6) $ do
-      dbugM $ "run      = " ++ show run
-      dbugM $ "passed   = " ++ show passed
-      dbugM $ "lim      = " ++ show lim
-      dbugM $ "test_num = " ++ show test_num
-    loop (run + 1) =<< testOne passed
+  loop run passed = loop (run + 1) =<< testOne passed
 
   testOne passed = do
     vs   <- mapM (QuickCheck.pickRandom . termType . viNode) (vcInputs vc)
     eval <- deConcreteEval (V.fromList vs)
-    when (v >= 4) $ dbugM $
-      "Begin concrete DAG eval on random test case for all VC checks ("
-      ++ show (length $ vcChecks vc) ++ ")."
     if not (toBool $ eval $ vcAssumptions vc)
       then return passed
-      else do forM_ (vcChecks vc) $ \goal ->
+      else do when (v >= 4) $
+                dbugM $ "Begin concrete DAG eval on random test case for all VC checks ("
+                        ++ show (length $ vcChecks vc) ++ ")."
+              forM_ (vcChecks vc) $ \goal ->
                 do let goal_ok = toBool (eval (checkGoal de goal))
                    when (v >= 4) $ dbugM "End concrete DAG eval for one VC check."
                    unless goal_ok $ do
                      throwIOExecException (methodSpecPos ir)
                                           (msg eval vs goal) ""
               return $! passed + 1
-
 
   msg eval vs g =
       text "Random testing found a counter example:"

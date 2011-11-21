@@ -30,16 +30,16 @@ far on a typical developer system.
 | TODO   | Field Multiplication | field_mul | ref_field_mul      | mul, field_red          |         |         100 | No       |      |                                                                                |
 
 ** Level 2: Curve operations over points
-| Status | Name                   | Java        | Cryptol              | Impl directly calls | Prereqs     | Quickchecks | Verifies      | Comments                                                         |
-| DONE   | Point Doubling         | ec_double   | p384_ref_double      | [fn:7]              | [fn:8]      |        1000 | Yes, rewriter |                                                                  |
-| TODO   | Point Full Addition    | ec_full_add | ref_p384_ec_full_add | [fn:9]              |             |         100 | No            | Cannot yet integrate into toplevel.saw (see ec_full_add_bug.saw) |
-| TODO   | Point Full Subtraction | ec_full_sub |                      | ec_full_add, sub    | ec_full_add |         100 | No            | "" ""                                                            |
+| Status | Name                   | Java        | Cryptol              | Impl directly calls | Prereqs     | Quickchecks | Verifies      | Comments |
+| DONE   | Point Doubling         | ec_double   | p384_ref_double      | [fn:7]              | [fn:8]      |        1000 | Yes, rewriter |          |
+| INPR   | Point Full Addition    | ec_full_add | ref_p384_ec_full_add | [fn:9]              |             |         100 | No            |          |
+| INPR   | Point Full Subtraction | ec_full_sub |                      | ec_full_add, sub    | ec_full_add |         100 | No            |          |
 
 ** Level 3: Scalar multiplication operations
-| Status | Name                          | Java          | Cryptol      | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments                                                                                                 |
-| HERE   | SD Multiply                   | ec_mul        | p384_ref_mul | [fn:10]             |         | no spec     | No       | quickcheck 1 goes OOM; guess is that this cannot simulate in its current form? (more exploration needed) |
-| TODO   | SD Multiply w/ sliding window | ec_mul_window |              |                     |         | no spec     | No       | In use, but more complex than ^                                                                          |
-| TODO   | Twin multiplication           | ec_twin_mul   |              |                     |         | no spec     | No       | High risk                                                                                                |
+| Status | Name                          | Java          | Cryptol      | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments                                          |
+| INPR   | SD Multiply                   | ec_mul        | p384_ref_mul | [fn:10]             |         | 0 (OOM)     | No       | Goes OOM while discharging VCs for 1 random input |
+| TODO   | SD Multiply w/ sliding window | ec_mul_window |              |                     |         | no spec     | No       | Implementation uses, but more complex than ^      |
+| TODO   | Twin multiplication           | ec_twin_mul   |              |                     |         | no spec     | No       | High risk                                         |
 
 ** Level 4: ECDSA
 | Status | Name           | Java                | Cryptol | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments  |
