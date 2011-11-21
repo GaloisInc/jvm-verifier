@@ -47,6 +47,10 @@ type family JSRslt m
 
 type JSValue m = AtomicValue (JSDouble m) (JSFloat m) (JSInt m) (JSLong m) (JSRef m)
 
+
+class (Functor m, MonadIO m) => HasCodebase m where
+  getCodebase :: m Codebase
+
 -- | This typeclass defines the underlying semantics for the parameterized JVM
 -- step function.
 class ( Monad m
@@ -566,7 +570,8 @@ throwNullPtrExc = createAndThrow "java/lang/NullPointerException" >> error "unre
 
 createInstance :: JavaSemantics m => String -> Maybe [(Type, JSValue m)] -> m (JSRef m)
 createInstance clNm margs = do
-  cl <- lookupClass clNm
+  cb <- getCodebase
+  cl <- liftIO $ lookupClass cb clNm
   case cl `lookupMethod` ctorKey of
     Just method -> do
       ref <- newObject clNm
@@ -598,9 +603,10 @@ dynBind' :: JavaSemantics m
          -> m ()
 dynBind' clName key objectRef cgen = do
   mty <- typeOf objectRef
+  cb <- getCodebase
   cls <- case mty of
            Nothing     -> return []
-           Just (ClassType instTy) -> findVirtualMethodsByRef clName key instTy
+           Just (ClassType instTy) -> liftIO $ findVirtualMethodsByRef cb clName key instTy
            Just _ -> error "dynBind' type parameter not ClassType-constructed"
 
 
@@ -616,7 +622,8 @@ invokeInstanceMethod :: JavaSemantics m
                      -> [JSValue m] -- ^ Operands to pass method
                      -> m ()
 invokeInstanceMethod cName key objectRef args = do
-  cl <- lookupClass cName
+  cb <- getCodebase
+  cl <- liftIO $ lookupClass cb cName
   case cl `lookupMethod` key of
      Just method -> pushInstanceMethodCall cName method objectRef args
      Nothing -> error $
@@ -631,7 +638,8 @@ invokeStaticMethod :: JavaSemantics m
                    -> [JSValue m] -- ^ Operands to pass to method
                    -> m ()
 invokeStaticMethod cName key args = do
-  sups <- supers =<< lookupClass cName
+  cb <- getCodebase
+  sups <- liftIO (supers cb =<< lookupClass cb cName)
   case mapMaybe (\cl -> (,) cl `fmap` (cl `lookupMethod` key)) sups of
     ((cl,method):_) -> do
       when (not $ methodIsStatic method) $

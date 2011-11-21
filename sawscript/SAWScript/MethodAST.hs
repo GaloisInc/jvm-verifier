@@ -13,13 +13,6 @@ import qualified Data.Map as M
 -- result of parsing a bunch of method specs
 type SSPgm = M.Map FilePath [VerifierCommand]
 
-{-Notes.
-To integerate this into the current symbolic simulator, we need to
-change the type system so that:
- * Array types do not contain the type of the index.
- * Records are structural rather than nominal (may be implemented in SAWScript.exe).
--}
-
 type BitWidth = Int
 
 data ExprWidth
@@ -30,13 +23,29 @@ data ExprWidth
 
 -- | Java types for symbolic simulator.
 data JavaType
-    = RefType Pos [String] -- ^ Class with given dots.
-    | IntArray Pos Int -- ^ Int array with given length
-    | LongArray Pos Int -- ^ Long array with given length.
-    | BoolScalar Pos
-    | IntScalar Pos
-    | LongScalar Pos
+    = BoolType Pos
+    | ByteType Pos
+    | CharType Pos
+    | DoubleType Pos
+    | FloatType Pos
+    | IntType Pos
+    | LongType Pos
+    | ShortType Pos
+    | RefType Pos [String] -- ^ Class with given dots.
+    | ArrayType JavaType Int -- ^ array with given element type and length
   deriving (Show)
+
+javaTypePos :: JavaType -> Pos
+javaTypePos (BoolType p) = p
+javaTypePos (ByteType p) = p
+javaTypePos (CharType p) = p
+javaTypePos (DoubleType p) = p
+javaTypePos (FloatType p) = p
+javaTypePos (IntType p) = p
+javaTypePos (LongType p) = p
+javaTypePos (ShortType p) = p
+javaTypePos (RefType p _) = p
+javaTypePos (ArrayType tp _) = javaTypePos tp
 
 -- | Expressions types for AST.
 data ExprType
@@ -50,6 +59,99 @@ data ExprType
 data FnType = FnType [ExprType] ExprType
   deriving (Show)
 
+-- | Roughly correspond to Cryptol expressions, but can also reference
+-- Java variables.
+data Expr
+    = Var Pos String
+    | ConstantBool Pos Bool
+    | ConstantInt  Pos Integer
+    | ThisExpr Pos
+    -- * Highest precedence
+    -- | Array comprehension.
+    | MkArray Pos [Expr]
+    -- | Making a record
+    | MkRecord Pos [(Pos, String, Expr)]
+    | ArgExpr Pos Int
+    | LocalExpr Pos String
+    -- Precedence 13
+    -- | Type annotation on an expression.
+    | TypeExpr Pos Expr ExprType
+    -- | Dereference field
+    | DerefField Pos Expr String
+    -- Precedence 12
+    -- | Uninterpreted functions.
+    | ApplyExpr Pos String [Expr]
+    -- Precedence 11
+    -- | Boolean negation (not)
+    | NotExpr  Pos Expr
+    -- | Bitwise complement (~)
+    | BitComplExpr Pos Expr
+    -- | Integer negation (-)
+    | NegExpr Pos Expr
+    -- Precedence 10
+    -- | Multiplication
+    | MulExpr Pos Expr Expr
+    -- | Signed division  (/s)
+    | SDivExpr Pos Expr Expr
+    -- | Signed remainder  (%s)
+    | SRemExpr Pos Expr Expr
+    -- Precedence 9
+    -- | Addition
+    | PlusExpr Pos Expr Expr
+    -- | Subtraction
+    | SubExpr Pos Expr Expr
+    -- Precedence 8
+    -- | Shift left (<<)
+    | ShlExpr  Pos Expr Expr
+    -- | Signed shift right (>>s)
+    | SShrExpr Pos Expr Expr
+    -- | Unsigned shift right (>>u)
+    | UShrExpr Pos Expr Expr
+    -- Precedence 7
+    -- | Bitwise and (&)
+    | BitAndExpr  Pos Expr Expr
+    -- Precedence 6
+    -- | Bitwise xor (^)
+    | BitXorExpr  Pos Expr Expr
+    -- Precedence 5
+    -- | Bitwise or (|)
+    | BitOrExpr  Pos Expr Expr
+    -- Precedence 4
+    -- | Cryptol append operator (#)
+    | AppendExpr Pos Expr Expr
+    -- Precedence 3
+    -- | Equality (==)
+    | EqExpr   Pos Expr Expr
+    -- | Inequality
+    | IneqExpr Pos Expr Expr
+    -- Precedence 2
+    -- | Signed greater than or equal operation (>=s)
+    | SGeqExpr Pos Expr Expr
+    -- | Unsigned greater than or equal operation (>=u)
+    | UGeqExpr Pos Expr Expr
+    -- | Signed greater than operation (>s)
+    | SGtExpr  Pos Expr Expr
+    -- | Unsigned greater than operation (>u)
+    | UGtExpr  Pos Expr Expr
+    -- | Signed less than or equal operation (<=s)
+    | SLeqExpr Pos Expr Expr
+    -- | Unsigned less than or equal operation (<=u)
+    | ULeqExpr Pos Expr Expr
+    -- | Signed less than operation (<s).
+    | SLtExpr  Pos Expr Expr
+    -- | Unsigned less than operation (<u).
+    | ULtExpr  Pos Expr Expr
+    -- Precedence 1
+    -- | Boolean and (&&)
+    | AndExpr  Pos Expr Expr
+    -- Precedence 0.5
+    -- | Boolean or (||)
+    | OrExpr   Pos Expr Expr
+    -- Precedence 0
+    -- | If-then-else
+    | IteExpr  Pos Expr Expr Expr
+  deriving (Show)
+
 exprPos :: Expr -> Pos
 exprPos (Var p _) = p
 exprPos (ConstantBool p _) = p
@@ -58,6 +160,7 @@ exprPos (MkArray p _) = p
 exprPos (MkRecord p _) = p
 exprPos (ThisExpr p) = p
 exprPos (ArgExpr p _) = p
+exprPos (LocalExpr p _) = p
 exprPos (TypeExpr p _ _) = p
 exprPos (DerefField p _ _) = p
 exprPos (ApplyExpr p _ _) = p
@@ -90,114 +193,6 @@ exprPos (AndExpr  p _ _) = p
 exprPos (OrExpr   p _ _) = p
 exprPos (IteExpr  p _ _ _) = p
 
--- | Roughly correspond to Cryptol expressions, but can also reference
--- Java variables.
-data Expr
-    = Var Pos String
-    | ConstantBool Pos Bool
-    | ConstantInt  Pos Integer
-    | ThisExpr Pos
-
-    -- * Highest precedence
-
-    -- | Array comprehension.
-    | MkArray Pos [Expr]
-    -- | Making a record
-    | MkRecord Pos [(Pos, String, Expr)]
-    | ArgExpr Pos Int
-
-    -- Precedence 13
-    -- | Type annotation on an expression.
-    | TypeExpr Pos Expr ExprType
-    -- | Dereference field
-    | DerefField Pos Expr String
-
-    -- Precedence 12
-    -- | Uninterpreted functions.
-    | ApplyExpr Pos String [Expr]
-
-    -- Precedence 11
-    -- | Boolean negation (not)
-    | NotExpr  Pos Expr
-    -- | Bitwise complement (~)
-    | BitComplExpr Pos Expr
-    -- | Integer negation (-)
-    | NegExpr Pos Expr
-
-    -- Precedence 10
-    -- | Multiplication
-    | MulExpr Pos Expr Expr
-    -- | Signed division  (/s)
-    | SDivExpr Pos Expr Expr
-    -- | Signed remainder  (%s)
-    | SRemExpr Pos Expr Expr
-
-    -- Precedence 9
-    -- | Addition
-    | PlusExpr Pos Expr Expr
-    -- | Subtraction
-    | SubExpr Pos Expr Expr
-
-    -- Precedence 8
-    -- | Shift left (<<)
-    | ShlExpr  Pos Expr Expr
-    -- | Signed shift right (>>s)
-    | SShrExpr Pos Expr Expr
-    -- | Unsigned shift right (>>u)
-    | UShrExpr Pos Expr Expr
-
-    -- Precedence 7
-    -- | Bitwise and (&)
-    | BitAndExpr  Pos Expr Expr
-
-    -- Precedence 6
-    -- | Bitwise xor (^)
-    | BitXorExpr  Pos Expr Expr
-
-    -- Precedence 5
-    -- | Bitwise or (|)
-    | BitOrExpr  Pos Expr Expr
-
-    -- Precedence 4
-    -- | Cryptol append operator (#)
-    | AppendExpr Pos Expr Expr
-
-    -- Precedence 3
-    -- | Equality (==)
-    | EqExpr   Pos Expr Expr
-    -- | Inequality
-    | IneqExpr Pos Expr Expr
-
-    -- Precedence 2
-    -- | Signed greater than or equal operation (>=s)
-    | SGeqExpr Pos Expr Expr
-    -- | Unsigned greater than or equal operation (>=u)
-    | UGeqExpr Pos Expr Expr
-    -- | Signed greater than operation (>s)
-    | SGtExpr  Pos Expr Expr
-    -- | Unsigned greater than operation (>u)
-    | UGtExpr  Pos Expr Expr
-    -- | Signed less than or equal operation (<=s)
-    | SLeqExpr Pos Expr Expr
-    -- | Unsigned less than or equal operation (<=u)
-    | ULeqExpr Pos Expr Expr
-    -- | Signed less than operation (<s).
-    | SLtExpr  Pos Expr Expr
-    -- | Unsigned less than operation (<u).
-    | ULtExpr  Pos Expr Expr
-
-    -- Precedence 1
-    -- | Boolean and (&&)
-    | AndExpr  Pos Expr Expr
-    -- Precedence 0.5
-    -- | Boolean or (||)
-    | OrExpr   Pos Expr Expr
-
-    -- Precedence 0
-    -- | If-then-else
-    | IteExpr  Pos Expr Expr Expr
-  deriving (Show)
-
 type JavaFieldName = String
 
 data RewriteVar = RewriteVar Pos String
@@ -224,9 +219,11 @@ data MethodSpecDecl
   | MethodLet Pos String Expr
   -- | Assume a given precondition is true when method is called.
   | Assume Pos Expr
+  | AssumeImp Pos Expr Expr
   | Ensures Pos Expr Expr
   | Modifies Pos [Expr]
   | LocalSpec Pos Integer [MethodSpecDecl]
+  | Choice Pos [MethodSpecDecl] [MethodSpecDecl]
   | Returns Pos Expr
   | VerifyUsing Pos [VerificationTactic]
  deriving (Show)
