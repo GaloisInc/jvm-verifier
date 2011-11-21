@@ -78,9 +78,6 @@ newtype MExecutor m a = Ex (StateT ExecutorState m a)
 
 type Executor = MExecutor IO
 
-instance JSS.HasCodebase Executor where
-  getCodebase = gets codebase
-
 -- | Given a file path, this returns the verifier commands in the file,
 -- or throws an exception.
 parseFile :: FilePath -> Executor [AST.VerifierCommand]
@@ -166,13 +163,9 @@ opDefType def = (opDefArgTypes def, opDefResultType def)
 -- | Parse the FnType returned by the parser into symbolic dag types.
 parseFnType :: AST.FnType -> Executor (V.Vector DagType, DagType)
 parseFnType (AST.FnType args res) = do
-  globalBindings <- getGlobalBindings
   oc <- gets opCache
-  let config = TC.mkGlobalTCConfig oc globalBindings Map.empty
-  lift $ do
-    parsedArgs <- V.mapM (TC.tcType config) (V.fromList args)
-    parsedRes <- TC.tcType config res
-    return (parsedArgs, parsedRes)
+  return ( V.map (TC.tcType oc) (V.fromList args)
+         , TC.tcType oc res)
 
 -- Operations used for SBV Parsing {{{1
 
@@ -265,7 +258,7 @@ execute (AST.ExternSBV pos nm absolutePath astFnType) = do
   let uninterpFns :: String -> [DagType] -> Maybe Op
       uninterpFns name _ = fmap (groundOp . snd) $ Map.lookup name curSbvOps
   -- Parse SBV file.
-  debugWrite $ "Parsing SBV inport for " ++ nm
+  debugWrite $ "Parsing SBV import for " ++ nm
   (op, SBV.WEF opFn) <-
     flip catchMIO (throwSBVParseError pos relativePath) $ lift $
       SBV.parseSBVOp oc uninterpFns nm sbv
@@ -296,9 +289,9 @@ execute (AST.GlobalLet pos name astExpr) = do
   valueExpr <- do
     bindings <- getGlobalBindings
     let config = TC.mkGlobalTCConfig oc bindings Map.empty
-    lift $ TC.tcExpr config astExpr
+    lift $ TC.tcLogicExpr config astExpr
   let val = TC.globalEval valueExpr
-  let tp = TC.getTypeOfExpr valueExpr
+  let tp = TC.typeOfLogicExpr valueExpr
   modify $ \s -> s { definedNames = Map.insert name pos (definedNames s)
                    , globalLetBindings = Map.insert name (val, tp) (globalLetBindings s) }
   debugWrite $ "Finished defining let " ++ name
@@ -306,12 +299,13 @@ execute (AST.SetVerification _pos val) = do
   modify $ \s -> s { runVerification = val }
 execute (AST.DeclareMethodSpec pos methodId cmds) = do
   oc <- gets opCache
+  cb <- gets codebase
   let mName:revClasspath = reverse methodId
   when (null revClasspath) $
     throwIOExecException pos (ftext "Missing class in method declaration.") ""
   let jvmClassName = intercalate "/" $ reverse revClasspath
   -- Get class
-  thisClass <- JSS.lookupClass jvmClassName
+  thisClass <- liftIO $ JSS.lookupClass cb jvmClassName
   -- Resolve method spec IR
   ir <- do
     bindings <- getGlobalBindings
@@ -335,7 +329,6 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
       whenVerbosityWrite (>1) $
         "[" ++ ts ++ "] Starting " ++ vnm  ++ " \"" ++ specName ++ "\"."
       ((), elapsedTime) <- timeIt $ do
-        cb <- gets codebase
         opts <- gets execOptions
         overrides <- gets methodSpecs
         allRules <- gets rules
@@ -378,15 +371,14 @@ execute (AST.Rule pos ruleName params astLhsExpr astRhsExpr) = do
                      ++ fieldNm ++ "\'."
            in throwIOExecException fieldPos (ftext msg) ""
         Nothing -> do
-          let config = TC.mkGlobalTCConfig oc bindings Map.empty
-          tp <- lift $ TC.tcType config astType
+          let tp = TC.tcType oc astType
           modify $ Map.insert fieldNm (TC.Var fieldNm tp)
   let config = TC.mkGlobalTCConfig oc bindings nameTypeMap
-  lhsExpr <- lift $ TC.tcExpr config astLhsExpr
-  rhsExpr <- lift $ TC.tcExpr config astRhsExpr
+  lhsExpr <- lift $ TC.tcLogicExpr config astLhsExpr
+  rhsExpr <- lift $ TC.tcLogicExpr config astRhsExpr
   -- Check types are equivalence
-  let lhsTp = TC.getTypeOfExpr lhsExpr
-      rhsTp = TC.getTypeOfExpr rhsExpr
+  let lhsTp = TC.typeOfLogicExpr lhsExpr
+      rhsTp = TC.typeOfLogicExpr rhsExpr
   unless (lhsTp == rhsTp) $ do
     let msg = "In the rule " ++ ruleName
                 ++ ", the left hand and right hand sides of the rule have distinct types "
@@ -395,7 +387,7 @@ execute (AST.Rule pos ruleName params astLhsExpr astRhsExpr) = do
      in throwIOExecException pos (ftext msg) res
   -- Check all vars in quantifier are used.
   let paramVars = Set.fromList $ map (\(_,nm,_) -> nm) params
-      lhsVars = TC.typedExprVarNames lhsExpr
+      lhsVars = TC.logicExprVarNames lhsExpr
   unless (lhsVars == paramVars) $ do
     let msg = "In the rule '" ++ ruleName ++ "', the left hand side term does"
                ++ " not refer to all of the variables in the quantifier."
@@ -407,7 +399,7 @@ execute (AST.Rule pos ruleName params astLhsExpr astRhsExpr) = do
   let mkRuleTerm :: TC.LogicExpr -> Term
       mkRuleTerm (TC.Apply op args) = appTerm op (map mkRuleTerm args)
       mkRuleTerm (TC.Cns cns tp) = mkConst cns tp
-      mkRuleTerm (TC.ArrayValue _ _) = error "internal: Java value given to mkRuleTerm"
+      mkRuleTerm (TC.JavaValue _ _) = error "internal: Java value given to mkRuleTerm"
       mkRuleTerm (TC.Var name tp) = mkVar name tp
   let rl = Rule ruleName (evalTerm (mkRuleTerm lhsExpr)) (evalTerm (mkRuleTerm rhsExpr))
   modify $ \s -> s { rules = Map.insert ruleName rl (rules s)

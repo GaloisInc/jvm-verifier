@@ -109,6 +109,7 @@ import System.IO (hFlush, hPutStr, stderr, stdout)
 
 import Analysis.CFG (ppInst)
 import Execution
+import Execution.Codebase
 import JavaParser
 import JavaParser.Common
 import Utils
@@ -471,7 +472,8 @@ stdOverrides = do
         , arrayCopyKey
         , \opds -> do
             let nativeClass = "com/galois/core/NativeImplementations"
-            cl <- lookupClass nativeClass
+            cb <- getCodebase
+            cl <- liftIO $ lookupClass cb nativeClass
             let Just methodImpl = cl `lookupMethod` arrayCopyKey
             pushStaticMethodCall nativeClass methodImpl opds
         )
@@ -712,7 +714,8 @@ stdOverrides = do
               LValue (getBool -> Just{}) -> return ()
               _ -> warn
             sr        <- refFromString (ppValue st)
-            Just meth <- (`lookupMethod` redir) <$> lookupClass cn
+            cb <- getCodebase
+            Just meth <- liftIO ((`lookupMethod` redir) <$> lookupClass cb cn)
             runInstanceMethodCall cn meth this [RValue sr]
         )
 
@@ -845,16 +848,10 @@ isPathFinished :: PathState m -> Bool
 isPathFinished ps =
   case frames ps of
     [] -> True
-    (f : _) -> S.member (frmClass f, methodKey (frmMethod f), frmPC f)
-                        (breakpoints ps) &&
-               -- Because breakpoints are typically used to cut loops,
-               -- a path involing a breakpoint may start and end at
-               -- the same instruction. So we don\'t want to terminate
-               -- it as soon as it starts.
-               (insnCount ps /= 0)
-  || case finalResult ps of
-       Unassigned -> False
-       _          -> True
+    (f : _) ->
+      case finalResult ps of
+        Unassigned -> False
+        _          -> True
 
 -- | Add assumption to current path.
 assume :: AigOps sym => MonadTerm sym -> Simulator sym ()
@@ -955,19 +952,29 @@ terminateCurrentPath collapseOnAllFinished = do
 registerBreakpoints :: MonadIO sym
                     => [(String, MethodKey, PC)]
                     -> Simulator sym ()
-registerBreakpoints bkpts =
-  modifyPathState (\ps -> ps { breakpoints = S.fromList bkpts })
+registerBreakpoints bkpts = do
+  bkpts' <- mapM updateBreakpoint bkpts
+  modifyPathState (\ps -> ps { breakpoints = S.fromList bkpts' })
+  where updateBreakpoint (cl, mk, pc) = do
+          cb <- getCodebase
+          cls <- liftIO $ findVirtualMethodsByRef cb cl mk cl
+          case cls of
+            (cl' : _) -> return (cl', mk, pc)
+            [] -> error $
+                  "internal: method " ++ show (methodKeyName mk) ++
+                  "not found"
 
 -- | Set the appropriate finalResult if we've stopped at a breakpoint.
 -- assertion.
-handleBreakpoints :: MonadIO sym => Simulator sym ()
-handleBreakpoints = do
-  ps <- getPathState
+handleBreakpoints :: MonadIO sym => PathState (MonadTerm sym) -> Simulator sym ()
+handleBreakpoints ps =
   case frames ps of
-    f : _ ->
-      when (S.member (frmClass f, methodKey (frmMethod f), frmPC f)
-             (breakpoints ps)) $
-        modifyPathState (setFinalResult . Breakpoint . frmPC $ f)
+    f : _ -> do
+      let pc = frmPC f
+      let meth = methodKey (frmMethod f)
+      when (S.member (frmClass f, meth, pc) (breakpoints ps)) $ do
+        whenVerbosity (>= 2) $ dbugM $ "Breaking at PC = " ++ show pc
+        modifyPathState (setFinalResult . Breakpoint $ pc)
     _ -> return ()
 
 resumeBreakpoint :: (MonadIO sym, PrettyTerm (MonadTerm sym))
@@ -1226,7 +1233,6 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
     ps <- getPathState
     case M.lookup name (initialization ps) of
       Nothing -> do
-        cl <- lookupClass name
         let initializeField f =
               let fieldId = FieldId name (fieldName f) (fieldType f)
               in case fieldConstantValue f of
@@ -1245,6 +1251,8 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
                       then setStaticFieldValue fieldId (defaultValue (fieldType f))
                       else return ()
                   Just tp -> error $ "Unsupported field type" ++ show tp
+        cb <- getCodebase
+        cl <- liftIO $ lookupClass cb name
         mapM_ initializeField $ classFields cl
         case cl `lookupMethod` (MethodKey "<clinit>" [] Nothing) of
           Just method -> do
@@ -1472,7 +1480,8 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
    initializeClass name
    ref <- genRef (ClassType name)
    -- Set fields to default value
-   fields <- classFields <$> lookupClass name
+   cb <- getCodebase
+   fields <- liftIO (classFields <$> lookupClass cb name)
    modifyPathState $ \ps ->
      ps { instanceFields =
             foldl' (\fieldMap f ->
@@ -1488,11 +1497,14 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
     if elt == NullRef
       then return (mkCBool True)
       else do
+        cb <- getCodebase
         ArrayType arrayTy <- getType arr
         elTy              <- getType elt
-        mkCBool <$> isSubtype elTy arrayTy
+        liftIO $ mkCBool <$> isSubtype cb elTy arrayTy
 
-  hasType ref tp = mkCBool <$> ((`isSubtype` tp) =<< getType ref)
+  hasType ref tp = do
+    cb <- getCodebase
+    mkCBool <$> ((\rtp -> liftIO (isSubtype cb rtp tp)) =<< getType ref)
 
   typeOf NullRef    = return Nothing
   typeOf (Ref _ ty) = return (Just ty)
@@ -1500,11 +1512,12 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   -- Retuns predicate indicating super class of ref has given type.
   superHasType ref tp = do
     ClassType refClassname <- getType ref
-    cl                     <- lookupClass refClassname
-    mkCBool
-      <$> case superClass cl of
-            Just super -> isSubtype (ClassType super) (ClassType tp)
-            Nothing    -> return False
+    cb <- getCodebase
+    liftIO $ do
+      cl <- lookupClass cb refClassname
+      mkCBool <$> case superClass cl of
+                    Just super -> isSubtype cb (ClassType super) (ClassType tp)
+                    Nothing    -> return False
 
   -- (rEq x y) returns boolean formula that holds if x == y.
   rEq x y = return $ mkCBool $ x == y
@@ -1655,11 +1668,12 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
     done <- isPathFinished <$> getPathState
     let term = terminateCurrentPath True >> return ()
     if done
-      then handleBreakpoints >> term
+      then term
       else stepCommon doStep term
 
 stepCommon :: AigOps sym => Simulator sym a -> Simulator sym a -> Simulator sym a
 stepCommon onOK onException = do
+  ps <- getPathState
   method <- getCurrentMethod
   pc     <- getPc
   let inst    = lookupInstruction method pc
@@ -1680,6 +1694,7 @@ stepCommon onOK onException = do
          ((_,ra):_) -> case ra of
            NextInst           -> step inst >> count -- Run normally
            CustomRA _desc act -> onCurrPath =<< act -- Run overridden sequence
+     handleBreakpoints ps
      dbugFrm
      onOK
   `catchMIO` \e ->
@@ -2334,7 +2349,8 @@ getStaticFieldValue :: WordMonad sym =>
                     -> Simulator sym (Value (MonadTerm sym))
 getStaticFieldValue pd fldId = do
   ps <- getPathStateByName pd
-  cl <- lookupClass $ fieldIdClass fldId
+  cb <- getCodebase
+  cl <- liftIO $ lookupClass cb (fieldIdClass fldId)
   case M.lookup fldId (staticFields ps) of
     Just v  -> return v
     Nothing -> CE.assert (validStaticField cl) $

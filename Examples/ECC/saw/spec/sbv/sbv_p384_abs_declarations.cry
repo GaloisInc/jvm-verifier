@@ -1,0 +1,14 @@
+include "../ecc.cry";
+
+// The SBV translator can't currently generate specs for
+// polymorphic functions that are used at monomorphic
+// type instances. So we define specialized versions
+// of the functions below.
+
+ref_p384_mul_384 : ([384], [384]) -> [384];
+ref_p384_mul_384(x,y) = ref_p384_mod(uext(x) * uext(y));
+
+ref_p384_sq_384 : [384] -> [384];
+ref_p384_sq_384(x)    = ref_p384_mod(uext(x) * uext(x));
+
+pragma ref_p384_mod     : SBV uninterpret;

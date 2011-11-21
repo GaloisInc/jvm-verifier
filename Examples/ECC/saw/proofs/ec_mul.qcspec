@@ -1,0 +1,49 @@
+method com.galois.ecc.P384ECC64.ec_mul 
+{
+  var args[0]                         :: com.galois.ecc.JacobianPoint;
+  var args[1]                         :: int[12];
+  var args[2]                         :: com.galois.ecc.AffinePoint;
+  var this.a                          :: int[24];
+  var this.h                          :: int[12];
+  var this.t1, this.t2, this.t3       :: int[12];
+  var args[0].x, args[0].y, args[0].z :: int[12];
+  var args[2].x, args[2].y            :: int[12];
+
+  assume ref_is_field(join(valueOf(args[1])));
+  assume ref_is_field(join(valueOf(args[2].x)));
+  assume ref_is_field(join(valueOf(args[2].y)));
+
+  const valueOf(this.field_prime) := split(field_prime) : [12][32];
+
+  /*
+  localSpec 162 {
+      let lres = ec_mul_aux(
+                   { x = join(valueOf(args[0].x))
+                   ; y = join(valueOf(args[0].y))
+                   ; z = join(valueOf(args[0].z))
+                   },
+                   { x = join(valueOf(args[2].x))
+                   ; y = join(valueOf(args[2].y))
+                   },
+                   TODO,
+                   TODO,
+                   TODO);
+      ensures: valueOf(args[0].x) := split(lres.x);
+      ensures: valueOf(args[0].y) := split(lres.y);
+      ensures: valueOf(args[0].z) := split(lres.z);
+
+  }
+  */
+
+  let d  = join(valueOf(args[1]));
+  let sx = join(valueOf(args[2].x));
+  let sy = join(valueOf(args[2].y));
+
+  let res = ref_ec_mul(d, { x = sx; y = sy });
+
+  ensures valueOf(args[0].x) := split(res.x) : [12][32];
+  ensures valueOf(args[0].y) := split(res.y) : [12][32];
+  ensures valueOf(args[0].z) := split(res.z) : [12][32];
+  modifies: valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  verifyUsing: quickcheck 1;
+};

@@ -1,0 +1,13 @@
+extern SBV ref_incFieldPrime("../spec/sbv/generated/ref_p384_incFieldPrime.sbv")
+  : [384] -> { carry : [32]; rslt : [384] };
+
+extern SBV ref_decFieldPrime("../spec/sbv/generated/ref_p384_decFieldPrime.sbv")
+  : [384] -> { carry : [32]; rslt : [384] };
+
+extern SBV ref_field_mod("../spec/sbv/generated/ref_p384_mod.sbv") 
+  : [768] -> [384];
+
+import "common.saw";
+import "incFieldPrime.spec";
+import "decFieldPrime.spec";
+import "field_red.qcspec";
