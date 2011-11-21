@@ -21,7 +21,7 @@ import qualified Control.Exception as CE
 import Control.Monad
 import Control.Monad.State (State, execState)
 import Data.IORef
-import Data.List (foldl', intersperse)
+import Data.List (foldl', intercalate, sort,intersperse,sortBy,find)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -1023,9 +1023,16 @@ testRandom de v ir test_num lim vc =
                 do let goal_ok = toBool (eval (checkGoal de goal))
                    when (v >= 4) $ dbugM "End concrete DAG eval for one VC check."
                    unless goal_ok $ do
+                     (vs1,goal1) <- QuickCheck.minimizeCounterExample
+                                            isCounterExample vs goal
                      throwIOExecException (methodSpecPos ir)
-                                          (msg eval vs goal) ""
+                                          (msg eval vs1 goal1) ""
               return $! passed + 1
+
+  isCounterExample vs =
+    do eval <- deConcreteEval (V.fromList vs)
+       return $ do guard $ toBool $ eval $ vcAssumptions vc
+                   find (not . toBool . eval . checkGoal de) (vcChecks vc)
 
   msg eval vs g =
       text "Random testing found a counter example:"
@@ -1044,7 +1051,17 @@ testRandom de v ir test_num lim vc =
   ppInput inp value =
     case viExprs inp of
       [t] -> text (show t) <+> text "=" <+> ppCValueD Mixfix value
-      ts -> vcat [ text (show t) <+> text "=" | t <- ts ] <+> ppCValueD Mixfix value
+      []  -> text "No arguments."
+      tsUnsorted ->
+        let tsSorted = sortBy cmp tsUnsorted
+            t0       = last tsSorted
+            ts       = init tsSorted
+
+            cmp (Arg a _) (Arg b _) = compare a b
+            cmp _ _                 = EQ
+
+        in vcat [ text (show t) <+> text "=" <+> text (show t0) | t <- ts ]
+           $$ text (show t0) <+> text "=" <+> ppCValueD Mixfix value
 
 
   toBool (CBool b) = b
