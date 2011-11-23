@@ -148,6 +148,9 @@ data Expr
     -- | Boolean or (||)
     | OrExpr   Pos Expr Expr
     -- Precedence 0
+    -- | Implication
+    | ImpExpr  Pos Expr Expr
+    -- Precedence 0
     -- | If-then-else
     | IteExpr  Pos Expr Expr Expr
   deriving (Show)
@@ -191,6 +194,7 @@ exprPos (SLtExpr  p _ _) = p
 exprPos (ULtExpr  p _ _) = p
 exprPos (AndExpr  p _ _) = p
 exprPos (OrExpr   p _ _) = p
+exprPos (ImpExpr  p _ _) = p
 exprPos (IteExpr  p _ _ _) = p
 
 type JavaFieldName = String

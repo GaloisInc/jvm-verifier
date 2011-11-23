@@ -121,9 +121,11 @@ import {-# SOURCE #-} SAWScript.ParserActions
    '<u'           { TOp       _ "<u"           }
    '&&'           { TOp       _ "&&"           }
    '||'           { TOp       _ "||"           }
+   '==>'          { TOp       _ "==>"          }
 
 -- Operators, precedence increases as you go down in this list
 %right 'else'
+%right '==>'
 %left '||'
 %left '&&'
 %nonassoc '>=s' '>=u' '>s' '>u' '<=s' '<=u' '<s' '<u'
@@ -231,6 +233,7 @@ Expr : var                               { Var          (tokPos $1) (tokStr $1) 
      | Expr '<u'  Expr                   { ULtExpr      (tokPos $2) $1 $3          }
      | Expr '&&'  Expr                   { AndExpr      (tokPos $2) $1 $3          }
      | Expr '||'  Expr                   { OrExpr       (tokPos $2) $1 $3          }
+     | Expr '==>' Expr                   { ImpExpr      (tokPos $2) $1 $3          }
      | 'this'                            { ThisExpr     (tokPos $1)                }
      | 'args' '[' int ']'                { ArgExpr      (tokPos $1) (snd $3)       }
      | 'locals' '[' var ']'              { LocalExpr    (tokPos $1) (tokStr $3)    }
