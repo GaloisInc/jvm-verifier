@@ -11,6 +11,7 @@ import Verinf.Symbolic.Common
   , DagType(..)
   , opArgTypes, opResultType, numBits
   , OpSem(..), OpIndex
+  , ppType
   )
 import Verinf.Symbolic(Node,deEval,getSValW)
 import qualified Verinf.Symbolic.Common as Op (OpIndex(..))
@@ -74,7 +75,8 @@ translate ps =
                Nothing -> bug "translate" "Type error---not a formula"
                Just f  -> return f
 
-  mkInp ty = do t    <- cvtType ty
+  mkInp ty = do io $ putStrLn $ "just about to cvt ty: " ++ ppType ty
+                t    <- cvtType ty
                 term <- newConst t
                 x    <- toVar term
                 addNote $ text "input:" <+> pp term <+> text "::" <+> text (show t)
@@ -396,7 +398,8 @@ translateOps enabled = termSem
   where
   termSem = TermSemantics
     { tsEqTerm = same
-    , tsConstant = \c t -> mkConst c =<< cvtType t
+    , tsConstant = \c t -> mkConst c =<< do io (putStrLn "tsConstant cvtType")
+                                            cvtType t
     , tsApplyUnary = apply1
     , tsApplyBinary = apply2
     , tsApplyTernary = apply3
@@ -467,7 +470,8 @@ translateOps enabled = termSem
 
   apply op = liftV $
     case opDefIndex (opDef op) of
-      Op.MkArray _  -> \vs -> do t <- cvtType (opResultType op)
+      Op.MkArray _  -> \vs -> do io $ putStrLn $ "Op.MkArray cvt"
+                                 t <- cvtType (opResultType op)
                                  mkArray t vs
       Op.Dynamic x m   -> \xs -> dynOp x op m (V.fromList xs)
 
@@ -504,7 +508,11 @@ translateOps enabled = termSem
                   return t
 
       _ ->
-        do as <- mapM cvtType (V.toList (opArgTypes op))
+        do io $ putStrLn "dynOp cvt 1"
+           io $ putStrLn $ "op def name is: " ++ opDefName (opDef op)
+           io $ mapM_ (putStrLn . ppType) (V.toList (opArgTypes op))
+           as <- mapM cvtType (V.toList (opArgTypes op))
+           io $ putStrLn $ "dynOp cvt 2: " ++ ppType (opResultType op)
            b  <- cvtType (opResultType op)
            let name = opDefName (opDef op)
 
