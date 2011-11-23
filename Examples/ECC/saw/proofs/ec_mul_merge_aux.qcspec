@@ -1,4 +1,4 @@
-//import "rules.saw";
+import "rules.saw";
 method com.galois.ecc.P384ECC64.ec_mul_merge_aux 
 {
   var args[0]                         :: com.galois.ecc.JacobianPoint;
@@ -33,6 +33,6 @@ method com.galois.ecc.P384ECC64.ec_mul_merge_aux
   ensures valueOf(args[0].y) := split(res.y) : [12][32];
   ensures valueOf(args[0].z) := split(res.z) : [12][32];
   modifies: valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-//  verifyUsing: rewriter;
-  verifyUsing: quickcheck 1;
+  verifyUsing: rewriter, yices;
+//  verifyUsing: quickcheck 1;
 };
