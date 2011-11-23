@@ -1,5 +1,3 @@
-extern SBV ref_is_field("../spec/sbv/generated/ref_p384_is_val.sbv")  
-  : [384] -> Bit;
 extern SBV ref_field_add("../spec/sbv/generated/ref_p384_add.sbv") 
   : ([384],[384]) -> [384];
 extern SBV ref_field_sub("../spec/sbv/generated/ref_p384_sub.sbv") 
@@ -34,8 +32,7 @@ extern SBV ref_ec_mul_aux("../spec/sbv/generated/p384_ref_mul_aux.sbv") :
   ) 
   -> { x:[384]; y:[384]; z:[384] };
 
-extern SBV ref_ec_mul("../spec/sbv/generated/ref_p384_ec_mul.sbv") :
-  ([384], { x: [384]; y: [384] }) -> { x: [384]; y: [384]; z: [384] };
+extern SBV ref_is_field("../spec/sbv/generated/ref_p384_is_val.sbv")  : [384] -> Bit;
 
 import "common.saw";
 
@@ -43,7 +40,6 @@ set verification off;
 import "is_zero.saw";
 import "set_zero.saw";
 import "set_unit.saw";
-import "assign.saw";
 import "field_add.spec";
 import "field_sub.spec";
 import "field_dbl.spec";
@@ -52,10 +48,6 @@ import "field_sq.qcspec";
 import "ec_double.spec";
 import "ec_full_add.qcspec";
 import "ec_full_sub.qcspec";
-import "ec_mul_merge_aux.qcspec";
 set verification on;
 
-import "ec_mul.qcspec";
-
-
-
+import "ec_mul_merge_aux.qcspec";

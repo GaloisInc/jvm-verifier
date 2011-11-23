@@ -13,7 +13,8 @@ DETAILS
 By convention, 
 
   - method specification files for individual Java methods are named
-    with the .spec file suffix.
+    with the .spec file suffix.  Quickcheck specifications use the 
+    .qcspec suffix.
 
    - orchestration scripts (which are often just series of import
      statements) are named with the .saw suffix.

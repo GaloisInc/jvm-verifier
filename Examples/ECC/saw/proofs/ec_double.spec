@@ -6,7 +6,7 @@ method com.galois.ecc.P384ECC64.ec_double
   var this.t1, this.t2                :: int[12]; // ec_double changes t1 and t2
   var this.a                          :: int[24]; // field_mul changes a
 
-  const this.field_prime := split(field_prime) : [12][32];
+  const valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   let vx = join(valueOf(args[0].x));
   let vy = join(valueOf(args[0].y));

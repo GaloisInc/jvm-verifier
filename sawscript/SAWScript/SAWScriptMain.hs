@@ -74,7 +74,8 @@ parseArgs = do popts <- CA.process m <$> getArgs
 #else
                          &= help "colon-delimited list of jar paths (e.g. --jars=jdk1.6/classes.jar:foo.jar)"
 #endif
-            , verbose    = 1     &= help "Verbosity level, 0 is ultra quiet"
+            , verbose    = 1     &= help "SAWScript verbosity level, 0 is ultra quiet"
+            , simverbose = 1     &= help "Simulator verbosity level, 0 is ultra quiet"
             , dump       = False &= help "Dump files after parsing, and stop"
             , entryPoint = def   &= typFile &= argPos 0
             }

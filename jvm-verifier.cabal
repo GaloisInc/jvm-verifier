@@ -165,7 +165,7 @@ executable sawScript
 
   hs-source-dirs   : sawscript
   main-is          : SAWScript/SAWScriptMain.hs
-  ghc-options      : -O2 -Wall -fno-ignore-asserts
+  ghc-options      : -O2 -Wall -fno-ignore-asserts -rtsopts
   ghc-prof-options : -prof -auto-all
   other-modules    :
         SAWScript.CommandExec
