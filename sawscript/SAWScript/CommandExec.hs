@@ -314,13 +314,15 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
   ts <- getTimeStamp
   let tactics = TC.methodSpecVerificationTactics ir
   let specName = TC.methodSpecName ir
+  let isSkip [AST.Skip] = True
+      isSkip _ = False
   whenVerbosityWriteNoLn (==1) $
    let vnm = case tactics of
                [AST.QuickCheck _ _] -> "Testing"
                [AST.Skip]           -> "Parsing"
                _                    -> "Verifying"
     in "[" ++ ts ++ "] " ++ vnm ++ " \"" ++ TC.methodSpecName ir ++ "\"... "
-  if v && (TC.methodSpecVerificationTactics ir /= [AST.Skip])
+  if v && (not . isSkip $ TC.methodSpecVerificationTactics ir)
     then do
       let vnm = case tactics of
                   [AST.QuickCheck _ _] -> "testing"

@@ -206,11 +206,12 @@ type SpecName = String
 
 data VerificationTactic = Skip 
                         | Rewrite
+                        | AddRule RuleName [(Pos, String, ExprType)] Expr Expr
                         | QuickCheck Int (Maybe Int)
                         | ABC
                         | SmtLib (Maybe Int) (Maybe String) -- version, file
                         | Yices (Maybe Int)
-  deriving (Eq, Show)
+  deriving (Show)
 
 -- | Commands in a method spec.
 data MethodSpecDecl

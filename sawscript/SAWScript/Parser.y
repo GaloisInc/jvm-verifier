@@ -74,6 +74,7 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'abc'          { TReserved _ "abc"          }
    'quickcheck'   { TReserved _ "quickcheck"   }
    'rewriter'     { TReserved _ "rewriter"     }
+   'addrule'      { TReserved _ "addrule"      }
    'smtlib'       { TReserved _ "smtlib"       }
    'yices'        { TReserved _ "yices"        }
    var            { TVar      _ _              }
@@ -290,6 +291,8 @@ VerificationTactics : sepBy1(VerificationTactic, ',') { $1 }
 
 VerificationTactic :: { VerificationTactic }
 VerificationTactic : 'rewriter' { Rewrite }
+                   | 'addrule' var ':' RuleParams Expr '->' Expr
+                     { AddRule (tokStr $2) $4 $5 $7 }
                    | 'skip'     { Skip    }
                    | 'abc'      { ABC     }
                    | 'quickcheck' int opt(int) { QuickCheck (snd $2)
