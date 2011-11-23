@@ -192,9 +192,9 @@ public abstract class ECCProvider {
   }
 
   static void jpf_delete_me(JacobianPoint r, JacobianPoint s) {
-    r.x = s.x;
-    r.y = s.y;
-    r.z = s.z;
+    assign(r.x, s.x);
+    assign(r.y, s.y);
+    assign(r.z, s.z);
   }
 
   /**

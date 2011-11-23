@@ -36,8 +36,8 @@ import qualified Execution.Codebase as JSS
 import qualified Execution.JavaSemantics as Sem
 import JavaParser as JSS
 import MethodSpec (partitions)
-import qualified SAWScript.SmtLib as SmtLib
-import qualified SAWScript.SmtLib2 as SmtLib2
+import qualified SAWScript.SmtLibTrans as SmtLib
+import qualified SAWScript.SmtLibTrans2 as SmtLib2
 import qualified SAWScript.QuickCheck as QuickCheck
 import qualified SAWScript.Yices  as Yices
 import qualified SAWScript.MethodAST as AST

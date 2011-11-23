@@ -1,6 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PatternGuards #-}
-module SAWScript.SmtLib (translate, TransParams(..), MetaData(..)) where
+module SAWScript.SmtLibTrans (translate, TransParams(..), MetaData(..)) where
 
 import GHC.Exts(IsString(fromString))
 import SMTLib1.QF_AUFBV as BV
