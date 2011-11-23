@@ -40,10 +40,10 @@ rule and_redundant1 : forAll {x:Bit,y:Bit}. (x && y) && y -> x && y;
 rule and_redundant2 : forAll {x:Bit,y:Bit}. (x && y) && x -> x && y;
 
 /*
-rule imp_true_elim1  : forAll {x:Bit}. True  ==> x     -> x;
-rule imp_true_elim2  : forAll {x:Bit}. x     ==> True  -> True;
-rule imp_false_elim1 : forAll {x:Bit}. False ==> x     -> True;
-rule imp_false_elim2 : forAll {x:Bit}. x     ==> False -> x;
+rule imp_true_elim1  : forAll {x:Bit}. x     ==> True  -> True;
+rule imp_true_elim2  : forAll {x:Bit}. True  ==> x     -> x;
+rule imp_false_elim1 : forAll {x:Bit}. x     ==> False -> x;
+rule imp_false_elim2 : forAll {x:Bit}. False ==> x     -> True;
 */
 
 // De Morgan's 
