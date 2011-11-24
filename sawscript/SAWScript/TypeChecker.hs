@@ -616,6 +616,7 @@ tcE (AST.UGtExpr      p l r) = (LE . flipBinOpArgs) <$> lift2WordCmp  p ">u"  un
 tcE (AST.ULtExpr      p l r) = LE                   <$> lift2WordCmp  p "<u"  unsignedLtOp  l r
 tcE (AST.AndExpr      p l r) = lift2Bool     p "&&"  bAndOp        l r
 tcE (AST.OrExpr       p l r) = lift2Bool     p "||"  bOrOp         l r
+tcE (AST.ImpExpr      p l r) = lift2Bool     p "==>" bImpliesOp    l r
 tcE (AST.IteExpr      p t l r) = do
         --TODO: See if this can be fixed to support reference expressions.
         [t', l', r'] <- mapM tcLE [t, l, r]

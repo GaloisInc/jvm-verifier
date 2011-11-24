@@ -1365,68 +1365,55 @@ validateMethodSpec
           dbugM $ "Term DAG has " ++ show termCnt ++ " application nodes."
 
       let goal vc check = deApplyBinary de bImpliesOp (vcAssumptions vc) (checkGoal de check)
-      case methodSpecVerificationTactics ir of
-        [AST.Rewrite] -> liftIO $ do
-          rew <- mkRewriter pgm (deTermSemantics de)
-          forM_ vcs $ \vc -> do
-            forM_ (erChecks vc) $ \check -> do
-              when (v >= 2) $
-                putStrLn $ "Verify " ++ checkName check
-              newGoal <- reduce rew (goal vc check)
-              case getBool newGoal of
-                Just True -> return ()
-                _ -> do
-                 let msg = ftext ("The rewriter failed to reduce the verification condition "
-                                    ++ " generated from " ++ checkName check
-                                    ++ " in the Java method " ++ specName ir
-                                    ++ " to 'True'.\n\n") $$
-                           ftext ("The remaining goal is:") $$
-                           nest 2 (prettyTermD newGoal)
-                     res = "Please add new rewrite rules or modify existing ones to reduce the goal to True."
-                  in throwIOExecException pos msg res
-        [AST.QuickCheck n lim] -> liftIO $ do
-          forM_ vcs $ \vc ->
-            testRandom de v ir n lim vc
-        [AST.ABC] -> liftIO $ do
-          forM_ vcs $ \vc -> do
-            forM_ (erChecks vc) $ \check -> do
-              when (v >= 2) $
-                putStrLn $ "Verify " ++ checkName check
-              runABC de v ir (erInputs vc) check (goal vc check)
-        [AST.Rewrite, AST.ABC] -> liftIO $ do
-          rew <- mkRewriter pgm (deTermSemantics de)
-          forM_ vcs $ \vc -> do
-            forM_ (erChecks vc) $ \check -> do
-              when (v >= 2) $
-                liftIO $ putStrLn $ "Verify " ++ checkName check
-              newGoal <- reduce rew (goal vc check)
-              runABC de v ir (erInputs vc) check newGoal
-        [AST.SmtLib ver nm] -> do
-          forM_ vcs $ \vc -> do
-            -- XXX: This is called multiple times, so when we save the
-            -- smtlib file we should somehow parameterize on the configuration.
-            let gs = map (checkGoal de) (erChecks vc)
-            useSMTLIB ir ver nm vc gs
-        [AST.Rewrite, AST.SmtLib ver nm] -> do
-          rew <- liftIO $ mkRewriter pgm (deTermSemantics de)
-          forM_ vcs $ \vc -> do
-            gs <- liftIO $ mapM (reduce rew . checkGoal de) (erChecks vc)
-            useSMTLIB ir ver nm vc gs
-        [AST.Yices ti]  -> do
-          forM_ vcs $ \vc -> do
-            let gs = map (checkGoal de) (erChecks vc)
-            useYices ir ti vc gs
-        [AST.Rewrite, AST.Yices ti] -> do
-          rew <- liftIO $ mkRewriter pgm (deTermSemantics de)
-          forM_ vcs $ \vc -> do
-            gs <- liftIO $ mapM (reduce rew . checkGoal de) (erChecks vc)
-            useYices ir ti vc gs
-        _ -> error "internal: verifyMethodTactic used invalid tactic."
-        -}
+          gs vc = (vc, map (\check -> (check, goal vc check)) (vcChecks vc))
+          allGoals = map gs vcs
+      foldM_ (applyTactic v ir) (pgm, allGoals) (methodSpecVerificationTactics ir)
+
+type TacticContext = [(VerificationContext, [(VerificationCheck, Node)])]
+applyTactic :: Int
+            -> MethodSpecIR
+            -> (RewriteProgram Node, TacticContext)
+            -> AST.VerificationTactic
+            -> SymbolicMonad (RewriteProgram Node, TacticContext)
+applyTactic v ir (pgm, gs) AST.Rewrite = do
+  de <- getDagEngine
+  rew <- liftIO $ mkRewriter pgm (deTermSemantics de)
+  gs' <- forM gs $ \(vc, chks) -> liftIO $ do
+    chks' <- forM chks $ \(check, goal) -> do
+      when (v >= 2) $ putStrLn $ "Verify " ++ checkName check
+      goal' <- reduce rew goal
+      return (check, goal')
+    return (vc, chks')
+  return (pgm, gs')
+applyTactic v ir (pgm, gs) AST.ABC = do
+  de <- getDagEngine
+  liftIO $ forM_ gs $ \(vc, chks) -> forM_ chks $ \(check, goal) -> do
+    when (v >= 2) $ putStrLn $ "Verify " ++ checkName check
+    runABC de v ir (vcInputs vc) check goal
+  return (pgm, [])
+applyTactic v ir (pgm, gs) (AST.QuickCheck n lim) = do
+  de <- getDagEngine
+  liftIO $ forM_ gs $ \(vc, _) -> testRandom de v ir n lim vc
+  return (pgm, [])
+applyTactic _ ir (pgm, gs) (AST.SmtLib ver nm) = do
+  forM_ gs $ \(vc, chks) -> useSMTLIB ir ver nm vc (map snd chks)
+  return (pgm, [])
+applyTactic _ ir (pgm, gs) (AST.Yices ti) = do
+  forM_ gs $ \(vc, chks) -> useYices ir ti vc (map snd chks)
+  return (pgm, [])
+applyTactic _ _ (pgm, gs) (AST.AddRule nm vars l r) = do
+  error "addrule not yet implemented."
+  -- TODO: we should really be type-checking the rules in advance, and
+  -- store compiled rules appropriate for passing to the addRule
+  -- function.
+  let lt = undefined
+      rt = undefined
+      pgm' = addRule pgm (mkRule nm lt rt)
+  return (pgm', gs)
+applyTactic _ _ _ _ = error "internal: verifyMethodTactic used invalid tactic."
 
 type Verbosity = Int
 
-{-
 testRandom :: DagEngine Node Lit -> Verbosity
            -> MethodSpecIR -> Int -> Maybe Int -> ExecutionResult -> IO ()
 testRandom de v ir test_num lim vc =
