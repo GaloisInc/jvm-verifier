@@ -55,6 +55,7 @@ module JavaParser (
   , Method
   , methodName
   , methodParameterTypes
+  , localIndexOfParameter
   , methodReturnType
   , methodMaxLocals
   , methodIsNative
@@ -83,16 +84,18 @@ module JavaParser (
   , getElemTy
   , intArrayTy
   , longArrayTy
-  ,  unparseMethodDescriptor
+  , unparseMethodDescriptor
   -- * Debugging information
+  , hasDebugInfo
   , classSourceFile
   , sourceLineNumber
   , sourceLineNumberOrPrev
-  , sourceLocalVariableName
+  , localVariableEntries
+  , lookupLocalVariableByIdx
   , lookupLocalVariableByName
-  , lookupLocalVariableTypeByName
-  , lookupLocalVariableIdxByName) where
+  ) where
 
+  import Control.Exception (assert)
   import Control.Monad
   import Data.Array (Array,(!),assocs,listArray)
   import Data.Binary
@@ -1024,6 +1027,18 @@ module JavaParser (
   methodParameterTypes :: Method -> [Type]
   methodParameterTypes = methodKeyParameterTypes . methodKey
 
+  -- | Returns the local variable index that the parameter is stored in when
+  -- the method is invoked.
+  localIndexOfParameter :: Method -> Int -> LocalVariableIndex
+  localIndexOfParameter m i = assert (0 <= i && i < length params) $ offsets !! idx
+    where params = methodParameterTypes m
+          -- Index after accounting for this.
+          idx = if methodIsStatic m then i else i + 1
+          slotWidth DoubleType = 2
+          slotWidth LongType = 2
+          slotWidth _ = 1
+          offsets = scanl (+) 0 $ map slotWidth params
+
   -- | Return parameter types for method.
   methodReturnType :: Method -> Maybe Type
   methodReturnType = methodKeyReturnType . methodKey
@@ -1058,6 +1073,13 @@ module JavaParser (
       Code _ c _ _ _ _ _ -> c
       _ -> error "internal: unexpected method body form"
 
+  -- | Returns true if method has debug informaiton available.
+  hasDebugInfo :: Method -> Bool
+  hasDebugInfo method = 
+    case methodBody method of
+      Code _ _ _ _ lns lvars _ -> not (Map.null lns && null lvars) 
+      _ -> False
+
   -- | Returns source line number of instruction in method at given PC or
   -- Nothing if no line number is known.
   sourceLineNumber :: Method -> PC -> Maybe Word16
@@ -1080,32 +1102,27 @@ module JavaParser (
           (_, ln, _)             -> ln
       _ -> error "internal: unexpected method body form"
 
-  -- | Returns source variable name and type in method at given PC and local
-  -- variable index or Nothing if no mapping is found.
-  sourceLocalVariableName :: Method -> PC -> LocalVariableIndex -> Maybe (String,Type)
-  sourceLocalVariableName method pc i =
-      case methodBody method of
-        Code _ _ _ _ _ lvars _ ->
-          case find (\e -> localIdx e == i &&
-                           localStart e <= pc &&
-                           pc <= localStart e + localExtent e) lvars of
-            Just e -> Just (localName e, localType e)
-            Nothing -> Nothing
-        _ -> error "internal: unexpected method body form"
-
-  lookupLocalVariableByName :: Method -> String -> Maybe LocalVariableTableEntry
-  lookupLocalVariableByName method name =
+  localVariableEntries :: Method -> PC -> [LocalVariableTableEntry]
+  localVariableEntries method pc =
     case methodBody method of
-      Code _ _ _ _ _ lvars _ -> find (\e -> localName e == name) lvars
-      _ -> error "internal: unexpected method body form"
+      Code _ _ _ _ _ lvars _ ->
+        let matches e = localStart e <= pc &&
+                        pc - localStart e <= localExtent e
+         in filter matches lvars
+      _ -> []
 
-  lookupLocalVariableTypeByName :: Method -> String -> Maybe Type
-  lookupLocalVariableTypeByName method name =
-    localType `fmap` lookupLocalVariableByName method name
+  -- | Returns local variable entry at given PC and local variable index or
+  -- Nothing if no mapping is found.
+  lookupLocalVariableByIdx :: Method -> PC -> LocalVariableIndex
+                           -> Maybe LocalVariableTableEntry
+  lookupLocalVariableByIdx method pc i =
+    find (\e -> localIdx e == i) (localVariableEntries method pc)
 
-  lookupLocalVariableIdxByName :: Method -> String -> Maybe LocalVariableIndex
-  lookupLocalVariableIdxByName method name =
-    localIdx `fmap` lookupLocalVariableByName method name
+  -- | Returns local variable entry at given PC and local variable string or
+  -- Nothing if no mapping is found.
+  lookupLocalVariableByName :: Method -> PC -> String -> Maybe LocalVariableTableEntry
+  lookupLocalVariableByName method pc name =
+    find (\e -> localName e == name) (localVariableEntries method pc)
 
   -- | Exception table entries for method.
   methodExceptionTable :: Method -> [ExceptionTableEntry]

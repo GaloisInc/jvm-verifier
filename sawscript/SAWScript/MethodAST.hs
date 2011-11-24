@@ -72,7 +72,7 @@ data Expr
     -- | Making a record
     | MkRecord Pos [(Pos, String, Expr)]
     | ArgExpr Pos Int
-    | LocalExpr Pos String
+    | LocalExpr Pos Integer
     -- Precedence 13
     -- | Type annotation on an expression.
     | TypeExpr Pos Expr ExprType
@@ -216,9 +216,10 @@ data VerifyCommand
 
 data BehaviorDecl
   = VarDecl Pos [Expr] JavaType
-  -- | Local binding within a method spec.
+    -- | Local binding within a method spec.
   | MethodLet Pos String Expr
-  -- | Assert a given precondition is true when method is called.
+  | MayAlias Pos [Expr]
+    -- | Assert a given precondition is true when method is called.
   | AssertPred Pos Expr
   | AssertImp Pos Expr Expr
   | EnsureImp Pos Expr Expr
@@ -232,8 +233,7 @@ data BehaviorDecl
 -- | Commands in a method spec.
 data MethodSpecDecl
   -- | List of Java expressions that may alias.
-  = MayAlias Pos [Expr]
-  | SpecAt Pos Integer BehaviorDecl
+  = SpecAt Pos Integer BehaviorDecl
   | QuickCheck Pos Integer (Maybe Integer)
   | Verify Pos VerifyCommand
   | Behavior BehaviorDecl

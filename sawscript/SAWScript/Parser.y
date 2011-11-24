@@ -231,7 +231,7 @@ Expr : var                               { Var          (tokPos $1) (tokStr $1) 
      | Expr '||'  Expr                   { OrExpr       (tokPos $2) $1 $3          }
      | 'this'                            { ThisExpr     (tokPos $1)                }
      | 'args' '[' int ']'                { ArgExpr      (tokPos $1) (snd $3)       }
-     | 'locals' '[' var ']'              { LocalExpr    (tokPos $1) (tokStr $3)    }
+     | 'locals' '[' num ']'              { LocalExpr    (tokPos $1) (tokNum $3)    }
      | '(' Expr ')'                      { $2                                      }
      | 'if' Expr 'then' Expr 'else' Expr { IteExpr      (tokPos $1) $2 $4 $6       }
 
@@ -247,27 +247,27 @@ MethodSpecDecls :: { [MethodSpecDecl] }
 MethodSpecDecls : termBy(MethodSpecDecl, ';') { $1 }
 
 MethodSpecDecl :: { MethodSpecDecl }
-MethodSpecDecl : 'mayAlias' '{' Exprs1 '}'             { MayAlias (tokPos $1) $3             }
-               | 'at' num LSpecBlock                   { SpecAt   (tokPos $1) (tokNum $2) $3 }
+MethodSpecDecl : 'at' num LSpecBlock       { SpecAt   (tokPos $1) (tokNum $2) $3 }
                | 'quickcheck' num opt(num) { QuickCheck (tokPos $1) (tokNum $2) (fmap tokNum $3) }
-               | 'verify' VerifyCommand                { Verify   (tokPos $1) $2             }
-               | LSpecDecl                             { Behavior $1                         }
+               | 'verify' VerifyCommand    { Verify   (tokPos $1) $2             }
+               | LSpecDecl                 { Behavior $1                         }
 
 LSpecBlock :: { BehaviorDecl }
 LSpecBlock : '{' termBy(LSpecDecl, ';') '}' { Block $2 }
            | LSpecDecl ';' { $1 }
 
 LSpecDecl :: { BehaviorDecl }
-LSpecDecl : 'var' Exprs1 '::' JavaType   { VarDecl      (tokPos $1) $2 $4 }
+LSpecDecl : 'var' Exprs1 '::' JavaType   { VarDecl      (tokPos $1) $2 $4          }
+          | 'mayAlias' '{' Exprs1 '}'    { MayAlias (tokPos $1) $3                 }
           | 'let' var '=' Expr           { MethodLet    (tokPos $1) (tokStr $2) $4 }
-          | 'assert' Expr                { AssertPred   (tokPos $1) $2    }
-          | 'assert' Expr ':=' Expr      { AssertImp    (tokPos $1) $2 $4 }
-          | 'ensure' Expr ':=' Expr      { EnsureImp    (tokPos $1) $2 $4 }
-          | 'modify' Exprs1              { Modify       (tokPos $1) $2    }
-          | 'return' Expr                { Return       (tokPos $1) $2    }
-          | 'if' '(' Expr ')' LSpecBlock { MethodIf     (tokPos $1) $3 $5 }
+          | 'assert' Expr                { AssertPred   (tokPos $1) $2             }
+          | 'assert' Expr ':=' Expr      { AssertImp    (tokPos $1) $2 $4          }
+          | 'ensure' Expr ':=' Expr      { EnsureImp    (tokPos $1) $2 $4          }
+          | 'modify' Exprs1              { Modify       (tokPos $1) $2             }
+          | 'return' Expr                { Return       (tokPos $1) $2             }
+          | 'if' '(' Expr ')' LSpecBlock { MethodIf     (tokPos $1) $3 $5          }
           | 'if' '(' Expr ')' LSpecBlock
-               'else' LSpecBlock         { MethodIfElse (tokPos $1) $3 $5 $7 }
+               'else' LSpecBlock         { MethodIfElse (tokPos $1) $3 $5 $7       }
 
 JavaType :: { JavaType }
 JavaType : 'boolean'            { BoolType (tokPos $1)      }

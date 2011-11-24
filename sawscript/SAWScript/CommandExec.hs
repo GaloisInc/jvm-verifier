@@ -314,8 +314,8 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
     ruleNames <- Map.keysSet <$> gets rules
     lift $ TC.resolveMethodSpecIR bindings ruleNames pos thisClass mName cmds
   v <- gets runVerification
-  let plan = TC.methodSpecValidationPlan ir
-  let specName = show (TC.methodSpecName ir)
+  let plan = TC.specValidationPlan ir
+  let specName = show (TC.specName ir)
   ts <- getTimeStamp
   let prefixTS msg = "[" ++ ts ++ "] " ++ msg
   let writeAssumeCorrect = 
@@ -402,7 +402,7 @@ execute (AST.Rule pos ruleName params astLhsExpr astRhsExpr) = do
   let mkRuleTerm :: TC.LogicExpr -> Term
       mkRuleTerm (TC.Apply op args) = appTerm op (map mkRuleTerm args)
       mkRuleTerm (TC.Cns cns tp) = mkConst cns tp
-      mkRuleTerm (TC.JavaValue _ _) = error "internal: Java value given to mkRuleTerm"
+      mkRuleTerm (TC.JavaValue _ _ _) = error "internal: Java value given to mkRuleTerm"
       mkRuleTerm (TC.Var name tp) = mkVar name tp
   let rl = Rule ruleName (evalTerm (mkRuleTerm lhsExpr)) (evalTerm (mkRuleTerm rhsExpr))
   modify $ \s -> s { rules = Map.insert ruleName rl (rules s)

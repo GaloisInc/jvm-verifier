@@ -50,9 +50,14 @@ module Simulation
   , PathState(..)
   , getPathState
   , putPathState
+  , pushFrame
   , getPathStateByName
   , getPSS
   , withPathState
+  -- * Path splitting.
+  , ResumeAction(..)
+  , onCurrPath
+  , onNewPath
   -- * Generic reference operations
   , genRef
   , getType
@@ -201,7 +206,10 @@ data PathState term = PathState {
   , arrays          :: !(Map Ref (Int32, term))
   -- | Maps reference array to current value.
   , refArrays       :: !(Map Ref (Array Int32 Ref))
+    -- | Facts that may be assumed to be true in this path.
   , psAssumptions   :: !term
+    -- | Facts that are asserted to be true in this path (in reverse order).
+  , psAssertions    :: ![term]
   , pathStSel       :: !PathDescriptor
   , classObjects    :: !(Map String Ref)
   -- | The program counter where this path state started.
@@ -332,6 +340,7 @@ newSimState flags cb = State
         , arrays          = M.empty
         , refArrays       = M.empty
         , psAssumptions   = mkCBool True
+        , psAssertions    = []
         , pathStSel       = PSS 0
         , classObjects    = M.empty
         , startingPC      = 0
@@ -790,7 +799,8 @@ type PathDescriptor = PSS Int
 
 onCurrPath :: MonadIO sym => ResumeAction sym -> Simulator sym ()
 onCurrPath ra = modifyMF $ \mf ->
-  mf { nextPaths = headf (nextPaths mf) $ \(path, _) -> (path, ra) }
+  CE.assert (not (null (nextPaths mf)))
+    mf { nextPaths = headf (nextPaths mf) $ \(path, _) -> (path, ra) }
 
 -- | Split the current path (by duplicating it from the current path state), and
 -- set the new path to be the next path executed after the current path.
@@ -808,11 +818,12 @@ onNewPath ra = do
                 }
   newPS `seq`
     modify $ \s ->
-      s { nextPSS     = succ <$> newPSS
-        , pathStates  = M.insert newPSS newPS (pathStates s)
-        , mergeFrames = headf (mergeFrames s) $ \mf' ->
-            mf'{ nextPaths = nextPaths mf' ++ [(newPSS, ra)] }
-        }
+      CE.assert (not (null (mergeFrames s))) $
+        s { nextPSS     = succ <$> newPSS
+          , pathStates  = M.insert newPSS newPS (pathStates s)
+          , mergeFrames = headf (mergeFrames s) $ \mf' ->
+              mf'{ nextPaths = nextPaths mf' ++ [(newPSS, ra)] }
+          }
   whenVerbosity (>3) $ do
     dbugM $ "Generated new path state: " ++ show newPSS
     dumpPathStates
@@ -831,14 +842,15 @@ onResumedPath ps ra = do
                      }
       newPS `seq`
         modify $ \s ->
-          s { nextPSS     = succ <$> newPSS
-            , pathStates  = M.insert newPSS newPS (pathStates s)
-            -- Note: there may be an issue here that the mergeFrames
-            -- at the time of resumption is not compatible with what
-            -- it was when encountering the breakpoint.
-            , mergeFrames = headf (mergeFrames s) $ \mf ->
-                mf{ nextPaths = nextPaths mf ++ [(newPSS, ra)] }
-            }
+          CE.assert (not (null (mergeFrames s))) $
+            s { nextPSS     = succ <$> newPSS
+              , pathStates  = M.insert newPSS newPS (pathStates s)
+              -- Note: there may be an issue here that the mergeFrames
+              -- at the time of resumption is not compatible with what
+              -- it was when encountering the breakpoint.
+              , mergeFrames = headf (mergeFrames s) $ \mf ->
+                  mf{ nextPaths = nextPaths mf ++ [(newPSS, ra)] }
+              }
       whenVerbosity (>3) $ do
         dbugM $ "Generated new path state: " ++ show newPSS
         dumpPathStates
@@ -939,10 +951,11 @@ terminateCurrentPath collapseOnAllFinished = do
   when (collapseOnAllFinished && remaining == 0) $ modify $ \s ->
     s{ mergeFrames = case mergeFrames s of
       [_]      -> mergeFrames s
-      (mf:mfs) -> CE.assert (null . nextPaths $ mf) $
-                    headf mfs $ \mf'' ->
-                      mf''{ finishedPaths = finishedPaths mf
-                                            ++ finishedPaths mf''
+      (mf:mfs) -> CE.assert (null (nextPaths mf)) $
+                    CE.assert (not (null mfs)) $
+                      headf mfs $ \mf'' ->
+                        mf''{ finishedPaths = finishedPaths mf
+                                              ++ finishedPaths mf''
                           }
       _ -> error "Empty MergeFrame list in terminateCurrentPath"
      }
@@ -1030,13 +1043,8 @@ updateFrame fn = {-# SCC "uF" #-} do
       ps' `seq` putPathState ps'
     _ -> error "internal: updateFrame: frame list is empty"
 
--- (pushFrame st m vals) pushes frame to the stack for PC 0.
-pushFrame :: MonadIO sym =>
-             String
-          -> Method
-          -> [Value (MonadTerm sym)]
-          -> Simulator sym ()
-pushFrame name method vals = do
+pushFrame :: MonadIO sym => Frame (MonadTerm sym) -> Simulator sym ()
+pushFrame call = do
   -- Allow an unambiguous finished path to be "reactivated" whenever a new frame
   -- is pushed.
 --   dumpFrameInfo
@@ -1046,18 +1054,11 @@ pushFrame name method vals = do
                             , nextPaths     = [(unambig, NextInst)]
                             }
       _ -> mf
-
   -- Push the new Java frame record
-  modifyPathState $ \ps ->
-    ps{ frames = Call name method 0 localMap [] : frames ps }
-
+  modifyPathState $ \ps -> ps{ frames = call : frames ps }
   -- Push the "merge frame" record
   modify $ \s -> s { mergeFrames = pushMF (mergeFrames s) }
   where
-    localMap = M.fromList (snd $ foldl setupLocal (0, []) vals)
-    setupLocal (n, acc) v@LValue{} = (n + 2, (n, v) : acc)
-    setupLocal (n, acc) v@DValue{} = (n + 2, (n, v) : acc)
-    setupLocal (n, acc) v          = (n + 1, (n, v) : acc)
     pushMF (currMF:mfs) =
       -- Migrate the currently executing path out of the active merge frame and
       -- and onto the merge frame for the new call.
@@ -1068,6 +1069,21 @@ pushFrame name method vals = do
           : mfs
         _ -> error "pushFrame: no current path"
     pushMF _ = error "pushFrame: empty MergeFrame stack"
+
+
+-- (pushCallFrame st m vals) pushes frame to the stack for PC 0.
+pushCallFrame :: MonadIO sym =>
+                 String
+              -> Method
+              -> [Value (MonadTerm sym)]
+              -> Simulator sym ()
+pushCallFrame name method vals = pushFrame call
+  where
+    call = Call name method 0 localMap []
+    localMap = M.fromList (snd $ foldl setupLocal (0, []) vals)
+    setupLocal (n, acc) v@LValue{} = (n + 2, (n, v) : acc)
+    setupLocal (n, acc) v@DValue{} = (n + 2, (n, v) : acc)
+    setupLocal (n, acc) v          = (n + 1, (n, v) : acc)
 
 -- | Returns a new reference value with the given type, but does not
 -- initialize and fields or array elements.
@@ -1267,7 +1283,7 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
             setInitializationStatus name Started
             unless (skipInit name) $ do
 
-              pushFrame name method []
+              pushCallFrame name method []
               runFrame
           Nothing -> return ()
         runCustomClassInitialization cl
@@ -1289,8 +1305,8 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
                   ++ show (methodKey method) ++ " in " ++ cName
                   ++ " (this: " ++ show objectref ++ ")"
         else do
-          -- dbugM $ "pushFrame: (instance) method call to " ++ cName ++ "." ++ methodName method
-          pushFrame cName method (RValue objectref : operands)
+          -- dbugM $ "pushCallFrame: (instance) method call to " ++ cName ++ "." ++ methodName method
+          pushCallFrame cName method (RValue objectref : operands)
 
   runInstanceMethodCall cName method objectref operands = do
     pushInstanceMethodCall cName method objectref operands
@@ -1309,8 +1325,8 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
             expectOverride "Symbolic" mk
           when (cName == "com/galois/symbolic/Symbolic$Debug") $
             expectOverride "Symbolic$Debug" mk
-          -- dbugM $ "pushFrame: (static) method call to " ++ cName ++ "." ++ methodName method
-          pushFrame cName method operands
+          -- dbugM $ "pushCallFrame: (static) method call to " ++ cName ++ "." ++ methodName method
+          pushCallFrame cName method operands
     where
       expectOverride cn mk =
         error $ "expected static override for " ++ cn ++ "."
@@ -1735,10 +1751,12 @@ doMerge _clNm _methNm = do
           [path] -> do
             modify $ \s ->
               s { mergeFrames = case mergeFrames s of
-                    (_:mfs) -> headf mfs $ \mf ->
-                                 mf{ finishedPaths = excbps ++ finishedPaths mf
-                                   , nextPaths     = (path, NextInst) : nextPaths mf
-                                   }
+                    (_:mfs) ->
+                      CE.assert (not (null mfs)) $
+                        headf mfs $ \mf ->
+                          mf{ finishedPaths = excbps ++ finishedPaths mf
+                            , nextPaths     = (path, NextInst) : nextPaths mf
+                            }
                     _ -> error "doMerge: malformed merge frame stack"
                 }
 --             -- DBUG
@@ -2101,7 +2119,10 @@ partitionMFOn f = do
 -- | Modify the active merge frame
 modifyMF :: MonadIO sym =>
             (MergeFrame sym -> MergeFrame sym) -> Simulator sym ()
-modifyMF f = modify $ \s -> s{ mergeFrames = headf (mergeFrames s) f }
+modifyMF f =
+  modify $ \s ->
+    CE.assert (not (null (mergeFrames s))) $
+      s{ mergeFrames = headf (mergeFrames s) f }
 
 -- | Create a new merge frame
 mergeFrame :: [(PathDescriptor, ResumeAction sym)] -> MergeFrame sym
