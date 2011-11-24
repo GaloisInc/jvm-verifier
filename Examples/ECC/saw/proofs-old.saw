@@ -26,7 +26,7 @@ let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
 
 // Array operation verification {{{1
 
-set verification off;
+// set verification off;
 
 method com.galois.ecc.P384ECC64.is_zero {
   var args[0] :: int[12];
@@ -246,38 +246,42 @@ method com.galois.ecc.P384ECC64.mod_half {
 method com.galois.ecc.P384ECC64.mod_div {
   var args[0], args[1], args[2], args[3] :: int[12];
   var this.t1, this.t2, this.t3 :: int[12];
-  var locals[swapped] :: boolean;
-  var locals[a], locals[ra], locals[b], locals[rb] :: int[12];
+  var swapped :: boolean;
+  var a, ra, b, rb :: int[12];
 
   ensure valueOf(args[0]) 
-    := valueOf(args[0]);
-       /*
-       split(p384_prime_div(join(valueOf(args[3])),
+    := split(p384_prime_div(join(valueOf(args[3])),
                             join(valueOf(args[1])),
-                            join(valueOf(args[2])))) : [12][32];*/
+                            join(valueOf(args[2])))) : [12][32];
   modify valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 
   at 44 {
+    var a, ra, b, rb :: int[12];
+
     if (swapped == 0:[32]) {
-      //assert swapped := false;
-      assert locals[a] := this.t1;
-      assert locals[ra] := args[0];
-      assert locals[b] := this.t2;
-      assert locals[rb] := this.t3;
-    } else { 
-      //assert swapped := true;
-      assert locals[a] := this.t2;
-      assert locals[ra] := this.t3;
-      assert locals[b] := this.t1;
-      assert locals[rb] := args[0];
-    };
-    ensure valueOf(args[0]) 
-       := valueOf(args[0]);
-          /*
-          split(p384_egcd(join(valueOf(a)),
+      assert swapped := false;
+      assert this.t1 := a;
+      assert this.t2 := b;
+      assert this.t3 := rb;
+
+      ensure valueOf(ra) 
+       := split(p384_egcd(join(valueOf(a)),
                           join(valueOf(ra)),
                           join(valueOf(b)),
-                          join(valueOf(rb)))) : [12][32];*/
+                          join(valueOf(rb)))) : [12][32];
+    } else {
+      assert swapped := true;
+      assert this.t1 := b;
+      assert this.t2 := a;
+      assert this.t3 := ra;
+
+      ensure valueOf(rb) 
+       := split(p384_egcd(join(valueOf(a)),
+                          join(valueOf(ra)),
+                          join(valueOf(b)),
+                          join(valueOf(rb)))) : [12][32];
+    };
+
     modify valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   };
 
@@ -493,8 +497,11 @@ method com.galois.ecc.P384ECC64.ec_full_add {
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   let res =
     ec_full_add(
-      { x = join(valueOf(args[0].x)) ; y = join(valueOf(args[0].y)) ; z = join(valueOf(args[0].z)) },
-      { x = join(valueOf(args[1].x)) ; y = join(valueOf(args[1].y)) }
+      { x = join(valueOf(args[0].x)) ;
+        y = join(valueOf(args[0].y)) ;
+        z = join(valueOf(args[0].z)) },
+      { x = join(valueOf(args[1].x)) ;
+        y = join(valueOf(args[1].y)) }
       );
   ensure valueOf(args[0].x) := split(res.x) : [12][32];
   ensure valueOf(args[0].y) := split(res.y) : [12][32];
