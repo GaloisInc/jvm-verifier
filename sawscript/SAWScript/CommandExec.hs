@@ -261,7 +261,7 @@ execute (AST.ExternSBV pos nm absolutePath astFnType) = do
   let uninterpFns :: String -> [DagType] -> Maybe Op
       uninterpFns name _ = (groundOp . snd) <$> Map.lookup name curSbvOps
   -- Parse SBV file.
-  debugWrite $ "Parsing SBV inport for " ++ nm
+  debugWrite $ "Parsing SBV import for " ++ nm
   (op, SBV.WEF opFn) <-
     flip catchMIO (throwSBVParseError pos relativePath) $ lift $
       SBV.parseSBVOp oc uninterpFns nm sbv

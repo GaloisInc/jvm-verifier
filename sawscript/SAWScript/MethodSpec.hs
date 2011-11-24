@@ -28,7 +28,7 @@ import Control.Monad.Identity
 import Control.Monad.State
 import Data.Either (lefts, rights)
 import Data.IORef
-import Data.List (foldl', intersperse)
+import Data.List (foldl', intercalate, sort,intersperse,sortBy,find)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -79,7 +79,7 @@ mkIntInput de w = do
 -- | Create a lit result with input bits for the given ground dag type.
 mkInputLitResultWithType :: (?be :: BitEngine l, SV.Storable l)
                          => DagType -> IO (LitResult l)
-mkInputLitResultWithType (SymInt (widthConstant -> Just (Wx w))) = 
+mkInputLitResultWithType (SymInt (widthConstant -> Just (Wx w))) =
   LV <$> SV.replicateM w lMkInput
 mkInputLitResultWithType (SymArray (widthConstant -> Just (Wx l)) eltTp) =
   LVN <$> V.replicateM l (mkInputLitResultWithType eltTp)
@@ -221,7 +221,7 @@ evalLogicExpr initExpr ec = eval initExpr
 {-
 -- | Value of a mixed expression.
 data MixedValue n
-   = MVNode n 
+   = MVNode n
    | MVRef JSS.Ref
 
 evalMixedExpr :: EvalContext n l -> TC.MixedExpr -> ExprEvaluator (MixedValue n)
@@ -1157,9 +1157,9 @@ specVCs
                                   , cl <- bsRefEquivClasses bs]
   -- Return executions
   flip map executionParams $ \(bs, refClasses) -> do
+    de <- getDagEngine
     setVerbosity vrb
     JSS.runSimulator cb $ do
-      de <- JSS.liftSymbolic $ getDagEngine
       -- Log execution.
       setVerbosity vrb
       -- Create map from exprsssions to references.
@@ -1173,8 +1173,7 @@ specVCs
       esd <- initializeVerification ir bs exprRefMap
       -- Execute code.
       when (vrb >= 3) $ do
-        liftIO $ putStrLn $ "Executing " ++ specName ir ++ 
-           " at PC " ++ show (bsPC bs) ++ "."
+        liftIO $ putStrLn $ "Executing " ++ specName ir ++ " at PC " ++ show (bsPC bs) ++ "."
       jssResults <- JSS.run
       finalPathResults <-
         forM jssResults $ \(pd, fr) -> do
@@ -1354,8 +1353,19 @@ validateMethodSpec
       setVerbosity v
       de <- getDagEngine
       vcs <- mVC
-      let goal vc check = deApplyBinary de bImpliesOp (erAssumptions vc) (checkGoal de check)
-      case specVerifyCommands ir of
+
+      when (v >= 2) $ do
+        termCnt <- length <$> liftIO (deGetTerms de)
+        let txt = if length vcList > 1
+                    then "(one alias configuration of) "
+                    else ""
+        dbugM ""
+        dbugM $ "Completed simulation of " ++ txt ++ methodSpecName ir ++ "."
+        when (v >= 3) $ do
+          dbugM $ "Term DAG has " ++ show termCnt ++ " application nodes."
+
+      let goal vc check = deApplyBinary de bImpliesOp (vcAssumptions vc) (checkGoal de check)
+      case methodSpecVerificationTactics ir of
         [AST.Rewrite] -> liftIO $ do
           rew <- mkRewriter pgm (deTermSemantics de)
           forM_ vcs $ \vc -> do
@@ -1440,13 +1450,23 @@ testRandom de v ir test_num lim vc =
     eval <- deConcreteEval (V.fromList vs)
     if not (toBool $ eval $ erAssumptions vc)
       then return passed
-      else do forM_ (erChecks vc) $ \goal ->
+      else do when (v >= 4) $
+                dbugM $ "Begin concrete DAG eval on random test case for all goals ("
+                        ++ show (length $ vcChecks vc) ++ ")."
+              forM_ (vcChecks vc) $ \goal ->
                 do let goal_ok = toBool (eval (checkGoal de goal))
+                   when (v >= 4) $ dbugM "End concrete DAG eval for one VC check."
                    unless goal_ok $ do
-                     throwIOExecException (specPos ir)
-                                          (msg eval vs goal) ""
+                     (vs1,goal1) <- QuickCheck.minimizeCounterExample
+                                            isCounterExample vs goal
+                     throwIOExecException (methodSpecPos ir)
+                                          (msg eval vs1 goal1) ""
               return $! passed + 1
 
+  isCounterExample vs =
+    do eval <- deConcreteEval (V.fromList vs)
+       return $ do guard $ toBool $ eval $ vcAssumptions vc
+                   find (not . toBool . eval . checkGoal de) (vcChecks vc)
 
   msg eval vs g =
       text "Random testing found a counter example:"
@@ -1465,7 +1485,17 @@ testRandom de v ir test_num lim vc =
   ppInput inp value =
     case viExprs inp of
       [t] -> text (show t) <+> text "=" <+> ppCValueD Mixfix value
-      ts -> vcat [ text (show t) <+> text "=" | t <- ts ] <+> ppCValueD Mixfix value
+      []  -> text "No arguments."
+      tsUnsorted ->
+        let tsSorted = sortBy cmp tsUnsorted
+            t0       = last tsSorted
+            ts       = init tsSorted
+
+            cmp (Arg a _) (Arg b _) = compare a b
+            cmp _ _                 = EQ
+
+        in vcat [ text (show t) <+> text "=" <+> text (show t0) | t <- ts ]
+           $$ text (show t0) <+> text "=" <+> ppCValueD Mixfix value
 
   toBool (CBool b) = b
   toBool value = error $ unlines [ "Internal error in 'testRandom':"

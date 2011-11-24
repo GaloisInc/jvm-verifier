@@ -1,4 +1,4 @@
-module SAWScript.QuickCheck (pickRandom) where
+module SAWScript.QuickCheck (pickRandom,minimizeCounterExample) where
 
 import System.Random(randomIO, randomRIO)
 import Verinf.Symbolic
@@ -65,5 +65,29 @@ pickRandom ty = pickRandomSize ty =<< ((`pick` distr) `fmap` randomRIO (0,99))
           , (30, Large)
           , (5,  Largest)
           ]
+
+
+-- TODO: Given a function that will tell us if a collection of inputs
+-- violates some goal (i.e., return "Just violated_goal"), try to find
+-- a set of smaller values that do the job.  This should help present
+-- nicer examples.
+minimizeCounterExample :: Monad m => ([CValue] -> m (Maybe goal))
+                       -> [CValue] -> goal -> m ([CValue], goal)
+minimizeCounterExample stillBad vs g = return (vs,g)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

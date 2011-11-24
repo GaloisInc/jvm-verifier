@@ -7,6 +7,11 @@ extern SBV field_mod("sbv-old/ref_p384_mod.sbv") : [768] -> [384];
 extern SBV field_sq("sbv-old/ref_p384_sq.sbv") : [384] -> [384];
 extern SBV ec_double("sbv-old/p384_ref_double.sbv") :
   { x: [384]; y: [384]; z: [384] } -> { x:[384]; y:[384]; z:[384] };
+/*
+extern SBV field_div_step("sbv/ref_p384_div_step.sbv") :
+  ([12][32], [12][32], [12][32], [12][32], [12][32], [32]) ->
+  { a:[12][32]; ra:[12][32]; b:[12][32]; rb:[12][32]; sw:[32] };
+*/
 extern SBV field_half("sbv-old/ref_p384_half.sbv") : [384] -> [384];
 extern SBV field_neg("sbv-old/ref_p384_neg.sbv") : [384] -> [384];
 extern SBV ec_full_add("sbv-old/p384_ref_full_add.sbv") :
