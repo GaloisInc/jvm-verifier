@@ -22,8 +22,6 @@ import qualified Data.Map as M
 import qualified Data.List as L
 import Text.PrettyPrint
 
-
-
 data TransParams = TransParams
   { transName     :: String
   , transInputs   :: [DagType]
@@ -46,7 +44,7 @@ data MetaData = MetaData
 
 translate :: TransParams -> IO (Script, MetaData)
 translate ps =
-  toScript (transName ps) (transExtArr ps) $
+  toScript ps (transName ps) (transExtArr ps) $
   do (xs,ts) <- unzip `fmap` mapM mkInp (transInputs ps)
      let js = V.fromList ts
      eval <- io $ deEval (\i _ _ -> js V.! i) (translateOps (transEnabled ps))
@@ -85,8 +83,8 @@ translate ps =
 
 type X = String
 
-toScript :: String -> Bool -> M (Formula, a) -> IO (Script, a)
-toScript n extArr (M m) =
+toScript :: TransParams -> String -> Bool -> M (Formula, a) -> IO (Script, a)
+toScript ps n extArr (M m) =
   do res <- runExceptionT $ runStateT s0 $ runReaderT r0 m
      case res of
        Left xx -> fail xx -- XXX: Throw a custom exception.
@@ -128,6 +126,7 @@ toScript n extArr (M m) =
                  , notes        = text "Detail about variables:"
                  , arrayUpdates = M.empty
                  , recTys       = M.empty
+                 , transParams  = ps
                  }
           r0 = R { useExtArr = extArr }
 
@@ -152,12 +151,6 @@ toVar :: BV.Term -> M Ident
 toVar (App x [])  = return x
 toVar _           = bug "translate.toVar" "Argument is not a variable"
 
-ident :: String -> Ident
-ident = (`I` []) . N
-
-fst3 :: (a,b,c) -> a
-fst3 (x, _, _) = x
-
 --------------------------------------------------------------------------------
 -- The Monad
 
@@ -178,51 +171,8 @@ data S = S { names        :: !Int
            , arrayUpdates :: M.Map Ident [Ident]
            , recTys       :: M.Map String SmtType
            , notes        :: Doc
+           , transParams  :: TransParams
            }
-
-getRecTyByName :: String -> M (Maybe SmtType)
-getRecTyByName nm = M $ (M.lookup nm . recTys) `fmap` get
-
--- | Add a new named record type; assumes the given type has not been
--- added already.
-newRecTy :: String -> SmtType -> M (SmtType)
-newRecTy nm ty@(TRecord flds) = getRecTyByName nm >>= \mty -> do
-  case mty of
-    Just _  -> error $ "newRecTy: record type already exists: " ++ nm
-    Nothing -> M $ sets $ \s ->
-      ( ty
-      , s{ recTys      = M.insert nm ty (recTys s)
-         , globalSorts = toSort ty : globalSorts s
-         , globalDefs  = ctor : sels ++ globalDefs s
-         , globalAsmps = assumptions ++ globalAsmps s
-         }
-      )
-  where
-    ctor                 = (ident (genRecTyCtorName flds), map snd flds, ty)
-    sels                 = map mkSel flds
-    assumptions          = ctorProp : map selProp (map fst3 sels `zip` flds)
-    ctorProp             = let r       = N "r"
-                               formula = eq [ App (fst3 ctor) $ (`map` sels) $
-                                                  (`App` [Var r]) . fst3
-                                            , Var r
-                                            ]
-                           in
-                             Quant Forall [ Bind r (toSort ty) ] formula
-    selProp (sel, fld)   = let formula = eq [ App sel
-                                                  [ App (fst3 ctor)
-                                                        (map var flds)
-                                                  ]
-                                            , var fld
-                                            ]
-                               binders = (`map` flds) $ \(fldNm, fldTy) ->
-                                           Bind (N fldNm) (toSort fldTy)
-                           in
-                             Quant Forall binders formula
-    eq                   = FPred (ident "=")
-    var                  = Var . N . fst
-    mkSel (fldNm, fldTy) = (ident (genRecTySelName flds fldNm), [ty], fldTy)
-
-newRecTy _ _ = error "newRecTy: Expected record type"
 
 useExtArrays :: M Bool
 useExtArrays = M (useExtArr `fmap` ask)
@@ -365,7 +315,17 @@ wToI x = case widthConstant x of
 data SmtType = TBool
              | TArray Integer Integer
              | TBitVec Integer
-             | TRecord [(String, SmtType)]
+             | TRecord [FldInfo]
+               deriving (Eq,Ord,Show)
+
+type Offset = Integer
+type Width  = Integer
+
+data FldInfo = FldInfo { fiName  :: String
+                       , fiOff   :: Offset
+                       , fiWidth :: Width
+                       , _fiType :: SmtType
+                       }
                deriving (Eq,Ord,Show)
 
 cvtType :: DagType -> M SmtType
@@ -387,27 +347,34 @@ cvtType ty =
            _         -> err "Complex nested array"
 
     SymRec srd ts ->
+      -- NB: To see an alternate implementation strategy for record support, see
+      -- commit hash ddebf9a8fffbeb5f8cffcead901350197eea03a8.  It defines
+      -- explicit record constructor/selector functions and sorts, but we
+      -- abandoned that strategy when we realized that the necessary
+      -- quantification over records/record components in defining some of these
+      -- functions was problematic w.r.t. our use of QF_AUFBV :(.  At some point
+      -- in the future, we may wish to resurrect the initial approach.
+
       do ftys <- mapM cvtType $ V.toList (recFieldTypes srd ts)
          let fields = V.toList (recDefFieldNames srd) `zip` ftys
-             nm     = genRecTyName fields
-         maybe (newRecTy nm $ TRecord fields) return =<< getRecTyByName nm
+         return . TRecord . reverse . fst . foldl mkFldInfo ([], 0) $ fields
 
     SymShapeVar _ -> err "Type variable"
 
-genRecTyName :: [(String, SmtType)] -> String
-genRecTyName fields = "R_" ++ L.intercalate "_" (map impl fields)
+mkFldInfo :: ([FldInfo], Offset) -> (String, SmtType) -> ([FldInfo], Offset)
+mkFldInfo (acc, accOff) (fldNm, fldTy) = (fi : acc, accOff + fiWidth fi)
   where
-    impl (fldNm, fldTy) = fldNm ++ "_" ++ tynm fldTy
-    tynm TBool          = "1"
-    tynm (TBitVec n)    = show n
-    tynm (TArray n m)   = "a" ++ show n ++ "x" ++ show m
-    tynm (TRecord flds) = "r" ++ L.intercalate "_" (map (tynm . snd) flds)
+    w        = width fldTy
+    fi       = FldInfo fldNm accOff w fldTy
+    width ty = case ty of
+                 TBool      -> 1
+                 TArray x y -> x * y
+                 TBitVec x  -> x
+                 TRecord{}  -> width (flattenRecTy ty)
 
-genRecTyCtorName :: [(String, SmtType)] -> String
-genRecTyCtorName = (++) "mk_" . genRecTyName
-
-genRecTySelName :: [(String, SmtType)] -> String -> String
-genRecTySelName flds sel = "get_" ++ sel ++ "_" ++ genRecTyName flds
+flattenRecTy :: SmtType -> SmtType
+flattenRecTy (TRecord fis) = TBitVec $ sum (map fiWidth fis)
+flattenRecTy ty            = ty
 
 toSort :: SmtType -> Sort
 toSort ty =
@@ -415,15 +382,13 @@ toSort ty =
     TBool        -> tBitVec 1
     TArray x y   -> tArray (needBits x) y
     TBitVec n    -> tBitVec n
-    TRecord flds -> I (N $ genRecTyName flds) []
-
+    x@TRecord{}  -> toSort $ flattenRecTy x
 
 -- How many bits do we need to represent the given number.
 needBits :: Integer -> Integer
 needBits n | n <= 0     = 0
 needBits n | odd n      = 1 + needBits (div n 2)
            | otherwise  = needBits (n + 1)
-
 
 
 
@@ -581,31 +546,38 @@ translateOps enabled = termSem
       _ ->
         do as  <- mapM cvtType (V.toList (opArgTypes op))
            rty <- cvtType (opResultType op)
-           let name = opDefName (opDef op)
 
-           -- Check to see if we already generated a function for this op.
-           known <- getExtraOps
-           f <- case IM.lookup x known of
-                  Just (f,_) -> return f
-                  Nothing ->
-                    -- Generate a function for this op, or use record
-                    -- constructor/selector functions as appropriate.
-                    do let isRecordCtor flds = -- Name-based matching for now
-                             name == "{ "
-                                     ++ L.intercalate ", " (map fst flds)
-                                     ++ " }"
-                       f <- case (rty, as) of
-                         (TRecord flds, _) | isRecordCtor flds ->
-                           return $ ident $ genRecTyCtorName flds
-                         (_, [TRecord flds]) | name `elem` map fst flds ->
-                           return $ ident $ genRecTySelName flds name
-                         _ -> newFun as rty
+           let name       = opDefName (opDef op)
+               rslt t     = fromTerm rty `fmap` padArray rty t
+               args'      = map asTerm (V.toList args)
+               isCtor nms = name == "{ " ++ L.intercalate ", " nms ++ " }"
+               isSel fis  = length args' == 1 && name `elem` map fiName fis
 
-                       M $ sets $ \s ->
-                         (f, s{ extraAbs = IM.insert x (f,name) (extraAbs s) })
+           case (rty, as) of
+             -- Record constructor
+             (TRecord fis, _) | isCtor (map fiName fis) ->
+               rslt (foldr1 BV.concat args')
 
-           fromTerm rty `fmap` padArray rty (App f (map asTerm (V.toList args)))
+             -- Record selector
+             (_, [TRecord fis]) | isSel fis ->
+                 case L.find (\FldInfo{ fiName = n } -> n == name) fis of
+                   Nothing -> bug "dynOp" "Failed to find FldInfo as expected"
+                   Just fi -> case args' of
+                     [t] -> rslt $ BV.extract (fiOff fi + fiWidth fi - 1)
+                                     (fiOff fi) t
+                     _   -> bug "dynOp" "Expected single op arg"
 
+             -- Uninterpreted ops
+             _ ->
+               do known <- getExtraOps
+                  f     <- case IM.lookup x known of
+                    Just (f,_) -> return f -- Already generated?
+                    Nothing    -> -- Generate a function for this op
+                      do f <- newFun as rty
+                         M $ sets $ \s ->
+                           (f, s{ extraAbs = IM.insert x (f,name)
+                                               (extraAbs s) })
+                  rslt $ App f (map asTerm (V.toList args))
 
 --------------------------------------------------------------------------------
 -- Operations
