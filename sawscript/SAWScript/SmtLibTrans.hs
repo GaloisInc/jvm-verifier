@@ -1,6 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PatternGuards #-}
-module SAWScript.SmtLib (translate, TransParams(..), MetaData(..)) where
+module SAWScript.SmtLibTrans (translate, TransParams(..), MetaData(..)) where
 
 import GHC.Exts(IsString(fromString))
 import SMTLib1.QF_AUFBV as BV
@@ -11,6 +11,7 @@ import Verinf.Symbolic.Common
   , DagType(..)
   , opArgTypes, opResultType, numBits
   , OpSem(..), OpIndex
+  , recDefFieldNames, recFieldTypes
   )
 import Verinf.Symbolic(Node,deEval,getSValW)
 import qualified Verinf.Symbolic.Common as Op (OpIndex(..))
@@ -18,9 +19,8 @@ import qualified Data.Vector as V
 import qualified Data.Set as S
 import qualified Data.IntMap as IM
 import qualified Data.Map as M
+import qualified Data.List as L
 import Text.PrettyPrint
-
-
 
 data TransParams = TransParams
   { transName     :: String
@@ -44,7 +44,7 @@ data MetaData = MetaData
 
 translate :: TransParams -> IO (Script, MetaData)
 translate ps =
-  toScript (transName ps) (transExtArr ps) $
+  toScript ps (transName ps) (transExtArr ps) $
   do (xs,ts) <- unzip `fmap` mapM mkInp (transInputs ps)
      let js = V.fromList ts
      eval <- io $ deEval (\i _ _ -> js V.! i) (translateOps (transEnabled ps))
@@ -83,10 +83,8 @@ translate ps =
 
 type X = String
 
-
-
-toScript :: String -> Bool -> M (Formula, a) -> IO (Script, a)
-toScript n extArr (M m) =
+toScript :: TransParams -> String -> Bool -> M (Formula, a) -> IO (Script, a)
+toScript ps n extArr (M m) =
   do res <- runExceptionT $ runStateT s0 $ runReaderT r0 m
      case res of
        Left xx -> fail xx -- XXX: Throw a custom exception.
@@ -95,6 +93,7 @@ toScript n extArr (M m) =
          , scrCommands =
            [ CmdLogic (fromString "QF_AUFBV")
            , CmdNotes $ show $ notes s
+           , CmdExtraSorts (globalSorts s)
            , CmdExtraFuns
                [ FunDecl { funName = i
                          , funArgs = map toSort as
@@ -117,14 +116,17 @@ toScript n extArr (M m) =
          , other
          )
 
-    where s0 = S { names    = 0
-                 , globalDefs = []
-                 , globalPreds = []
-                 , globalAsmps = []
-                 , extraAbs = IM.empty
-                 , extraDef = IM.empty
-                 , notes    = text "Detail about variables:"
+    where s0 = S { names        = 0
+                 , globalSorts  = []
+                 , globalDefs   = []
+                 , globalPreds  = []
+                 , globalAsmps  = []
+                 , extraAbs     = IM.empty
+                 , extraDef     = IM.empty
+                 , notes        = text "Detail about variables:"
                  , arrayUpdates = M.empty
+                 , recTys       = M.empty
+                 , transParams  = ps
                  }
           r0 = R { useExtArr = extArr }
 
@@ -149,7 +151,6 @@ toVar :: BV.Term -> M Ident
 toVar (App x [])  = return x
 toVar _           = bug "translate.toVar" "Argument is not a variable"
 
-
 --------------------------------------------------------------------------------
 -- The Monad
 
@@ -159,15 +160,18 @@ newtype M a = M (ReaderT R (StateT S (ExceptionT X IO)) a)
 data R = R { useExtArr :: Bool }
 
 data S = S { names        :: !Int
+           , globalSorts  :: [Sort]
            , globalDefs   :: [(Ident,[SmtType],SmtType)]
            , globalPreds  :: [(Ident,[SmtType])]
            , globalAsmps  :: [Formula]
-           , extraAbs     :: IM.IntMap (Ident, String)  -- ^ uninterpreted ops.
+           , extraAbs     :: IM.IntMap (Ident, String)  -- ^ uninterpreted ops
            , extraDef     :: IM.IntMap
                               (String, M.Map (V.Vector FTerm) FTerm)
-            -- ^ defined ops
+                                                        -- ^ defined ops
            , arrayUpdates :: M.Map Ident [Ident]
+           , recTys       :: M.Map String SmtType
            , notes        :: Doc
+           , transParams  :: TransParams
            }
 
 useExtArrays :: M Bool
@@ -178,7 +182,6 @@ addNote d = M $ sets_ $ \s -> s { notes = notes s $$ d }
 
 addAssumpt :: Formula -> M ()
 addAssumpt f = M $ sets_ $ \s -> s { globalAsmps = f : globalAsmps s }
-
 
 addArrayUpdate :: Ident -> Ident -> M ()
 addArrayUpdate old new =
@@ -203,8 +206,6 @@ addDefinedOp x name ts t = M $ sets_ $
   where upd val = Just (case val of
                           Nothing -> (name,M.singleton ts t)
                           Just (n,mp) -> (n,M.insert ts t mp))
-
-
 
 padArray :: SmtType -> BV.Term -> M BV.Term
 padArray ty@(TArray n w) t =
@@ -311,7 +312,20 @@ wToI x = case widthConstant x of
 
 -- | The array type contains the number of elements, not the
 -- the number of bits, as in SMTLIB!
-data SmtType = TBool | TArray Integer Integer | TBitVec Integer
+data SmtType = TBool
+             | TArray Integer Integer
+             | TBitVec Integer
+             | TRecord [FldInfo]
+               deriving (Eq,Ord,Show)
+
+type Offset = Integer
+type Width  = Integer
+
+data FldInfo = FldInfo { fiName  :: String
+                       , fiOff   :: Offset
+                       , fiWidth :: Width
+                       , _fiType :: SmtType
+                       }
                deriving (Eq,Ord,Show)
 
 cvtType :: DagType -> M SmtType
@@ -332,23 +346,49 @@ cvtType ty =
            -- Example:  Array[2+4:8]    is [4][16][8]
            _         -> err "Complex nested array"
 
-    SymRec _ _    -> err "Record"
+    SymRec srd ts ->
+      -- NB: To see an alternate implementation strategy for record support, see
+      -- commit hash ddebf9a8fffbeb5f8cffcead901350197eea03a8.  It defines
+      -- explicit record constructor/selector functions and sorts, but we
+      -- abandoned that strategy when we realized that the necessary
+      -- quantification over records/record components in defining some of these
+      -- functions was problematic w.r.t. our use of QF_AUFBV :(.  At some point
+      -- in the future, we may wish to resurrect the initial approach.
+
+      do ftys <- mapM cvtType $ V.toList (recFieldTypes srd ts)
+         let fields = V.toList (recDefFieldNames srd) `zip` ftys
+         return . TRecord . reverse . fst . foldl mkFldInfo ([], 0) $ fields
 
     SymShapeVar _ -> err "Type variable"
+
+mkFldInfo :: ([FldInfo], Offset) -> (String, SmtType) -> ([FldInfo], Offset)
+mkFldInfo (acc, accOff) (fldNm, fldTy) = (fi : acc, accOff + fiWidth fi)
+  where
+    w        = width fldTy
+    fi       = FldInfo fldNm accOff w fldTy
+    width ty = case ty of
+                 TBool      -> 1
+                 TArray x y -> x * y
+                 TBitVec x  -> x
+                 TRecord{}  -> width (flattenRecTy ty)
+
+flattenRecTy :: SmtType -> SmtType
+flattenRecTy (TRecord fis) = TBitVec $ sum (map fiWidth fis)
+flattenRecTy ty            = ty
 
 toSort :: SmtType -> Sort
 toSort ty =
   case ty of
-    TBool       -> tBitVec 1
-    TArray x y  -> tArray (needBits x) y
-    TBitVec n   -> tBitVec n
+    TBool        -> tBitVec 1
+    TArray x y   -> tArray (needBits x) y
+    TBitVec n    -> tBitVec n
+    x@TRecord{}  -> toSort $ flattenRecTy x
 
 -- How many bits do we need to represent the given number.
 needBits :: Integer -> Integer
 needBits n | n <= 0     = 0
 needBits n | odd n      = 1 + needBits (div n 2)
            | otherwise  = needBits (n + 1)
-
 
 
 
@@ -504,27 +544,43 @@ translateOps enabled = termSem
                   return t
 
       _ ->
-        do as <- mapM cvtType (V.toList (opArgTypes op))
-           b  <- cvtType (opResultType op)
-           let name = opDefName (opDef op)
+        do as  <- mapM cvtType (V.toList (opArgTypes op))
+           rty <- cvtType (opResultType op)
 
-           -- Check to see if we already generated a funciton for this op.
-           known <- getExtraOps
-           f <- case IM.lookup x known of
-                  Nothing ->
-                    do f <- newFun as b
-                       M $ sets_ $ \s -> s { extraAbs = IM.insert x (f,name)
-                                                           (extraAbs s) }
-                       return f
-                  Just (f,_) -> return f
+           let name       = opDefName (opDef op)
+               rslt t     = fromTerm rty `fmap` padArray rty t
+               args'      = map asTerm (V.toList args)
+               isCtor nms = name == "{ " ++ L.intercalate ", " nms ++ " }"
+               isSel fis  = length args' == 1 && name `elem` map fiName fis
 
-           fromTerm b `fmap` padArray b (App f (map asTerm (V.toList args)))
+           case (rty, as) of
+             -- Record constructor
+             (TRecord fis, _) | isCtor (map fiName fis) ->
+               rslt (foldr1 BV.concat args')
 
+             -- Record selector
+             (_, [TRecord fis]) | isSel fis ->
+                 case L.find (\FldInfo{ fiName = n } -> n == name) fis of
+                   Nothing -> bug "dynOp" "Failed to find FldInfo as expected"
+                   Just fi -> case args' of
+                     [t] -> rslt $ BV.extract (fiOff fi + fiWidth fi - 1)
+                                     (fiOff fi) t
+                     _   -> bug "dynOp" "Expected single op arg"
+
+             -- Uninterpreted ops
+             _ ->
+               do known <- getExtraOps
+                  f     <- case IM.lookup x known of
+                    Just (f,_) -> return f -- Already generated?
+                    Nothing    -> -- Generate a function for this op
+                      do f <- newFun as rty
+                         M $ sets $ \s ->
+                           (f, s{ extraAbs = IM.insert x (f,name)
+                                               (extraAbs s) })
+                  rslt $ App f (map asTerm (V.toList args))
 
 --------------------------------------------------------------------------------
 -- Operations
-
-
 
 mkConst :: CValue -> SmtType -> M FTerm
 mkConst val t =

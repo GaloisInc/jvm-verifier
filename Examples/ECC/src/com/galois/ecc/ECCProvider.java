@@ -191,6 +191,12 @@ public abstract class ECCProvider {
     for (int i = 0; i != x.length; ++i) x[i] = 0;
   }
 
+  static void jpf_delete_me(JacobianPoint r, JacobianPoint s) {
+    assign(r.x, s.x);
+    assign(r.y, s.y);
+    assign(r.z, s.z);
+  }
+
   /**
    * Sets all entries in x to zero.
    */
