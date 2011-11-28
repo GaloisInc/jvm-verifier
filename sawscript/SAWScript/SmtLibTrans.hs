@@ -155,6 +155,9 @@ toVar _           = bug "translate.toVar" "Argument is not a variable"
 ident :: String -> Ident
 ident = (`I` []) . N
 
+fst3 :: (a,b,c) -> a
+fst3 (x, _, _) = x
+
 --------------------------------------------------------------------------------
 -- The Monad
 
@@ -190,23 +193,34 @@ newRecTy nm ty@(TRecord flds) = getRecTyByName nm >>= \mty -> do
       ( ty
       , s{ recTys      = M.insert nm ty (recTys s)
          , globalSorts = toSort ty : globalSorts s
-         , globalDefs  = ctor : (sels ++ globalDefs s)
+         , globalDefs  = ctor : sels ++ globalDefs s
          , globalAsmps = assumptions ++ globalAsmps s
          }
       )
   where
     ctor                 = (ident (genRecTyCtorName flds), map snd flds, ty)
     sels                 = map mkSel flds
-    assumptions          = ctorProp
-                           : map (\(sel, fld) -> eq [ lhs sel, var fld ])
-                                 (map f3 sels `zip` flds)
-    ctorProp             = let r = Var (N "r") in
-                           eq [ App (f3 ctor) (map ((`App` [r]) . f3) sels), r ]
+    assumptions          = ctorProp : map selProp (map fst3 sels `zip` flds)
+    ctorProp             = let r       = N "r"
+                               formula = eq [ App (fst3 ctor) $ (`map` sels) $
+                                                  (`App` [Var r]) . fst3
+                                            , Var r
+                                            ]
+                           in
+                             Quant Forall [ Bind r (toSort ty) ] formula
+    selProp (sel, fld)   = let formula = eq [ App sel
+                                                  [ App (fst3 ctor)
+                                                        (map var flds)
+                                                  ]
+                                            , var fld
+                                            ]
+                               binders = (`map` flds) $ \(fldNm, fldTy) ->
+                                           Bind (N fldNm) (toSort fldTy)
+                           in
+                             Quant Forall binders formula
     eq                   = FPred (ident "=")
-    lhs sel              = App sel [ App (f3 ctor) (map var flds) ]
     var                  = Var . N . fst
     mkSel (fldNm, fldTy) = (ident (genRecTySelName flds fldNm), [ty], fldTy)
-    f3 (x, _, _)         = x
 
 newRecTy _ _ = error "newRecTy: Expected record type"
 
