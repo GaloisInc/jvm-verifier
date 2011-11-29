@@ -44,16 +44,16 @@ import Verinf.Utils.CatchMIO
 -- TermSemantics functions {{{1
 
 tsIte :: Monad m => DagType -> TermSemantics m t -> t -> t -> t -> m t
-tsIte tp = impl
-  where op = iteOp tp
-        impl ts c t f = do
-          tc <- tsBoolConstant ts True
-          fc <- tsBoolConstant ts False
-          case () of
-            _ | tsEqTerm ts c tc -> return t
-              | tsEqTerm ts c fc -> return f
-              | tsEqTerm ts t f -> return t
-              | otherwise -> tsApplyTernary ts op c t f
+tsIte tp ts c t f = do
+  tc <- tsBoolConstant ts True
+  fc <- tsBoolConstant ts False
+  case () of
+    _ | tsEqTerm ts c tc -> return t
+      | tsEqTerm ts c fc -> return f
+      | tsEqTerm ts t f -> return t
+      | otherwise -> tsApplyTernary ts (iteOp tp) c t f
+
+
 
 -- General purpose utility functions {{{1
 
@@ -173,7 +173,7 @@ inferSBVFunctionType oc (SBVPgm (_,ir,_,_,_,_)) = inferFunctionType oc ir
 
 -- Code for splitting and joining SBVtypes {{{1
 
-toBool :: DagType -> (forall m t . Monad m => TermSemantics m t -> t -> m t)
+toBool :: Monad m => DagType -> TermSemantics m t -> t -> m t
 toBool SymBool = \_ -> return
 toBool tp@(SymInt (widthConstant -> Just 1)) = \ts x -> 
   tsApplyBinary ts (eqOp tp) x =<< tsIntConstant ts 1 1
@@ -184,7 +184,7 @@ toIntType SymBool = SymInt (constantWidth 1)
 toIntType tp@SymInt{} = tp
 toIntType _ = throw $ SBVBadFormat "Illegal type for integer input"
 
-toInt :: DagType -> (forall m t . Monad m => TermSemantics m t -> t -> m t)
+toInt :: Monad m => DagType -> TermSemantics m t -> t -> m t
 toInt SymBool = \ts x ->  do
     t1 <- tsIntConstant ts 1 1
     t0 <- tsIntConstant ts 1 0
