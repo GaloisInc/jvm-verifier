@@ -144,6 +144,7 @@ executable sawScript
     , deepseq >= 1.1.0.2
     , directory
     , executable-path
+    , fgl
     , filepath
     , fingertree
     , jvm-verifier
