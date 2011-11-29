@@ -159,7 +159,7 @@ insertEquation x y cc =
 insertEquivalenceClass :: (OrdFoldable f, Traversable f)
                        => [Term f] -> CCSet f -> CCSet f
 insertEquivalenceClass [] s = s
-insertEquivalenceClass [_] s = s
+insertEquivalenceClass [x] s = insertTerm x s
 insertEquivalenceClass (x:y:r) s =
   insertEquivalenceClass (y:r) $! insertEquation x y s
 
