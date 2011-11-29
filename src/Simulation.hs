@@ -209,7 +209,7 @@ data PathState term = PathState {
     -- | Facts that may be assumed to be true in this path.
   , psAssumptions   :: !term
     -- | Facts that are asserted to be true in this path (in reverse order).
-  , psAssertions    :: ![term]
+  , psAssertions    :: ![(String,term)]
   , pathStSel       :: !PathDescriptor
   , classObjects    :: !(Map String Ref)
   -- | The program counter where this path state started.

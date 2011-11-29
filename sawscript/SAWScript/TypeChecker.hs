@@ -15,6 +15,7 @@ module SAWScript.TypeChecker
     -- * Java Expressions
   , JavaExprF(..)
   , JavaExpr
+  , ppJavaExpr
   , jssTypeOfJavaExpr
   , isRefJavaExpr
   , tcJavaExpr
@@ -161,6 +162,15 @@ instance CC.ShowFoldable JavaExprF where
 
 -- | Typechecked JavaExpr
 type JavaExpr = CC.Term JavaExprF
+
+ppJavaExpr :: JavaExpr -> String
+ppJavaExpr (CC.Term exprF) =
+  case exprF of
+    This _  -> "this"
+    Arg i _ -> "args[" ++ show i ++ "]"
+    Local (Just nm) _ _ -> nm
+    Local Nothing   i _ -> "locals[" ++ show i ++ "]"
+    InstanceField r f -> ppJavaExpr r ++ "." ++ JSS.fieldIdName f
 
 -- | Returns JSS Type of JavaExpr
 jssTypeOfJavaExprF :: JavaExprF v -> JSS.Type

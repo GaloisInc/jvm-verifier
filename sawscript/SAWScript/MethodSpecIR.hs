@@ -167,10 +167,6 @@ data BehaviorSpec = BS {
        , bsMayAliasClasses :: [[TC.JavaExpr]]
          -- | Commands to execute in reverse order.
        , bsReversedCommands :: [BehaviorCommand]
---         -- | Postconditions about expressions.
---       , bsPostconditions :: [Postcondition]
---         -- | Return value if defined.
---       , bsReturnExpr :: Maybe TC.MixedExpr
        } deriving (Show)
 
 -- | Returns list of all Java expressions that are references.
@@ -209,8 +205,9 @@ bsRefEquivClasses bs =
   map (map parseSet . CC.toList) $ Set.toList $
     mayAliases (bsMayAliasClasses bs) (bsMustAliasSet bs)
  where parseSet l@(e:_) =
-         let Just tp = Map.lookup e (bsActualTypeMap bs)
-          in (l,tp)
+         case Map.lookup e (bsActualTypeMap bs) of
+           Just tp -> (l,tp)
+           Nothing -> error $ "internal: bsRefEquivClass given bad expression: " ++ show e
        parseSet [] = error "internal: bsRefEquivClasses given empty list."
 
 -- BehaviorTypechecker {{{1
@@ -695,14 +692,20 @@ resolveBehaviorSpecs :: MethodTypecheckContext
                      -> IO (ExprActualTypeMap -- ^ Actual types that agree between specs.
                            , [BehaviorSpec])
 resolveBehaviorSpecs mtc pc block = do
-  let initPath = BS { bsPC = pc
-                    , bsActualTypeMap = Map.empty
+  let method = mtcMethod mtc
+  let initTypeMap | JSS.methodIsStatic method = Map.empty
+                  | otherwise = 
+                     let t = CC.Term (TC.This (JSS.className (mtcClass mtc)))
+                         at = TC.ClassInstance (mtcClass mtc)
+                      in Map.singleton t at
+      initPath = BS { bsPC = pc
+                    , bsActualTypeMap = initTypeMap
                     , bsMustAliasSet = CC.empty
                     , bsMayAliasClasses = []
                     , bsReversedCommands = []
                     }
       initBts = BTS { btsPC = pc
-                    , btsActualTypeMap = Map.empty
+                    , btsActualTypeMap = initTypeMap
                     , btsLetBindings = Map.empty
                     , btsPaths = [initPath]
                     , btsReturnSet = False
@@ -723,7 +726,6 @@ resolveBehaviorSpecs mtc pc block = do
     -- TODO: Check all expected locals are defined.
     return ()
   -- Ensure returns is set if method has return value.
-  let method = mtcMethod mtc
   when (isJust (JSS.methodReturnType method) && not (btsReturnSet bts)) $
     let msg = "The Java method \'" ++ JSS.methodName method
                      ++ "\' has a return value, but the spec does not define it."
