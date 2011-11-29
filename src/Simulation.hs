@@ -190,7 +190,7 @@ type InstanceFieldRef = (Ref, FieldId)
 data FinalResult term
   = ReturnVal !(Value term)
   | Breakpoint !PC
-  | Exc { getExc :: !(SimulatorExc term) }
+  | Exc !(SimulatorExc term)
   | Terminated
   | Aborted
   | Unassigned
@@ -1221,15 +1221,17 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   getResult = do
     rslts <- M.map (finalResult CA.&&& frames) <$> gets pathStates
     let rs = map (second fst) (M.assocs rslts)
-    when (all isExc $ map snd rs) $ Simulation.throwExternal (msgs rs) rslts
+    when (all isRealExc $ map snd rs) $ Simulation.throwExternal (msgs rs) rslts
     return rs
     where
+      isRealExc Exc{} = True
+      isRealExc _       = False
       -- TODO: Append the result of e.toString() or somesuch when printing an
       -- exception e
       msgs rs     =
         "All execution paths yielded exceptions.\n"
         ++ concatMap
-             (\(pd, r) -> ppExcMsg (length rs > 1) pd (ppSimulatorExc $ getExc r))
+             (\(pd, Exc r) -> ppExcMsg (length rs > 1) pd (ppSimulatorExc r))
              rs
 
   -- Returns current class name
@@ -1651,7 +1653,7 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
               $ "stack dump:" : [ show (c,methodKey m, pc,vm,st)
                                 | Call c m pc vm st <- frames ps
                                 ]
-            error "Undefined local"
+            error $ "internal: Undefined local variable " ++ show i
       _ -> error "Frames are empty"
 
   setLocal i v = do
