@@ -228,7 +228,7 @@ bsAssignmentsForClass :: BehaviorSpec -> JavaExprEquivClass -> [TC.LogicExpr]
 bsAssignmentsForClass bs cl =
    [ rhs | (_,lhs,rhs) <- bsLogicAssignments bs, Set.member lhs s, not (isJavaExpr rhs) ]
   where s = Set.fromList cl
-        isJavaExpr (TC.JavaValue rhs _ _) = True
+        isJavaExpr (TC.JavaValue _ _ _) = True
         isJavaExpr _ = False
 
 -- | Retuns ordering of Java expressions to corresponding logic value.
@@ -324,7 +324,7 @@ recordActualType pos expr at = do
                   }
       Just prevAt -> do
         when (at /= prevAt) $
-          let msg = "\"" ++ show expr ++ "\" is already defined."
+          let msg = "\"" ++ TC.ppJavaExpr expr ++ "\" is already defined."
            in throwIOExecException pos (ftext msg) ""
         return bs
   -- Update main state.
@@ -338,7 +338,7 @@ getActualType pos expr = do
   case Map.lookup expr typeMap of
     Just tp -> return tp
     Nothing ->
-      let msg = "The type of " ++ show expr ++ " has not been defined."
+      let msg = "The type of " ++ TC.ppJavaExpr expr ++ " has not been defined."
           res = "Please add a declaration to indicate the concrete type of this Java expression."
        in throwIOExecException pos (ftext msg) res
 
@@ -750,14 +750,17 @@ resolveBehaviorSpecs :: MethodTypecheckContext
                            , [BehaviorSpec])
 resolveBehaviorSpecs mtc pc block = do
   let method = mtcMethod mtc
+  let this = CC.Term (TC.This (JSS.className (mtcClass mtc)))
   let initTypeMap | JSS.methodIsStatic method = Map.empty
                   | otherwise = 
-                     let t = CC.Term (TC.This (JSS.className (mtcClass mtc)))
-                         at = TC.ClassInstance (mtcClass mtc)
-                      in Map.singleton t at
+                      Map.singleton this (TC.ClassInstance (mtcClass mtc))
       initPath = BS { bsPC = pc
                     , bsActualTypeMap = initTypeMap
-                    , bsMustAliasSet = CC.empty
+                    , bsMustAliasSet = 
+                        if JSS.methodIsStatic method then
+                          CC.empty
+                        else
+                          CC.insertTerm this CC.empty
                     , bsMayAliasClasses = []
                     , bsLogicAssignments = []
                     , bsReversedCommands = []
