@@ -422,13 +422,13 @@ getActualType p je = do
   mmi <- gets methodInfo
   case mmi of
     Nothing ->
-      let msg = "The Java value \'" ++ show je ++ "\' appears in a global context."
+      let msg = "The Java value \'" ++ ppJavaExpr je ++ "\' appears in a global context."
           res = "Java values may not be references outside method declarations."
        in typeErrWithR p (ftext msg) res
     Just mi -> do
       case miJavaExprType mi je of
         Nothing -> 
-          let msg = "The Java expression \'" ++ show je ++ "\' has not been declared."
+          let msg = "The Java value \'" ++ ppJavaExpr je ++ "\' has not been declared."
               res = "Please explicitly declare Java expressions before referring to them."
            in typeErrWithR p (ftext msg) res
         Just at -> return at
