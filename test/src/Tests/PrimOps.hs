@@ -446,7 +446,7 @@ ssiToNum :: Num a => CValue -> a
 ssiToNum (getSVal -> Just c) = fromIntegral c
 ssiToNum _ = error $ "internal: Value type is not a num"
 
-chkQuotRem :: (Arbitrary a, Bounded a, Integral a, Num a, Ord a) =>
+chkQuotRem :: (Arbitrary a, Bounded a, Integral a, Num a, Ord a, Show a) =>
               Codebase -> MethodSpec -> MethodSpec -> EvalBinOp a -> PropertyM IO ()
 chkQuotRem cb quotSpec remSpec eval = do
   forAllM arbitrary $ \d -> do
