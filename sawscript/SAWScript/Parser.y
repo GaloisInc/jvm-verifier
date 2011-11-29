@@ -63,8 +63,8 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'int'          { TReserved _ "int"          }
    'long'         { TReserved _ "long"         }
    'short'        { TReserved _ "short"        }
-   'True'         { TReserved _ "True"         }
-   'False'        { TReserved _ "False"        }
+   'true'         { TReserved _ "true"         }
+   'false'        { TReserved _ "false"        }
    'forAll'       { TReserved _ "forAll"       }
    'if'           { TReserved _ "if"           }
    'then'         { TReserved _ "then"         }
@@ -195,8 +195,8 @@ Exprs1 : sepBy1(Expr, ',') { $1 }
 -- Expressions
 Expr :: { Expr }
 Expr : var                               { Var          (tokPos $1) (tokStr $1)    }
-     | 'True'                            { ConstantBool (tokPos $1) True           }
-     | 'False'                           { ConstantBool (tokPos $1) False          }
+     | 'true'                            { ConstantBool (tokPos $1) True           }
+     | 'false'                           { ConstantBool (tokPos $1) False          }
      | num                               { ConstantInt  (tokPos $1) (tokNum $1)    }
      | '<|' poly '|>'                    { ConstantInt  (tokPos $1) $2             }
      | '{' RecordFlds '}'                {% mkRecordV   (tokPos $1) $2             }
