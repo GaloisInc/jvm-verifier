@@ -28,6 +28,8 @@ module SAWScript.MethodSpecIR
   , bsMayAliasSet
   , RefEquivConfiguration
   , bsRefEquivClasses
+  , bsLogicAssignments
+  , bsLogicClasses
   , BehaviorCommand(..)
   , bsCommands
     -- * Equivalence classes for references.
@@ -44,12 +46,14 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State
+import Data.Graph.Inductive (scc, Gr, mkGraph)
 import Data.List (intercalate, sort)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (isJust)
 import Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Vector as V
 import Text.PrettyPrint.HughesPJ
 
 import Verinf.Symbolic
@@ -62,6 +66,8 @@ import qualified SAWScript.TypeChecker as TC
 import SAWScript.CongruenceClosure (CCSet)
 import SAWScript.Utils
 import Utils.Common (slashesToDots)
+
+import Debug.Trace (trace)
 
 -- Utility definitions {{{1
 
@@ -136,10 +142,8 @@ typecheckerConfig mtc pc actualTypeMap localBindings =
 
 -- | Postconditions used for implementing behavior specification.
 data BehaviorCommand
-   = InputValue TC.JavaExpr DagType
-   | AssertValue Pos TC.JavaExpr TC.LogicExpr
      -- | An assertion that is assumed to be true in the specificaiton.
-   | AssertPred Pos TC.LogicExpr
+   = AssertPred Pos TC.LogicExpr
      -- | An assumption made in a conditional behavior specification.
    | AssumePred TC.LogicExpr
      -- | Assign Java expression the value given by the mixed expression.
@@ -165,6 +169,8 @@ data BehaviorSpec = BS {
        , bsMustAliasSet :: CCSet TC.JavaExprF
          -- | May alias relation between Java expressions.
        , bsMayAliasClasses :: [[TC.JavaExpr]]
+         -- | Equations 
+       , bsLogicAssignments :: [(Pos, TC.JavaExpr, TC.LogicExpr)]
          -- | Commands to execute in reverse order.
        , bsReversedCommands :: [BehaviorCommand]
        } deriving (Show)
@@ -209,6 +215,56 @@ bsRefEquivClasses bs =
            Just tp -> (l,tp)
            Nothing -> error $ "internal: bsRefEquivClass given bad expression: " ++ show e
        parseSet [] = error "internal: bsRefEquivClasses given empty list."
+
+bsPrimitiveExprs :: BehaviorSpec -> [TC.JavaExpr]
+bsPrimitiveExprs bs =
+  [ e | (e, TC.PrimitiveType _) <- Map.toList (bsActualTypeMap bs) ]
+ 
+bsLogicEqs :: BehaviorSpec -> [(TC.JavaExpr, TC.JavaExpr)]
+bsLogicEqs bs = [ (lhs,rhs) | (_,lhs,TC.JavaValue rhs _ _) <- bsLogicAssignments bs ]
+
+-- | Returns logic assignments to equivance class.
+bsAssignmentsForClass :: BehaviorSpec -> JavaExprEquivClass -> [TC.LogicExpr]
+bsAssignmentsForClass bs cl =
+   [ rhs | (_,lhs,rhs) <- bsLogicAssignments bs, Set.member lhs s, not (isJavaExpr rhs) ]
+  where s = Set.fromList cl
+        isJavaExpr (TC.JavaValue rhs _ _) = True
+        isJavaExpr _ = False
+
+-- | Retuns ordering of Java expressions to corresponding logic value.
+bsLogicClasses :: BehaviorSpec
+               -> RefEquivConfiguration
+               -> Maybe [(JavaExprEquivClass, DagType, [TC.LogicExpr])]
+bsLogicClasses bs rec
+    | all (\l -> length l == 1) components =
+       Just [ (cl, at, bsAssignmentsForClass bs cl)
+            | [n] <- components
+            , let (cl,at) = v V.! n ]
+    | otherwise = Nothing
+  where allClasses
+          = CC.toList
+            -- Add logic equations.
+          $ flip (foldr (uncurry CC.insertEquation)) (bsLogicEqs bs)
+            -- Add primitive expression.
+          $ flip (foldr CC.insertTerm) (bsPrimitiveExprs bs)
+            -- Create initial set with references.
+          $ CC.fromList (map fst rec)
+        logicClasses = 
+          [ (cl,tp) | cl@(e:_) <- allClasses
+                                 , let Just at = Map.lookup e (bsActualTypeMap bs)
+                                 , Just tp <- [TC.logicTypeOfActual at]
+                                 ]
+        v = V.fromList logicClasses
+        -- Create nodes.
+        grNodes = [0..] `zip` logicClasses
+        -- Create edges
+        exprNodeMap = Map.fromList [ (e,n) | (n,(cl,_)) <- grNodes, e <- cl ]
+        grEdges = [ (s,t,()) | (t,(cl,_)) <- grNodes
+                             , src:_ <- [bsAssignmentsForClass bs cl]
+                             , se <- Set.toList (TC.logicExprJavaExprs src)
+                             , let Just s = Map.lookup se exprNodeMap ]
+        -- Compute strongly connected components.
+        components = scc (mkGraph grNodes grEdges :: Gr (JavaExprEquivClass, DagType) ())
 
 -- BehaviorTypechecker {{{1
 
@@ -455,6 +511,11 @@ checkValuePostconditionTarget pos (CC.Term expr) = do
        in throwIOExecException pos (ftext msg) ""
     TC.InstanceField{} -> return ()
 
+recordLogicAssertion :: Pos -> TC.JavaExpr -> TC.LogicExpr -> BehaviorTypechecker ()
+recordLogicAssertion pos lhs rhs =
+  modifyPaths $ \bs ->
+    bs { bsLogicAssignments = (pos, lhs, rhs) : bsLogicAssignments bs }
+
 -- resolveDecl {{{1
 
 -- | Code for parsing a method spec declaration.
@@ -480,10 +541,6 @@ resolveDecl (AST.VarDecl _ exprAstList typeAst:r) = do
     -- Record actual type.
     checkActualTypeUndefined pos expr
     recordActualType pos expr at
-    -- Record input command if needed.
-    case TC.logicTypeOfActual at of
-      Nothing -> return ()
-      Just tp -> addCommand (InputValue expr tp)
   -- Resolve remaining declarations.
   resolveDecl r
 resolveDecl (AST.MethodLet pos lhs rhsAst:r) = do
@@ -527,7 +584,7 @@ resolveDecl (AST.AssertImp pos lhsAst@(AST.ApplyExpr _ "valueOf" _) rhsAst:r) = 
   -- Typecheck lhs
   (lhsExpr, _) <- typecheckValueOfLhs lhsAst (Just rhsType)
   -- Record assertion.
-  addCommand (AssertValue pos lhsExpr rhsExpr)
+  recordLogicAssertion pos lhsExpr rhsExpr
   -- Resolve remaining declarations.
   resolveDecl r
 resolveDecl (AST.AssertImp pos lhsAst rhsAst:r) = do
@@ -556,7 +613,7 @@ resolveDecl (AST.AssertImp pos lhsAst rhsAst:r) = do
     -- Record actual type.
     recordActualType lhsPos lhsExpr (TC.PrimitiveType lhsType)
     -- Record value assertion.
-    addCommand $ AssertValue pos lhsExpr rhsExpr
+    recordLogicAssertion pos lhsExpr rhsExpr
   -- Resolve remaining declarations.
   resolveDecl r
 resolveDecl (AST.EnsureImp pos lhsAst@(AST.ApplyExpr _ "valueOf" _) rhsAst:r) = do
@@ -702,6 +759,7 @@ resolveBehaviorSpecs mtc pc block = do
                     , bsActualTypeMap = initTypeMap
                     , bsMustAliasSet = CC.empty
                     , bsMayAliasClasses = []
+                    , bsLogicAssignments = []
                     , bsReversedCommands = []
                     }
       initBts = BTS { btsPC = pc

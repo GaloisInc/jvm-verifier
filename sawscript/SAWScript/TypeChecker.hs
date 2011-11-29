@@ -24,6 +24,7 @@ module SAWScript.TypeChecker
   , LogicExpr(..)
   , typeOfLogicExpr
   , logicExprVarNames
+  , logicExprJavaExprs
   , globalEval
   , tcLogicExpr
     -- * Mixed expressions
@@ -163,6 +164,7 @@ instance CC.ShowFoldable JavaExprF where
 -- | Typechecked JavaExpr
 type JavaExpr = CC.Term JavaExprF
 
+-- | Pretty print a Java expression.
 ppJavaExpr :: JavaExpr -> String
 ppJavaExpr (CC.Term exprF) =
   case exprF of
@@ -173,21 +175,31 @@ ppJavaExpr (CC.Term exprF) =
     InstanceField r f -> ppJavaExpr r ++ "." ++ JSS.fieldIdName f
 
 -- | Returns JSS Type of JavaExpr
-jssTypeOfJavaExprF :: JavaExprF v -> JSS.Type
-jssTypeOfJavaExprF (This cl)   = JSS.ClassType cl
-jssTypeOfJavaExprF (Arg _ tp)  = tp
-jssTypeOfJavaExprF (Local _ _ tp)  = tp
-jssTypeOfJavaExprF (InstanceField _ f) = JSS.fieldIdType f
-
--- | Returns JSS Type of JavaExpr
 jssTypeOfJavaExpr :: JavaExpr -> JSS.Type
-jssTypeOfJavaExpr = jssTypeOfJavaExprF . CC.unTerm
+jssTypeOfJavaExpr (CC.Term exprF) =
+  case exprF of
+    This cl           -> JSS.ClassType cl
+    Arg _ tp          -> tp
+    Local _ _ tp      -> tp
+    InstanceField _ f -> JSS.fieldIdType f
 
+-- | Returns true if expression is a Boolean.
 isRefJavaExpr :: JavaExpr -> Bool
 isRefJavaExpr = JSS.isRefType . jssTypeOfJavaExpr
 
 tcJavaExpr :: TCConfig -> AST.Expr -> IO JavaExpr
 tcJavaExpr cfg e = runTI cfg (tcJE e)
+
+-- | Typecheck expression with form valueOf(args), returning java expression
+-- inside args.
+tcValueOfExpr ::  TCConfig -> AST.Expr -> IO JavaExpr
+tcValueOfExpr cfg ast = do
+  expr <- runTI cfg (tcE ast)
+  case expr of
+    LE (JavaValue je _ _) -> return je
+    _ -> error "internal: tcValueOfExpr given illegal expression"
+
+-- LogicExpr {{{1
 
 -- | A type-checked expression which appears insider a global let binding,
 -- method declaration, or rule term.
@@ -202,23 +214,20 @@ data LogicExpr
    | Var String DagType
    deriving (Show)
 
--- | Typecheck expression with form valueOf(args), returning java expression
--- inside args.
-tcValueOfExpr ::  TCConfig -> AST.Expr -> IO JavaExpr
-tcValueOfExpr cfg ast = do
-  expr <- runTI cfg (tcE ast)
-  case expr of
-    LE (JavaValue je _ _) -> return je
-    _ -> error "internal: tcValueOfExpr given illegal expression"
-
--- LogicExpr {{{1
-
 -- | Return type of a typed expression.
 typeOfLogicExpr :: LogicExpr -> DagType
 typeOfLogicExpr (Apply     op _) = opResultType op
 typeOfLogicExpr (Cns       _ tp) = tp
 typeOfLogicExpr (JavaValue _ _ tp) = tp
 typeOfLogicExpr (Var       _ tp) = tp
+
+-- | Return java expressions in logic expression.
+logicExprJavaExprs :: LogicExpr -> Set JavaExpr
+logicExprJavaExprs t = impl t Set.empty
+  where impl (Apply _ args) s = foldr impl s args
+        impl (Cns _ _) s = s
+        impl (JavaValue e _ _) s = Set.insert e s
+        impl (Var _ _) s = s
 
 -- | Returns names of variables appearing in typedExpr.
 logicExprVarNames :: LogicExpr -> Set String
