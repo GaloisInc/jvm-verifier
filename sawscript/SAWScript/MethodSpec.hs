@@ -20,17 +20,14 @@ module SAWScript.MethodSpec
 -- Imports {{{1
 
 import Control.Applicative hiding (empty)
-import qualified Control.Exception as CE
 import Control.Exception (assert)
 import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.Error (Error(..), ErrorT, runErrorT, throwError)
 import Control.Monad.Identity
 import Control.Monad.State
-import Data.Either (lefts, rights)
 import Data.Int
-import Data.IORef
-import Data.List (foldl', intercalate, sort,intersperse,sortBy,find)
+import Data.List (foldl', intercalate, sort,intersperse,find)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -42,15 +39,12 @@ import Text.PrettyPrint.HughesPJ
 import System.Directory(doesFileExist)
 
 import qualified Execution.Codebase as JSS
-import qualified Execution.JavaSemantics as Sem
 import qualified JavaParser as JSS
-import MethodSpec (partitions)
 import qualified SAWScript.CongruenceClosure as CC
 import qualified SAWScript.SmtLib as SmtLib
 import qualified SAWScript.SmtLib2 as SmtLib2
 import qualified SAWScript.QuickCheck as QuickCheck
 import qualified SAWScript.Yices  as Yices
-import qualified SAWScript.MethodAST as AST
 import qualified SAWScript.TypeChecker as TC
 import qualified Simulation as JSS
 import SAWScript.Utils
@@ -105,19 +99,16 @@ typeBitCount SymBool = 1
 typeBitCount (SymInt (widthConstant -> Just (Wx w))) = w
 typeBitCount (SymArray (widthConstant -> Just (Wx l)) e) = l * typeBitCount e
 typeBitCount (SymRec d s) = V.sum $ V.map typeBitCount $ recFieldTypes d s
+typeBitCount _ = error "internal: typeBitCount called on polymorphic type."
 
 mkInputEval :: DagType -> SV.Vector Bool -> CValue
-mkInputEval (SymInt (widthConstant -> Just (Wx w))) lits = mkCIntFromLsbfV lits
+mkInputEval (SymInt (widthConstant -> Just (Wx _))) lits = mkCIntFromLsbfV lits
 mkInputEval (SymArray (widthConstant -> Just (Wx l)) e) lits =
   let w = typeBitCount e
    in CArray $ V.generate l $ (\i -> mkCIntFromLsbfV $ SV.slice (i*w) w lits)
 mkInputEval _ _ = error "internal: Unsupported type given to mkInputEval"
 
 -- JSS Utilities {{{1
-
--- | Return value of field in path state.
-instanceFieldValue :: JSS.Ref -> JSS.FieldId -> JSS.PathState n -> Maybe (JSS.Value n)
-instanceFieldValue r f ps = Map.lookup (r,f) (JSS.instanceFields ps)
 
 -- | Set value of bound to instance field in path state.
 setInstanceFieldValue :: JSS.Ref -> JSS.FieldId -> JSS.Value n
@@ -167,7 +158,7 @@ data EvalContext t l = EvalContext {
 
 evalContextFromPathState :: DagEngine t l -> JSS.PathState t -> EvalContext  t l
 evalContextFromPathState de ps = 
-  let f:r = JSS.frames ps
+  let f:_ = JSS.frames ps
       method   = JSS.frmMethod f
       paramCount = length (JSS.methodParameterTypes method)
       localMap = JSS.frmLocals f
@@ -199,8 +190,8 @@ runEval v = runIdentity (runErrorT v)
 -- not assume that all the instanceFields in the JavaEvalContext are initialized.
 evalJavaExpr :: TC.JavaExpr -> EvalContext n l -> ExprEvaluator (JSS.Value n)
 evalJavaExpr expr ec = eval expr
-  where eval e@(CC.Term f) =
-          case f of
+  where eval e@(CC.Term app) =
+          case app of
             TC.This _ -> 
               case ecThis ec of
                 Just r -> return (JSS.RValue r)
@@ -330,16 +321,10 @@ ocModifyResultState fn = do
 -- | Add assumption for predicate.
 ocAssert :: ConstantProjection n => Pos -> String -> n -> OverrideComputation n l ()
 ocAssert p nm x = do
-  de <- gets (ecDagEngine . ocsEvalContext)
   case getBool x of
     Just True -> return ()
     Just False -> ocError (FalseAssertion p)
     _ -> ocModifyResultState $ addAssertion nm x
-
-ocSetArrayValue :: TypedTerm n => TC.JavaExpr -> n -> OverrideComputation n l ()
-ocSetArrayValue lhsExpr rhsVal = do
-  lhsRef <- ocEval $ evalJavaRefExpr lhsExpr
-  ocModifyResultState $ setArrayValue lhsRef rhsVal
 
 -- ocStep {{{2
 
@@ -381,33 +366,31 @@ ocStep (Return expr) = do
 -- Executing overrides {{{2
 
 execBehavior :: (ConstantProjection n, TypedTerm n, SV.Storable l)
-             => Pos
-             -> MethodSpecIR
-             -> [BehaviorSpec]
+             => [BehaviorSpec]
              -> EvalContext n l
              -> JSS.PathState n
              -> IO [RunResult n]
-execBehavior pos ir bsl ec ps = do
+execBehavior bsl ec ps = do
   -- Get state of current execution path in simulator.
   -- Get spec at PC 0.
   let initOCS = OCState { ocsEvalContext = ec
                         , ocsResultState = ps
                         , ocsReturnValue = Nothing
                         }
-  let cont () = do
-        OCState { ocsResultState = ps, ocsReturnValue = v } <- get
-        return (SuccessfulRun ps v)
+  let resCont () = do
+        OCState { ocsResultState = resPS, ocsReturnValue = v } <- get
+        return (SuccessfulRun resPS v)
   fmap orParseResults $ forM bsl $ \bs ->
-    flip evalStateT initOCS $ flip runContT cont $ do
+    flip evalStateT initOCS $ flip runContT resCont $ do
        -- Check that all expressions that reference each other may do so.
        do -- Build map from references to expressions that map to them.
           let exprs = bsRefExprs bs
-          refs <- ocEval $ \ec -> mapM (flip evalJavaRefExpr ec) exprs
+          refs <- ocEval $ \_ -> mapM (flip evalJavaRefExpr ec) exprs
           let refExprMap = Map.fromListWith (++) $ refs `zip` [[e] | e <- exprs]
           --- Get counterexamples.
           let mayAliasSet = bsMayAliasSet bs
           let badPairs = catMaybes
-                       $ map (\exprs -> CC.checkEquivalence exprs mayAliasSet)
+                       $ map (\cl -> CC.checkEquivalence cl mayAliasSet)
                        $ Map.elems refExprMap
           -- Throw error if counterexample is found.
           case badPairs of
@@ -423,11 +406,11 @@ execBehavior pos ir bsl ec ps = do
        mapM_ ocStep (bsCommands bs)
 
 checkClassesInitialized :: Pos -> String -> [String] -> JSS.Simulator SymbolicMonad ()
-checkClassesInitialized pos specName requiredClasses = do
+checkClassesInitialized pos nm requiredClasses = do
   forM_ requiredClasses $ \c -> do
     status <- JSS.getInitializationStatus c
     when (status /= Just JSS.Initialized) $
-      let msg = "The method spec " ++ specName ++ " requires that the class "
+      let msg = "The method spec \'" ++ nm ++ "\' requires that the class "
                   ++ slashesToDots c ++ " is initialized.  SAWScript does not "
                   ++ "currently support methods that initialize new classes."
        in throwIOExecException pos (ftext msg) ""
@@ -456,8 +439,7 @@ execOverride pos ir mbThis args = do
   -- Check class initialization.
   checkClassesInitialized pos (specName ir) (specInitializedClasses ir)
   -- Execute behavior.
-  ps <- JSS.getPathState
-  res <- liftIO $ execBehavior pos ir bsl ec ps
+  res <- liftIO . execBehavior bsl ec =<< JSS.getPathState
   when (null res) $ error "internal: execBehavior returned empty result list."
   -- Create function for generation resume actions.
   let -- Failed run
@@ -781,6 +763,7 @@ initializeVerification ir bs refConfig = do
                          , esExprRefMap = Map.fromList
                              [ (e, r) | (cl,r) <- refAssignments, e <- cl ]
                          , esInputs = []
+                         , esInitialAssignments = []
                          , esInitialPathState = initPS
                          , esReturnValue = Nothing
                          , esInstanceFields = Map.empty
@@ -844,7 +827,7 @@ type CounterexampleFn n = (n -> CValue) -> Doc
 
 -- | Returns documentation for check that fails.
 vcCounterexample :: PrettyTerm n => VerificationCheck n -> CounterexampleFn n
-vcCounterexample (AssertionCheck nm n) evalFn =
+vcCounterexample (AssertionCheck nm n) _ =
   text ("Assertion " ++ nm ++ " is unsatisfied:") <+> prettyTermD n
 vcCounterexample (EqualityCheck nm jvmNode specNode) evalFn =
   text nm $$
@@ -900,8 +883,6 @@ generateVC :: MethodSpecIR
            -> PathVC -- ^ Proof oblications
 generateVC ir esd (ps, res) =
   runPathVCG (esdInputs esd) (esdInitialAssignments esd) (JSS.psAssumptions ps) $ do
-    let pos = specPos ir
-        nm = show (specName ir)
     case res of
       Left oe -> pvcgFail (ftext (ppOverrideError oe))
       Right maybeRetVal -> do
@@ -972,7 +953,7 @@ generateVC ir esd (ps, res) =
 -- that will generate the different paths we need to verify.
 specVCs :: VerifyParams -> [SymbolicMonad [PathVC]]
 specVCs
-  params@(VerifyParams
+  (VerifyParams
     { vpPos = pos
     , vpCode = cb
     , vpOpts = opts
@@ -1010,7 +991,7 @@ specVCs
               -- Execute behavior specs at PC.
               let Just bsl = Map.lookup pc (specBehaviors ir)
               let ec = evalContextFromPathState de finalPS
-              liftIO $ execBehavior pos ir bsl ec finalPS
+              liftIO $ execBehavior bsl ec finalPS
             JSS.Exc JSS.SimExtErr { JSS.simExtErrMsg = msg } ->
               return [(finalPS, Left (SimException msg)) ]
             JSS.Exc JSS.JavaException{ JSS.excRef = r } ->
@@ -1035,7 +1016,6 @@ data VerifyParams = VerifyParams
 validateMethodSpec :: VerifyParams -> IO ()
 validateMethodSpec
     params@VerifyParams { vpOpCache = oc
-                        , vpPos = _pos
                         , vpOpts = opts
                         , vpSpec = ir
                         } = do
@@ -1047,6 +1027,18 @@ validateMethodSpec
       de <- getDagEngine
       results <- vcGenerator
       liftIO $ forM_ results $ \pvc -> do
+        let mkVState nm cfn = 
+              VState { vsDagEngine = de
+                     , vsVCName = nm
+                     , vsMethodSpec = ir
+                     , vsVerbosity = verb
+                     , vsRules = vpRules params
+                     , vsEnabledOps = vpEnabledOps params
+                     , vsInputs = pvcInputs pvc
+                     , vsInitialAssignments = pvcInitialAssignments pvc
+                     , vsCounterexampleFn = cfn
+                     , vsStaticErrors = pvcStaticErrors pvc
+                     }
         case specValidationPlan ir of
           Skip -> error "internal: Unexpected call to validateMethodSpec with Skip"
           QuickCheck n lim -> do
@@ -1055,29 +1047,11 @@ validateMethodSpec
             | null (pvcStaticErrors pvc) -> do
               --TODO: Generate goals for verification.
                forM_ (pvcChecks pvc) $ \vc -> do
-                 let vs = VState { vsDagEngine = de
-                                 , vsVCName = vcName vc
-                                 , vsMethodSpec = ir
-                                 , vsVerbosity = verb
-                                 , vsRules = vpRules params
-                                 , vsInputs = pvcInputs pvc
-                                 , vsInitialAssignments = pvcInitialAssignments pvc
-                                 , vsCounterexampleFn = vcCounterexample vc
-                                 , vsStaticErrors = []
-                                 }
+                 let vs = mkVState (vcName vc) (vcCounterexample vc)
                  let g = deImplies de (pvcAssumptions pvc) (vcGoal de vc)
                  runVerify vs g cmds
             | otherwise -> do
-               let vs = VState { vsDagEngine = de
-                               , vsVCName = "invalid path"
-                               , vsMethodSpec = ir
-                               , vsVerbosity = verb
-                               , vsRules = vpRules params
-                               , vsInputs = pvcInputs pvc
-                               , vsInitialAssignments = pvcInitialAssignments pvc
-                               , vsCounterexampleFn = const (vcat $ pvcStaticErrors pvc)
-                               , vsStaticErrors = pvcStaticErrors pvc
-                               }
+               let vs = mkVState "invalid path" (\_ -> vcat (pvcStaticErrors pvc))
                let g = deImplies de (pvcAssumptions pvc) (mkCBool False)
                runVerify vs g cmds
 
@@ -1087,6 +1061,7 @@ data VerifyState = VState {
        , vsMethodSpec :: MethodSpecIR
        , vsVerbosity :: Verbosity
        , vsRules :: [Rule]
+       , vsEnabledOps :: Set OpIndex
        , vsInputs :: [InputEvaluator Node]
        , vsInitialAssignments :: [(TC.JavaExpr, Node)]
        , vsCounterexampleFn :: CounterexampleFn Node
@@ -1153,18 +1128,16 @@ applyTactics (Rewrite:r) g = do
     Just True -> return ()
     _ -> applyTactics r g'
 applyTactics (ABC:_) goal = runABC goal
-applyTactics (SmtLib v file :_) g = do
-  nyi "applyTactics SmtLib" v file
-applyTactics (Yices v :_) g = do
-  nyi "applyTactics Yices" v
+applyTactics (SmtLib ver file :_) g = useSMTLIB ver file g
+applyTactics (Yices v :_) g = useYices v g
 applyTactics (Expand p expr:_) g = do
-  nyi "applyTactics Expand" p expr
+  nyi "applyTactics Expand" p expr g
 applyTactics (VerifyEnable nm :_) g = do
-  nyi "applyTactics VerifyEnable" nm
+  nyi "applyTactics VerifyEnable" nm g
 applyTactics (VerifyDisable nm :_) g = do
-  nyi "applyTactics VerifyDisable" nm
+  nyi "applyTactics VerifyDisable" nm g
 applyTactics (VerifyAt pc cmds :_) g = do
-  nyi "applyTactics VerifyDisable" pc cmds
+  nyi "applyTactics VerifyDisable" pc cmds g
 applyTactics [] g = do
   nm <- gets vsVCName
   ir <- gets vsMethodSpec
@@ -1310,106 +1283,106 @@ testRandom de v ir test_num lim pvc =
                                  , "  Result:   " ++ ppCValue Mixfix value ""
                                  ]
 
-{-
-announce :: String -> SymbolicMonad ()
-announce msg = whenVerbosity (>= 3) (liftIO (putStrLn msg))
+announce :: String -> VerifyExecutor ()
+announce msg = do
+  v <- gets vsVerbosity
+  when (v >= 3) $ liftIO (putStrLn msg)
 
-useSMTLIB :: MethodSpecIR -> Maybe Int -> Maybe String -> Set OpIndex
-          -> PathVC -> [Node] -> SymbolicMonad ()
-useSMTLIB ir mbVer mbNm enabledOps vc gs =
-  announce ("Translating to SMTLIB (version " ++ show version ++"): "
-                                        ++ specName ir) >> liftIO (
-  do let params = SmtLib.TransParams
-                    { SmtLib.transName = name
-                    , SmtLib.transInputs = map (termType . viNode) (pvcInputs vc)
-                    , SmtLib.transAssume = pvcAssumptions vc
-                    , SmtLib.transCheck = gs
-                    , SmtLib.transEnabled = enabledOps
-                    , SmtLib.transExtArr = True
-                    }
+useSMTLIB :: Maybe Int -> Maybe String -> Node -> VerifyExecutor ()
+useSMTLIB mbVer mbNm g = do
+  ir <- gets vsMethodSpec
+  enabledOps <- gets vsEnabledOps
+  inputs <- gets vsInputs
+  announce ("Translating to SMTLIB (version " ++ show version ++"): " ++ specName ir)
+  let name = case mbNm of
+               Just x  -> x
+               Nothing -> specName ir
+  liftIO $ do
+    let params = SmtLib.TransParams
+                   { SmtLib.transName = name
+                   , SmtLib.transInputs = map (termType . fst) inputs
+                   , SmtLib.transAssume = mkCBool True
+                   , SmtLib.transCheck = [g]
+                   , SmtLib.transEnabled = enabledOps
+                   , SmtLib.transExtArr = True
+                   }
+    doc <-
+      case version of
+        1 -> do (script,_) <- SmtLib.translate params
+                return (SmtLib.pp script)
 
-     doc <-
-       case version of
-         1 -> do (script,_) <- SmtLib.translate params
-                 return (SmtLib.pp script)
+        2 -> do (script,_) <- SmtLib2.translate params
+                return (SmtLib2.pp script)
+        _ -> error "Unexpected version"
 
-         2 -> do (script,_) <- SmtLib2.translate params
-                 return (SmtLib2.pp script)
-         _ -> error "Unexpected version"
+    -- XXX: THERE IS A RACE CONDITION HERE!
+    let pickName n = do let cand = name ++ (if n == 0 then "" else show n)
+                                        ++ ".smt" ++ ver_exr
+                        b <- doesFileExist cand
+                        if b then pickName (n + 1) else return cand
 
-     -- XXX: THERE IS A RACE CONDITION HERE!
-     let pickName n = do let cand = name ++ (if n == 0 then "" else show n)
-                                         ++ ".smt" ++ ver_exr
-                         b <- doesFileExist cand
-                         if b then pickName (n + 1) else return cand
-
-     fileName <- pickName (0 :: Integer)
-     writeFile fileName (show doc)
-  )
+    fileName <- pickName (0 :: Integer)
+    writeFile fileName (show doc)
 
   where
-  name = case mbNm of
-           Just x  -> x
-           Nothing -> specName ir
-
   version :: Int
   (version, ver_exr) = case mbVer of
                          Just n | n /= 1 -> (n, show n)
                          _      -> (1, "")   -- For now, we use 1 by default.
 
-useYices :: MethodSpecIR -> Maybe Int -> Set OpIndex
-            PathVC -> [Node] -> SymbolicMonad ()
-useYices ir mbTime enabledOps vc gs =
-  announce ("Using Yices2: " ++ specName ir) >> liftIO (
-  do (script,info) <- SmtLib.translate SmtLib.TransParams
+useYices :: Maybe Int -> Node -> VerifyExecutor ()
+useYices mbTime g = do
+  ir <- gets vsMethodSpec
+  enabledOps <- gets vsEnabledOps
+  inputs <- gets vsInputs
+  ia <- gets vsInitialAssignments
+  announce ("Using Yices2: " ++ specName ir)
+  liftIO $ do
+    (script,info) <- SmtLib.translate SmtLib.TransParams
         { SmtLib.transName = "CheckYices"
-        , SmtLib.transInputs = map (termType . fst) (pvcInputs vc)
-        , SmtLib.transAssume = pvcAssumptions vc
-        , SmtLib.transCheck = gs
+        , SmtLib.transInputs = map (termType . fst) inputs
+        , SmtLib.transAssume = mkCBool True
+        , SmtLib.transCheck = [g]
         , SmtLib.transEnabled = enabledOps
         , SmtLib.transExtArr = True
         }
 
-     res <- Yices.yices mbTime script
-     case res of
-       Yices.YUnsat   -> return ()
-       Yices.YUnknown -> yiFail (text "Failed to decide property.")
-       Yices.YSat m   ->
-         yiFail ( text "Found a counter example:"
-               $$ nest 2 (vcat $ intersperse (text " ") $
-                    zipWith ppIn (pvcInputs vc) (map (Yices.getIdent m)
-                                                      (SmtLib.trInputs info)))
-               $$ text " "
-               $$ ppUninterp m (SmtLib.trUninterp info)
+    res <- Yices.yices mbTime script
+    case res of
+      Yices.YUnsat   -> return ()
+      Yices.YUnknown -> yiFail ir (text "Failed to decide property.")
+      Yices.YSat m   ->
+        yiFail ir ( text "Found a counter example:"
+              -- TODO: Fix counterexample generation.
+              -- $$ nest 2 (vcat $ intersperse (text " ") $
+              --     zipWith ppIn ia (map (Yices.getIdent m) (SmtLib.trInputs info)))
+              $$ text " "
+              $$ ppUninterp m (SmtLib.trUninterp info)
 
-               $$ ppArgHist info m
-               $$ text " "
+              $$ ppArgHist ia info m
+              $$ text " "
 
-               $$ text "Assumptions:"
-               $$ nest 2 (SmtLib.pp (SmtLib.trAsmp info))
-               $$ text " "
-               $$ text "Goals:"
-               $$ nest 2 (vcat $ intersperse (text " ")
-                               $ map SmtLib.pp (SmtLib.trGoals info))
-               $$ text " "
+              $$ text "Assumptions:"
+              $$ nest 2 (SmtLib.pp (SmtLib.trAsmp info))
+              $$ text " "
+              $$ text "Goals:"
+              $$ nest 2 (vcat $ intersperse (text " ")
+                              $ map SmtLib.pp (SmtLib.trGoals info))
+              $$ text " "
 
-               $$ text "Full model:"
-               $$ nest 2 (vcat $ map Yices.ppVal (Map.toList m))
-                )
-  )
-
+              $$ text "Full model:"
+              $$ nest 2 (vcat $ map Yices.ppVal (Map.toList m))
+               )
   where
-  yiFail xs = fail $ show $ vcat $
-                [ text "Yices: Verification failed."
-                , text "*** Method:" <+> text (specName ir)
-                , text "*** Location:" <+> text (show (specPos ir))
-                , text "*** Details:"
-                , nest 2 xs
-                ]
+  yiFail ir xs = fail $ show $ vcat $
+                   [ text "Yices: Verification failed."
+                   , text "*** Method:" <+> text (specName ir)
+                   , text "*** Location:" <+> text (show (specPos ir))
+                   , text "*** Details:"
+                   , nest 2 xs
+                   ]
 
-  ppIn vi val =
-    case viExpr vi of
-      x -> Yices.ppVal (show x, val)
+  ppIn expr val = Yices.ppVal (TC.ppJavaExpr expr, val)
 
   ppUninterp _ [] = empty
   ppUninterp m us =
@@ -1434,11 +1407,10 @@ useYices ir mbTime enabledOps vc gs =
          | (i,time) <- [ last $ varSuccessors upds (0::Integer) arg ],
                                                               time /= 0 ]
 
-  ppArgHist info model =
+  ppArgHist ia info model =
     case zipWith (ppHist model (SmtLib.trArrays info))
-                 (map (show . viExpr) (pvcInputs vc))
+                 (map (ppJavaExpr . fst) ia)
                  (SmtLib.trInputs info) of
       [] -> empty
       ds -> text "Final values for array arguments:"
          $$ nest 2 (vcat (intersperse (text " ") ds))
-         -}
