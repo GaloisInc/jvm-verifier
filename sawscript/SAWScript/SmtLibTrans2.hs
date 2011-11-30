@@ -1,9 +1,9 @@
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE OverloadedStrings #-}
-module SAWScript.SmtLib2(translate, SMT1.TransParams(..), MetaData(..)) where
+module SAWScript.SmtLibTrans2(translate, SMT1.TransParams(..), MetaData(..)) where
 
-import SAWScript.SmtLib as SMT1 hiding (MetaData(..),translate)
-import qualified SAWScript.SmtLib as SMT1
+import SAWScript.SmtLibTrans as SMT1 hiding (MetaData(..),translate)
+import qualified SAWScript.SmtLibTrans as SMT1
 import qualified SMTLib1 as SMT1
 import SMTLib2
 import SMTLib2.BitVector

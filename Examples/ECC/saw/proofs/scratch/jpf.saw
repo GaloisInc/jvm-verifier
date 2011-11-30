@@ -1,0 +1,20 @@
+extern SBV ref_jpf("jpf.sbv") 
+  : { x:[384]; y:[384]; z:[384] } -> { x:[384]; y:[384]; z:[384] };
+
+method com.galois.ecc.P384ECC64.jpf_delete_me
+{
+  var args[0] :: com.galois.ecc.JacobianPoint;
+  var args[1] :: com.galois.ecc.JacobianPoint;
+  var args[0].x, args[0].y, args[0].z :: int[12];
+  var args[1].x, args[1].y, args[1].z :: int[12];
+  let res = ref_jpf( { x = join(valueOf(args[1].x))
+                     ; y = join(valueOf(args[1].y))
+                     ; z = join(valueOf(args[1].z))
+                     }
+                   );
+  ensures valueOf(args[0].x) := split(res.x) : [12][32];
+  ensures valueOf(args[0].y) := split(res.y) : [12][32];
+  ensures valueOf(args[0].z) := split(res.z) : [12][32];
+  verifyUsing: smtlib;
+};
+

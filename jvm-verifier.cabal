@@ -178,8 +178,8 @@ executable sawScript
         SAWScript.Parser
         SAWScript.ParserActions
         SAWScript.QuickCheck
-        SAWScript.SmtLib
-        SAWScript.SmtLib2
+        SAWScript.SmtLibTrans
+        SAWScript.SmtLibTrans2
         SAWScript.Yices
         SAWScript.TIMonad
         SAWScript.Token

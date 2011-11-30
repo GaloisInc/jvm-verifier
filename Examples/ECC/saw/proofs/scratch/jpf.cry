@@ -1,0 +1,7 @@
+type JacobianPoint fv = { x : fv; y : fv; z : fv; };
+jpf : JacobianPoint [384] -> JacobianPoint [384];
+jpf j = { x = j.x; y = j.y; z = j.z };
+
+
+
+

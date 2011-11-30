@@ -41,8 +41,8 @@ import System.Directory(doesFileExist)
 import qualified Execution.Codebase as JSS
 import qualified JavaParser as JSS
 import qualified SAWScript.CongruenceClosure as CC
-import qualified SAWScript.SmtLib as SmtLib
-import qualified SAWScript.SmtLib2 as SmtLib2
+import qualified SAWScript.SmtLibTrans as SmtLib
+import qualified SAWScript.SmtLibTrans2 as SmtLib2
 import qualified SAWScript.QuickCheck as QuickCheck
 import qualified SAWScript.Yices  as Yices
 import qualified SAWScript.TypeChecker as TC
