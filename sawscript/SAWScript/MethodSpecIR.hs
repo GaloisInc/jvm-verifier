@@ -500,14 +500,8 @@ addCommand bc = modifyPaths $ \bs ->
 checkValuePostconditionTarget :: Pos -> TC.JavaExpr -> BehaviorTypechecker ()
 checkValuePostconditionTarget pos (CC.Term expr) = do
   case expr of
-    TC.This _ ->
-      let msg = "Cannot defined post-conditions on \'this\'."
-       in throwIOExecException pos (ftext msg) ""
-    TC.Arg _ _ ->
-      let msg = "Cannot defined post-conditions on argument values."
-       in throwIOExecException pos (ftext msg) ""
     TC.Local _ _ _ -> 
-      let msg = "Cannot defined post-conditions on local values."
+      let msg = "Cannot defined post-conditions on values local to method."
        in throwIOExecException pos (ftext msg) ""
     TC.InstanceField{} -> return ()
 
@@ -750,7 +744,7 @@ resolveBehaviorSpecs :: MethodTypecheckContext
                            , [BehaviorSpec])
 resolveBehaviorSpecs mtc pc block = do
   let method = mtcMethod mtc
-  let this = CC.Term (TC.This (JSS.className (mtcClass mtc)))
+  let this = TC.thisJavaExpr (mtcClass mtc)
   let initTypeMap | JSS.methodIsStatic method = Map.empty
                   | otherwise = 
                       Map.singleton this (TC.ClassInstance (mtcClass mtc))

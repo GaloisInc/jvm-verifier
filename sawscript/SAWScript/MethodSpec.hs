@@ -150,8 +150,6 @@ addAssertion nm x ps =
 -- | Contextual information needed to evaluate expressions.
 data EvalContext t l = EvalContext {
          ecDagEngine :: DagEngine t l
-       , ecThis :: Maybe JSS.Ref
-       , ecArgs :: V.Vector (Maybe (JSS.Value t))
        , ecLocals :: Map JSS.LocalVariableIndex (JSS.Value t)
        , ecPathState :: JSS.PathState t
        }
@@ -164,12 +162,6 @@ evalContextFromPathState de ps =
       localMap = JSS.frmLocals f
    in EvalContext {
           ecDagEngine = de
-        , ecThis = if JSS.methodIsStatic method then
-                     Nothing
-                   else 
-                     (\(JSS.RValue r) -> r) <$> Map.lookup 0 localMap
-        , ecArgs = V.generate paramCount $ \i ->
-            Map.lookup (JSS.localIndexOfParameter method i) localMap
         , ecLocals = localMap
         , ecPathState = ps
         }
@@ -192,16 +184,6 @@ evalJavaExpr :: TC.JavaExpr -> EvalContext n l -> ExprEvaluator (JSS.Value n)
 evalJavaExpr expr ec = eval expr
   where eval e@(CC.Term app) =
           case app of
-            TC.This _ -> 
-              case ecThis ec of
-                Just r -> return (JSS.RValue r)
-                Nothing -> error "internal: evalJavaExpr given TC.This for static method"
-            TC.Arg i _ ->
-              let args = ecArgs ec
-               in assert (i < V.length args) $
-                    case args V.! i of
-                      Just v -> return v
-                      Nothing -> throwError e
             TC.Local _ idx _ ->
               case Map.lookup idx (ecLocals ec) of
                 Just v -> return v
@@ -428,8 +410,6 @@ execOverride pos ir mbThis args = do
   let method = specMethod ir
       argLocals = map (JSS.localIndexOfParameter method) [0..] `zip` args
   let ec = EvalContext { ecDagEngine = de
-                       , ecThis = mbThis
-                       , ecArgs = V.map Just $ V.fromList args
                        , ecLocals =  Map.fromList $
                            case mbThis of
                              Just th -> (0, JSS.RValue th) : argLocals
@@ -562,34 +542,26 @@ esAssertEq nm (JSS.LValue x) (JSS.LValue y) = do
   esModifyInitialPathState $ addAssertion nm (deEq de x y)
 esAssertEq _ _ _ = error "internal: esAssertEq given illegal arguments."
 
-esSetLocal :: TypedTerm t
-           => JSS.LocalVariableIndex -> JSS.Value t -> ExpectedStateGenerator t l ()
-esSetLocal idx v = do
-  ps <- esGetInitialPathState
-  let f:r = JSS.frames ps
-  case Map.lookup idx (JSS.frmLocals f) of
-    Just oldValue -> esAssertEq ("locals[" ++ show idx ++ "]") oldValue v
-    Nothing ->
-      esPutInitialPathState ps {
-          JSS.frames = f { JSS.frmLocals = Map.insert idx v (JSS.frmLocals f) }:r
-        }
-
 -- | Set value in initial state.
 esSetJavaValue :: TypedTerm t
                => TC.JavaExpr -> JSS.Value t -> ExpectedStateGenerator t l ()
 esSetJavaValue e@(CC.Term exprF) v = do
   case exprF of
-    TC.This _ -> esSetLocal 0 v
-    TC.Arg i _ -> do
-      method <- gets esMethod
-      esSetLocal (JSS.localIndexOfParameter method i) v
-    TC.Local _ idx _ -> esSetLocal idx v
+    TC.Local nm idx _ -> do
+      ps <- esGetInitialPathState
+      let f:r = JSS.frames ps
+      case Map.lookup idx (JSS.frmLocals f) of
+        Just oldValue -> esAssertEq (TC.ppJavaExpr e) oldValue v
+        Nothing ->
+          esPutInitialPathState ps {
+              JSS.frames = f { JSS.frmLocals = Map.insert idx v (JSS.frmLocals f) }:r
+            }
     TC.InstanceField refExpr f -> do
       -- Lookup refrence associated to refExpr
       Just ref <- Map.lookup refExpr <$> gets esExprRefMap
       ps <- esGetInitialPathState
       case Map.lookup (ref,f) (JSS.instanceFields ps) of
-        Just oldValue -> esAssertEq (show e) oldValue v
+        Just oldValue -> esAssertEq (TC.ppJavaExpr e) oldValue v
         Nothing -> return ()
       esPutInitialPathState ps {
          JSS.instanceFields = Map.insert (ref,f) v (JSS.instanceFields ps)
@@ -1155,8 +1127,6 @@ applyTactics [] g = do
               ftext ("Path errors:") $$ nest 2 (vcat se) $$
               ftext ("The remaining goal is:") $$ nest 2 (prettyTermD g)
      in throwIOExecException (specPos ir) msg ""
-    
-
 
 {-
 applyTactic :: Int -- ^ Verbosity
@@ -1164,33 +1134,6 @@ applyTactic :: Int -- ^ Verbosity
             -> (RewriteProgram Node, TacticContext)
             -> AST.VerificationTactic
             -> SymbolicMonad (RewriteProgram Node, TacticContext)
-applyTactic v ir (pgm, gs) AST.Rewrite = do
-  de <- getDagEngine
-  rew <- liftIO $ mkRewriter pgm (deTermSemantics de)
-  gs' <- forM gs $ \(vc, chks) -> liftIO $ do
-    chks' <- forM chks $ \(check, goal) -> do
-      when (v >= 2) $ putStrLn $ "Verify " ++ checkName check
-      goal' <- reduce rew goal
-      return (check, goal')
-    return (vc, chks')
-  return (pgm, gs')
-applyTactic v ir (pgm, gs) AST.ABC = do
-  de <- getDagEngine
-  liftIO $ forM_ gs $ \(vc, chks) -> forM_ chks $ \(check, goal) -> do
-    when (v >= 2) $ putStrLn $ "Verify " ++ checkName check
-    runABC de v ir (vcInputs vc) check goal
-  return (pgm, [])
-applyTactic v ir (pgm, gs) (AST.QuickCheck n lim) = do
-  de <- getDagEngine
-  liftIO $ forM_ gs $ \(vc, _) -> testRandom de v ir n lim vc
-  return (pgm, [])
-applyTactic _ ir (pgm, gs) (AST.SmtLib ver nm) = do
-  let enabledOps = nyi "vpEnabledOps vp"
-  forM_ gs $ \(vc, chks) -> useSMTLIB ir ver nm enabledOps vc (map snd chks)
-  return (pgm, [])
-applyTactic _ ir (pgm, gs) (AST.Yices ti) = do
-  forM_ gs $ \(vc, chks) -> useYices ir ti vc (map snd chks)
-  return (pgm, [])
 applyTactic _ _ (pgm, gs) (AST.AddRule nm vars l r) = do
   error "addrule not yet implemented."
   -- TODO: we should really be type-checking the rules in advance, and
@@ -1200,8 +1143,6 @@ applyTactic _ _ (pgm, gs) (AST.AddRule nm vars l r) = do
       rt = undefined
       pgm' = addRule pgm (mkRule nm lt rt)
   return (pgm', gs)
-applyTactic _ _ _ _ = error "internal: verifyMethodTactic used invalid tactic."
-
 -}
 
 type Verbosity = Int

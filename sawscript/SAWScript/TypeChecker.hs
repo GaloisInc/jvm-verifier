@@ -15,6 +15,7 @@ module SAWScript.TypeChecker
     -- * Java Expressions
   , JavaExprF(..)
   , JavaExpr
+  , thisJavaExpr
   , ppJavaExpr
   , jssTypeOfJavaExpr
   , isRefJavaExpr
@@ -126,26 +127,16 @@ mkGlobalTCConfig globalBindings lb = do
 -- JavaExpr {{{1
 
 data JavaExprF v
-  = This String -- | Name of classname for this object.
-  | Arg Int JSS.Type
-  | Local (Maybe String) JSS.LocalVariableIndex JSS.Type
+  = Local String JSS.LocalVariableIndex JSS.Type
   | InstanceField v JSS.FieldId
   deriving (Functor, CC.Foldable, CC.Traversable)
 
 instance CC.EqFoldable JavaExprF where
-  fequal (This _)      (This _) = True
-  fequal (Arg i _)    (Arg j _) = i == j
   fequal (Local _ i _)(Local _ j _) = i == j
   fequal (InstanceField xr xf) (InstanceField yr yf) = xf == yf && (xr == yr)
   fequal _ _ = False
 
 instance CC.OrdFoldable JavaExprF where
-  This _      `fcompare` This _      = EQ
-  This _      `fcompare` _           = LT
-  _           `fcompare` This _      = GT
-  Arg i _     `fcompare` Arg j _     = i `compare` j
-  Arg _ _     `fcompare` _           = LT
-  _           `fcompare` Arg _ _     = GT
   Local _ i _ `fcompare` Local _ i' _ = i `compare` i'
   Local _ _ _ `fcompare` _           = LT
   _           `fcompare` Local _ _ _ = GT
@@ -155,31 +146,26 @@ instance CC.OrdFoldable JavaExprF where
           r  -> r
 
 instance CC.ShowFoldable JavaExprF where
-  fshow (This _)    = "this"
-  fshow (Arg i _)   = "args[" ++ show i ++ "]"
-  fshow (Local (Just nm) _ _) = nm
-  fshow (Local Nothing i _) = "locals[" ++ show i ++ "]"
+  fshow (Local nm _ _) = nm
   fshow (InstanceField r f) = show r ++ "." ++ JSS.fieldIdName f
 
 -- | Typechecked JavaExpr
 type JavaExpr = CC.Term JavaExprF
 
+thisJavaExpr :: JSS.Class -> JavaExpr
+thisJavaExpr cl = CC.Term (Local "this" 0 (JSS.ClassType (JSS.className cl)))
+
 -- | Pretty print a Java expression.
 ppJavaExpr :: JavaExpr -> String
 ppJavaExpr (CC.Term exprF) =
   case exprF of
-    This _  -> "this"
-    Arg i _ -> "args[" ++ show i ++ "]"
-    Local (Just nm) _ _ -> nm
-    Local Nothing   i _ -> "locals[" ++ show i ++ "]"
+    Local nm _ _ -> nm
     InstanceField r f -> ppJavaExpr r ++ "." ++ JSS.fieldIdName f
 
 -- | Returns JSS Type of JavaExpr
 jssTypeOfJavaExpr :: JavaExpr -> JSS.Type
 jssTypeOfJavaExpr (CC.Term exprF) =
   case exprF of
-    This cl           -> JSS.ClassType cl
-    Arg _ tp          -> tp
     Local _ _ tp      -> tp
     InstanceField _ f -> JSS.fieldIdType f
 
@@ -467,7 +453,7 @@ mkLocalVariable :: Pos -> JSS.LocalVariableTableEntry -> SawTI JavaExpr
 mkLocalVariable pos e = do
   let tp = JSS.localType e
   checkIsSupportedType pos tp
-  return $ CC.Term $ Local (Just (JSS.localName e)) (JSS.localIdx e) tp
+  return $ CC.Term $ Local (JSS.localName e) (JSS.localIdx e) tp
 
 -- | Convert AST expression into expression.
 tcE :: AST.Expr -> SawTI MixedExpr
@@ -482,21 +468,23 @@ tcE (AST.Var pos name) = do
   globals <- gets (constBindings . globalBindings)
   locals  <- gets localBindings
   mmi <- gets methodInfo
-  let lookupLocal = 
+  let lookupLocal next = 
        case name `Map.lookup` locals of
          Just res -> return res
-         Nothing -> lookupGlobal
-      lookupGlobal =
+         Nothing -> next
+      lookupGlobal next =
         case name `Map.lookup` globals of
           Just (c,tp) -> return $ LE (Cns c tp)
-          Nothing -> throwUnknown
+          Nothing -> next
+      lookupJava next =
+        case mmi of
+          Nothing -> next
+          Just MethodInfo { miMethod = m, miPC = pc } ->
+            case JSS.lookupLocalVariableByName m pc name of
+              Nothing -> next
+              Just lte -> JE <$> mkLocalVariable pos lte
       throwUnknown = typeErr pos $ ftext $ "Unknown variable " ++ show name ++ "."
-  case mmi of
-    Nothing -> lookupLocal
-    Just MethodInfo { miMethod = m, miPC = pc } ->
-      case JSS.lookupLocalVariableByName m pc name of
-        Nothing -> lookupLocal
-        Just lte -> JE <$> mkLocalVariable pos lte
+   in lookupLocal $ lookupJava $ lookupGlobal throwUnknown
 
 tcE (AST.ConstantBool _ b) = return $ LE (Cns (mkCBool b) SymBool)
 tcE (AST.MkArray p [])
@@ -666,7 +654,7 @@ tcE (AST.ThisExpr pos) = do
   MethodInfo { miClass = cl, miMethod = method } <- getMethodInfo
   when (JSS.methodIsStatic method) $
     typeErr pos (ftext "\'this\' is not defined on static methods.")
-  return $ JE $ CC.Term (This (JSS.className cl))
+  return $ JE (thisJavaExpr cl)
 tcE (AST.ArgExpr pos i) = do
   mi <- getMethodInfo
   let method = miMethod mi
@@ -681,7 +669,8 @@ tcE (AST.ArgExpr pos i) = do
     typeErr pos (ftext "Invalid argument index for method.")
   let tp = params V.! i
   checkIsSupportedType pos tp
-  return $ JE $ CC.Term $ (Arg i tp)
+  let idx = JSS.localIndexOfParameter method i
+  return $ JE $ CC.Term $ (Local ("args[" ++ show i ++ "]") idx tp)
 tcE (AST.LocalExpr pos idx) = do
   MethodInfo { miMethod = method, miPC = pc } <- getMethodInfo
   -- TODO: When pc == 0, throw a type error here as local variables only
