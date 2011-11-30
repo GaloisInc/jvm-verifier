@@ -25,9 +25,9 @@ module SBVParser (
   ) where
 
 -- Imports {{{1
-import Control.Applicative ((<$>))
 import Control.Exception
 import Control.Monad.State.Strict
+import Control.Monad.Identity(runIdentity)
 import Data.Bits
 import Data.List (intercalate)
 import Data.Map (Map)
@@ -35,6 +35,7 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Typeable
 import qualified Data.Vector as V
+import System.IO.Unsafe(unsafePerformIO)
 
 import SBVModel.SBV
 
@@ -262,10 +263,11 @@ joinSBVTerm :: Monad m
             => OpCache
             -> DagType -- ^ Type of result
             -> [DagType] -- ^ Type of inputs
-            -> (TermSemantics m t -> V.Vector t -> m t)
-joinSBVTerm _ SymBool [resType] = 
-  let fn = toBool resType
-   in \ts args -> assert (V.length args == 1) $ fn ts (args V.! 0)
+            -> TermSemantics m t -> V.Vector t -> m t
+joinSBVTerm _ SymBool [resType] =
+  \ts args -> assert (V.length args == 1)
+            $ toBool resType ts (args V.! 0)
+
 joinSBVTerm _ SymInt{} (V.fromList -> exprTypes) = 
     assert (n > 0) $ 
       let joinFns = V.map toInt exprTypes
@@ -286,16 +288,25 @@ joinSBVTerm _ SymInt{} (V.fromList -> exprTypes) =
         -- Accumulated size of result at each point.
         inputSizes = V.tail $ V.prescanl addWidth (constantWidth 0) exprSizes
         appendOps = V.zipWith appendIntOp inputSizes (V.tail exprSizes)
+
+
 joinSBVTerm oc (SymArray (widthConstant -> Just (Wx len)) resEltTp) sbvTypes =
     \ts args -> tsApplyOp ts arrayOp =<< fn ts args
   where fn = joinTypesFn oc (V.replicate len resEltTp) sbvTypes
         arrayOp = mkArrayOp oc len resEltTp
+
+
 joinSBVTerm oc (SymRec recDef recSubst) sbvTypes =
   let fieldTypes = recFieldTypes recDef recSubst
       op = mkOp (recDefCtor recDef) recSubst
       fn = joinTypesFn oc fieldTypes sbvTypes
    in \ts args -> tsApplyOp ts op =<< fn ts args
+
+
 joinSBVTerm _ _ _ = error "internal: joinSBVTerm called on invalid types."
+
+
+
 
 -- SBV execution and Type checking computations plus operations {{{1
 -- Core definitions {{{2
@@ -306,6 +317,7 @@ newtype SBVExecutor = SBVE (forall m t . Monad m
                               -> StateT (Map NodeId t) m t)
 
 type ParseResult = (DagType, SBVExecutor)
+
 
 data SBVTypeCheckerState = SBVTS {
     opCache :: OpCache
@@ -331,9 +343,10 @@ bindCheck node tp eval = do
 runChecker :: OpCache
            -> UninterpFnMap
            -> [DagType]
-           -> SBVTypeChecker a
-           -> a
-runChecker oc uFn inputs m = evalState m initialState
+           -> SBVTypeChecker ()
+           -> ([NodeId], [ParseResult])
+runChecker oc uFn inputs m = ins `seq` outs `seq` (ins, outs)
+
   where initialState = SBVTS {
             opCache = oc
           , uninterpFnMap = uFn
@@ -342,6 +355,10 @@ runChecker oc uFn inputs m = evalState m initialState
           , revInputNodes = []
           , revOutputs = []
           }
+
+        finalState  = execState m initialState
+        ins         = reverse (revInputNodes finalState)
+        outs        = reverse (revOutputs finalState)
 
 -- Apply code {{{2
 
@@ -603,19 +620,26 @@ apply _ op args =
 
 -- checkSBV {{{2
 
+--  , nodeTypeMap :: Map NodeId ParseResult
+
 -- | Check SBV and return type and execution engine.
-checkSBV :: SBV -> SBVTypeChecker ParseResult
+checkSBV :: Map NodeId ParseResult -> SBV -> ParseResult
+
 -- Bool constant case
-checkSBV (SBV 1 (Left val)) =
-  return ( SymBool
-         , SBVE $ \ts -> lift $ tsBoolConstant ts (val /= 0))
+checkSBV _ (SBV 1 (Left val)) =
+  ( SymBool
+  , SBVE $ \ts -> lift $ tsBoolConstant ts (val /= 0)
+  )
+
 -- Int constant case
-checkSBV (SBV w (Left val)) = do
-  let w' = downcastInt w "integer width"
-  return ( SymInt (constantWidth (Wx w'))
-         , SBVE $ \ts -> lift $ tsIntConstant ts (Wx w') val)
+checkSBV _ (SBV w (Left val)) =
+  ( SymInt (constantWidth (Wx w'))
+  , SBVE $ \ts -> lift $ tsIntConstant ts (Wx w') val
+  )
+  where w' = downcastInt w "integer width"
+
 -- Application case
-checkSBV (SBV _ (Right node)) = (Map.! node) <$> gets nodeTypeMap
+checkSBV mp (SBV _ (Right node)) = mp Map.! node
 
 -- parseSBVCommand {{{2
 
@@ -627,25 +651,28 @@ parseSBVCommand (Decl _p (SBV _ (Right n)) Nothing) = do
   put s { remInputs = rest
         , revInputNodes = n : revInputNodes s }
   bindCheck n tp (SBVE $ \_ -> gets (Map.! n))
+
 parseSBVCommand (Decl _p (SBV _ (Right n)) (Just (SBVApp sOp sArgs))) = do
-  checkedArgs <- V.mapM checkSBV (V.fromList sArgs)
+  ndTypes <- gets nodeTypeMap
+  let (argTypes,argFuns) = unzip $ map (checkSBV ndTypes) sArgs
   oc <- gets opCache
   uFn <- gets uninterpFnMap
-  let (tp, SFN applyFn) = apply (oc, uFn) sOp (V.toList (V.map fst checkedArgs))
-  let argEvalFns = V.map snd checkedArgs
+  let (tp, SFN applyFn) = apply (oc, uFn) sOp argTypes
   bindCheck n tp $ SBVE $ \ts -> do
     m <- get
     case Map.lookup n m of
       Just r -> return r
       Nothing -> do
-        args <- V.mapM (\(SBVE fn) -> fn ts) argEvalFns
-        r <- lift $ applyFn ts args
+        args <- mapM (\(SBVE fn) -> fn ts) argFuns
+        r <- lift $ applyFn ts $ V.fromList args
         m' <- get
         put (Map.insert n r m')
         return r
+
 parseSBVCommand (Output sbv) = do
-  res <- checkSBV sbv
-  modify $ \s -> s { revOutputs = res : revOutputs s }
+  ndTypes <- gets nodeTypeMap
+  modify $ \s -> s { revOutputs = checkSBV ndTypes sbv : revOutputs s }
+
 parseSBVCommand d = do
   throw $ SBVUnsupportedFeature $ "Unsupported sbvCommand: " ++ show d
 
@@ -658,10 +685,11 @@ parseSBVType oc (SBVPgm (_,ir,_c, _v, _w, _ops)) = inferFunctionType oc ir
 newtype WordEvalFn = WEF (forall m t . Monad m => TermSemantics m t -> V.Vector t -> m t)
 
 -- | Parse a SBV file into an action running in an arbitrary word monad.
-parseSBV :: OpCache -- ^ Stores current operators.
+parseSBV :: Monad m =>
+         OpCache -- ^ Stores current operators.
          -> UninterpFnMap -- ^ Maps uninterpreted function names to corresponding op.
          -> SBVPgm
-         -> WordEvalFn
+         -> TermSemantics m t -> V.Vector t -> m t
 parseSBV oc
          uninterpFn
          pgrm@(SBVPgm ((Version vMajor vMinor),
@@ -672,20 +700,19 @@ parseSBV oc
                        _opDecls)) 
   | not (vMajor == 4 && vMinor == 0) = throw $ SBVBadFileVersion vMajor vMinor
   | otherwise =
-      runChecker oc uninterpFn (V.toList (V.concatMap id inputTypes)) $ do
-        mapM_ parseSBVCommand (reverse cmds)
-        inputNodes <- reverse <$> gets revInputNodes
-        (outputTypes, V.fromList -> outputEvals)
-            <- unzip <$> reverse <$> gets revOutputs
-        return $ WEF $ 
-          let res = joinSBVTerm oc resType outputTypes
-           in \ts args -> do
+    let (inputNodes,outs) = runChecker oc uninterpFn
+                                (V.toList (V.concatMap id inputTypes)) $
+                                mapM_ parseSBVCommand (reverse cmds)
+
+        (outputTypes, outputEvals) = unzip outs
+
+    in \ts args -> do
                  inputs <- V.zipWithM (\(SF fn) a -> fn ts a) inputFns args
                  let inputMap = Map.fromList $
                        inputNodes `zip` (V.toList (V.concatMap id inputs))
-                 outputs <- evalStateT (V.mapM (\(SBVE fn) -> fn ts) outputEvals)
+                 outputs <- evalStateT (mapM (\(SBVE fn) -> fn ts) outputEvals)
                                        inputMap
-                 res ts outputs
+                 joinSBVTerm oc resType outputTypes ts (V.fromList outputs)
  where (argTypes, resType) = parseSBVType oc pgrm
        (inputTypes, inputFns) = V.unzip $ V.map splitInput argTypes
 
@@ -707,7 +734,19 @@ parseSBVOp oc
   unless (null warnings) $
     throwMIO $ SBVUnsupportedFeature
              $ "SBV Parser does not support loading SBV files with warnings."
-  let wef@(WEF evalFn) = parseSBV oc uninterpFn pgrm
+
+  de <- mkNodeDagEngine (error "WE USED THE BIT ENGINE!!!" :: BitEngine Lit)
+  let ts = deTermSemantics de
   let (argTypes,resType) = parseSBVType oc pgrm
+  inps <- V.mapM (deFreshInput de Nothing) argTypes
+
+  let evalTerm = runIdentity $ parseSBV oc uninterpFn pgrm ts inps
+      evalFn ts args = unsafePerformIO
+                         (deEval (\i _ _ -> args V.! i) ts) evalTerm
+
   op <- definedOp oc opDefName (V.toList argTypes) resType (OpSem (\_ -> evalFn))
-  return (op, wef)
+
+  return (op, WEF evalFn)
+
+
+
