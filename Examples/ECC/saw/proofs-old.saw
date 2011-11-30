@@ -31,11 +31,9 @@ let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
 
 // Array operation verification {{{1
 
-// set verification off;
-
 method com.galois.ecc.P384ECC64.is_zero {
-  var args[0] :: int[12];
-  return if join(valueOf(args[0])) == 0:[384] then 1:[32] else 0:[32];
+  var x :: int[12];
+  return join(valueOf(x)) == 0:[384];
   verify abc;
 };
 
@@ -71,15 +69,15 @@ method com.galois.ecc.P384ECC64.field_add {
   // using the argument names from the Java debugging information.  However, for
   // our initial release, arguments must be refered to by position.
   var args[0], args[1], args[2] :: int[12];
+
+  // Require Java this.field_prime field equals SAWScript field_prime constant.
   var this.field_prime :: int[12];
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   // Allow any of the valueOfs to alias the other valueOfs.
   // Complicates verification, but necessary for correctness of higher-level
   // operations such as "ec_double".
   mayAlias { args[0], args[1], args[2] };
-
-  // Require Java this.field_prime field equals SAWScript field_prime constant.
-  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   // Result of executing method.
   // In this case, we store the result of adding args[1] and args[2] inside of
@@ -88,6 +86,7 @@ method com.galois.ecc.P384ECC64.field_add {
     split(field_add(join(valueOf(args[1])), join(valueOf(args[2])))) : [12][32];
 
   quickcheck 100;
+  //verify abc;
 };
 
 // field_sub {{{2
@@ -116,7 +115,7 @@ method com.galois.ecc.P384ECC64.field_dbl {
 
 // field_dbl_dec {{{2
 
-rule eq_elim : forAll {x:a}. x == x -> True;
+rule eq_elim : forAll {x:a}. x == x -> true;
 
 rule join_split : forAll {x:[384]}.
   join(split(x) : [12][32]) -> x;
@@ -247,21 +246,24 @@ method com.galois.ecc.P384ECC64.mod_half {
   verify abc;
 };
 
+set verification on;
+
 // mod_div {{{2
 method com.galois.ecc.P384ECC64.mod_div {
   var args[0], args[1], args[2], args[3] :: int[12];
   var this.t1, this.t2, this.t3 :: int[12];
-  var swapped :: boolean;
-  var a, ra, b, rb :: int[12];
 
-  ensure valueOf(args[0]) 
-    := split(p384_prime_div(join(valueOf(args[3])),
-                            join(valueOf(args[1])),
-                            join(valueOf(args[2])))) : [12][32];
-  modify valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+
+//  ensure valueOf(args[0]) 
+//    := split(p384_prime_div(join(valueOf(args[3])),
+//                            join(valueOf(args[1])),
+//                            join(valueOf(args[2])))) : [12][32];
+//  modify valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 
   at 44 {
+    var swapped :: boolean;
     var a, ra, b, rb :: int[12];
+    var this.t1, this.t2, this.t3 :: int[12];
 
     if (swapped == 0:[32]) {
       assert swapped := false;
@@ -269,22 +271,22 @@ method com.galois.ecc.P384ECC64.mod_div {
       assert this.t2 := b;
       assert this.t3 := rb;
 
-      ensure valueOf(ra) 
-       := split(p384_egcd(join(valueOf(a)),
-                          join(valueOf(ra)),
-                          join(valueOf(b)),
-                          join(valueOf(rb)))) : [12][32];
+//      ensure valueOf(ra) 
+//       := split(p384_egcd(join(valueOf(a)),
+//                          join(valueOf(ra)),
+//                          join(valueOf(b)),
+//                          join(valueOf(rb)))) : [12][32];
     } else {
       assert swapped := true;
       assert this.t1 := b;
       assert this.t2 := a;
       assert this.t3 := ra;
 
-      ensure valueOf(rb) 
-       := split(p384_egcd(join(valueOf(a)),
-                          join(valueOf(ra)),
-                          join(valueOf(b)),
-                          join(valueOf(rb)))) : [12][32];
+//      ensure valueOf(rb) 
+//       := split(p384_egcd(join(valueOf(a)),
+//                          join(valueOf(ra)),
+//                          join(valueOf(b)),
+//                          join(valueOf(rb)))) : [12][32];
     };
 
     modify valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
@@ -323,24 +325,24 @@ set verification on;
 
 // Misc cancelation rules{{{3
 rule not_not : forAll {x:Bit}.  not(not(x)) -> x;
-rule eq_elim : forAll {x:a}. x == x -> True;
+rule eq_elim : forAll {x:a}. x == x -> true;
 
 rule join_split : forAll {x:[384]}.
   join(split(x) : [12][32]) -> x;
 
 // Boolean elimination rules {{{3
 
-rule and_true_elim1 : forAll {x:Bit}. True && x -> x;
-rule and_true_elim2 : forAll {x:Bit}. x && True -> x;
-rule and_false_elim1 : forAll {x:Bit}. False && x -> False;
-rule and_false_elim2 : forAll {x:Bit}. x && False -> False;
+rule and_true_elim1 : forAll {x:Bit}. true && x -> x;
+rule and_true_elim2 : forAll {x:Bit}. x && true -> x;
+rule and_false_elim1 : forAll {x:Bit}. false && x -> false;
+rule and_false_elim2 : forAll {x:Bit}. x && false -> false;
 rule and_left_assoc : forAll {x:Bit, y:Bit, z:Bit}.
  x && (y && z) -> (x && y) && z;
 
-rule or_true_elim1 : forAll {x:Bit}. True || x -> True;
-rule or_true_elim1 : forAll {x:Bit}. x || True -> True;
-rule or_false_elim1 : forAll {x:Bit}. False || x -> x;
-rule or_false_elim2 : forAll {x:Bit}. x || False -> x;
+rule or_true_elim1 : forAll {x:Bit}. true || x -> true;
+rule or_true_elim1 : forAll {x:Bit}. x || true -> true;
+rule or_false_elim1 : forAll {x:Bit}. false || x -> x;
+rule or_false_elim2 : forAll {x:Bit}. x || false -> x;
 
 // Move not inside {{{3
 rule not_or : forAll {x:Bit, y:Bit}.
@@ -348,7 +350,7 @@ rule not_or : forAll {x:Bit, y:Bit}.
 rule not_and : forAll {x:Bit, y:Bit}.
   not (x && y) -> not x || not y;
 
-rule or_trivial : forAll {x:Bit}. not x || x -> True;
+rule or_trivial : forAll {x:Bit}. not x || x -> true;
 
 // Redundancy {{{3
 rule or_redundant1 : forAll {x:Bit,y:Bit}. (x || y) || y -> x || y;
@@ -372,11 +374,11 @@ rule ite_bit : forAll {b:Bit, c:Bit, d:Bit}.
 // Bit level ite rules {{{3
 rule ite_bit_false_1 :
   forAll { b:Bit, c:Bit }.
-    (if b then False else c) -> not b && c;
+    (if b then false else c) -> not b && c;
 
 rule ite_bit_true_1 :
   forAll { b:Bit, c:Bit }.
-    (if b then True else c) -> b || c;
+    (if b then true else c) -> b || c;
 
 // Eq-split rules{{{3
 
@@ -461,13 +463,15 @@ method com.galois.ecc.P384ECC64.ec_double {
   var this.a :: int[24];
   var this.t1, this.t2 :: int[12];
 
+  // Declare field prime.
+  var this.field_prime :: int[12];
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
+
   // Require that fields for Jacobian point are valid field elements.
   // assert is_field(join(valueOf(args[0].x)));
   // assert is_field(join(valueOf(args[0].y)));
   // assert is_field(join(valueOf(args[0].z)));
 
-  // Constants
-  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   // Let res denote the Cryptol struct formed from Cryptol ec_double operation.
   let res = ec_double({ x = join(valueOf(args[0].x)) ; y = join(valueOf(args[0].y)) ; z = join(valueOf(args[0].z)) });
@@ -494,12 +498,17 @@ method com.galois.ecc.P384ECC64.ec_full_add {
   var this.t1, this.t2, this.t3 :: int[12];
   var args[0].x, args[0].y, args[0].z :: int[12];
   var args[1].x, args[1].y :: int[12];
+  
   assert is_field(join(valueOf(args[0].x)));
   assert is_field(join(valueOf(args[0].y)));
   assert is_field(join(valueOf(args[0].z)));
   assert is_field(join(valueOf(args[1].x)));
   assert is_field(join(valueOf(args[1].y)));
+
+  // Declare field prime.
+  var this.field_prime :: int[12];
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
+
   let res =
     ec_full_add(
       { x = join(valueOf(args[0].x)) ;
@@ -527,7 +536,11 @@ method com.galois.ecc.P384ECC64.ec_full_sub {
   assert is_field(join(valueOf(args[0].z)));
   assert is_field(join(valueOf(args[1].x)));
   assert is_field(join(valueOf(args[1].y)));
+
+  // Declare field prime.
+  var this.field_prime :: int[12];
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
+
   let res =
     ec_full_sub(
       { x = join(valueOf(args[0].x)) ; y = join(valueOf(args[0].y)) ; z = join(valueOf(args[0].z)) },
@@ -555,7 +568,11 @@ method com.galois.ecc.P384ECC64.ec_mul_merge_aux {
   assert is_field(join(valueOf(args[0].z)));
   assert is_field(join(valueOf(args[1].x)));
   assert is_field(join(valueOf(args[1].y)));
+
+  // Declare field prime.
+  var this.field_prime :: int[12];
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
+
   let res = ec_mul_aux({ x = join(valueOf(args[0].x))
                        ; y = join(valueOf(args[0].y))
                        ; z = join(valueOf(args[0].z))
@@ -590,6 +607,8 @@ method com.galois.ecc.P384ECC64.ec_mul {
   assert is_field(join(valueOf(args[2].x)));
   assert is_field(join(valueOf(args[2].y)));
 
+  // Declare field prime.
+  var this.field_prime :: int[12];
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   /*
