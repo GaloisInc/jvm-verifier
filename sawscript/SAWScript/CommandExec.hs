@@ -327,7 +327,6 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
           allRules <- gets rules
           enRules <- gets enabledRules
           enOps <- gets enabledOpDefs
-          let activeRules = map (allRules Map.!) $ Set.toList enRules
           liftIO $ TC.validateMethodSpec
             TC.VerifyParams
               { TC.vpOpCache = oc
@@ -336,7 +335,8 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
               , TC.vpOpts = opts
               , TC.vpSpec = ir
               , TC.vpOver = overrides
-              , TC.vpRules = activeRules
+              , TC.vpRules = Map.elems allRules
+              , TC.vpEnabledRules = enRules
               , TC.vpEnabledOps = enOps
               }
         whenVerbosityWrite (==1) $ "Done. [Time: " ++ elapsedTime ++ "]"
