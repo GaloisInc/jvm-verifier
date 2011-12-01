@@ -65,8 +65,8 @@ library
     JarReader
     JavaParser
     JavaParser.Common
-    MethodSpec
-    ProofUtils
+    -- MethodSpec
+    -- ProofUtils
     SBVModel.SBV
     SBVParser
     Simulation

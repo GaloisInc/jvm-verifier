@@ -48,7 +48,6 @@ module SAWScript.TypeChecker
 
 import Control.Applicative ((<$>))
 import Control.Monad
-import Control.Monad.Identity (runIdentity)
 import Control.Monad.Trans
 import Data.Int
 import Data.List (intercalate)
@@ -223,11 +222,11 @@ logicExprVarNames (JavaValue _ _ _) = Set.empty
 logicExprVarNames (Var nm _) = Set.singleton nm
 
 -- | Evaluate a ground typed expression to a constant value.
-globalEval :: LogicExpr -> CValue
+globalEval :: LogicExpr -> IO CValue
 globalEval expr = eval expr
   where ts = evalTermSemantics
-        eval (Apply op args) = runIdentity (tsApplyOp ts op (V.map eval (V.fromList args)))
-        eval (Cns c tp) = runIdentity (tsConstant ts c tp)
+        eval (Apply op args) = tsApplyOp ts op (V.map eval (V.fromList args))
+        eval (Cns c tp) = tsConstant ts c tp
         eval (JavaValue _nm _ _tp) =
           error "internal: globalEval called with expression containing Java expressions."
         eval (Var _nm _tp) =

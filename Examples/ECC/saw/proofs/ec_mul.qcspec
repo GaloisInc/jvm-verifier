@@ -9,9 +9,9 @@ method com.galois.ecc.P384ECC64.ec_mul
   var args[0].x, args[0].y, args[0].z :: int[12];
   var args[2].x, args[2].y            :: int[12];
 
-  assume ref_is_field(join(valueOf(args[1])));
-  assume ref_is_field(join(valueOf(args[2].x)));
-  assume ref_is_field(join(valueOf(args[2].y)));
+  assert ref_is_field(join(valueOf(args[1])));
+  assert ref_is_field(join(valueOf(args[2].x)));
+  assert ref_is_field(join(valueOf(args[2].y)));
 
   var this.field_prime :: int[12];
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];

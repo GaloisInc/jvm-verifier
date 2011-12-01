@@ -88,10 +88,10 @@ mkInputWithType de tp = do
  r <- let ?be = deBitEngine de in mkInputLitResultWithType tp
  deFreshInput de (Just r) tp
 
-deEq :: TypedTerm t => DagEngine t l -> t -> t -> t 
+deEq :: TypedTerm t => DagEngine t l -> t -> t -> IO t
 deEq de x y = deApplyBinary de (eqOp (termType x)) x y
 
-deImplies :: DagEngine t l -> t -> t -> t
+deImplies :: DagEngine t l -> t -> t -> IO t
 deImplies de x y = deApplyBinary de bImpliesOp x y
 
 typeBitCount :: DagType -> Int
@@ -134,11 +134,10 @@ mkJSSValue JSS.ShortType   n = JSS.IValue n
 mkJSSValue _ _ = error "internal: illegal type"
 
 -- | Add assumption for predicate to path state.
-addAssumption :: DagEngine n l -> n -> JSS.PathState n -> JSS.PathState n
+addAssumption :: DagEngine n l -> n -> JSS.PathState n -> IO (JSS.PathState n)
 addAssumption de x ps =
-  ps { JSS.psAssumptions =
-         deApplyBinary de bAndOp (JSS.psAssumptions ps) x
-     }
+  do prop <- deApplyBinary de bAndOp (JSS.psAssumptions ps) x
+     return ps { JSS.psAssumptions = prop }
 
 -- | Add assertion for predicate to path state.
 addAssertion :: String -> n -> JSS.PathState n -> JSS.PathState n
@@ -167,13 +166,13 @@ evalContextFromPathState de ps =
         }
 
 
-type ExprEvaluator a = ErrorT TC.JavaExpr Identity a
+type ExprEvaluator a = ErrorT TC.JavaExpr IO a
 
 instance Error TC.JavaExpr where
   noMsg = error "noMsg called with TC.JavaExpr"
 
-runEval :: ExprEvaluator b -> Either TC.JavaExpr b
-runEval v = runIdentity (runErrorT v) 
+runEval :: ExprEvaluator b -> IO (Either TC.JavaExpr b)
+runEval v = runErrorT v
 
 -- or undefined subexpression if not.
 -- N.B. This method assumes that the Java path state is well-formed, the
@@ -218,7 +217,7 @@ evalLogicExpr :: TC.LogicExpr -> EvalContext n l -> ExprEvaluator n
 evalLogicExpr initExpr ec = eval initExpr
   where de = ecDagEngine ec
         eval (TC.Apply op exprs) =
-          deApplyOp de op <$> V.mapM eval (V.fromList exprs)
+          (liftIO . deApplyOp de op) =<< V.mapM eval (V.fromList exprs)
         eval (TC.Cns c tp) = return $ deConstantTerm de c tp
         eval (TC.Var _ _) = error "internal: evalLogicExpr called with var"
         eval (TC.JavaValue expr _ _) = evalJavaExprAsLogic expr ec
@@ -289,9 +288,10 @@ ocAssumeFailed = ContT (\_ -> return FalseAssumption)
 ocEval :: (EvalContext n l -> ExprEvaluator b) -> OverrideComputation n l b
 ocEval fn = do
   ec <- gets ocsEvalContext
-  case runEval (fn ec) of
+  res <- liftIO (runEval (fn ec))
+  case res of
     Left expr -> ocError $ UndefinedExpr expr
-    Right v -> return v
+    Right v   -> return v
 
 -- Modify result state
 ocModifyResultState :: (JSS.PathState n -> JSS.PathState n)
@@ -299,6 +299,15 @@ ocModifyResultState :: (JSS.PathState n -> JSS.PathState n)
 ocModifyResultState fn = do
   bcs <- get
   put $! bcs { ocsResultState = fn (ocsResultState bcs) }
+
+ocModifyResultStateIO :: (JSS.PathState n -> IO (JSS.PathState n))
+                    -> OverrideComputation n l ()
+ocModifyResultStateIO fn = do
+  bcs <- get
+  new <- liftIO $ fn $ ocsResultState bcs
+  put $! bcs { ocsResultState = new }
+
+
 
 -- | Add assumption for predicate.
 ocAssert :: ConstantProjection n => Pos -> String -> n -> OverrideComputation n l ()
@@ -321,7 +330,7 @@ ocStep (AssumePred expr) = do
   case getBool v of
     Just True -> return ()
     Just False -> ocAssumeFailed
-    _ -> ocModifyResultState $ addAssumption de v
+    _ -> ocModifyResultStateIO $ addAssumption de v
 ocStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
   lhsRef <- ocEval $ evalJavaRefExpr refExpr
   value <- ocEval $ evalMixedExpr rhsExpr
@@ -383,7 +392,8 @@ execBehavior bsl ec ps = do
        forM_ (bsLogicAssignments bs) $ \(pos, lhs, rhs) -> do
          lhsVal <- ocEval $ evalJavaExprAsLogic lhs
          rhsVal <- ocEval $ evalLogicExpr rhs
-         ocAssert pos "Override value assertion" (deEq de lhsVal rhsVal)
+         ocAssert pos "Override value assertion"
+                                      =<< liftIO (deEq de lhsVal rhsVal)
        -- Execute statements.
        mapM_ ocStep (bsCommands bs)
 
@@ -513,9 +523,10 @@ esEval fn = do
   de <- gets esDagEngine
   initPS <- gets esInitialPathState
   let ec = evalContextFromPathState de initPS
-  case runEval (fn ec) of
-    Left expr -> error $ "internal: esEval given " ++ show expr ++ "."
-    Right v -> return v
+  res <- liftIO (runEval (fn ec))
+  case res of
+    Left expr -> fail $ "internal: esEval given " ++ show expr ++ "."
+    Right v   -> return v
 
 esGetInitialPathState :: ExpectedStateGenerator t l (JSS.PathState t)
 esGetInitialPathState = gets esInitialPathState
@@ -528,6 +539,21 @@ esModifyInitialPathState :: (JSS.PathState t -> JSS.PathState t)
 esModifyInitialPathState fn =
   modify $ \es -> es { esInitialPathState = fn (esInitialPathState es) }
 
+esModifyInitialPathStateIO :: (JSS.PathState t -> IO (JSS.PathState t))
+                         -> ExpectedStateGenerator t l ()
+esModifyInitialPathStateIO fn =
+  do s0 <- esGetInitialPathState
+     esPutInitialPathState =<< liftIO (fn s0)
+
+
+
+esAddEqAssertion :: TypedTerm t =>
+           DagEngine t l -> String -> t -> t -> ExpectedStateGenerator t l ()
+esAddEqAssertion de nm x y =
+  do prop <- liftIO (deEq de x y)
+     esModifyInitialPathState (addAssertion nm prop)
+
+
 -- | Assert that two terms are equal.
 esAssertEq :: TypedTerm t
            => String -> JSS.Value t -> JSS.Value t -> ExpectedStateGenerator t l ()
@@ -536,10 +562,10 @@ esAssertEq nm (JSS.RValue x) (JSS.RValue y) = do
     error $ "internal: Asserted different references for " ++ nm ++ " are equal."
 esAssertEq nm (JSS.IValue x) (JSS.IValue y) = do
   de <- gets esDagEngine
-  esModifyInitialPathState $ addAssertion nm (deEq de x y)
+  esAddEqAssertion de nm x y
 esAssertEq nm (JSS.LValue x) (JSS.LValue y) = do
   de <- gets esDagEngine
-  esModifyInitialPathState $ addAssertion nm (deEq de x y)
+  esAddEqAssertion de nm x y
 esAssertEq _ _ _ = error "internal: esAssertEq given illegal arguments."
 
 -- | Set value in initial state.
@@ -588,7 +614,8 @@ esResolveLogicExprs _ (hrhs:rrhs) = do
   forM_ rrhs $ \rhsExpr -> do
     liftIO $ putStrLn $ "esResolveLogicExprs evaluating " ++ show rhsExpr
     rhs <- esEval $ evalLogicExpr rhsExpr
-    esModifyInitialPathState $ addAssumption de (deEq de t rhs)
+    esModifyInitialPathStateIO $ \s0 -> do prop <- deEq de t rhs
+                                           addAssumption de prop s0
   -- Return value.
   return t
 
@@ -624,11 +651,11 @@ esStep :: (TypedTerm t, SV.Storable l)
 esStep (AssertPred _ expr) = do
   de <- gets esDagEngine
   v <- esEval $ evalLogicExpr expr
-  esModifyInitialPathState $ addAssumption de v
+  esModifyInitialPathStateIO $ addAssumption de v
 esStep (AssumePred expr) = do
   de <- gets esDagEngine
   v <- esEval $ evalLogicExpr expr
-  esModifyInitialPathState $ addAssumption de v
+  esModifyInitialPathStateIO $ addAssumption de v
 esStep (Return expr) = do
   v <- esEval $ evalMixedExpr expr
   modify $ \es -> es { esReturnValue = Just v }
@@ -646,9 +673,9 @@ esStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
     (Just (Just (JSS.RValue prev)), JSS.RValue new)
       | prev == new -> return ()
     (Just (Just (JSS.IValue prev)), JSS.IValue new) -> 
-       esModifyInitialPathState $ addAssertion (show refExpr) (deEq de prev new)
-    (Just (Just (JSS.LValue prev)), JSS.LValue new) -> 
-       esModifyInitialPathState $ addAssertion (show refExpr) (deEq de prev new)
+       esAddEqAssertion de (show refExpr) prev new
+    (Just (Just (JSS.LValue prev)), JSS.LValue new) ->
+       esAddEqAssertion de (show refExpr) prev new
     -- TODO: See if we can give better error message here.
     -- Perhaps this just ends up meaning that we need to verify the assumptions in this
     -- behavior are inconsistent.
@@ -675,7 +702,7 @@ esStep (EnsureArray _pos lhsExpr rhsExpr) = do
   case Map.lookup ref aMap of
     Just (Just (oldLen, prev))
       | oldLen == fromIntegral l ->
-        esModifyInitialPathState $ addAssertion (show lhsExpr) (deEq de prev value)
+        esAddEqAssertion de (show lhsExpr) prev value
         -- TODO: Check to make sure this error is avoidable.
         -- Need to make sure 
       | otherwise -> error "internal: Incompatible values assigned to array."
@@ -791,20 +818,22 @@ vcName (AssertionCheck nm _) = nm
 vcName (EqualityCheck nm _ _) = nm
 
 -- | Returns goal that one needs to prove.
-vcGoal :: TypedTerm n => DagEngine n l -> VerificationCheck n -> n
-vcGoal _ (AssertionCheck _ n) = n
+vcGoal :: TypedTerm n => DagEngine n l -> VerificationCheck n -> IO n
+vcGoal _ (AssertionCheck _ n) = return n
 vcGoal de (EqualityCheck _ x y) = deEq de x y
 
-type CounterexampleFn n = (n -> CValue) -> Doc
+type CounterexampleFn n = (n -> IO CValue) -> IO Doc
 
 -- | Returns documentation for check that fails.
 vcCounterexample :: PrettyTerm n => VerificationCheck n -> CounterexampleFn n
 vcCounterexample (AssertionCheck nm n) _ =
-  text ("Assertion " ++ nm ++ " is unsatisfied:") <+> prettyTermD n
+  return $ text ("Assertion " ++ nm ++ " is unsatisfied:") <+> prettyTermD n
 vcCounterexample (EqualityCheck nm jvmNode specNode) evalFn =
-  text nm $$
-    nest 2 (text "Encountered: " <> ppCValueD Mixfix (evalFn jvmNode)) $$
-    nest 2 (text "Expected:    " <> ppCValueD Mixfix (evalFn specNode))
+  do jn <- evalFn jvmNode
+     sn <- evalFn specNode
+     return (text nm $$
+        nest 2 (text "Encountered: " <> ppCValueD Mixfix jn) $$
+        nest 2 (text "Expected:    " <> ppCValueD Mixfix sn))
 
 -- | Describes the verification result arising from one symbolic execution path.
 data PathVC = PathVC {
@@ -1020,11 +1049,11 @@ validateMethodSpec
               --TODO: Generate goals for verification.
                forM_ (pvcChecks pvc) $ \vc -> do
                  let vs = mkVState (vcName vc) (vcCounterexample vc)
-                 let g = deImplies de (pvcAssumptions pvc) (vcGoal de vc)
+                 g <- deImplies de (pvcAssumptions pvc) =<< vcGoal de vc
                  runVerify vs g cmds
             | otherwise -> do
-               let vs = mkVState "invalid path" (\_ -> vcat (pvcStaticErrors pvc))
-               let g = deImplies de (pvcAssumptions pvc) (mkCBool False)
+               let vs = mkVState "invalid path" (\_ -> return $ vcat (pvcStaticErrors pvc))
+               g <- deImplies de (pvcAssumptions pvc) (mkCBool False)
                runVerify vs g cmds
 
 data VerifyState = VState {
@@ -1077,15 +1106,20 @@ runABC goal = do
              in throwIOExecException (specPos ir) (ftext msg) ""
           Sat lits -> do
             evalFn <- deConcreteEval (V.map (\(_,fn) -> fn lits) inputs)
+
             -- Get doc showing inputs
             let docInput (e,n) =
-                  text (TC.ppJavaExpr e) <+> equals <+> ppCValueD Mixfix (evalFn n)
-            let inputDocs = map docInput ia
+                  do vn <- evalFn n
+                     return $ text (TC.ppJavaExpr e) <+> equals
+                                                     <+> ppCValueD Mixfix vn
+            inputDocs <- mapM docInput ia
+
             -- Get differences between two.
+            val <- cfn evalFn
             let msg = ftext ("ABC failed to verify " ++ specName ir ++ ".\n\n") $$
                       ftext ("The inputs that generated the failure are:") $$
                       nest 2 (vcat inputDocs) $$
-                       ftext ("Counterexample:") $$ nest 2 (cfn evalFn)
+                       ftext ("Counterexample:") $$ nest 2 val
             throwIOExecException (specPos ir) msg ""
 
 applyTactics :: [VerifyCommand] -> Node -> VerifyExecutor ()
@@ -1168,55 +1202,77 @@ testRandom de v ir test_num lim pvc =
   testOne passed = do
     vs   <- mapM (QuickCheck.pickRandom . termType . fst) (pvcInputs pvc)
     eval <- deConcreteEval (V.fromList vs)
-    if not (toBool $ eval $ pvcAssumptions pvc)
+    badAsmp <- isViolated eval (pvcAssumptions pvc)
+    if badAsmp
       then do return passed
       else do when (v >= 4) $
                 dbugM $ "Begin concrete DAG eval on random test case for all goals ("
                         ++ show (length $ pvcChecks pvc) ++ ")."
               forM_ (pvcChecks pvc) $ \goal ->
-                do let goal_ok = toBool (eval (vcGoal de goal))
+                do bad_goal <- isInvalid eval goal
                    when (v >= 4) $ dbugM "End concrete DAG eval for one VC check."
-                   unless goal_ok $ do
+                   when bad_goal $ do
                      (vs1,goal1) <- QuickCheck.minimizeCounterExample
                                             isCounterExample vs goal
-                     throwIOExecException (specPos ir)
-                                          (msg eval goal1) ""
+                     txt <- msg eval goal1
+                     throwIOExecException (specPos ir) txt ""
               return $! passed + 1
 
   isCounterExample vs =
-    do eval <- deConcreteEval (V.fromList vs)
-       return $ do guard $ toBool $ eval $ pvcAssumptions pvc
-                   find (not . toBool . eval . vcGoal de) (pvcChecks pvc)
+    do eval    <- deConcreteEval (V.fromList vs)
+       badAsmps <- isViolated eval (pvcAssumptions pvc)
+       if badAsmps
+         then return Nothing
+         else findM (isInvalid eval) (pvcChecks pvc)
+
+  isViolated eval goal = fmap (not . toBool) (eval goal)
+  isInvalid eval vcc   = isViolated eval =<< vcGoal de vcc
+
+  -- XXX: Move this somewhere
+  findM :: Monad m => (a -> m Bool) -> [a] -> m (Maybe a)
+  findM check [] = return Nothing
+  findM check (x:xs)  = do ok <- check x
+                           if ok then return (Just x)
+                                 else findM check xs
 
   msg eval g =
-      text "Random testing found a counter example:"
-    $$ nest 2 (vcat
-     [ text "Method:" <+> text (specName ir)
-     , case g of
-         EqualityCheck n x y ->
-            text "Unexpected value for:" <+> text n
-            $$ nest 2 (text "Expected:" <+> ppCValueD Mixfix (eval y)
-                    $$ text "Found:"    <+> ppCValueD Mixfix (eval x))
-         AssertionCheck nm _ -> text ("Invalid " ++ nm)
-     , text "Random arguments:"
-       $$ nest 2 (vcat (map (ppInput eval) (pvcInitialAssignments pvc)))
-     ])
+    do what_happened <-
+         case g of
+           EqualityCheck n x y ->
+              do val_y <- eval y
+                 val_x <- eval x
+                 return (text "Unexpected value for:" <+> text n
+                         $$ nest 2 (text "Expected:" <+> ppCValueD Mixfix val_y)
+                         $$ text "Found:"    <+> ppCValueD Mixfix val_x)
+           AssertionCheck nm _ -> return (text ("Invalid " ++ nm))
+
+       args <- mapM (ppInput eval) (pvcInitialAssignments pvc)
+
+       return (
+         text "Random testing found a counter example:"
+         $$ nest 2 (vcat
+            [ text "Method:" <+> text (specName ir)
+            , what_happened
+            , text "Random arguments:" $$ nest 2 (vcat args)
+            ])
+         )
 
   ppInput eval (expr, n) =
-    case expr of
-      t -> text (show t) <+> text "=" <+> ppCValueD Mixfix (eval n)
-      {-
-      tsUnsorted ->
-        let tsSorted = sortBy cmp tsUnsorted
-            t0       = last tsSorted
-            ts       = init tsSorted
+    do val <- eval n
+       return $ case expr of
+                  t -> text (show t) <+> text "=" <+> ppCValueD Mixfix val
+         {-
+         tsUnsorted ->
+           let tsSorted = sortBy cmp tsUnsorted
+               t0       = last tsSorted
+               ts       = init tsSorted
 
-            cmp (Arg a _) (Arg b _) = compare a b
-            cmp _ _                 = EQ
+               cmp (Arg a _) (Arg b _) = compare a b
+               cmp _ _                 = EQ
 
-        in vcat [ text (show t) <+> text "=" <+> text (show t0) | t <- ts ]
-           $$ text (show t0) <+> text "=" <+> ppCValueD Mixfix value
-           -}
+           in vcat [ text (show t) <+> text "=" <+> text (show t0) | t <- ts ]
+              $$ text (show t0) <+> text "=" <+> ppCValueD Mixfix value
+              -}
 
   toBool (CBool b) = b
   toBool value = error $ unlines [ "Internal error in 'testRandom':"

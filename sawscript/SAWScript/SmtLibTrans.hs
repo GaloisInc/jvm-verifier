@@ -15,6 +15,7 @@ import Verinf.Symbolic.Common
   )
 import Verinf.Symbolic(Node,deEval,getSValW)
 import qualified Verinf.Symbolic.Common as Op (OpIndex(..))
+import Verinf.Utils.CacheM
 import qualified Data.Vector as V
 import qualified Data.Set as S
 import qualified Data.IntMap as IM
@@ -47,7 +48,7 @@ translate ps =
   toScript ps (transName ps) (transExtArr ps) $
   do (xs,ts) <- unzip `fmap` mapM mkInp (transInputs ps)
      let js = V.fromList ts
-     eval <- io $ deEval (\i _ _ -> js V.! i) (translateOps (transEnabled ps))
+     eval <- deEval (\i _ _ -> js V.! i) (translateOps (transEnabled ps))
      as <- toForm =<< eval (transAssume ps)
      addAssumpt as
      gs <- mapM (toForm <=< eval) (transCheck ps)
@@ -173,6 +174,11 @@ data S = S { names        :: !Int
            , notes        :: Doc
            , transParams  :: TransParams
            }
+
+instance CacheM M where
+  newCache          = M $ inBase newCache
+  updateCache r k v = M $ inBase $ updateCache r k v
+  lookupCache r k   = M $ inBase $ lookupCache r k
 
 useExtArrays :: M Bool
 useExtArrays = M (useExtArr `fmap` ask)
@@ -515,32 +521,33 @@ translateOps enabled = termSem
                     ++ " (" ++ opDefName (opDef op) ++ ")"
 
 
-  lift1 op t        = do s1 <- save t
+  lift1 op t        = do s1 <- save =<< t
                          op s1
 
-  lift2 op t1 t2    = do s1 <- save t1
-                         s2 <- save t2
+  lift2 op t1 t2    = do s1 <- save =<< t1
+                         s2 <- save =<< t2
                          op s1 s2
 
-  lift3 op t1 t2 t3 = do s1 <- save t1
-                         s2 <- save t2
-                         s3 <- save t3
+  lift3 op t1 t2 t3 = do s1 <- save =<< t1
+                         s2 <- save =<< t2
+                         s3 <- save =<< t3
                          op s1 s2 s3
 
-  liftV op ts       = do ss <- mapM save (V.toList ts)
+  liftV op ts       = do ss <- mapM (save =<<) (V.toList ts)
                          op ss
 
 
   dynOp x op mbSem args =
     case mbSem of
       Just sem | opDefIndex (opDef op) `S.member` enabled ->
-        do as <- V.mapM save args
-           mb <- lkpDefinedOp x as
+        do as0 <- V.mapM save args
+           mb <- lkpDefinedOp x as0
+           let as = V.map return as0
            case mb of
              Just t -> return t
              Nothing ->
                do t <- save =<< applyOpSem sem (opSubst op) termSem as
-                  addDefinedOp x (opDefName (opDef op)) as t
+                  addDefinedOp x (opDefName (opDef op)) as0 t
                   return t
 
       _ ->

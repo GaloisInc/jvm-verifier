@@ -9,7 +9,6 @@ module SAWScript.CommandExec(runProofs) where
 import Control.Applicative ((<$>))
 import Control.Exception
 import Control.Monad
-import Control.Monad.Identity
 import Data.Int
 import Data.List (intercalate)
 import Data.Map (Map)
@@ -32,7 +31,6 @@ import qualified SAWScript.MethodSpec as TC
 import qualified SAWScript.TypeChecker as TC
 import qualified SBVModel.SBV as SBV
 import qualified SBVParser as SBV
-import qualified Simulation as JSS
 
 import Verinf.Symbolic
 import Verinf.Symbolic.Common(opDefIndex)
@@ -272,11 +270,11 @@ execute (AST.ExternSBV pos nm absolutePath astFnType) = do
               $ V.enumFromN 0 (V.length argTypes)
   let lhs = evalTerm $ appTerm (groundOp op) (V.toList lhsArgs)
   rhs <- lift $ runSymbolic oc $ do
-    inputVars <- V.mapM freshUninterpretedVar argTypes
+    inputVars0 <- V.mapM freshUninterpretedVar argTypes
+    let inputVars = V.map return inputVars0
     ts <- getTermSemantics
-    return $ nodeToTermCtor (fmap show . termInputId)
-           $ runIdentity
-           $ opFn ts inputVars
+    val <- liftIO $ opFn ts inputVars
+    return $ nodeToTermCtor (fmap show . termInputId) val
   -- Update state with op and rules.
   modify $ \s -> s { sbvOpMap = Map.insert sbvOpName (pos,op) (sbvOpMap s)
                    , definedNames = Map.insert nm pos (definedNames s)
@@ -292,7 +290,7 @@ execute (AST.GlobalLet pos name astExpr) = do
     bindings <- getGlobalBindings
     let config = TC.mkGlobalTCConfig bindings Map.empty
     lift $ TC.tcLogicExpr config astExpr
-  let val = TC.globalEval valueExpr
+  val <- liftIO $ TC.globalEval valueExpr
   let tp = TC.typeOfLogicExpr valueExpr
   modify $ \s -> s { definedNames = Map.insert name pos (definedNames s)
                    , globalLetBindings = Map.insert name (val, tp) (globalLetBindings s) }
