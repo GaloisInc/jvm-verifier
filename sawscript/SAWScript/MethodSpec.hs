@@ -1058,7 +1058,7 @@ runABC goal = do
       putStrLn $ "Running ABC on " ++ specName ir
       putStrLn $ "Goal is:"
       putStrLn $ prettyTerm goal
-    let LV value = deBitBlast de goal
+    LV value <- deBitBlast de goal
     unless (SV.length value == 1) $
       error "internal: Unexpected number of in verification condition"
     let be = deBitEngine de
