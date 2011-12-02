@@ -316,7 +316,7 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
   let specName = show (TC.specName ir)
   ts <- getTimeStamp
   let prefixTS msg = "[" ++ ts ++ "] " ++ msg
-  let writeAssumeCorrect = 
+  let writeAssumeCorrect =
         liftIO $ putStrLn $ prefixTS $ "Assuming " ++ specName ++ " is correct."
   let runValidate = do
         ((), elapsedTime) <- timeIt $ do
@@ -343,9 +343,9 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
   case plan of
     _ | not v -> writeAssumeCorrect
     TC.Skip -> writeAssumeCorrect
-    TC.QuickCheck{} -> do
-      whenVerbosityWriteNoLn (==1) $
-        prefixTS $ "Testing " ++ specName ++ "... "
+    TC.QuickCheck n _lim -> do
+      whenVerbosityWriteNoLn (==1) $ let t 1 = " test"; t _ = " tests" in
+        prefixTS $ "Testing " ++ specName ++ " (" ++ show n ++ t n ++ ")... "
       whenVerbosityWrite (>1) $
         prefixTS $ "Start testing " ++ specName ++ "."
       runValidate
