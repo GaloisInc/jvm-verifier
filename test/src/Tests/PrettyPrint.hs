@@ -33,7 +33,7 @@ testAction i what cfg = do res  <- run $ do
                              let path = testDir ++ "/ppTest.sbv"
                              pgm <- SBV.loadSBV path
                              let (argTys,_) = SBV.inferSBVFunctionType oc pgm
-                             let SBV.WEF evalFn = SBV.parseSBV oc (\_ _ -> Nothing) pgm
+                             let evalFn = SBV.parseSBV oc (\_ _ -> Nothing) pgm
                              runSymbolic oc $ do
                                ts <- getTermSemantics
                                vars <- V.mapM freshUninterpretedVar argTys

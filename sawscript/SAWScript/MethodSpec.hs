@@ -1010,6 +1010,7 @@ data VerifyParams = VerifyParams
   , vpSpec    :: MethodSpecIR
   , vpOver    :: [MethodSpecIR]
   , vpRules   :: [Rule]
+  , vpEnabledRules :: Set String
   , vpEnabledOps  :: Set OpIndex
   }
 
@@ -1034,6 +1035,7 @@ validateMethodSpec
                      , vsMethodSpec = ir
                      , vsVerbosity = verb
                      , vsRules = vpRules params
+                     , vsEnabledRules = vpEnabledRules params
                      , vsEnabledOps = vpEnabledOps params
                      , vsInputs = pvcInputs pvc
                      , vsInitialAssignments = pvcInitialAssignments pvc
@@ -1062,6 +1064,7 @@ data VerifyState = VState {
        , vsMethodSpec :: MethodSpecIR
        , vsVerbosity :: Verbosity
        , vsRules :: [Rule]
+       , vsEnabledRules :: Set String
        , vsEnabledOps :: Set OpIndex
        , vsInputs :: [InputEvaluator Node]
        , vsInitialAssignments :: [(TC.JavaExpr, Node)]
@@ -1126,7 +1129,10 @@ applyTactics :: [VerifyCommand] -> Node -> VerifyExecutor ()
 applyTactics (Rewrite:r) g = do
   de <- gets vsDagEngine
   rules <- gets vsRules
-  let pgm = foldl' addRule emptyProgram rules
+  enRules <- gets vsEnabledRules
+  let pgm = foldl' addRule' emptyProgram rules
+      addRule' p r | ruleName r `Set.member` enRules = addRule p r
+                   | otherwise = p
   g' <- liftIO $ do
           rew <- mkRewriter pgm (deTermSemantics de)
           reduce rew g
@@ -1138,12 +1144,12 @@ applyTactics (SmtLib ver file :_) g = useSMTLIB ver file g
 applyTactics (Yices v :_) g = useYices v g
 applyTactics (Expand p expr:_) g = do
   nyi "applyTactics Expand" p expr g
-applyTactics (VerifyEnable nm :_) g = do
-  nyi "applyTactics VerifyEnable" nm g
-applyTactics (VerifyDisable nm :_) g = do
-  nyi "applyTactics VerifyDisable" nm g
+applyTactics (VerifyEnable nm :_) g =
+  modify (\s -> s { vsEnabledRules = Set.insert nm (vsEnabledRules s) })
+applyTactics (VerifyDisable nm :_) g =
+  modify (\s -> s { vsEnabledRules = Set.delete nm (vsEnabledRules s) })
 applyTactics (VerifyAt pc cmds :_) g = do
-  nyi "applyTactics VerifyDisable" pc cmds g
+  nyi "applyTactics VerifyAt" pc cmds g
 applyTactics [] g = do
   nm <- gets vsVCName
   ir <- gets vsMethodSpec
