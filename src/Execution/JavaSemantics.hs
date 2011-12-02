@@ -37,13 +37,13 @@ data AtomicValue double float int long ref
   | RValue { unRValue :: ref }
   | AValue PC
 
-type family JSDouble m
-type family JSFloat m
-type family JSInt m
-type family JSLong m
-type family JSRef m
-type family JSBool m
-type family JSRslt m
+type family JSDouble (m :: * -> *)
+type family JSFloat  (m :: * -> *)
+type family JSInt    (m :: * -> *)
+type family JSLong   (m :: * -> *)
+type family JSRef    (m :: * -> *)
+type family JSBool   (m :: * -> *)
+type family JSRslt   (m :: * -> *)
 
 type JSValue m = AtomicValue (JSDouble m) (JSFloat m) (JSInt m) (JSLong m) (JSRef m)
 
@@ -629,7 +629,6 @@ invokeInstanceMethod cName key objectRef args = do
      Nothing -> error $
        "Could not find instance method " ++ show key ++ " in " ++ cName
          ++ "\n  objectRef = " ++ show objectRef ++ ", args = " ++ show args
-
 
 -- | Invokes a static method in a particular class.
 invokeStaticMethod :: JavaSemantics m
