@@ -6,9 +6,9 @@
 module SAWScript.CommandExec(runProofs) where
 
 -- Imports {{{1
+import Control.Applicative ((<$>))
 import Control.Exception
 import Control.Monad
-import Control.Monad.Identity
 import Data.Int
 import Data.List (intercalate)
 import Data.Map (Map)
@@ -31,7 +31,6 @@ import qualified SAWScript.MethodSpec as TC
 import qualified SAWScript.TypeChecker as TC
 import qualified SBVModel.SBV as SBV
 import qualified SBVParser as SBV
-import qualified Simulation as JSS
 
 import Verinf.Symbolic
 import Verinf.Symbolic.Common(opDefIndex)
@@ -50,7 +49,7 @@ data ExecutorState = ES {
     -- | Map from names to constant value bound to name.
   , globalLetBindings :: Map String (CValue,DagType)
     -- | Maps file paths to verifier commands.
-  , parsedFiles :: Map FilePath [AST.VerifierCommand]
+  , parsedFiles :: Map FilePath [AST.SAWScriptCommand]
     -- | Flag that indicates if verification commands should be executed.
   , runVerification :: Bool
     -- | Maps rule and let binding names to location where it was introduced.
@@ -80,7 +79,7 @@ type Executor = MExecutor IO
 
 -- | Given a file path, this returns the verifier commands in the file,
 -- or throws an exception.
-parseFile :: FilePath -> Executor [AST.VerifierCommand]
+parseFile :: FilePath -> Executor [AST.SAWScriptCommand]
 parseFile path = do
   m <- gets parsedFiles
   case Map.lookup path m of
@@ -89,11 +88,13 @@ parseFile path = do
 
 getGlobalBindings :: Executor TC.GlobalBindings
 getGlobalBindings = do
+  oc <- gets opCache
   cb <- gets codebase
   opts <- gets execOptions
   opBindings <- gets sawOpMap
   constBindings <- gets globalLetBindings
-  return $ TC.GlobalBindings { TC.codeBase = cb
+  return $ TC.GlobalBindings { TC.opCache = oc
+                             , TC.codeBase = cb
                              , TC.ssOpts = opts
                              , TC.opBindings
                              , TC.constBindings
@@ -110,7 +111,7 @@ enabledOpDefs s
 -- verbosity {{{2
 
 instance LogMonad Executor where
-  getVerbosity = fmap verbose $ gets execOptions
+  getVerbosity = verbose <$> gets execOptions
   setVerbosity v = modify $ \s -> s { execOptions = (execOptions s) { verbose = v } }
 
 -- | Write messages to standard IO.
@@ -208,14 +209,14 @@ throwSBVParseError pos relativePath e =
 -- Verifier command execution {{{1
 
 -- | Execute command
-execute :: AST.VerifierCommand -> Executor ()
+execute :: AST.SAWScriptCommand -> Executor ()
 -- Execute commands from file.
 execute (AST.ImportCommand _pos path) = do
   mapM_ execute =<< parseFile path
 execute (AST.ExternSBV pos nm absolutePath astFnType) = do
   oc <- gets opCache
   -- Get relative path as Doc for error messages.
-  relativePath <- liftIO $ fmap (doubleQuotes . text) $
+  relativePath <- liftIO $ (doubleQuotes . text) <$>
                     makeRelativeToCurrentDirectory absolutePath
   -- Get name of op in Cryptol from filename.
   let sbvOpName = dropExtension (takeFileName absolutePath)
@@ -256,7 +257,7 @@ execute (AST.ExternSBV pos nm absolutePath astFnType) = do
   checkSBVUninterpretedFunctions pos relativePath sbv
   -- Define uninterpreted function map.
   let uninterpFns :: String -> [DagType] -> Maybe Op
-      uninterpFns name _ = fmap (groundOp . snd) $ Map.lookup name curSbvOps
+      uninterpFns name _ = (groundOp . snd) <$> Map.lookup name curSbvOps
   -- Parse SBV file.
   debugWrite $ "Parsing SBV import for " ++ nm
   (op, SBV.WEF opFn) <-
@@ -269,11 +270,11 @@ execute (AST.ExternSBV pos nm absolutePath astFnType) = do
               $ V.enumFromN 0 (V.length argTypes)
   let lhs = evalTerm $ appTerm (groundOp op) (V.toList lhsArgs)
   rhs <- lift $ runSymbolic oc $ do
-    inputVars <- V.mapM freshUninterpretedVar argTypes
+    inputVars0 <- V.mapM freshUninterpretedVar argTypes
+    let inputVars = V.map return inputVars0
     ts <- getTermSemantics
-    return $ nodeToTermCtor (fmap show . termInputId)
-           $ runIdentity
-           $ opFn ts inputVars
+    val <- liftIO $ opFn ts inputVars
+    return $ nodeToTermCtor (fmap show . termInputId) val
   -- Update state with op and rules.
   modify $ \s -> s { sbvOpMap = Map.insert sbvOpName (pos,op) (sbvOpMap s)
                    , definedNames = Map.insert nm pos (definedNames s)
@@ -285,12 +286,11 @@ execute (AST.ExternSBV pos nm absolutePath astFnType) = do
 execute (AST.GlobalLet pos name astExpr) = do
   debugWrite $ "Start defining let " ++ name
   checkNameIsUndefined pos name
-  oc <- gets opCache
   valueExpr <- do
     bindings <- getGlobalBindings
-    let config = TC.mkGlobalTCConfig oc bindings Map.empty
+    let config = TC.mkGlobalTCConfig bindings Map.empty
     lift $ TC.tcLogicExpr config astExpr
-  let val = TC.globalEval valueExpr
+  val <- liftIO $ TC.globalEval valueExpr
   let tp = TC.typeOfLogicExpr valueExpr
   modify $ \s -> s { definedNames = Map.insert name pos (definedNames s)
                    , globalLetBindings = Map.insert name (val, tp) (globalLetBindings s) }
@@ -309,51 +309,52 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
   -- Resolve method spec IR
   ir <- do
     bindings <- getGlobalBindings
-    lift $ TC.resolveMethodSpecIR oc bindings pos thisClass mName cmds
+    ruleNames <- Map.keysSet <$> gets rules
+    lift $ TC.resolveMethodSpecIR bindings ruleNames pos thisClass mName cmds
   v <- gets runVerification
+  let plan = TC.specValidationPlan ir
+  let specName = show (TC.specName ir)
   ts <- getTimeStamp
-  let tactics = TC.methodSpecVerificationTactics ir
-  let specName = TC.methodSpecName ir
-  whenVerbosityWriteNoLn (==1) $
-   let vnm = case tactics of
-               [AST.QuickCheck _ _] -> "Testing"
-               [AST.Skip]           -> "Parsing"
-               _                    -> "Verifying"
-    in "[" ++ ts ++ "] " ++ vnm ++ " \"" ++ TC.methodSpecName ir ++ "\"... "
-  if v && (TC.methodSpecVerificationTactics ir /= [AST.Skip])
-    then do
-      let vnm = case tactics of
-                  [AST.QuickCheck _ _] -> "testing"
-                  _                    -> "verification of"
-      --liftIO $ putStrLn "Running test"
+  let prefixTS msg = "[" ++ ts ++ "] " ++ msg
+  let writeAssumeCorrect = 
+        liftIO $ putStrLn $ prefixTS $ "Assuming " ++ specName ++ " is correct."
+  let runValidate = do
+        ((), elapsedTime) <- timeIt $ do
+          opts <- gets execOptions
+          overrides <- gets methodSpecs
+          allRules <- gets rules
+          enRules <- gets enabledRules
+          enOps <- gets enabledOpDefs
+          liftIO $ TC.validateMethodSpec
+            TC.VerifyParams
+              { TC.vpOpCache = oc
+              , TC.vpPos = pos
+              , TC.vpCode = cb
+              , TC.vpOpts = opts
+              , TC.vpSpec = ir
+              , TC.vpOver = overrides
+              , TC.vpRules = Map.elems allRules
+              , TC.vpEnabledRules = enRules
+              , TC.vpEnabledOps = enOps
+              }
+        whenVerbosityWrite (==1) $ "Done. [Time: " ++ elapsedTime ++ "]"
+        whenVerbosityWrite (>1) $
+          "Finished " ++ specName ++ ". [Time: " ++ elapsedTime ++ "]"
+  case plan of
+    _ | not v -> writeAssumeCorrect
+    TC.Skip -> writeAssumeCorrect
+    TC.QuickCheck{} -> do
+      whenVerbosityWriteNoLn (==1) $
+        prefixTS $ "Testing " ++ specName ++ "... "
       whenVerbosityWrite (>1) $
-        "[" ++ ts ++ "] Starting " ++ vnm  ++ " \"" ++ specName ++ "\"."
-      ((), elapsedTime) <- timeIt $ do
-        opts <- gets execOptions
-        overrides <- gets methodSpecs
-        allRules <- gets rules
-        enRules <- gets enabledRules
-        enOps <- gets enabledOpDefs
-        let activeRules = map (allRules Map.!) $ Set.toList enRules
-        liftIO $ TC.verifyMethodSpec
-          TC.VerifyParams
-            { TC.vpOpCache = oc
-            , TC.vpPos = pos
-            , TC.vpCode = cb
-            , TC.vpOpts = opts
-            , TC.vpSpec = ir
-            , TC.vpOver = overrides
-            , TC.vpRules = activeRules
-            , TC.vpEnabledOps = enOps
-            }
-
-      whenVerbosityWrite (==1) $ "Done. [Time: " ++ elapsedTime ++ "]"
+        prefixTS $ "Start testing " ++ specName ++ "."
+      runValidate
+    TC.Verify{} -> do
+      whenVerbosityWriteNoLn (==1) $
+        prefixTS $ "Verifying  " ++ specName ++ "... "
       whenVerbosityWrite (>1) $
-        "Completed " ++ vnm ++ " \"" ++ specName ++ "\". [Time: " ++ elapsedTime ++ "]"
-    else do
-      whenVerbosityWrite (==1) $ "Skipped."
-      whenVerbosityWrite (>1) $
-        "Skipped verification of \"" ++ TC.methodSpecName ir ++ "\"."
+        "[" ++ ts ++ "] Start verifying " ++ specName ++ "."
+      runValidate
   -- Add methodIR to state for use in later verifications.
   modify $ \s -> s { methodSpecs = ir : methodSpecs s }
 execute (AST.Rule pos ruleName params astLhsExpr astRhsExpr) = do
@@ -373,7 +374,7 @@ execute (AST.Rule pos ruleName params astLhsExpr astRhsExpr) = do
         Nothing -> do
           let tp = TC.tcType oc astType
           modify $ Map.insert fieldNm (TC.Var fieldNm tp)
-  let config = TC.mkGlobalTCConfig oc bindings nameTypeMap
+  let config = TC.mkGlobalTCConfig bindings nameTypeMap
   lhsExpr <- lift $ TC.tcLogicExpr config astLhsExpr
   rhsExpr <- lift $ TC.tcLogicExpr config astRhsExpr
   -- Check types are equivalence
@@ -399,7 +400,7 @@ execute (AST.Rule pos ruleName params astLhsExpr astRhsExpr) = do
   let mkRuleTerm :: TC.LogicExpr -> Term
       mkRuleTerm (TC.Apply op args) = appTerm op (map mkRuleTerm args)
       mkRuleTerm (TC.Cns cns tp) = mkConst cns tp
-      mkRuleTerm (TC.JavaValue _ _) = error "internal: Java value given to mkRuleTerm"
+      mkRuleTerm (TC.JavaValue _ _ _) = error "internal: Java value given to mkRuleTerm"
       mkRuleTerm (TC.Var name tp) = mkVar name tp
   let rl = Rule ruleName (evalTerm (mkRuleTerm lhsExpr)) (evalTerm (mkRuleTerm rhsExpr))
   modify $ \s -> s { rules = Map.insert ruleName rl (rules s)

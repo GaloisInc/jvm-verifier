@@ -26,7 +26,7 @@ import Text.ParserCombinators.Parsec(runParser, many1, noneOf, sepBy, char)
 import Execution.Codebase(Codebase, loadCodebase)
 
 import Paths_jvm_verifier(version)
-import SAWScript.MethodAST(SSPgm, VerifierCommand(DeclareMethodSpec))
+import SAWScript.MethodAST(SSPgm, SAWScriptCommand(DeclareMethodSpec))
 import SAWScript.ParserActions(parseSSPgm)
 import SAWScript.CommandExec(runProofs)
 import SAWScript.Utils
@@ -48,7 +48,7 @@ main = do ssOpts <- parseArgs
                              else do notQuiet ssOpts $ putStrLn $ "Starting verification tasks on " ++ show cnt ++ " specification" ++ plu ++ "."
                                      ec <- runProofs cb ssOpts pmap
                                      exitWith ec
-  where noOfSpecs :: [VerifierCommand] -> Int
+  where noOfSpecs :: [SAWScriptCommand] -> Int
         noOfSpecs cmds = length [() | DeclareMethodSpec{} <- cmds]
 
 parseArgs :: IO SSOpts

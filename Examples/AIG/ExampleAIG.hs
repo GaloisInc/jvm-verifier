@@ -82,7 +82,7 @@ evalCryptolJava name key input = do
           inputVars = map tint $ hexToIntSeq input
       runCryptolJava name keyVars inputVars
     evalFn <- mkConcreteEval V.empty
-    return $ intSeqToHex $ map evalFn outVars
+    intSeqToHex <$> mapM (liftIO . evalFn) outVars
 
 evalCryptolJavaWord :: String -> String -> String -> IO String
 evalCryptolJavaWord name key input = do
@@ -96,7 +96,7 @@ evalCryptolJavaWord name key input = do
       runCryptolJava name keyVars inputVars
     let inp = V.map constInt $ V.fromList $ hexToIntSeq key ++ hexToIntSeq input
     evalFn <- mkConcreteEval inp
-    return $ intSeqToHex $ map evalFn outVars
+    intSeqToHex <$> mapM (liftIO . evalFn) outVars
 
 -- Levent's Cryptol C Port {{{1
 runCryptolC ::
@@ -160,7 +160,7 @@ evalCryptolC key input = do
       setVerbosity 0
       runCryptolC keyVars inputVars
     evalFn <- mkConcreteEval V.empty
-    return $ intSeqToHex $ map evalFn outVars
+    intSeqToHex <$> mapM (liftIO . evalFn) outVars
 
 -- Bouncy Castle {{{1
 
@@ -255,7 +255,7 @@ evalBouncyCastle ct name key input = do
       runBouncyCastle ct name keyVars inputVars
     let inp = V.map constInt $ V.fromList $ hexToByteSeq key ++ hexToByteSeq input
     evalFn <- mkConcreteEval inp
-    return $ intSeqToHex $ map evalFn outVars
+    intSeqToHex <$> mapM (liftIO . evalFn) outVars
 
 writeBouncyCastleAiger :: String -> IO ()
 writeBouncyCastleAiger name = do

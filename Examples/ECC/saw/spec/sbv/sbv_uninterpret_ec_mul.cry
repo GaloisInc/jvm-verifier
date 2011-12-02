@@ -1,0 +1,2 @@
+include "sbv_uninterpret_ec_mul_aux.cry";
+pragma p384_ec_mul : SBV uninterpret;

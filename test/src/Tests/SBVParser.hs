@@ -57,6 +57,6 @@ testCPlus = monadicIO $ do
     runSymbolic oc $ do
       args <- V.mapM freshUninterpretedVar (opDefArgTypes cPlusSbvOp) :: SymbolicMonad (V.Vector Node)
       ts <- getTermSemantics
-      let v = applyCPlus ts args
+      v <- liftIO $ applyCPlus ts (V.map return args)
       v `seq` return ()
   assert True

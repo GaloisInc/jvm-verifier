@@ -11,7 +11,7 @@ import SAWScript.Utils
 import qualified Data.Map as M
 
 -- result of parsing a bunch of method specs
-type SSPgm = M.Map FilePath [VerifierCommand]
+type SSPgm = M.Map FilePath [SAWScriptCommand]
 
 type BitWidth = Int
 
@@ -72,7 +72,7 @@ data Expr
     -- | Making a record
     | MkRecord Pos [(Pos, String, Expr)]
     | ArgExpr Pos Int
-    | LocalExpr Pos String
+    | LocalExpr Pos Integer
     -- Precedence 13
     -- | Type annotation on an expression.
     | TypeExpr Pos Expr ExprType
@@ -148,6 +148,9 @@ data Expr
     -- | Boolean or (||)
     | OrExpr   Pos Expr Expr
     -- Precedence 0
+    -- | Implication
+    | ImpExpr  Pos Expr Expr
+    -- Precedence 0
     -- | If-then-else
     | IteExpr  Pos Expr Expr Expr
   deriving (Show)
@@ -191,6 +194,7 @@ exprPos (SLtExpr  p _ _) = p
 exprPos (ULtExpr  p _ _) = p
 exprPos (AndExpr  p _ _) = p
 exprPos (OrExpr   p _ _) = p
+exprPos (ImpExpr  p _ _) = p
 exprPos (IteExpr  p _ _ _) = p
 
 type JavaFieldName = String
@@ -200,37 +204,49 @@ data RewriteVar = RewriteVar Pos String
 
 type SpecName = String
 
-data VerificationTactic = Skip 
-                        | Rewrite
-                        | QuickCheck Int (Maybe Int)
-                        | ABC
-                        | SmtLib (Maybe Int) (Maybe String) -- version, file
-                        | Yices (Maybe Int)
-  deriving (Eq, Show)
+data VerifyCommand
+   = Rewrite
+   | ABC
+   | SmtLib (Maybe Int) (Maybe String) -- version, file
+   | Yices (Maybe Int)
+   | Expand Expr
+   | VerifyAt Pos Integer VerifyCommand
+   | VerifyRule RuleName [(Pos, String, ExprType)] Expr Expr
+    -- | Enable use of a rule or extern definition.
+   | VerifyEnable Pos String
+     -- | Disable use of a rule or extern definition.
+   | VerifyDisable Pos String
+   | VerifyBlock [VerifyCommand]
+  deriving (Show)
+
+data BehaviorDecl
+  = VarDecl Pos [Expr] JavaType
+    -- | Local binding within a method spec.
+  | MethodLet Pos String Expr
+  | MayAlias Pos [Expr]
+    -- | Assert a given precondition is true when method is called.
+  | AssertPred Pos Expr
+  | AssertImp Pos Expr Expr
+  | EnsureImp Pos Expr Expr
+  | Modify Pos [Expr]
+  | Return Pos Expr
+  | MethodIf Pos Expr BehaviorDecl
+  | MethodIfElse Pos Expr BehaviorDecl BehaviorDecl
+  | Block [BehaviorDecl]
+  deriving (Show)
 
 -- | Commands in a method spec.
 data MethodSpecDecl
-  = Type Pos [Expr] JavaType
   -- | List of Java expressions that may alias.
-  | MayAlias Pos [Expr]
-  -- | Contant value in reference.
-  | Const Pos Expr Expr
-  -- | Local binding within a method spec.
-  | MethodLet Pos String Expr
-  -- | Assume a given precondition is true when method is called.
-  | Assume Pos Expr
-  | AssumeImp Pos Expr Expr
-  | Ensures Pos Expr Expr
-  | Modifies Pos [Expr]
-  | LocalSpec Pos Integer [MethodSpecDecl]
-  | Choice Pos [MethodSpecDecl] [MethodSpecDecl]
-  | Returns Pos Expr
-  | VerifyUsing Pos [VerificationTactic]
+  = SpecAt Pos Integer BehaviorDecl
+  | QuickCheck Pos Integer (Maybe Integer)
+  | Verify Pos VerifyCommand
+  | Behavior BehaviorDecl
  deriving (Show)
 
 type RuleName = String
 
-data VerifierCommand
+data SAWScriptCommand
   -- | Import declarations from another Java verifier file.
   = ImportCommand Pos FilePath
   -- | Load a SBV function from the given file path, and give
