@@ -1,6 +1,2 @@
 import "common.saw";
-set verification off;
-import "incFieldPrime.spec";
-import "decFieldPrime.spec";
-set verification on;
 import "field_red.qcspec";

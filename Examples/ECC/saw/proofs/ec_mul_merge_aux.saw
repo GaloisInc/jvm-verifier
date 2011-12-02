@@ -1,9 +1,6 @@
 import "common.saw";
 
 set verification off;
-import "is_zero.saw";
-import "set_zero.saw";
-import "set_unit.saw";
 import "field_add.spec";
 import "field_sub.spec";
 import "field_dbl.spec";
