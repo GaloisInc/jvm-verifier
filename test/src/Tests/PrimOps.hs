@@ -162,7 +162,7 @@ mkTest runTest' _lbl getRslt cb maigNm (cNm, mNm, sig)
     outIntLit <- toLsbfV <$> getVarLit rslt
     chks0 <- forM inps $ \inp -> do
        evalFn <- mkConcreteEval (V.fromList inp)
-       return $ prDag inp (evalFn rslt)
+       liftIO $ prDag inp <$> evalFn rslt
     be <- getBitEngine
     liftIO $ do
       case maigNm of
@@ -342,6 +342,7 @@ t13 cb = runTest $ do
 
   -- DAG eval
   evalFn <- mkConcreteEval (V.fromList cInputs)
+  outVals <- liftIO $ mapM evalFn outVars
   -- AIG eval
   outLits <- mapM getVarLit outVars
   be <- getBitEngine
@@ -351,7 +352,7 @@ t13 cb = runTest $ do
   let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
              $ SV.toList $ (SV.slice (32*k) 32 r)
            | k <- [0..(n-1)] ]
-  return [map evalFn outVars == expect && rs == expect]
+  return [outVals == expect && rs == expect]
 
 -- NB: This won't symbolically terminate yet.
 _t14 :: TrivialProp
@@ -382,7 +383,8 @@ ct1 cb = runTest $ do
                                          [RValue outArr]
     getIntArray pd outArr
   evalFn <- mkConcreteEval V.empty
-  return $ [[constInt 42, constInt 42] == map evalFn outVars]
+  outVals <- liftIO $ mapM evalFn outVars
+  return $ [[constInt 42, constInt 42] == outVals]
 
 -- | Ensure that refFromString produces a usable string reference
 ct2 :: TrivialProp
@@ -395,7 +397,8 @@ ct2 cb =
         <$> runStaticMethod "Trivial" "stringCheck" "(Ljava/lang/String;I)Z"
               [RValue s, IValue (mkCInt (Wx 32) . fromIntegral . length $ str)]
     evalFn <- mkConcreteEval V.empty
-    return [boolFromConst (evalFn outVar)]
+    outVal <- liftIO $ evalFn outVar
+    return [boolFromConst outVal]
 
 --------------------------------------------------------------------------------
 -- floating point tests
@@ -537,6 +540,7 @@ evalBinOp runIO _lbl cb w maigNm mkValue getSymIntegralFromValue newSymVar
     let rslt = getSymIntegralFromValue val
     outIntLit <- toLsbf_lit <$> getVarLit rslt
     evalFn <- mkConcreteEval (V.map (mkCInt w . fromIntegral) $ V.fromList [x, y])
+    rsltVal <- liftIO $ evalFn rslt
     let inputs = concatMap (intToBoolSeq . mkCInt w . fromIntegral) [x, y]
     be <- getBitEngine
     liftIO $ do
@@ -544,7 +548,7 @@ evalBinOp runIO _lbl cb w maigNm mkValue getSymIntegralFromValue newSymVar
       case maigNm of
         Nothing -> return ()
         Just nm -> writeAiger be nm outIntLit
-      return ( evalFn rslt
+      return ( rsltVal
              , -- aiger eval
                hexToIntegral
                $ (\hs -> CE.assert (length hs == numBits w `div` 4) hs)
