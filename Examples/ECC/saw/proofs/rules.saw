@@ -142,10 +142,6 @@ rule affineY :
 
 // Field-specific elimination rules
 
-rule field_sq_def :
-  forAll { x:[384] }.
-   ref_field_sq(x) -> ref_field_mul(x, x);
-
 rule ite_zero_field_mul :
   forAll { x:[384], y:[384], z:[384], c:Bit }.
     (if (x == 0:[384]) then (ref_field_mul(x, y) == z:[384]) else c)

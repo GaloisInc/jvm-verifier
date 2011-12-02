@@ -1,11 +1,6 @@
 method com.galois.ecc.P384ECC64.set_zero
 {
-  let javaTrue  = 1:[32];
-  let javaFalse = 0:[32];
-  
   var args[0] :: int[12];
-  ensure 
-    valueOf(args[0]) := split(0:[384]) : [12][32];
+  ensure valueOf(args[0]) := split(0:[384]) : [12][32];
   verify abc;
 };
-

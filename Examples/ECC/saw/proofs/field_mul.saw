@@ -1,5 +1,2 @@
-extern SBV ref_field_mul("../spec/sbv/generated/ref_p384_mul.sbv")
-  : ([384],[384]) -> [384];
-
 import "common.saw";
 import "field_mul.qcspec";

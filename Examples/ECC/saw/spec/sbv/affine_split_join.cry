@@ -1,7 +1,0 @@
-include "../ecc.cry";
-
-asplit : AffinePoint [384] -> AffinePoint [12][32];
-asplit = AffinePoint_mor split;
-
-ajoin : AffinePoint [12][32] -> AffinePoint [384];
-ajoin = AffinePoint_mor join;

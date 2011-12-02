@@ -2,6 +2,7 @@ include "Morphism.cry";
 
 type Field fv =
   { is_val : Set fv         // carrier set
+  ; norm : fv -> fv
   ; add : (fv,fv) -> fv
   ; sub : (fv,fv) -> fv
   ; neg : fv -> fv
@@ -42,6 +43,7 @@ type Field_Mor (a,b) = Mor (Field a, Field b);
 Field_mor : {a b} EP (a,b) -> Field_Mor (a,b);
 Field_mor p f =
   { is_val     = Emb (Set_ep (ep_op p)) ((f:Field a).is_val)
+  ; norm       = Emb (Efun1_ep p) (f.norm)
   ; add        = Emb (Efun2_ep p) (f.add)
   ; sub        = Emb (Efun2_ep p) (f.sub)
   ; neg        = Emb (Efun1_ep p) (f.neg)
