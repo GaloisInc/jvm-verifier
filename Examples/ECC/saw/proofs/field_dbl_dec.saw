@@ -4,5 +4,4 @@ set verification off;
 import "field_sub.spec";
 set verification on;
 
-import "field_dbl.spec";
-
+import "field_dbl_dec.spec";
