@@ -620,6 +620,9 @@ p384_ec_mul (d, s) = (res @ 384)
 p384_ec_twin_mul : ([384], AffinePoint [384], [384], AffinePoint [384]) -> (JacobianPoint [384]);
 p384_ec_twin_mul(x,p,y,q) = ec_twin_mul(p384_point_ops, x, p, y, q);
 
+p384_group_add : ([384],[384]) -> [384];
+p384_group_add = p384_group_field.add;
+
 p384_curve : Curve ([384],[384]);
 p384_curve = {
     point_ops = p384_point_ops;

@@ -40,6 +40,7 @@ PROOFS :=              \
   ec_full_add.saw      \
   ec_full_sub.saw      \
   ec_mul_merge_aux.saw \
+  group_add.saw        \
 
 .PHONY: clean verify
 

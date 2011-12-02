@@ -2,8 +2,9 @@
 // also imports the SBV representations of functions from the
 // Cryptol reference implementation.
 
-// Define field prime for P384 curve (taken from NIST and NSA documents).
+// Define cosntants for P384 curve (taken from NIST and NSA documents).
 let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
+let group_order = 0xffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973 : [384];
 
 extern SBV ref_field_mod("../spec/sbv/generated/p384_field_mod.sbv") : [768] -> [384];
 extern SBV ref_incFieldPrime("../spec/sbv/generated/p384_incFieldPrime.sbv")
@@ -11,6 +12,7 @@ extern SBV ref_incFieldPrime("../spec/sbv/generated/p384_incFieldPrime.sbv")
 extern SBV ref_decFieldPrime("../spec/sbv/generated/p384_decFieldPrime.sbv")
   : [384] -> { carry : [32]; rslt : [384] };
 
+extern SBV ref_group_add("../spec/sbv/generated/p384_group_add.sbv")    : ([384],[384]) -> [384];
 extern SBV ref_mod_half("../spec/sbv/generated/p384_mod_half.sbv") : ([384], [384]) -> [384];
 extern SBV ref_mod_sub ("../spec/sbv/generated/p384_mod_sub.sbv") : ([384], [384], [384]) -> [384];
 
