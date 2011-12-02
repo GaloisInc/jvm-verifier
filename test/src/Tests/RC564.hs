@@ -76,7 +76,7 @@ evalDagRC564 key input = do
                   $ V.fromList
                   $ hexToByteSeq key ++ hexToByteSeq input
     evalFn <- mkConcreteEval inpValues
-    return $ byteSeqToHex (map evalFn outVars)
+    liftIO $ byteSeqToHex `fmap` mapM evalFn outVars
   assert $ rslt == golden
 --   run $ putStrLn $ "Result : " ++ rslt
 

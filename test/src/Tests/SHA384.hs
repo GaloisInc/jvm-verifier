@@ -71,7 +71,7 @@ evalDagSHA384 msg = do
     outVars <- runSimulator cb $ runSHA384 msgVars
     let inputValues = V.map constInt $ V.fromList (hexToByteSeq msg)
     evalFn <- mkConcreteEval inputValues
-    return $ byteSeqToHex $ map evalFn outVars
+    liftIO $ byteSeqToHex <$> mapM evalFn outVars
   assert $ rslt == golden
   -- run $ putStrLn $ "SHA-384 Result : " ++ rslt
 
