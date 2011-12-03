@@ -1207,8 +1207,8 @@ testRandom de v ir test_num lim pvc =
   loop run passed = loop (run + 1) =<< testOne passed
 
   testOne passed = do
-    vs   <- mapM (QuickCheck.pickRandom . termType . fst) (pvcInputs pvc)
-    eval <- deConcreteEval (V.fromList vs)
+    vs   <- V.mapM QuickCheck.pickRandom =<< deInputTypes de
+    eval <- deConcreteEval vs
     badAsmp <- isViolated eval (pvcAssumptions pvc)
     if badAsmp
       then do return passed
@@ -1220,7 +1220,7 @@ testRandom de v ir test_num lim pvc =
                    when (v >= 4) $ dbugM "End concrete DAG eval for one VC check."
                    when bad_goal $ do
                      (vs1,goal1) <- QuickCheck.minimizeCounterExample
-                                            isCounterExample vs goal
+                                            isCounterExample (V.toList vs) goal
                      txt <- msg eval goal1
                      throwIOExecException (specPos ir) txt ""
               return $! passed + 1
