@@ -1,2 +1,11 @@
 import "common.saw";
+
+set verification off;
+import "field_add.spec";
+import "field_sub.spec";
+import "field_mul.qcspec";
+import "mod_half.spec";
+import "ec_double.spec";
+set verification on;
+
 import "ec_full_add.qcspec";
