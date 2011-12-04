@@ -33,9 +33,10 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'let'          { TReserved _ "let"          }
    'SBV'          { TReserved _ "SBV"          }
    'Bit'          { TReserved _ "Bit"          }
+   'pragma'       { TReserved _ "pragma"       }
    'method'       { TReserved _ "method"       }
    'rule'         { TReserved _ "rule"         }
-   'at'           { TReserved _ "at"           }
+   'from'         { TReserved _ "from"         }
    'mayAlias'     { TReserved _ "mayAlias"     }
    'assert'       { TReserved _ "assert"       }
    'ensure'       { TReserved _ "ensure"       }
@@ -141,20 +142,27 @@ import {-# SOURCE #-} SAWScript.ParserActions
 %%
 
 -- SAWScript
-SAWScript :: { [SAWScriptCommand] }
+SAWScript :: { [Input SAWScriptCommand] }
 SAWScript : termBy(SAWScriptCommand, ';') { $1 }
 
 -- Verifier commands
-SAWScriptCommand :: { SAWScriptCommand }
-SAWScriptCommand : 'import' str                               { ImportCommand     (tokPos $1) $2                   }
-                 | 'extern' 'SBV' var '(' str ')' ':' FnType  { ExternSBV         (tokPos $1) (tokStr $3) $5 $8    }
-                 | 'let' var '=' Expr                         { GlobalLet         (tokPos $1) (tokStr $2) $4       }
-                 | 'set' 'verification' 'on'                  { SetVerification   (tokPos $1) True                 }
-                 | 'set' 'verification' 'off'                 { SetVerification   (tokPos $1) False                }
-                 | 'enable' var                               { Enable            (tokPos $1) (tokStr $2)          }
-                 | 'disable' var                              { Disable           (tokPos $1) (tokStr $2)          }
-                 | 'method' Qvar '{' MethodSpecDecls '}'      { DeclareMethodSpec (tokPos $1) (snd $2) $4          }
-                 | 'rule' var ':' RuleParams Expr '->' Expr   { Rule              (tokPos $1) (tokStr $2) $4 $5 $7 }
+SAWScriptCommand :: { Input SAWScriptCommand }
+SAWScriptCommand
+  : 'import' str                     { inp $1 (ImportCommand $2)}
+  | 'extern' 'SBV' var '(' str ')' ':' FnType 
+                                     { inp $1 (ExternSBV (tokStr $3) $5 $8) }
+  | 'let' var '=' Expr               { inp $1 (GlobalLet (tokStr $2) $4)    }
+  | 'let' var '(' sepBy1(VarBinding, ',') ')' ':' ExprType '=' Expr
+                                     { inp $1 (GlobalFn (tokStr $2) $4 $7 $9)  }
+  | 'pragma' var ':' 'SBV' str       { inp $1 (SBVPragma (tokStr $2) $5)    }
+  | 'set' 'verification' 'on'        { inp $1 (SetVerification True)  }
+  | 'set' 'verification' 'off'       { inp $1 (SetVerification False) }
+  | 'method' Qvar '{' MethodSpecDecls '}' 
+                                     { inp $1 (DeclareMethodSpec (snd $2) $4) }
+  | 'rule' var ':' RuleParams Expr '->' Expr 
+                                     { inp $1 (Rule (tokStr $2) $4 $5 $7) }
+  | 'enable'  var                    { inp $1 (Enable  (tokStr $2)) }
+  | 'disable' var                    { inp $1 (Disable (tokStr $2)) }
 
 -- Types
 FnType  :: { FnType }
@@ -166,23 +174,25 @@ ExprTypes :: { [ExprType] }
 ExprTypes : sepBy1(ExprType, ',') { $1 }
 
 ExprType :: { ExprType }
-ExprType : 'Bit'                           {  BitType    (tokPos $1)             }
-         | '[' ExprWidth ']' opt(ExprType) {% mkExprType (tokPos $1) $2 $4       }
-         | '{' RecordFTypes '}'            {% mkRecordT  (tokPos $1) $2          }
-         | var                             {  ShapeVar   (tokPos $1) (tokStr $1) }
+ExprType
+   : 'Bit'                           {  BitType    (tokPos $1)             }
+   | '[' ExprWidth ']' opt(ExprType) {% mkExprType (tokPos $1) $2 $4       }
+   | '{' RecordFTypes '}'            {% mkRecordT  (tokPos $1) $2          }
+   | var                             {  ShapeVar   (tokPos $1) (tokStr $1) }
 
 ExprWidth :: { ExprWidth }
 ExprWidth : int                     { WidthConst (fst $1) (snd $1)       }
           | var                     { WidthVar   (tokPos $1) (tokStr $1) }
           | ExprWidth '+' ExprWidth { WidthAdd   (tokPos $2) $1 $3       }
 
--- Rule parameters
-RuleParams :: { [(Pos, String, ExprType)] }
-RuleParams : {- empty -}                              { [] }
-           | 'forAll' '{' sepBy1(Param, ',')  '}' '.' { $3 }
+VarBinding :: { Input VarBinding }
+VarBinding : var ':' ExprType { inp $1 (tokStr $1, $3) }
 
-Param :: { (Pos, String, ExprType) }
-Param : var ':' ExprType { (tokPos $1, tokStr $1, $3) }
+-- Rule parameters
+RuleParams :: { [Input (String, ExprType)] }
+RuleParams : {- empty -}                              { [] }
+           | 'forAll' '{' sepBy1(VarBinding, ',')  '}' '.' { $3 }
+
 
 -- Comma separated expressions, potentially none
 Exprs :: { [Expr] }
@@ -194,83 +204,90 @@ Exprs1 : sepBy1(Expr, ',') { $1 }
 
 -- Expressions
 Expr :: { Expr }
-Expr : var                               { Var          (tokPos $1) (tokStr $1)    }
-     | 'true'                            { ConstantBool (tokPos $1) True           }
-     | 'false'                           { ConstantBool (tokPos $1) False          }
-     | num                               { ConstantInt  (tokPos $1) (tokNum $1)    }
-     | '<|' poly '|>'                    { ConstantInt  (tokPos $1) $2             }
-     | '{' RecordFlds '}'                {% mkRecordV   (tokPos $1) $2             }
-     | Expr ':' ExprType                 { TypeExpr     (tokPos $2) $1 $3          }
-     | Expr '.' var                      { DerefField   (tokPos $2) $1 (tokStr $3) }
-     | var '(' Exprs ')'                 { ApplyExpr    (tokPos $1) (tokStr $1) $3 }
-     | '[' Exprs ']'                     { MkArray      (tokPos $1) $2             }
-     | '~' Expr                          { BitComplExpr (tokPos $1) $2             }
-     | 'not' Expr                        { NotExpr      (tokPos $1) $2             }
-     | '-' Expr %prec NEG                { NegExpr      (tokPos $1) $2             }
-     | Expr '*'   Expr                   { MulExpr      (tokPos $2) $1 $3          }
-     | Expr '/s'  Expr                   { SDivExpr     (tokPos $2) $1 $3          }
-     | Expr '%s'  Expr                   { SRemExpr     (tokPos $2) $1 $3          }
-     | Expr '+'   Expr                   { PlusExpr     (tokPos $2) $1 $3          }
-     | Expr '-'   Expr                   { SubExpr      (tokPos $2) $1 $3          }
-     | Expr '<<'  Expr                   { ShlExpr      (tokPos $2) $1 $3          }
-     | Expr '>>s' Expr                   { SShrExpr     (tokPos $2) $1 $3          }
-     | Expr '>>u' Expr                   { UShrExpr     (tokPos $2) $1 $3          }
-     | Expr '&'   Expr                   { BitAndExpr   (tokPos $2) $1 $3          }
-     | Expr '^'   Expr                   { BitXorExpr   (tokPos $2) $1 $3          }
-     | Expr '|'   Expr                   { BitOrExpr    (tokPos $2) $1 $3          }
-     | Expr '#'   Expr                   { AppendExpr   (tokPos $2) $1 $3          }
-     | Expr '=='  Expr                   { EqExpr       (tokPos $2) $1 $3          }
-     | Expr '!='  Expr                   { IneqExpr     (tokPos $2) $1 $3          }
-     | Expr '>=s' Expr                   { SGeqExpr     (tokPos $2) $1 $3          }
-     | Expr '>=u' Expr                   { UGeqExpr     (tokPos $2) $1 $3          }
-     | Expr '>s'  Expr                   { SGtExpr      (tokPos $2) $1 $3          }
-     | Expr '>u'  Expr                   { UGtExpr      (tokPos $2) $1 $3          }
-     | Expr '<=s' Expr                   { SLeqExpr     (tokPos $2) $1 $3          }
-     | Expr '<=u' Expr                   { ULeqExpr     (tokPos $2) $1 $3          }
-     | Expr '<s'  Expr                   { SLtExpr      (tokPos $2) $1 $3          }
-     | Expr '<u'  Expr                   { ULtExpr      (tokPos $2) $1 $3          }
-     | Expr '&&'  Expr                   { AndExpr      (tokPos $2) $1 $3          }
-     | Expr '||'  Expr                   { OrExpr       (tokPos $2) $1 $3          }
-     | Expr '==>' Expr                   { ImpExpr      (tokPos $2) $1 $3          }
-     | 'this'                            { ThisExpr     (tokPos $1)                }
-     | 'args' '[' int ']'                { ArgExpr      (tokPos $1) (snd $3)       }
-     | 'locals' '[' num ']'              { LocalExpr    (tokPos $1) (tokNum $3)    }
-     | '(' Expr ')'                      { $2                                      }
-     | 'if' Expr 'then' Expr 'else' Expr { IteExpr      (tokPos $1) $2 $4 $6       }
+Expr : var                             { Var (tokPos $1) (tokStr $1) }
+     | 'true'                          { ConstantBool (tokPos $1) True }
+     | 'false'                         { ConstantBool (tokPos $1) False }
+     | num                             { ConstantInt (tokPos $1) (tokNum $1) }
+     | '<|' poly '|>'                  { ConstantInt  (tokPos $1) $2 }
+     | '{' RecordFlds '}'              {% mkRecordV   (tokPos $1) $2 }
+     | Expr ':' ExprType               { TypeExpr     (tokPos $2) $1 $3 }
+     | Expr '.' var                    { DerefField (tokPos $2) $1 (tokStr $3) }
+     | var '(' Exprs ')'               { ApplyExpr (tokPos $1) (tokStr $1) $3 }
+     | '[' Exprs ']'                   { MkArray      (tokPos $1) $2 }
+     | '~' Expr                        { BitComplExpr (tokPos $1) $2 }
+     | 'not' Expr                      { NotExpr      (tokPos $1) $2 }
+     | '-' Expr %prec NEG              { NegExpr      (tokPos $1) $2 }
+     | Expr '*'   Expr                 { MulExpr      (tokPos $2) $1 $3 }
+     | Expr '/s'  Expr                 { SDivExpr     (tokPos $2) $1 $3 }
+     | Expr '%s'  Expr                 { SRemExpr     (tokPos $2) $1 $3 }
+     | Expr '+'   Expr                 { PlusExpr     (tokPos $2) $1 $3 }
+     | Expr '-'   Expr                 { SubExpr      (tokPos $2) $1 $3 }
+     | Expr '<<'  Expr                 { ShlExpr      (tokPos $2) $1 $3 }
+     | Expr '>>s' Expr                 { SShrExpr     (tokPos $2) $1 $3 }
+     | Expr '>>u' Expr                 { UShrExpr     (tokPos $2) $1 $3 }
+     | Expr '&'   Expr                 { BitAndExpr   (tokPos $2) $1 $3 }
+     | Expr '^'   Expr                 { BitXorExpr   (tokPos $2) $1 $3 }
+     | Expr '|'   Expr                 { BitOrExpr    (tokPos $2) $1 $3 }
+     | Expr '#'   Expr                 { AppendExpr   (tokPos $2) $1 $3 }
+     | Expr '=='  Expr                 { EqExpr       (tokPos $2) $1 $3 }
+     | Expr '!='  Expr                 { IneqExpr     (tokPos $2) $1 $3 }
+     | Expr '>=s' Expr                 { SGeqExpr     (tokPos $2) $1 $3 }
+     | Expr '>=u' Expr                 { UGeqExpr     (tokPos $2) $1 $3 }
+     | Expr '>s'  Expr                 { SGtExpr      (tokPos $2) $1 $3 }
+     | Expr '>u'  Expr                 { UGtExpr      (tokPos $2) $1 $3 }
+     | Expr '<=s' Expr                 { SLeqExpr     (tokPos $2) $1 $3 }
+     | Expr '<=u' Expr                 { ULeqExpr     (tokPos $2) $1 $3 }
+     | Expr '<s'  Expr                 { SLtExpr      (tokPos $2) $1 $3 }
+     | Expr '<u'  Expr                 { ULtExpr      (tokPos $2) $1 $3 }
+     | Expr '&&'  Expr                 { AndExpr      (tokPos $2) $1 $3 }
+     | Expr '||'  Expr                 { OrExpr       (tokPos $2) $1 $3 }
+     | Expr '==>' Expr                 { ImpExpr      (tokPos $2) $1 $3 }
+     | 'this'                          { ThisExpr     (tokPos $1)       }
+     | 'args' '[' int ']'              { ArgExpr      (tokPos $1) (snd $3)}
+     | 'locals' '[' num ']'            { LocalExpr    (tokPos $1) (tokNum $3) }
+     | '(' Expr ')'                    { $2 }
+     | 'if' Expr 'then' Expr 
+                 'else' Expr           { IteExpr (tokPos $1) $2 $4 $6 }
 
 -- Records
 RecordFTypes :: { [(Pos, String, ExprType)] }
-RecordFTypes : sepBy(connected(var, ':', ExprType), ';')  { map ((\ (v, e) -> (tokPos v, tokStr v, e))) $1 }
+RecordFTypes : sepBy(connected(var, ':', ExprType), ';')
+                               { map ((\(v, e) -> (tokPos v, tokStr v, e))) $1 }
 
 RecordFlds :: { [(Pos, String, Expr)] }
-RecordFlds : sepBy(connected(var, '=', Expr), ';')  { map ((\ (v, e) -> (tokPos v, tokStr v, e))) $1 }
+RecordFlds : sepBy(connected(var, '=', Expr), ';')
+                               { map ((\(v, e) -> (tokPos v, tokStr v, e))) $1 }
 
 -- Method spec body
 MethodSpecDecls :: { [MethodSpecDecl] }
 MethodSpecDecls : termBy(MethodSpecDecl, ';') { $1 }
 
 MethodSpecDecl :: { MethodSpecDecl }
-MethodSpecDecl : 'at' num LSpecBlock       { SpecAt   (tokPos $1) (tokNum $2) $3 }
-               | 'quickcheck' num opt(num) { QuickCheck (tokPos $1) (tokNum $2) (fmap tokNum $3) }
-               | 'verify' VerifyCommand    { Verify   (tokPos $1) $2             }
-               | LSpecDecl                 { Behavior $1                         }
+MethodSpecDecl
+  : 'from' num LSpecBlock  { SpecAt   (tokPos $1) (tokNum $2) $3 }
+  | 'quickcheck' num opt(num)
+                         { QuickCheck (tokPos $1) (tokNum $2) (fmap tokNum $3) }
+  | 'verify' VerifyCommand
+                         { Verify (tokPos $1) $2 }
+  | LSpecDecl            { Behavior $1 }
 
 LSpecBlock :: { BehaviorDecl }
 LSpecBlock : '{' termBy(LSpecDecl, ';') '}' { Block $2 }
            | LSpecDecl ';' { $1 }
 
 LSpecDecl :: { BehaviorDecl }
-LSpecDecl : 'var' Exprs1 '::' JavaType   { VarDecl      (tokPos $1) $2 $4          }
-          | 'mayAlias' '{' Exprs1 '}'    { MayAlias (tokPos $1) $3                 }
-          | 'let' var '=' Expr           { MethodLet    (tokPos $1) (tokStr $2) $4 }
-          | 'assert' Expr                { AssertPred   (tokPos $1) $2             }
-          | 'assert' Expr ':=' Expr      { AssertImp    (tokPos $1) $2 $4          }
-          | 'ensure' Expr ':=' Expr      { EnsureImp    (tokPos $1) $2 $4          }
-          | 'modify' Exprs1              { Modify       (tokPos $1) $2             }
-          | 'return' Expr                { Return       (tokPos $1) $2             }
-          | 'if' '(' Expr ')' LSpecBlock { MethodIf     (tokPos $1) $3 $5          }
-          | 'if' '(' Expr ')' LSpecBlock
-               'else' LSpecBlock         { MethodIfElse (tokPos $1) $3 $5 $7       }
+LSpecDecl
+  : 'var' Exprs1 '::' JavaType   { VarDecl      (tokPos $1) $2 $4          }
+  | 'mayAlias' '{' Exprs1 '}'    { MayAlias     (tokPos $1) $3             }
+  | 'let' var '=' Expr           { MethodLet    (tokPos $1) (tokStr $2) $4 }
+  | 'assert' Expr                { AssertPred   (tokPos $1) $2             }
+  | 'assert' Expr ':=' Expr      { AssertImp    (tokPos $1) $2 $4          }
+  | 'ensure' Expr ':=' Expr      { EnsureImp    (tokPos $1) $2 $4          }
+  | 'modify' Exprs1              { Modify       (tokPos $1) $2             }
+  | 'return' Expr                { Return       (tokPos $1) $2             }
+  | 'if' '(' Expr ')' LSpecBlock { MethodIf     (tokPos $1) $3 $5          }
+  | 'if' '(' Expr ')' LSpecBlock
+               'else' LSpecBlock { MethodIfElse (tokPos $1) $3 $5 $7       }
 
 JavaType :: { JavaType }
 JavaType : 'boolean'            { BoolType (tokPos $1)      }
@@ -285,15 +302,16 @@ JavaType : 'boolean'            { BoolType (tokPos $1)      }
          | Qvar                 { RefType (fst $1) (snd $1) }
 
 VerifyCommand :: { VerifyCommand }
-VerifyCommand : 'rewrite'                          { Rewrite }
-              | 'abc'                              { ABC }
-              | 'smtlib' opt(int) opt(str)         { SmtLib (fmap snd $2) $3 }
-              | 'yices'  opt(int)                  { Yices (fmap snd $2) }
-              | 'expand' Expr                      { Expand $2 }
-              | 'at' num VerifyCommand             { VerifyAt (tokPos $2) (tokNum $2) $3 }
-              | 'enable'  var                      { VerifyEnable  (tokPos $2) (tokStr $2) }
-              | 'disable' var                      { VerifyDisable (tokPos $2) (tokStr $2) }
-              | '{' termBy(VerifyCommand, ';') '}' { VerifyBlock $2 }
+VerifyCommand
+  : 'rewrite'                          { Rewrite }
+  | 'abc'                              { ABC }
+  | 'smtlib' opt(int) opt(str)         { SmtLib (fmap snd $2) $3 }
+  | 'yices'  opt(int)                  { Yices (fmap snd $2) }
+  | 'expand' Expr                      { Expand $2 }
+  | 'from' num VerifyCommand           { VerifyAt (tokPos $2) (tokNum $2) $3 }
+  | 'enable'  var                      { VerifyEnable  (tokPos $2) (tokStr $2) }
+  | 'disable' var                      { VerifyDisable (tokPos $2) (tokStr $2) }
+  | '{' termBy(VerifyCommand, ';') '}' { VerifyBlock $2 }
 
 -- A qualified variable
 Qvar :: { (Pos, [String]) }
@@ -316,7 +334,7 @@ polyTerm :     num '^' num   {             tokNum $1 ^ tokNum $3   }
          | num num '^' num   { tokNum $1 * (tokNum $2 ^ tokNum $4) }
          | num               { tokNum $1                           }
 
--- Parameterized productions, most of these come directly from the Happy manual..
+-- Parameterized productions, most come directly from the Happy manual.
 fst(p, q)  : p q   { $1 }
 snd(p, q)  : p q   { $2 }
 both(p, q) : p q   { ($1, $2) }

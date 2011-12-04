@@ -955,13 +955,13 @@ generateVC ir esd (ps, res) =
 specVCs :: VerifyParams -> [SymbolicMonad [PathVC]]
 specVCs
   (VerifyParams
-    { vpPos = pos
-    , vpCode = cb
+    { vpCode = cb
     , vpOpts = opts
     , vpOver = overrides
     , vpSpec = ir
     }
   ) = do
+  let pos = specPos ir
   let vrb = verbose opts
   -- Get list of behavior specs to start from and the equivclass for them.
   let executionParams = [ (bs,cl) | bs <- concat $ Map.elems $ specBehaviors ir
@@ -1004,7 +1004,6 @@ specVCs
 
 data VerifyParams = VerifyParams
   { vpOpCache :: OpCache
-  , vpPos     :: Pos
   , vpCode    :: JSS.Codebase
   , vpOpts    :: SSOpts
   , vpSpec    :: MethodSpecIR

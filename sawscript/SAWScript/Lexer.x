@@ -38,9 +38,9 @@ $idchar    = [$alpha $digit \' \_]
 $symchar   = [$symbol \:]
 $nl        = [\n\r]
 
-@reservedid  = import|extern|SBV|let|Bit
+@reservedid  = import|extern|SBV|let|Bit|pragma
              | set|verification|on|off|rule|enable|disable|forAll
-             | method|var|mayAlias|at|assert|ensure|modify|return
+             | method|var|mayAlias|from|assert|ensure|modify|return
              |quickcheck|verify|rewrite|abc|smtlib|yices|expand
              |boolean|byte|char|double|float|int|long|short
              |args|locals|this|true|false|if|then|else

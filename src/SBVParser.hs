@@ -241,9 +241,9 @@ joinTypesFn :: (TypedTerm t, CacheM m)
             => OpCache -> V.Vector DagType -> [DagType]
             -> TermSemantics m t -> V.Vector (m t) -> V.Vector (m t)
 joinTypesFn oc resTypes sbvTypes ts args =
-        V.zipWith (\fn v -> fn ts v)
-                   fieldJoinFns
-                   (partitionVector sizes args)
+    V.zipWith (\fn v -> fn ts v)
+               fieldJoinFns
+               (partitionVector sizes args)
 
   where
   typeSizes = V.map typeSize resTypes
@@ -251,7 +251,6 @@ joinTypesFn oc resTypes sbvTypes ts args =
   sizes = V.toList $ V.map length groupedTypes
   fieldJoinFns = V.zipWith (joinSBVTerm oc) resTypes groupedTypes
  
-
 -- | Join split terms from SBV into single argument
 -- for symbolic simulator.
 joinSBVTerm :: (CacheM m, TypedTerm t)
@@ -282,9 +281,6 @@ joinSBVTerm _ SymInt{} (V.fromList -> exprTypes) ts args =
                     op        = appendIntOp (intSize (termType r))
                                             (intSize thisType)
                 impl (i+1) =<< tsApplyBinary ts op (return r) (return thisField)
-
-
-
 
 joinSBVTerm oc (SymArray (widthConstant -> Just (Wx len)) resEltTp)
                                                         sbvTypes ts args =
@@ -653,8 +649,8 @@ parseSBVCommand (Decl _p (SBV _ (Right n)) (Just (SBVApp sOp sArgs))) = do
     case Map.lookup n m of
       Just r -> return r
       Nothing -> do
-        args <- mapM (\(SBVE fn) -> fn ts) argFuns
-        r <- lift $ applyFn ts $ V.fromList $ map return args
+        args <- V.mapM (\(SBVE fn) -> fn ts) (V.fromList argFuns)
+        r <- lift $ applyFn ts $ V.map return $ args
         m' <- get
         put (Map.insert n r m')
         return r
@@ -676,77 +672,65 @@ newtype WordEvalFn =
   WEF (forall m t . CacheM m => TermSemantics m t -> V.Vector (m t) -> m t)
 
 -- | Parse a SBV file into an action running in an arbitrary word monad.
-parseSBV :: (TypedTerm t, CacheM m) =>
-         OpCache -- ^ Stores current operators.
-         -> UninterpFnMap -- ^ Maps uninterpreted function names to corresponding op.
+parseSBV :: OpCache -- ^ Stores current operators.
+         -> UninterpFnMap -- ^ Map uninterpreted function to op.
          -> SBVPgm
-         -> TermSemantics m t -> V.Vector (m t) -> m t
+         -> IO Node
 parseSBV oc
          uninterpFn
          pgrm@(SBVPgm ((Version vMajor vMinor),
                        _ir,
                        cmds,
-                       _vc,
-                       _warnings,
+                       vc,
+                       warnings,
                        _opDecls)) 
-  | not (vMajor == 4 && vMinor == 0) = throw $ SBVBadFileVersion vMajor vMinor
-  | otherwise =
+  | not (vMajor == 4 && vMinor == 0) = 
+     throwMIO $ SBVBadFileVersion vMajor vMinor
+  | not (null vc) = 
+     throwMIO $ SBVUnsupportedFeature
+              $ "SBV Parser does not support loading SBV files with a "
+                ++ "verification condition."
+  | not (null warnings) =
+    throwMIO $ SBVUnsupportedFeature
+             $ "SBV Parser does not support loading SBV files with warnings."
+  | otherwise = do
+    de <- mkNodeDagEngine (error "WE USED THE BIT ENGINE!!!" :: BitEngine Lit)
+    let ts = deTermSemantics de
+
+    inps <- V.mapM (deFreshInput de Nothing) argTypes
+
     let (inputNodes,outs) = runChecker oc uninterpFn
                                 (V.toList (V.concatMap id inputTypes)) $
                                 mapM_ parseSBVCommand (reverse cmds)
 
         (outputTypes, outputEvals) = unzip outs
-
-    in \ts args -> do
-                 inputs <- sequence
-                         $ V.toList
-                         $ V.concatMap id
-                         $ V.zipWith (\(SF fn) a -> fn ts a) inputFns args
-                 let inputMap = Map.fromList (inputNodes `zip` inputs)
-                 outputs <- evalStateT (mapM (\(SBVE fn) -> fn ts) outputEvals)
-                                       inputMap
-                 joinSBVTerm oc resType outputTypes ts
-                      $ V.fromList $ map return outputs
+    inputs <- sequence
+            $ V.toList
+            $ V.concatMap id
+            $ V.zipWith (\(SF fn) a -> fn ts (return a)) inputFns inps
+    let inputMap = Map.fromList (inputNodes `zip` inputs)
+    outputs <- evalStateT (mapM (\(SBVE fn) -> fn ts) outputEvals)
+                          inputMap
+    joinSBVTerm oc resType outputTypes ts $
+      V.map return (V.fromList outputs)
  where (argTypes, resType) = parseSBVType oc pgrm
        (inputTypes, inputFns) = V.unzip $ V.map splitInput argTypes
 
-
-
-
-
 -- | Parse a SBV file into an operator and action.
 parseSBVOp :: OpCache
-           -> UninterpFnMap  -- ^ Maps uninterpreted function names to corresponding op
+           -> UninterpFnMap  -- ^ Maps uninterpreted function names to op
            -> String -- ^ Name for new operator
            -> SBVPgm
-           -> IO (OpDef, WordEvalFn)
+           -> IO (OpDef, Node)
 parseSBVOp oc
            uninterpFn
            opDefName
-           pgrm@(SBVPgm ((Version vMajor vMinor), _ir, _cmds, vc, warnings, _opDecls)) = do
-  unless (vMajor == 4 && vMinor == 0) $
-    throwMIO $ SBVBadFileVersion vMajor vMinor
-  unless (null vc) $
-    throwMIO $ SBVUnsupportedFeature
-             $ "SBV Parser does not support loading SBV files with verification condition."
-  unless (null warnings) $
-    throwMIO $ SBVUnsupportedFeature
-             $ "SBV Parser does not support loading SBV files with warnings."
-
-  de <- mkNodeDagEngine (error "WE USED THE BIT ENGINE!!!" :: BitEngine Lit)
-  let ts = deTermSemantics de
+           pgrm = do
   let (argTypes,resType) = parseSBVType oc pgrm
-
-  inps <- V.mapM (deFreshInput de Nothing) argTypes
-  evalTerm <- parseSBV oc uninterpFn pgrm ts (V.map return inps)
-
+  evalTerm <- parseSBV oc uninterpFn pgrm 
   let evalFn ts args = do vals <- V.sequence args
                           f <- deEval (\i _ _ -> vals V.! i) ts
                           f evalTerm
-
-  op <- definedOp oc opDefName (V.toList argTypes) resType (OpSem (\_ -> evalFn))
-
-  return (op, WEF evalFn)
-
-
-
+  op <- definedOp oc opDefName (V.toList argTypes) resType 
+                  (OpSem (\_ -> evalFn))
+  return (op, evalTerm)

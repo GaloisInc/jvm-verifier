@@ -1,3 +1,4 @@
+{-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TypeSynonymInstances #-}
@@ -6,7 +7,7 @@
 module SAWScript.CommandExec(runProofs) where
 
 -- Imports {{{1
-import Control.Applicative ((<$>))
+import Control.Applicative
 import Control.Exception
 import Control.Monad
 import Data.Int
@@ -16,6 +17,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.Traversable (Traversable, traverse)
 import qualified Data.Vector as V
 import Prelude hiding (catch)
 import System.Directory (makeRelativeToCurrentDirectory)
@@ -25,6 +27,7 @@ import System.IO (hFlush, stdout)
 import Text.PrettyPrint.HughesPJ
 
 import qualified Execution.Codebase as JSS
+import SAWScript.ErrorPlus
 import SAWScript.Utils
 import qualified SAWScript.MethodAST as AST
 import qualified SAWScript.MethodSpec as TC
@@ -35,7 +38,6 @@ import qualified SBVParser as SBV
 import Verinf.Symbolic
 import Verinf.Symbolic.Common(opDefIndex)
 import Verinf.Utils.IOStateT
-import Verinf.Utils.LogMonad
 
 -- Executor primitives {{{1
 
@@ -49,7 +51,7 @@ data ExecutorState = ES {
     -- | Map from names to constant value bound to name.
   , globalLetBindings :: Map String (CValue,DagType)
     -- | Maps file paths to verifier commands.
-  , parsedFiles :: Map FilePath [AST.SAWScriptCommand]
+  , parsedFiles :: Map FilePath [AST.Input AST.SAWScriptCommand]
     -- | Flag that indicates if verification commands should be executed.
   , runVerification :: Bool
     -- | Maps rule and let binding names to location where it was introduced.
@@ -58,33 +60,43 @@ data ExecutorState = ES {
     -- | Maps function names read in from SBV file into corresponding
     -- operator definition and position where operator was introduced.
   , sbvOpMap :: Map String (Pos,OpDef)
-    -- | List of method specs added to state.
-  , methodSpecs :: [TC.MethodSpecIR]
+    -- | List of verification tasks found (in reverse order).
+    -- Boolean stores if method should be validated.
+  , verifications :: [(Bool,TC.VerifyParams)]
     -- | Maps rule names to corresponding rule.
   , rules :: Map String Rule
     -- | Set of currently enabled rules.
   , enabledRules :: Set String
   }
 
-newtype MExecutor m a = Ex (StateT ExecutorState m a)
-  deriving ( CatchMIO
-           , Functor
-           , Monad
-           , MonadIO
-           , MonadState ExecutorState
-           , MonadTrans
-           )
+type ExecErrors = [(Pos,Doc,String)]
 
-type Executor = MExecutor IO
+type Executor   = ErrorT ExecErrors (StateT ExecutorState IO)
+
+type Evaluator = ErrorPlusT ExecErrors (StateT ExecutorState IO)
+
+traverse_ :: (Applicative f, Traversable t) => (a -> f b) -> t a -> f ()
+traverse_ f d = () <$ traverse f d
+
+exec :: Executor a -> Evaluator a
+exec m = ErrorPlusT (runErrorT m)
+
+eval :: Evaluator a -> Executor a
+eval m = ErrorT (runErrorPlusT m)
+
+-- | Record a non-fatal error.
+reportError :: Pos -> Doc -> Executor ()
+reportError pos msg = throwError [(pos,msg,"")]
 
 -- | Given a file path, this returns the verifier commands in the file,
 -- or throws an exception.
-parseFile :: FilePath -> Executor [AST.SAWScriptCommand]
-parseFile path = do
+typecheckPath :: FilePath -> Executor ()
+typecheckPath path = do
   m <- gets parsedFiles
   case Map.lookup path m of
     Nothing -> error $ "internal: Could not find file " ++ path
-    Just cmds -> return cmds
+    Just cmds -> do
+      eval $ traverse_ (\(AST.Input p c) -> tcCommand p c) cmds
 
 getGlobalBindings :: Executor TC.GlobalBindings
 getGlobalBindings = do
@@ -108,52 +120,39 @@ enabledOpDefs s
   $ Map.toList
   $ sawOpMap s
 
--- verbosity {{{2
-
-instance LogMonad Executor where
-  getVerbosity = verbose <$> gets execOptions
-  setVerbosity v = modify $ \s -> s { execOptions = (execOptions s) { verbose = v } }
-
--- | Write messages to standard IO.
-whenVerbosityWrite :: (Int -> Bool) -> String -> Executor ()
-whenVerbosityWrite cond msg = whenVerbosity cond $ liftIO $ putStrLn msg
-
--- | Write messages to standard IO without printing a line.
-whenVerbosityWriteNoLn :: (Int -> Bool) -> String -> Executor ()
-whenVerbosityWriteNoLn cond msg =
-  whenVerbosity cond $ liftIO $ do
-    putStr msg
-    hFlush stdout
-
 -- | Write debug message to standard IO.
 debugWrite :: String -> Executor ()
-debugWrite = whenVerbosityWrite (>=6)
+debugWrite msg = do
+  verb <- gets (verbose . execOptions)
+  when (verb >= 6) $ liftIO $ putStrLn msg
 
 -- Rule functions {{{2
 
 -- | Throw exception indicating a rule already exists.
-checkNameIsUndefined :: Pos -> String -> Executor ()
-checkNameIsUndefined pos name = do
-  m <- gets definedNames
-  case Map.lookup name m of
-    Nothing -> return ()
+recordName :: Pos -> String -> Executor ()
+recordName pos name = do
+  s <- get
+  case Map.lookup name (definedNames s) of
+    Nothing -> do
+      put $! s { definedNames = Map.insert name pos (definedNames s) }
     Just absPos -> do
       relPos <- liftIO $ posRelativeToCurrentDirectory absPos
-      throwIOExecException pos
-                           (ftext "The name " <+> quotes (text name)
-                              <+> ftext "has already been defined at "
-                              <+> text (show relPos) <> char '.')
-                           ("Please ensure all names are distinct.")
+      reportError pos $ ftext $ 
+        show name ++ " is already defined at " ++ show relPos ++ "."
 
+-- | Record rule if a rule with that name does not already exist.
+recordRule :: String -> Rule -> Bool -> Executor ()
+recordRule nm rl enabled = do
+  modify $ \s -> s { rules = Map.insert nm rl (rules s) }
+  when enabled $
+    modify $ \s -> s { enabledRules = Set.insert nm (enabledRules s) }
+
+-- | Execute action if name is undefined, otherwise issue a non-fatal error.
 checkNameIsDefined :: Pos -> String -> Executor ()
 checkNameIsDefined pos name = do
   m <- gets rules
-  unless (Map.member name m) $ do
-    throwIOExecException pos
-                         (text "No operator or rule named " <+> quotes (text name)
-                           <+> text "has been defined.")
-                         ("Please check that the name is correct.")
-
+  unless (Map.member name m) $
+    reportError pos $ ftext (show name ++ "is undefined.")
 
 -- Operations for extracting DagType from AST expression types {{{1
 
@@ -162,143 +161,198 @@ opDefType :: OpDef -> (V.Vector DagType, DagType)
 opDefType def = (opDefArgTypes def, opDefResultType def)
 
 -- | Parse the FnType returned by the parser into symbolic dag types.
-parseFnType :: AST.FnType -> Executor (V.Vector DagType, DagType)
-parseFnType (AST.FnType args res) = do
-  oc <- gets opCache
-  return ( V.map (TC.tcType oc) (V.fromList args)
-         , TC.tcType oc res)
+tcFnType :: OpCache -> AST.FnType -> (V.Vector DagType, DagType)
+tcFnType oc (AST.FnType args res) =
+  (V.map (TC.tcType oc) (V.fromList args), TC.tcType oc res)
 
 -- Operations used for SBV Parsing {{{1
 
 -- | Check uninterpreted functions expected in SBV are already defined.
-checkSBVUninterpretedFunctions :: Pos -> Doc -> SBV.SBVPgm -> Executor ()
-checkSBVUninterpretedFunctions pos relativePath sbv = do
+checkSBVUninterpretedFunctions :: Pos -> FilePath -> SBV.SBVPgm -> Executor ()
+checkSBVUninterpretedFunctions pos absolutePath sbv = do
+  relativePath <- liftIO $ makeRelativeToCurrentDirectory absolutePath
   let SBV.SBVPgm (_ver, _, _cmds, _vc, _warn, sbvUninterpFns) = sbv
   oc <- gets opCache
   curSbvOps <- gets sbvOpMap
   forM_ sbvUninterpFns $ \((name, _loc), irType, _) -> do
     case Map.lookup name curSbvOps of
       Nothing -> do
-        let msg = text "The extern SBV file"
-                    <+> relativePath
-                    <+> text "calls an undefined uninterpreted function named"
-                    <+> quotes (text name)
-                    <> char '.'
-            res = "Please load this extern SBV file before attempting to load \'"
-                    ++ name ++ "\'."
-        throwIOExecException pos msg res
+        let msg = show relativePath ++ "contains the undefined function "
+                  ++ show name ++ "."
+        throwIOExecException pos (ftext msg) ""
       Just (_,def) -> do
         let resType = SBV.inferFunctionType oc irType
         unless (opDefType def == resType) $ do
-          let msg = text "The type of the uninterpreted function"
-                     <+> quotes (text name)
-                     <+> text "does not match the type expected in the extern SBV file"
-                     <+> relativePath <> char '.'
-              res = "Please check that the correct SBV files match the Cryptol source."
-          throwIOExecException pos msg res
+          let msg = show name ++ " has an unexpected type in "
+                      ++ show relativePath ++ "."
+          throwIOExecException pos (ftext msg) ""
 
 -- | Throw ExecException if SBVException is thrown.
-throwSBVParseError :: MonadIO m => Pos -> Doc -> SBV.SBVException -> m a
-throwSBVParseError pos relativePath e =
-  let msg = text "An internal error occurred when loading the SBV"
-              <+> relativePath <> colon $$
-              text (SBV.ppSBVException e)
-      res = "Please reconfirm that the SBV filename is a valid SBV file from Cryptol."
-   in throwIOExecException pos msg res
+throwSBVParseError :: Pos -> FilePath -> SBV.SBVException -> IO a
+throwSBVParseError pos absolutePath e = do
+  relativePath <- makeRelativeToCurrentDirectory absolutePath
+  let msg = ftext ((show relativePath) ++ " could not be parsed:\n") $$
+            text (SBV.ppSBVException e)
+   in throwIOExecException pos msg ""
 
 -- Verifier command execution {{{1
 
--- | Execute command
-execute :: AST.SAWScriptCommand -> Executor ()
--- Execute commands from file.
-execute (AST.ImportCommand _pos path) = do
-  mapM_ execute =<< parseFile path
-execute (AST.ExternSBV pos nm absolutePath astFnType) = do
-  oc <- gets opCache
-  -- Get relative path as Doc for error messages.
-  relativePath <- liftIO $ (doubleQuotes . text) <$>
-                    makeRelativeToCurrentDirectory absolutePath
-  -- Get name of op in Cryptol from filename.
-  let sbvOpName = dropExtension (takeFileName absolutePath)
-  -- Get current uninterpreted function map.
-  curSbvOps <- gets sbvOpMap
-  -- Check if rule for operator definition is undefined.
-  checkNameIsUndefined pos nm
-  -- Check SBV Op name is undefined.
-  case Map.lookup sbvOpName curSbvOps of
-    Nothing -> return ()
+-- | Run method spec validation command.
+runMethodSpecValidate :: Int -> Bool -> TC.VerifyParams -> IO ()
+runMethodSpecValidate verb v vp = do
+  let ir = TC.vpSpec vp
+  let specName = show (TC.specName ir)
+  let putPrefixTS msg = do
+        ts <- getTimeStamp
+        putStr $ "[" ++ ts ++ "] " ++ msg
+        hFlush stdout
+  let putPrefixTSLn msg = do
+        ts <- getTimeStamp
+        putStrLn $ "[" ++ ts ++ "] " ++ msg
+  let writeAssumeCorrect = 
+        putPrefixTSLn $ "Assuming " ++ specName ++ " is correct."
+  let runValidate = do
+        ((), elapsedTime) <- timeIt $ TC.validateMethodSpec vp
+        let timeMsg = " [Time: " ++ elapsedTime ++ "]"
+        when (verb == 1 ) $ 
+          putStrLn $ "Done." ++ timeMsg
+        when (verb > 1) $
+          putStrLn $ "Finished " ++ specName ++ "." ++ timeMsg
+  case TC.specValidationPlan ir of
+    _ | not v -> writeAssumeCorrect
+    TC.Skip -> writeAssumeCorrect
+    TC.QuickCheck{} -> do
+      when (verb == 1) $
+        putPrefixTS $ "Testing " ++ specName ++ "... "
+      when (verb > 1) $
+        putPrefixTSLn $ "Start testing " ++ specName ++ "."
+      runValidate
+    TC.Verify{} -> do
+      when (verb == 1) $
+        putPrefixTS $ "Verifying  " ++ specName ++ "... "
+      when (verb > 1) $
+        putPrefixTSLn $ "Start verifying " ++ specName ++ "."
+      runValidate
+
+recordSBVOp :: Pos -> String -> OpDef -> Executor ()
+recordSBVOp pos sbvOpName op = do
+  s <- get
+  case Map.lookup sbvOpName (sbvOpMap s) of
+    Nothing -> 
+      put s { sbvOpMap = Map.insert sbvOpName (pos,op) (sbvOpMap s) }
     Just (absPos,_) -> do
       relPos <- liftIO $ posRelativeToCurrentDirectory absPos
-      let msg = (text "The Cryptol function"
-                  <+> text sbvOpName
-                  <+> ftext "has already been defined at"
-                  <+> text (show relPos)
-                  <> char '.')
-          res = "Please check that each exported function is only loaded once."
-       in throwIOExecException pos msg res
-  -- Load SBV file
-  sbv <- liftIO $ SBV.loadSBV absolutePath
-  --- Parse SBV type to add recordDefs as needed.
-  debugWrite $ "Parsing SBV type for " ++ nm
-  let SBV.SBVPgm (_ver, sbvExprType, _cmds, _vc, _warn, _uninterpFns) = sbv
-  -- Check that op type matches expected type.
-  debugWrite $ "Checking expected type matches inferred type for " ++ nm
-  fnType <- parseFnType astFnType
-  let inferredType = SBV.inferFunctionType oc sbvExprType
-  unless (fnType == inferredType) $
-    let msg = (ftext "The type of the function in the imported SBV file"
-                 $$ relativePath
-                 $$ ftext "differs from the type provided to the extern command.")
-        res = "Please check that the function exported from Cryptol via SBV "
-               ++ "matches the type in the SAWScript file."
-     in throwIOExecException pos msg res
-  -- Check uninterpreted functions are defined.
-  debugWrite $ "Checking uninterpreted inputs for " ++ nm
-  checkSBVUninterpretedFunctions pos relativePath sbv
-  -- Define uninterpreted function map.
-  let uninterpFns :: String -> [DagType] -> Maybe Op
-      uninterpFns name _ = (groundOp . snd) <$> Map.lookup name curSbvOps
+      reportError pos $ ftext $
+        "The SBV function " ++ sbvOpName ++ " was previously defined at "
+          ++ show relPos ++ "."
+
+-- | Convert a logic term into a term.
+logicTermToTerm :: TC.LogicExpr -> Term
+logicTermToTerm (TC.Apply op args) = appTerm op (map logicTermToTerm args)
+logicTermToTerm (TC.Cns cns tp) = mkConst cns tp
+logicTermToTerm (TC.JavaValue _ _ _) =
+  error "internal: Java value given to logicTermToTerm"
+logicTermToTerm (TC.Var name tp) = mkVar name tp
+
+tcVarBindings :: [AST.Input AST.VarBinding]
+              -> Executor (Map String TC.LogicExpr)
+tcVarBindings bindings = do
+  -- Check for duplicates in bindings.
+  let duplicates = Map.toList
+                 $ Map.filter (\v -> length v > 1)
+                 $ Map.fromListWith (++)
+                 $ map (\(AST.Input pos (nm, _)) -> (nm, [pos]))
+                 $ bindings
+  unless (null duplicates) $ eval $
+     let throwAlreadyDefined _ [] = error "internal: tcVarBindings"
+         throwAlreadyDefined nm (prevAbsPos:r) = exec $ do
+           pp <- liftIO $ posRelativeToCurrentDirectory prevAbsPos
+           let msg = ftext $ show nm ++ "already defined at " ++ show pp ++ "."
+           throwError (map (\pos -> (pos,msg,"")) r)
+      in traverse_ (uncurry throwAlreadyDefined) duplicates
+  -- Return map
+  oc <- gets opCache
+  let parseFn (AST.Input _ (nm, typeAst)) =
+        let tp = TC.tcType oc typeAst
+         in (nm, TC.Var nm tp)
+  return $ Map.fromList $ map parseFn bindings
+
+-- | Execute command
+tcCommand :: Pos -> AST.SAWScriptCommand -> Evaluator ()
+
+-- Execute commands from file.
+tcCommand _ (AST.ImportCommand path) = exec $ typecheckPath path
+
+tcCommand pos (AST.ExternSBV nm absolutePath astFnType) = exec $ do
   -- Parse SBV file.
-  debugWrite $ "Parsing SBV import for " ++ nm
-  (op, SBV.WEF opFn) <-
-    flip catchMIO (throwSBVParseError pos relativePath) $ lift $
+  (op, rhsTerm) <- do
+    oc <- gets opCache
+    debugWrite $ "Parsing SBV import for " ++ nm
+    -- Load SBV file
+    sbv <- liftIO $ SBV.loadSBV absolutePath
+    -- Check uninterpreted functions are defined.
+    checkSBVUninterpretedFunctions pos absolutePath sbv
+    -- Define uninterpreted function map.
+    curSbvOps <- gets sbvOpMap
+    let uninterpFns :: String -> [DagType] -> Maybe Op
+        uninterpFns name _ = (groundOp . snd) <$> Map.lookup name curSbvOps
+    -- Parse SBV
+    liftIO $ handle (throwSBVParseError pos absolutePath) $
       SBV.parseSBVOp oc uninterpFns nm sbv
-  -- Create rule for definition.
-  debugWrite $ "Creating rule definition for for " ++ nm
-  let (argTypes,_) = fnType
-  let lhsArgs = V.map (\i -> mkVar (show i) (argTypes V.! i))
-              $ V.enumFromN 0 (V.length argTypes)
-  let lhs = evalTerm $ appTerm (groundOp op) (V.toList lhsArgs)
-  rhs <- lift $ runSymbolic oc $ do
-    inputVars0 <- V.mapM freshUninterpretedVar argTypes
-    let inputVars = V.map return inputVars0
-    ts <- getTermSemantics
-    val <- liftIO $ opFn ts inputVars
-    return $ nodeToTermCtor (fmap show . termInputId) val
+  -- Get expected type.
+  oc <- gets opCache
+  let fnType = tcFnType oc astFnType
+  -- Check that op type matches expected type.
+  do unless (fnType == opDefFnType op) $ liftIO $ do
+       -- Get relative path as Doc for error messages.
+       relativePath <- makeRelativeToCurrentDirectory absolutePath
+       let msg = show relativePath ++ " has a different type than expected."
+        in throwIOExecException pos (ftext msg) ""
   -- Update state with op and rules.
-  modify $ \s -> s { sbvOpMap = Map.insert sbvOpName (pos,op) (sbvOpMap s)
-                   , definedNames = Map.insert nm pos (definedNames s)
-                   , sawOpMap = Map.insert nm op (sawOpMap s)
-                   , rules = Map.insert nm (Rule nm lhs rhs) (rules s)
-                   --, enabledRules = Set.insert nm (enabledRules s)
-                   }
+  do recordName pos nm
+     modify $ \s -> s { sawOpMap = Map.insert nm op (sawOpMap s) }
+     let lhs = evalTerm $ appTerm (groundOp op) (V.toList lhsArgs)
+         lhsArgs = V.map (\i -> mkVar (show i) (argTypes V.! i))
+                 $ V.enumFromN 0 (V.length argTypes)
+         (argTypes,_) = fnType
+     let rhs = nodeToTermCtor (fmap show . termInputId) rhsTerm
+     recordRule nm (Rule nm lhs rhs) False
+  -- Record SBV op.
+  do let sbvOpName = dropExtension (takeFileName absolutePath)
+     recordSBVOp pos sbvOpName op
+  -- Print debug log.
   debugWrite $ "Finished process extern SBV " ++ nm
-execute (AST.GlobalLet pos name astExpr) = do
+
+tcCommand pos (AST.GlobalLet name rhsAst) = exec $ do
   debugWrite $ "Start defining let " ++ name
-  checkNameIsUndefined pos name
   valueExpr <- do
     bindings <- getGlobalBindings
     let config = TC.mkGlobalTCConfig bindings Map.empty
-    lift $ TC.tcLogicExpr config astExpr
+    liftIO $ TC.tcLogicExpr config rhsAst
   val <- liftIO $ TC.globalEval valueExpr
   let tp = TC.typeOfLogicExpr valueExpr
-  modify $ \s -> s { definedNames = Map.insert name pos (definedNames s)
-                   , globalLetBindings = Map.insert name (val, tp) (globalLetBindings s) }
+  -- Record name.
+  recordName pos name
+  -- Update state with op and rules.
+  modify $ \s ->
+    s { globalLetBindings = Map.insert name (val, tp) (globalLetBindings s) }
   debugWrite $ "Finished defining let " ++ name
-execute (AST.SetVerification _pos val) = do
+tcCommand pos (AST.GlobalFn name args resType rhsAst) = exec $ do
+  bindings <- getGlobalBindings --TODO: Fix this.
+  nameTypeMap <- tcVarBindings args
+  let config = TC.mkGlobalTCConfig bindings nameTypeMap
+  rhsExpr <- liftIO $ TC.tcLogicExpr config rhsAst
+  --TODO: Implement this.
+  recordName pos name
+  error "Not yet implemented: GlobalFn " pos name args resType rhsExpr
+tcCommand pos (AST.SBVPragma nm sbvName) = exec $ do
+  m <- gets sawOpMap
+  case Map.lookup nm m of
+    Nothing -> reportError pos $ ftext $ show nm ++ " is undefined."
+    Just op -> recordSBVOp pos sbvName op
+tcCommand _ (AST.SetVerification val) = exec $ do
   modify $ \s -> s { runVerification = val }
-execute (AST.DeclareMethodSpec pos methodId cmds) = do
-  oc <- gets opCache
+tcCommand pos (AST.DeclareMethodSpec methodId cmds) = exec $ do
   cb <- gets codebase
   let mName:revClasspath = reverse methodId
   when (null revClasspath) $
@@ -307,76 +361,38 @@ execute (AST.DeclareMethodSpec pos methodId cmds) = do
   -- Get class
   thisClass <- liftIO $ JSS.lookupClass cb jvmClassName
   -- Resolve method spec IR
-  ir <- do
-    bindings <- getGlobalBindings
-    ruleNames <- Map.keysSet <$> gets rules
-    lift $ TC.resolveMethodSpecIR bindings ruleNames pos thisClass mName cmds
-  v <- gets runVerification
-  let plan = TC.specValidationPlan ir
-  let specName = show (TC.specName ir)
-  ts <- getTimeStamp
-  let prefixTS msg = "[" ++ ts ++ "] " ++ msg
-  let writeAssumeCorrect = 
-        liftIO $ putStrLn $ prefixTS $ "Assuming " ++ specName ++ " is correct."
-  let runValidate = do
-        ((), elapsedTime) <- timeIt $ do
-          opts <- gets execOptions
-          overrides <- gets methodSpecs
-          allRules <- gets rules
-          enRules <- gets enabledRules
-          enOps <- gets enabledOpDefs
-          liftIO $ TC.validateMethodSpec
-            TC.VerifyParams
-              { TC.vpOpCache = oc
-              , TC.vpPos = pos
-              , TC.vpCode = cb
-              , TC.vpOpts = opts
-              , TC.vpSpec = ir
-              , TC.vpOver = overrides
-              , TC.vpRules = Map.elems allRules
-              , TC.vpEnabledRules = enRules
-              , TC.vpEnabledOps = enOps
-              }
-        whenVerbosityWrite (==1) $ "Done. [Time: " ++ elapsedTime ++ "]"
-        whenVerbosityWrite (>1) $
-          "Finished " ++ specName ++ ". [Time: " ++ elapsedTime ++ "]"
-  case plan of
-    _ | not v -> writeAssumeCorrect
-    TC.Skip -> writeAssumeCorrect
-    TC.QuickCheck{} -> do
-      whenVerbosityWriteNoLn (==1) $
-        prefixTS $ "Testing " ++ specName ++ "... "
-      whenVerbosityWrite (>1) $
-        prefixTS $ "Start testing " ++ specName ++ "."
-      runValidate
-    TC.Verify{} -> do
-      whenVerbosityWriteNoLn (==1) $
-        prefixTS $ "Verifying  " ++ specName ++ "... "
-      whenVerbosityWrite (>1) $
-        "[" ++ ts ++ "] Start verifying " ++ specName ++ "."
-      runValidate
-  -- Add methodIR to state for use in later verifications.
-  modify $ \s -> s { methodSpecs = ir : methodSpecs s }
-execute (AST.Rule pos ruleName params astLhsExpr astRhsExpr) = do
-  debugWrite $ "Start defining rule " ++ ruleName
-  checkNameIsUndefined pos ruleName
-  oc <- gets opCache
   bindings <- getGlobalBindings
-  -- | Get map from variable names to typed expressions.
-  nameTypeMap <- lift $ flip execStateT Map.empty $ do
-    forM_ params $ \(fieldPos, fieldNm, astType) -> do
-      m <- get
-      case Map.lookup fieldNm m of
-        Just _ ->
-          let msg = "Rule contains multiple declarations of the variable \'"
-                     ++ fieldNm ++ "\'."
-           in throwIOExecException fieldPos (ftext msg) ""
-        Nothing -> do
-          let tp = TC.tcType oc astType
-          modify $ Map.insert fieldNm (TC.Var fieldNm tp)
+  ruleNames <- Map.keysSet <$> gets rules
+  ir <- liftIO $
+    TC.resolveMethodSpecIR bindings ruleNames pos thisClass mName cmds
+  -- Create verification task.
+  v <- gets runVerification
+  oc <- gets opCache
+  opts <- gets execOptions
+  overrides <- gets (map (TC.vpSpec . snd) . verifications)
+  allRules <- gets rules
+  enRules <- gets enabledRules
+  enOps <- gets enabledOpDefs
+  let vp = TC.VerifyParams
+             { TC.vpOpCache = oc
+             , TC.vpCode = cb
+             , TC.vpOpts = opts
+             , TC.vpSpec = ir
+             , TC.vpOver = overrides
+             , TC.vpRules = Map.elems allRules
+             , TC.vpEnabledRules = enRules
+             , TC.vpEnabledOps = enOps
+             }
+  -- Add methodIR to state for use in later verifications.
+  modify $ \s -> s { verifications = (v,vp) : verifications s }
+
+tcCommand pos (AST.Rule ruleName params astLhsExpr astRhsExpr) = exec $ do
+  debugWrite $ "Start defining rule " ++ ruleName
+  bindings <- getGlobalBindings
+  nameTypeMap <- tcVarBindings params
   let config = TC.mkGlobalTCConfig bindings nameTypeMap
-  lhsExpr <- lift $ TC.tcLogicExpr config astLhsExpr
-  rhsExpr <- lift $ TC.tcLogicExpr config astRhsExpr
+  lhsExpr <- liftIO $ TC.tcLogicExpr config astLhsExpr
+  rhsExpr <- liftIO $ TC.tcLogicExpr config astRhsExpr
   -- Check types are equivalence
   let lhsTp = TC.typeOfLogicExpr lhsExpr
       rhsTp = TC.typeOfLogicExpr rhsExpr
@@ -386,32 +402,40 @@ execute (AST.Rule pos ruleName params astLhsExpr astRhsExpr) = do
                 ++ ppType lhsTp ++ " and " ++ ppType rhsTp ++ "."
         res = "Please ensure the left and right-hand side of the rule have equivalent types."
      in throwIOExecException pos (ftext msg) res
-  -- Check all vars in quantifier are used.
-  let paramVars = Set.fromList $ map (\(_,nm,_) -> nm) params
+  -- Check all vars in quantifier are used in left-hand-side.
+  let paramVars = Set.fromList $ map (fst . AST.inpVal) params
       lhsVars = TC.logicExprVarNames lhsExpr
   unless (lhsVars == paramVars) $ do
-    let msg = "In the rule '" ++ ruleName ++ "', the left hand side term does"
-               ++ " not refer to all of the variables in the quantifier."
-        res = "Please ensure that all variables are referred to in the"
-               ++ " left-hand side of the rule, ensure the right-hand side"
-               ++ " does not refer to variables unbound in the left-hand side."
-     in throwIOExecException pos (ftext msg) res
-  -- TODO: Parse lhsExpr and rhsExpr and add rule.
-  let mkRuleTerm :: TC.LogicExpr -> Term
-      mkRuleTerm (TC.Apply op args) = appTerm op (map mkRuleTerm args)
-      mkRuleTerm (TC.Cns cns tp) = mkConst cns tp
-      mkRuleTerm (TC.JavaValue _ _ _) = error "internal: Java value given to mkRuleTerm"
-      mkRuleTerm (TC.Var name tp) = mkVar name tp
-  let rl = Rule ruleName (evalTerm (mkRuleTerm lhsExpr)) (evalTerm (mkRuleTerm rhsExpr))
-  modify $ \s -> s { rules = Map.insert ruleName rl (rules s)
-                   , enabledRules = Set.insert ruleName (enabledRules s) }
+    let msg = "The left hand side of " ++ show ruleName
+               ++ " must refer to all of the variables in the quantifier."
+     in throwIOExecException pos (ftext msg) ""
+  -- Parse lhsExpr and rhsExpr and add rule.
+  let rl = Rule ruleName (evalTerm (logicTermToTerm lhsExpr))
+                         (evalTerm (logicTermToTerm rhsExpr))
+  recordName pos ruleName
+  recordRule ruleName rl True
   debugWrite $ "Finished defining rule " ++ ruleName
-execute (AST.Disable pos name) = do
+
+tcCommand pos (AST.Disable name) = exec $ do
   checkNameIsDefined pos name
   modify $ \s -> s { enabledRules = Set.delete name (enabledRules s) }
-execute (AST.Enable pos name) = do
+
+tcCommand pos (AST.Enable name) = exec $ do
   checkNameIsDefined pos name
   modify $ \s -> s { enabledRules = Set.insert name (enabledRules s) }
+
+printFailure :: [(Pos,Doc,String)] -> IO ()
+printFailure l = do
+  ts <- getTimeStamp
+  putStrLn $ "\n[" ++ ts ++ "] Verification failed!"
+  forM_ l $ \(absPos,errorMsg,resolution) -> do
+    putStrLn ""
+    putStrLn =<< show `fmap` posRelativeToCurrentDirectory absPos
+    let rend = renderStyle style { lineLength = 100 }
+    putStrLn $ rend $ nest 2 errorMsg
+    when (resolution /= "") $ do
+      putStrLn ""
+      putStrLn $ rend $ nest 2 $ ftext resolution
 
 -- | This is the entry point from the front-end
 -- The implicit assumption is that you can either return back with an exitCode;
@@ -429,28 +453,27 @@ runProofs cb ssOpts files = do
         , execOptions = ssOpts
         , parsedFiles = files
         , runVerification = True
-        , definedNames = Map.empty
-        , sawOpMap     = Map.fromList [ ("aget", getArrayValueOpDef)
-                                      , ("aset", setArrayValueOpDef)]
-        , sbvOpMap     = Map.empty
-        , methodSpecs  = []
-        , rules        = Map.empty
-        , enabledRules = Set.empty
+        , definedNames  = Map.empty
+        , sawOpMap      = Map.fromList [ ("aget", getArrayValueOpDef)
+                                       , ("aset", setArrayValueOpDef)]
+        , sbvOpMap      = Map.empty
+        , verifications = []
+        , rules         = Map.empty
+        , enabledRules  = Set.empty
         , globalLetBindings = Map.empty
         }
-      Ex action = do cmds <- parseFile initialPath
-                     mapM_ execute cmds
-                     liftIO $ putStrLn "Verification complete!"
-                     return ExitSuccess
-  catch (evalStateT action initState)
-    (\(ExecException absPos errorMsg resolution) -> do
-        relPos <- posRelativeToCurrentDirectory absPos
-        ts <- getTimeStamp
-        putStrLn $ "\n[" ++ ts ++ "] Verification failed!\n"
-        putStrLn $ show relPos
-        let rend = renderStyle style { lineLength = 100 }
-        putStrLn $ rend $ nest 2 errorMsg
-        when (resolution /= "") $ do
-          putStrLn ""
-          putStrLn $ rend $ nest 2 $ ftext resolution
-        return $ ExitFailure (-1))
+      action = do
+        typecheckPath initialPath
+        gets (reverse . verifications)
+  res <- 
+    catch (evalStateT (runErrorT action) initState) $
+          \(ExecException absPos errorMsg resolution) ->
+             return $ Left [(absPos,errorMsg, resolution)]
+  case res of
+    Left errMsgs -> do
+      printFailure errMsgs
+      return $ ExitFailure (-1)
+    Right l -> do
+      mapM_ (uncurry (runMethodSpecValidate (verbose ssOpts))) l
+      putStrLn "Verification complete!"
+      return ExitSuccess

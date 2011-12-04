@@ -9,9 +9,16 @@ module SAWScript.MethodAST where
 
 import SAWScript.Utils
 import qualified Data.Map as M
+import SAWScript.Token
+
+data Input v = Input { inpPos :: Pos, inpVal :: v }
+  deriving (Show)
+
+inp :: Token Pos -> v -> Input v
+inp tok v = Input (tokPos tok) v
 
 -- result of parsing a bunch of method specs
-type SSPgm = M.Map FilePath [SAWScriptCommand]
+type SSPgm = M.Map FilePath ([Input SAWScriptCommand])
 
 type BitWidth = Int
 
@@ -219,6 +226,7 @@ data VerifyCommand
    | VerifyBlock [VerifyCommand]
   deriving (Show)
 
+
 data BehaviorDecl
   = VarDecl Pos [Expr] JavaType
     -- | Local binding within a method spec.
@@ -246,25 +254,32 @@ data MethodSpecDecl
 
 type RuleName = String
 
+type VarBinding = (String, ExprType)
+
 data SAWScriptCommand
   -- | Import declarations from another Java verifier file.
-  = ImportCommand Pos FilePath
+  = ImportCommand FilePath
   -- | Load a SBV function from the given file path, and give
   -- it the corresponding name in this context.
   -- The function will be uninterpreted in future SBV function reads.
   -- This additionally introduces a rule named "<function_name>.def"
-  | ExternSBV Pos String FilePath FnType
-  -- | Global binding.
-  | GlobalLet Pos String Expr
+  | ExternSBV String FilePath FnType
+  -- | Global constant binding.
+  | GlobalLet String Expr
+  -- | Global function binding.
+  | GlobalFn String [Input VarBinding] ExprType Expr
+  -- | Pragma to bind a function to an SBV input (automatic with ExternSBV).
+  | SBVPragma String -- ^ SAWScript function name
+              String -- ^ SBV function name.
   -- | Verification option ("on" == True && "off" == False)
-  | SetVerification Pos Bool
+  | SetVerification Bool
   -- | Define a Java method spec.
-  | DeclareMethodSpec Pos [String] [MethodSpecDecl]
+  | DeclareMethodSpec [String] [MethodSpecDecl]
   -- | Define a rewrite rule with the given name, left-hand-side and right-hand
   -- side.
-  | Rule Pos RuleName [(Pos, String, ExprType)] Expr Expr
-  -- | Disable use of a rule or extern definition.
-  | Disable Pos String
+  | Rule RuleName [Input VarBinding] Expr Expr
   -- | Enable use of a rule or extern definition.
-  | Enable Pos String
+  | Enable String
+  -- | Disable use of a rule or extern definition.
+  | Disable String
  deriving (Show)
