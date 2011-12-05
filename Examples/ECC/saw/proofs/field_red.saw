@@ -1,2 +1,4 @@
 import "common.saw";
+
+enable ref_field_mod;
 import "field_red.qcspec";

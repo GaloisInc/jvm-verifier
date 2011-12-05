@@ -4,6 +4,7 @@ set verification off;
 import "ec_full_add.qcspec";
 set verification on;
 
+enable ref_ec_full_sub;
 import "ec_full_sub.qcspec";
 
 

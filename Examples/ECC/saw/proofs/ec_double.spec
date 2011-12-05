@@ -1,4 +1,3 @@
-enable ref_ec_double;
 method com.galois.ecc.P384ECC64.ec_double 
 {
   var args[0]                         :: com.galois.ecc.JacobianPoint;

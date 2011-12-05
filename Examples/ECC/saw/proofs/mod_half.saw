@@ -1,4 +1,4 @@
 import "common.saw";
+
+enable ref_mod_half;
 import "mod_half.spec";
-
-

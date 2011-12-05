@@ -1,4 +1,3 @@
-enable ref_mod_half;
 method com.galois.ecc.P384ECC64.mod_half
 {
   var x, p :: int[12]; 
