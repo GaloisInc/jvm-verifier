@@ -1,4 +1,4 @@
-
+enable ref_ec_full_sub;
 method com.galois.ecc.P384ECC64.ec_full_sub
 {
   var args[0]                         :: com.galois.ecc.JacobianPoint; 
