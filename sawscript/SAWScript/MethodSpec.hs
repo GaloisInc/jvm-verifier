@@ -66,7 +66,7 @@ nyi msg = error $ "Not yet implemented: " ++ msg
 -- Verinf Utilities {{{1
 
 -- | Create a node with given number of bits.
-mkIntInput :: (SV.Storable l) => DagEngine n l -> Int -> IO n
+mkIntInput :: DagEngine -> Int -> IO DagTerm
 mkIntInput de w = deFreshInput de (SymInt (constantWidth (Wx w)))
 
 -- | Create a lit result with input bits for the given ground dag type.
@@ -79,10 +79,10 @@ mkInputLitResultWithType (SymArray (widthConstant -> Just (Wx l)) eltTp) =
 mkInputLitResultWithType _ =
   error "internal: mkInputLitResultWithType called with unsupported type."
 
-deEq :: TypedTerm t => DagEngine t l -> t -> t -> IO t
+deEq :: DagEngine -> DagTerm -> DagTerm -> IO DagTerm
 deEq de x y = deApplyBinary de (eqOp (termType x)) x y
 
-deImplies :: DagEngine t l -> t -> t -> IO t
+deImplies :: DagEngine -> DagTerm -> DagTerm -> IO DagTerm
 deImplies de x y = deApplyBinary de bImpliesOp x y
 
 typeBitCount :: DagType -> Int
@@ -101,6 +101,9 @@ mkInputEval _ _ = error "internal: Unsupported type given to mkInputEval"
 
 -- JSS Utilities {{{1
 
+type DagPathState = JSS.PathState DagTerm
+type DagJavaValue = JSS.Value DagTerm
+
 -- | Set value of bound to instance field in path state.
 setInstanceFieldValue :: JSS.Ref -> JSS.FieldId -> JSS.Value n
                       -> JSS.PathState n -> JSS.PathState n
@@ -109,7 +112,8 @@ setInstanceFieldValue r f v ps =
 
 -- | Set value bound to array in path state.
 -- Assumes value is an array with a ground length.
-setArrayValue :: TypedTerm n => JSS.Ref -> n -> JSS.PathState n -> JSS.PathState n
+setArrayValue :: TypedTerm n => JSS.Ref -> n -> JSS.PathState n
+              -> JSS.PathState n
 setArrayValue r v ps = do
   let SymArray (widthConstant -> Just (Wx w)) _ = termType v
    in ps { JSS.arrays = Map.insert r (fromIntegral w, v) (JSS.arrays ps) }
@@ -125,7 +129,7 @@ mkJSSValue JSS.ShortType   n = JSS.IValue n
 mkJSSValue _ _ = error "internal: illegal type"
 
 -- | Add assumption for predicate to path state.
-addAssumption :: DagEngine n l -> n -> JSS.PathState n -> IO (JSS.PathState n)
+addAssumption :: DagEngine -> DagTerm -> DagPathState -> IO DagPathState
 addAssumption de x ps =
   do prop <- deApplyBinary de bAndOp (JSS.psAssumptions ps) x
      return ps { JSS.psAssumptions = prop }
@@ -138,13 +142,13 @@ addAssertion nm x ps =
 -- EvalContext {{{1
 
 -- | Contextual information needed to evaluate expressions.
-data EvalContext t l = EvalContext {
-         ecDagEngine :: DagEngine t l
-       , ecLocals :: Map JSS.LocalVariableIndex (JSS.Value t)
-       , ecPathState :: JSS.PathState t
+data EvalContext = EvalContext {
+         ecDagEngine :: DagEngine
+       , ecLocals :: Map JSS.LocalVariableIndex DagJavaValue
+       , ecPathState :: DagPathState
        }
 
-evalContextFromPathState :: DagEngine t l -> JSS.PathState t -> EvalContext  t l
+evalContextFromPathState :: DagEngine -> DagPathState -> EvalContext
 evalContextFromPathState de ps =
   let f:_ = JSS.frames ps
       method   = JSS.frmMethod f
@@ -170,7 +174,7 @@ runEval v = runErrorT v
 -- the JavaExpression syntactically referes to the correct type of method
 -- (static versus instance), and correct well-typed arguments.  It does
 -- not assume that all the instanceFields in the JavaEvalContext are initialized.
-evalJavaExpr :: TC.JavaExpr -> EvalContext n l -> ExprEvaluator (JSS.Value n)
+evalJavaExpr :: TC.JavaExpr -> EvalContext -> ExprEvaluator DagJavaValue
 evalJavaExpr expr ec = eval expr
   where eval e@(CC.Term app) =
           case app of
@@ -184,14 +188,14 @@ evalJavaExpr expr ec = eval expr
                 Just v -> return v
                 Nothing -> throwError e
 
-evalJavaRefExpr :: TC.JavaExpr -> EvalContext n l -> ExprEvaluator JSS.Ref
+evalJavaRefExpr :: TC.JavaExpr -> EvalContext -> ExprEvaluator JSS.Ref
 evalJavaRefExpr expr ec = do
   val <- evalJavaExpr expr ec
   case val of
     JSS.RValue ref -> return ref
     _ -> error "internal: evalJavaRefExpr encountered illegal value."
 
-evalJavaExprAsLogic :: TC.JavaExpr -> EvalContext n l -> ExprEvaluator n
+evalJavaExprAsLogic :: TC.JavaExpr -> EvalContext -> ExprEvaluator DagTerm
 evalJavaExprAsLogic expr ec = do
   val <- evalJavaExpr expr ec
   case val of
@@ -204,18 +208,18 @@ evalJavaExprAsLogic expr ec = do
     _ -> error "internal: evalJavaExprAsExpr encountered illegal value."
 
 -- | Evaluates a typed expression.
-evalLogicExpr :: TC.LogicExpr -> EvalContext n l -> ExprEvaluator n
+evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator DagTerm
 evalLogicExpr initExpr ec = eval initExpr
   where de = ecDagEngine ec
         eval (TC.Apply op exprs) =
           (liftIO . deApplyOp de op) =<< V.mapM eval (V.fromList exprs)
-        eval (TC.Cns c tp) = return $ deConstantTerm de c tp
+        eval (TC.Cns c tp) = return $ ConstTerm c tp
         eval (TC.Var _ _) = error "internal: evalLogicExpr called with var"
         eval (TC.JavaValue expr _ _) = evalJavaExprAsLogic expr ec
 
 -- | Return Java value associated with mixed expression.
-evalMixedExpr :: TypedTerm n
-              => TC.MixedExpr -> EvalContext n l -> ExprEvaluator (JSS.Value n)
+evalMixedExpr :: TC.MixedExpr -> EvalContext 
+              -> ExprEvaluator DagJavaValue
 evalMixedExpr (LE expr) ec = do
   n <- evalLogicExpr expr ec
   case termType n of
@@ -228,10 +232,10 @@ evalMixedExpr (JE expr) ec = evalJavaExpr expr ec
 -- OverrideComputation definition {{{2
 
 -- | State for running the behavior specifications in a method override.
-data OCState n l = OCState {
-         ocsEvalContext :: !(EvalContext n l)
-       , ocsResultState :: !(JSS.PathState n)
-       , ocsReturnValue :: !(Maybe (JSS.Value n))
+data OCState = OCState {
+         ocsEvalContext :: !EvalContext
+       , ocsResultState :: !DagPathState
+       , ocsReturnValue :: !(Maybe DagJavaValue)
        }
 
 data OverrideError
@@ -252,31 +256,32 @@ ppOverrideError (JavaException _)    = "A Java exception was thrown."
 ppOverrideError (SimException s)     = "Simulation exception: " ++ s ++ "."
 ppOverrideError Abort                = "Path was aborted."
 
-data OverrideResult n
-   = SuccessfulRun (JSS.PathState n) (Maybe (JSS.Value n))
+data OverrideResult
+   = SuccessfulRun DagPathState (Maybe DagJavaValue)
    | FalseAssumption
-   | FailedRun (JSS.PathState n) OverrideError -- ^ Type of error and assumptions leading up to error.
+   | FailedRun DagPathState OverrideError -- ^ Type of error and assumptions leading up to error.
    deriving (Show)
 
-type RunResult n = (JSS.PathState n, Either OverrideError (Maybe (JSS.Value n)))
+type RunResult = (DagPathState, Either OverrideError (Maybe DagJavaValue))
 
-orParseResults :: [OverrideResult n] -> [RunResult n]
-orParseResults l = [ (ps, Left e) | FailedRun ps e <- l ] ++ [ (ps, Right v) | SuccessfulRun ps v <- l ]
+orParseResults :: [OverrideResult] -> [RunResult]
+orParseResults l = [ (ps, Left  e) | FailedRun     ps e <- l ]
+                ++ [ (ps, Right v) | SuccessfulRun ps v <- l ]
 
-type OverrideComputation n l = ContT (OverrideResult n) (StateT (OCState n l) IO)
+type OverrideComputation = ContT OverrideResult (StateT OCState IO)
 
-ocError :: OverrideError -> OverrideComputation n l a
+ocError :: OverrideError -> OverrideComputation a
 ocError e = ContT $ \_ -> do
   ps <- gets ocsResultState
   return (FailedRun ps e)
 
-ocAssumeFailed :: OverrideComputation n l a
+ocAssumeFailed :: OverrideComputation a
 ocAssumeFailed = ContT (\_ -> return FalseAssumption)
 
 -- OverrideComputation utilities {{{2
 
 -- | Runs an evaluate within an override computation.
-ocEval :: (EvalContext n l -> ExprEvaluator b) -> OverrideComputation n l b
+ocEval :: (EvalContext -> ExprEvaluator b) -> OverrideComputation b
 ocEval fn = do
   ec <- gets ocsEvalContext
   res <- liftIO (runEval (fn ec))
@@ -285,14 +290,13 @@ ocEval fn = do
     Right v   -> return v
 
 -- Modify result state
-ocModifyResultState :: (JSS.PathState n -> JSS.PathState n)
-                    -> OverrideComputation n l ()
+ocModifyResultState :: (DagPathState -> DagPathState) -> OverrideComputation ()
 ocModifyResultState fn = do
   bcs <- get
   put $! bcs { ocsResultState = fn (ocsResultState bcs) }
 
-ocModifyResultStateIO :: (JSS.PathState n -> IO (JSS.PathState n))
-                    -> OverrideComputation n l ()
+ocModifyResultStateIO :: (DagPathState -> IO DagPathState)
+                      -> OverrideComputation ()
 ocModifyResultStateIO fn = do
   bcs <- get
   new <- liftIO $ fn $ ocsResultState bcs
@@ -301,7 +305,7 @@ ocModifyResultStateIO fn = do
 
 
 -- | Add assumption for predicate.
-ocAssert :: ConstantProjection n => Pos -> String -> n -> OverrideComputation n l ()
+ocAssert :: Pos -> String -> DagTerm -> OverrideComputation ()
 ocAssert p nm x = do
   case getBool x of
     Just True -> return ()
@@ -310,9 +314,7 @@ ocAssert p nm x = do
 
 -- ocStep {{{2
 
-ocStep :: (ConstantProjection n, TypedTerm n, SV.Storable l)
-       => BehaviorCommand
-       -> OverrideComputation n l ()
+ocStep :: BehaviorCommand -> OverrideComputation ()
 ocStep (AssertPred pos expr) =
   ocAssert pos "Override predicate" =<< ocEval (evalLogicExpr expr)
 ocStep (AssumePred expr) = do
@@ -347,11 +349,7 @@ ocStep (Return expr) = do
 
 -- Executing overrides {{{2
 
-execBehavior :: (ConstantProjection n, TypedTerm n, SV.Storable l)
-             => [BehaviorSpec]
-             -> EvalContext n l
-             -> JSS.PathState n
-             -> IO [RunResult n]
+execBehavior :: [BehaviorSpec] -> EvalContext -> DagPathState -> IO [RunResult]
 execBehavior bsl ec ps = do
   -- Get state of current execution path in simulator.
   -- Get spec at PC 0.
@@ -491,22 +489,22 @@ esdRefName ref esd =
 -- Initial state generation {{{1
 
 -- | State for running the behavior specifications in a method override.
-data ESGState t l = ESGState {
-         esDagEngine :: DagEngine t l
+data ESGState = ESGState {
+         esDagEngine :: DagEngine
        , esMethod :: JSS.Method
        , esExprRefMap :: Map TC.JavaExpr JSS.Ref
-       , esInitialAssignments :: [(TC.JavaExpr, t)]
-       , esInitialPathState :: JSS.PathState t
-       , esReturnValue :: Maybe (JSS.Value t)
-       , esInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe (JSS.Value t))
-       , esArrays :: Map JSS.Ref (Maybe (Int32, t))
+       , esInitialAssignments :: [(TC.JavaExpr, DagTerm)]
+       , esInitialPathState :: DagPathState
+       , esReturnValue :: Maybe DagJavaValue
+       , esInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe DagJavaValue)
+       , esArrays :: Map JSS.Ref (Maybe (Int32, DagTerm))
        }
 
 -- | Monad used to execute statements in a behavior specification for a method
 -- override.
-type ExpectedStateGenerator t l = StateT (ESGState t l) IO
+type ExpectedStateGenerator = StateT ESGState IO
 
-esEval :: (EvalContext t l -> ExprEvaluator b) -> ExpectedStateGenerator t l b
+esEval :: (EvalContext -> ExprEvaluator b) -> ExpectedStateGenerator b
 esEval fn = do
   de <- gets esDagEngine
   initPS <- gets esInitialPathState
@@ -516,35 +514,33 @@ esEval fn = do
     Left expr -> fail $ "internal: esEval given " ++ show expr ++ "."
     Right v   -> return v
 
-esGetInitialPathState :: ExpectedStateGenerator t l (JSS.PathState t)
+esGetInitialPathState :: ExpectedStateGenerator DagPathState
 esGetInitialPathState = gets esInitialPathState
 
-esPutInitialPathState :: JSS.PathState t -> ExpectedStateGenerator t l ()
+esPutInitialPathState :: DagPathState -> ExpectedStateGenerator ()
 esPutInitialPathState ps = modify $ \es -> es { esInitialPathState = ps }
 
-esModifyInitialPathState :: (JSS.PathState t -> JSS.PathState t)
-                         -> ExpectedStateGenerator t l ()
+esModifyInitialPathState :: (DagPathState -> DagPathState)
+                         -> ExpectedStateGenerator ()
 esModifyInitialPathState fn =
   modify $ \es -> es { esInitialPathState = fn (esInitialPathState es) }
 
-esModifyInitialPathStateIO :: (JSS.PathState t -> IO (JSS.PathState t))
-                         -> ExpectedStateGenerator t l ()
+esModifyInitialPathStateIO :: (DagPathState -> IO DagPathState)
+                         -> ExpectedStateGenerator ()
 esModifyInitialPathStateIO fn =
   do s0 <- esGetInitialPathState
      esPutInitialPathState =<< liftIO (fn s0)
 
-
-
-esAddEqAssertion :: TypedTerm t =>
-           DagEngine t l -> String -> t -> t -> ExpectedStateGenerator t l ()
+esAddEqAssertion :: DagEngine -> String -> DagTerm -> DagTerm
+                 -> ExpectedStateGenerator ()
 esAddEqAssertion de nm x y =
   do prop <- liftIO (deEq de x y)
      esModifyInitialPathState (addAssertion nm prop)
 
 
 -- | Assert that two terms are equal.
-esAssertEq :: TypedTerm t
-           => String -> JSS.Value t -> JSS.Value t -> ExpectedStateGenerator t l ()
+esAssertEq :: String -> DagJavaValue -> DagJavaValue
+           -> ExpectedStateGenerator ()
 esAssertEq nm (JSS.RValue x) (JSS.RValue y) = do
   when (x /= y) $
     error $ "internal: Asserted different references for " ++ nm ++ " are equal."
@@ -557,8 +553,7 @@ esAssertEq nm (JSS.LValue x) (JSS.LValue y) = do
 esAssertEq _ _ _ = error "internal: esAssertEq given illegal arguments."
 
 -- | Set value in initial state.
-esSetJavaValue :: TypedTerm t
-               => TC.JavaExpr -> JSS.Value t -> ExpectedStateGenerator t l ()
+esSetJavaValue :: TC.JavaExpr -> DagJavaValue -> ExpectedStateGenerator ()
 esSetJavaValue e@(CC.Term exprF) v = do
   case exprF of
     TC.Local nm idx _ -> do
@@ -581,8 +576,8 @@ esSetJavaValue e@(CC.Term exprF) v = do
          JSS.instanceFields = Map.insert (ref,f) v (JSS.instanceFields ps)
        }
 
-esResolveLogicExprs :: (TypedTerm t, SV.Storable l)
-                    => DagType -> [TC.LogicExpr] -> ExpectedStateGenerator t l t
+esResolveLogicExprs :: DagType -> [TC.LogicExpr]
+                    -> ExpectedStateGenerator DagTerm
 esResolveLogicExprs tp [] = do
   de <- gets esDagEngine
   -- Create input variable.
@@ -600,9 +595,8 @@ esResolveLogicExprs _ (hrhs:rrhs) = do
   -- Return value.
   return t
 
-esSetLogicValues :: (TypedTerm t, SV.Storable l)
-                 => [TC.JavaExpr] -> DagType -> [TC.LogicExpr]
-                 -> ExpectedStateGenerator t l ()
+esSetLogicValues :: [TC.JavaExpr] -> DagType -> [TC.LogicExpr]
+                 -> ExpectedStateGenerator ()
 esSetLogicValues cl tp lrhs = do
   -- Get value of rhs.
   value <- esResolveLogicExprs tp lrhs
@@ -627,8 +621,7 @@ esSetLogicValues cl tp lrhs = do
      _ -> error "internal: initializing Java values given bad rhs."
 
 
-esStep :: (TypedTerm t, SV.Storable l)
-       => BehaviorCommand -> ExpectedStateGenerator t l ()
+esStep :: BehaviorCommand -> ExpectedStateGenerator ()
 esStep (AssertPred _ expr) = do
   de <- gets esDagEngine
   v <- esEval $ evalLogicExpr expr
@@ -784,27 +777,27 @@ type InputEvaluator n = (n,SV.Vector Bool -> CValue)
 
 -- VerificationCheck {{{2
 
-data VerificationCheck n
-  = AssertionCheck String n -- ^ Name of assertion.
+data VerificationCheck
+  = AssertionCheck String DagTerm -- ^ Name of assertion.
   -- | Check that equalitassertion is true.
   | EqualityCheck String -- ^ Name of value to compare
-                  n -- ^ Value returned by JVM symbolic simulator.
-                  n -- ^ Expected value in Spec.
+                  DagTerm -- ^ Value returned by JVM symbolic simulator.
+                  DagTerm -- ^ Expected value in Spec.
   deriving (Eq, Ord, Show)
 
-vcName :: VerificationCheck n -> String
+vcName :: VerificationCheck -> String
 vcName (AssertionCheck nm _) = nm
 vcName (EqualityCheck nm _ _) = nm
 
 -- | Returns goal that one needs to prove.
-vcGoal :: TypedTerm n => DagEngine n l -> VerificationCheck n -> IO n
+vcGoal :: DagEngine -> VerificationCheck -> IO DagTerm
 vcGoal _ (AssertionCheck _ n) = return n
 vcGoal de (EqualityCheck _ x y) = deEq de x y
 
-type CounterexampleFn n = (n -> IO CValue) -> IO Doc
+type CounterexampleFn = (DagTerm -> IO CValue) -> IO Doc
 
 -- | Returns documentation for check that fails.
-vcCounterexample :: PrettyTerm n => VerificationCheck n -> CounterexampleFn n
+vcCounterexample :: VerificationCheck -> CounterexampleFn
 vcCounterexample (AssertionCheck nm n) _ =
   return $ text ("Assertion " ++ nm ++ " is unsatisfied:") <+> prettyTermD n
 vcCounterexample (EqualityCheck nm jvmNode specNode) evalFn =
@@ -822,7 +815,7 @@ data PathVC = PathVC {
           -- | Static errors found in path.
         , pvcStaticErrors :: [Doc]
           -- | What to verify for this result.
-        , pvcChecks :: [VerificationCheck Node]
+        , pvcChecks :: [VerificationCheck]
         }
 
 type PathVCGenerator = State PathVC
@@ -855,7 +848,7 @@ pvcgFail msg =
 -- | Compare result with expected state.
 generateVC :: MethodSpecIR
            -> ExpectedStateDef -- ^ What is expected
-           -> RunResult Node -- ^ Results of symbolic execution.
+           -> RunResult -- ^ Results of symbolic execution.
            -> PathVC -- ^ Proof oblications
 generateVC ir esd (ps, res) =
   runPathVCG (esdInitialAssignments esd) (JSS.psAssumptions ps) $ do
@@ -1033,7 +1026,7 @@ validateMethodSpec
                runVerify vs g cmds
 
 data VerifyState = VState {
-         vsDagEngine :: DagEngine Node Lit
+         vsDagEngine :: DagEngine
        , vsVCName :: String
        , vsMethodSpec :: MethodSpecIR
        , vsVerbosity :: Verbosity
@@ -1041,7 +1034,7 @@ data VerifyState = VState {
        , vsEnabledRules :: Set String
        , vsEnabledOps :: Set OpIndex
        , vsInitialAssignments :: [(TC.JavaExpr, Node)]
-       , vsCounterexampleFn :: CounterexampleFn Node
+       , vsCounterexampleFn :: CounterexampleFn
        , vsStaticErrors :: [Doc]
        }
 
@@ -1074,8 +1067,8 @@ runABC goal = do
         let evalFn bits = mkInputEval tp $ SV.slice lc (typeBitCount tp) bits
         return (l,evalFn)
       let (iLits,inputs) = V.unzip inputPairs
-      lEval <- deEval (\i _ _ -> return (iLits V.! i))
-                      (mkBitBlastTermSemantics be)
+      let inputFn i _ = return (iLits V.! i)
+      lEval <- evalDagTermFn inputFn (mkBitBlastTermSemantics be)
       LV value <- lEval goal
       unless (SV.length value == 1) $
         error "internal: Unexpected number of in verification condition"
@@ -1093,7 +1086,7 @@ runABC goal = do
                         ++ "error in ABC or SAWScript's connection to ABC."
                in throwIOExecException (specPos ir) (ftext msg) ""
             Sat lits -> do
-              evalFn <- deConcreteEval (V.map (\fn -> fn lits) inputs)
+              evalFn <- concreteEvalFn (V.map (\fn -> fn lits) inputs)
               -- Get doc showing inputs
               let docInput (e,n) =
                     do vn <- evalFn n
@@ -1128,9 +1121,9 @@ applyTactics (SmtLib ver file :_) g = useSMTLIB ver file g
 applyTactics (Yices v :_) g = useYices v g
 applyTactics (Expand p expr:_) g = do
   nyi "applyTactics Expand" p expr g
-applyTactics (VerifyEnable nm :_) g =
+applyTactics (VerifyEnable nm :_) _ =
   modify (\s -> s { vsEnabledRules = Set.insert nm (vsEnabledRules s) })
-applyTactics (VerifyDisable nm :_) g =
+applyTactics (VerifyDisable nm :_) _ =
   modify (\s -> s { vsEnabledRules = Set.delete nm (vsEnabledRules s) })
 applyTactics (VerifyAt pc cmds :_) g = do
   nyi "applyTactics VerifyAt" pc cmds g
@@ -1171,7 +1164,7 @@ applyTactic _ _ (pgm, gs) (AST.AddRule nm vars l r) = do
 
 type Verbosity = Int
 
-testRandom :: DagEngine Node Lit -> Verbosity
+testRandom :: DagEngine -> Verbosity
            -> MethodSpecIR -> Int -> Maybe Int -> PathVC -> IO ()
 testRandom de v ir test_num lim pvc =
     do when (v >= 3) $
@@ -1191,7 +1184,7 @@ testRandom de v ir test_num lim pvc =
 
   testOne passed = do
     vs   <- V.mapM QuickCheck.pickRandom =<< deInputTypes de
-    eval <- deConcreteEval vs
+    eval <- concreteEvalFn vs
     badAsmp <- isViolated eval (pvcAssumptions pvc)
     if badAsmp
       then do return passed
@@ -1209,7 +1202,7 @@ testRandom de v ir test_num lim pvc =
               return $! passed + 1
 
   isCounterExample vs =
-    do eval    <- deConcreteEval (V.fromList vs)
+    do eval    <- concreteEvalFn (V.fromList vs)
        badAsmps <- isViolated eval (pvcAssumptions pvc)
        if badAsmps
          then return Nothing

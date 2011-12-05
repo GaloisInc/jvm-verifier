@@ -51,10 +51,10 @@ testCPlus = monadicIO $ do
         uninterpFn "cplus" args = error $ "Unexpected arg count " ++ show (length args)
         uninterpFn name _ = error $ "Unexpected uninterpreted function " ++ name
     sbv <- liftIO $ loadSBV "test/src/support/cplus.sbv"
-    (cPlusSbvOp, cPlusTerm) <- parseSBVOp oc uninterpFn "cplus" sbv
-    de <- mkNodeDagEngine =<< createBitEngine
+    (cPlusSbvOp, cPlusTerm) <- parseSBV oc uninterpFn "cplus" sbv
+    de <- mkExactDagEngine
     args <- V.mapM (deFreshInput de) (opDefArgTypes cPlusSbvOp)
-    evalFn <- deEval (\i _ _ -> return (args V.! i)) (deTermSemantics de)
-    v <- evalFn cPlusTerm
+    let inputFn i _ = return (args V.! i)
+    v <- evalDagTerm inputFn (deTermSemantics de) cPlusTerm
     v `seq` return ()
   assert True

@@ -33,7 +33,7 @@ testAction i what cfg = do res <- run $ do
                              let path = testDir ++ "/ppTest.sbv"
                              pgm <- SBV.loadSBV path
                              let (argTys,_) = SBV.inferSBVFunctionType oc pgm
-                             (_,node) <- SBV.parseSBVOp oc (\_ _ -> Nothing) "ppTest" pgm
+                             (_,node) <- SBV.parseSBV oc (\_ _ -> Nothing) "ppTest" pgm
                              return $ prettyTermWith cfg node
                            let file = testDir ++ "/pp" ++ what ++ "." ++ show i ++ ".gold"
                            case mode of

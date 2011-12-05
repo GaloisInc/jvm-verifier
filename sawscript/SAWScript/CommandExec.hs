@@ -298,7 +298,7 @@ tcCommand pos (AST.ExternSBV nm absolutePath astFnType) = exec $ do
         uninterpFns name _ = (groundOp . snd) <$> Map.lookup name curSbvOps
     -- Parse SBV
     liftIO $ handle (throwSBVParseError pos absolutePath) $
-      SBV.parseSBVOp oc uninterpFns nm sbv
+      SBV.parseSBV oc uninterpFns nm sbv
   -- Get expected type.
   oc <- gets opCache
   let fnType = tcFnType oc astFnType
