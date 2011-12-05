@@ -221,9 +221,9 @@ runMethodSpecValidate verb v vp = do
   case TC.specValidationPlan ir of
     _ | not v -> writeAssumeCorrect
     TC.Skip -> writeAssumeCorrect
-    TC.QuickCheck{} -> do
-      when (verb == 1) $
-        putPrefixTS $ "Testing " ++ specName ++ "... "
+    TC.QuickCheck n _ -> do
+      when (verb == 1) $ let t 1 = " test"; t _ = " tests" in
+        putPrefixTS $ "Testing " ++ specName ++ " (" ++ show n ++ t n ++ ")... "
       when (verb > 1) $
         putPrefixTSLn $ "Start testing " ++ specName ++ "."
       runValidate

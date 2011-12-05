@@ -697,7 +697,7 @@ parseSBV oc
     de <- mkNodeDagEngine (error "WE USED THE BIT ENGINE!!!" :: BitEngine Lit)
     let ts = deTermSemantics de
 
-    inps <- V.mapM (deFreshInput de Nothing) argTypes
+    inps <- V.mapM (deFreshInput de) argTypes
 
     let (inputNodes,outs) = runChecker oc uninterpFn
                                 (V.toList (V.concatMap id inputTypes)) $
@@ -728,9 +728,8 @@ parseSBVOp oc
            pgrm = do
   let (argTypes,resType) = parseSBVType oc pgrm
   evalTerm <- parseSBV oc uninterpFn pgrm 
-  let evalFn ts args = do vals <- V.sequence args
-                          f <- deEval (\i _ _ -> vals V.! i) ts
+  let evalFn ts args = do f <- deEval (\i _ _ -> args V.! i) ts
                           f evalTerm
-  op <- definedOp oc opDefName (V.toList argTypes) resType 
+  op <- defineOp oc opDefName (V.toList argTypes) resType 
                   (OpSem (\_ -> evalFn))
   return (op, evalTerm)

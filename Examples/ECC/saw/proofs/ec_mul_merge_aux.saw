@@ -1,9 +1,6 @@
 import "common.saw";
 
 set verification off;
-import "is_zero.saw";
-import "set_zero.saw";
-import "set_unit.saw";
 import "field_add.spec";
 import "field_sub.spec";
 import "field_dbl.spec";
@@ -14,4 +11,4 @@ import "ec_full_add.qcspec";
 import "ec_full_sub.qcspec";
 set verification on;
 
-import "ec_mul_merge_aux.qcspec";
+import "ec_mul_merge_aux.spec";

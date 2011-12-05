@@ -1,4 +1,5 @@
 import "rules.saw";
+enable ref_ec_mul_aux;
 method com.galois.ecc.P384ECC64.ec_mul_merge_aux 
 {
   var args[0]                         :: com.galois.ecc.JacobianPoint;
@@ -41,6 +42,7 @@ method com.galois.ecc.P384ECC64.ec_mul_merge_aux
     enable imp_true_elim1;
     rewrite;
     // yices; 
+    // quickcheck 1;
   };
-//  quickcheck 1;
 };
+

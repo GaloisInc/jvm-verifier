@@ -23,6 +23,7 @@ PROOFS :=              \
   is_zero.saw          \
   set_zero.saw         \
   set_unit.saw         \
+  mod_half.saw         \
   field_add.saw        \
   field_sub.saw        \
   incFieldPrime.saw    \

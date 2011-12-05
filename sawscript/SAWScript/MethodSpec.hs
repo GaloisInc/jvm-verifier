@@ -107,7 +107,7 @@ setInstanceFieldValue :: JSS.Ref -> JSS.FieldId -> JSS.Value n
 setInstanceFieldValue r f v ps =
   ps { JSS.instanceFields = Map.insert (r,f) v (JSS.instanceFields ps) }
 
--- | Set value bound to array in path state. 
+-- | Set value bound to array in path state.
 -- Assumes value is an array with a ground length.
 setArrayValue :: TypedTerm n => JSS.Ref -> n -> JSS.PathState n -> JSS.PathState n
 setArrayValue r v ps = do
@@ -145,7 +145,7 @@ data EvalContext t l = EvalContext {
        }
 
 evalContextFromPathState :: DagEngine t l -> JSS.PathState t -> EvalContext  t l
-evalContextFromPathState de ps = 
+evalContextFromPathState de ps =
   let f:_ = JSS.frames ps
       method   = JSS.frmMethod f
       paramCount = length (JSS.methodParameterTypes method)
@@ -425,7 +425,7 @@ execOverride pos ir mbThis args = do
   -- Create function for generation resume actions.
   let -- Failed run
       resAction (ps, Left e) = do
-        let msg = "Unsatisified assumptions in " ++ specName ir ++ ": " 
+        let msg = "Unsatisified assumptions in " ++ specName ir ++ ": "
                         ++ ppOverrideError e
         JSS.CustomRA msg $ do
           verb <- getVerbosity
@@ -439,7 +439,7 @@ execOverride pos ir mbThis args = do
       resAction (ps, Right mval) =
         JSS.CustomRA ("Override execution") $ do
           --TODO: Investigate if this is right.
-          JSS.putPathState $ 
+          JSS.putPathState $
             case (mval, JSS.frames ps) of
               (Just val, [])  -> ps { JSS.finalResult = JSS.ReturnVal val }
               (Just val, f:r) -> ps { JSS.frames = f { JSS.frmOpds = val : JSS.frmOpds f } : r }
@@ -448,12 +448,12 @@ execOverride pos ir mbThis args = do
           return $ JSS.NextInst
   -- Split execution paths.
   let (firstRes:restRes) = res
-  mapM_ (JSS.onNewPath . resAction) restRes 
+  mapM_ (JSS.onNewPath . resAction) restRes
   JSS.onCurrPath (resAction firstRes)
 
 -- | Add a method override for the given method to the simulator.
 overrideFromSpec :: Pos -> MethodSpecIR -> JSS.Simulator SymbolicMonad ()
-overrideFromSpec pos ir 
+overrideFromSpec pos ir
   | JSS.methodIsStatic method =
       JSS.overrideStaticMethod cName key $ \args ->
         execOverride pos ir Nothing args
@@ -468,10 +468,8 @@ overrideFromSpec pos ir
 
 -- | Describes expected result of computation.
 data ExpectedStateDef = ESD {
-         -- | Inputs to expected value in order they appeared.
-         esdInputs :: [InputEvaluator Node]
          -- | Stores initial assignments.
-       , esdInitialAssignments :: [(TC.JavaExpr, Node)]
+         esdInitialAssignments :: [(TC.JavaExpr, Node)]
          -- | Map from references back to Java expressions denoting them.
        , esdRefExprMap :: Map JSS.Ref [TC.JavaExpr]
          -- | Expected return value or Nothing if method returns void.
@@ -485,7 +483,7 @@ data ExpectedStateDef = ESD {
 
 esdRefName :: JSS.Ref -> ExpectedStateDef -> String
 esdRefName JSS.NullRef _ = "null"
-esdRefName ref esd = 
+esdRefName ref esd =
   case Map.lookup ref (esdRefExprMap esd) of
     Just cl -> ppJavaExprEquivClass cl
     Nothing -> "fresh allocation"
@@ -497,7 +495,6 @@ data ESGState t l = ESGState {
          esDagEngine :: DagEngine t l
        , esMethod :: JSS.Method
        , esExprRefMap :: Map TC.JavaExpr JSS.Ref
-       , esInputs :: [InputEvaluator t] -- ^ Inputs created initially (in reverse order).
        , esInitialAssignments :: [(TC.JavaExpr, t)]
        , esInitialPathState :: JSS.PathState t
        , esReturnValue :: Maybe (JSS.Value t)
@@ -506,7 +503,7 @@ data ESGState t l = ESGState {
        }
 
 -- | Monad used to execute statements in a behavior specification for a method
--- override. 
+-- override.
 type ExpectedStateGenerator t l = StateT (ESGState t l) IO
 
 esEval :: (EvalContext t l -> ExprEvaluator b) -> ExpectedStateGenerator t l b
@@ -588,15 +585,8 @@ esResolveLogicExprs :: (TypedTerm t, SV.Storable l)
                     => DagType -> [TC.LogicExpr] -> ExpectedStateGenerator t l t
 esResolveLogicExprs tp [] = do
   de <- gets esDagEngine
-  -- Get number of literals.
-  lc <- liftIO $ beInputLitCount (deBitEngine de)
   -- Create input variable.
-  t <- liftIO $ deFreshInput de tp
-  -- Record input function in esInputs
-  let evalFn bits = mkInputEval tp $ SV.slice lc (typeBitCount tp) bits
-  modify $ \es -> es { esInputs = (t,evalFn):esInputs es }
-  -- Return value.
-  return t
+  liftIO $ deFreshInput de tp
 esResolveLogicExprs _ (hrhs:rrhs) = do
   de <- gets esDagEngine
   --TODO: liftIO $ putStrLn $ "esResolveLogicExprs evaluating " ++ show hrhs
@@ -611,13 +601,13 @@ esResolveLogicExprs _ (hrhs:rrhs) = do
   return t
 
 esSetLogicValues :: (TypedTerm t, SV.Storable l)
-                 => [TC.JavaExpr] -> DagType -> [TC.LogicExpr] 
+                 => [TC.JavaExpr] -> DagType -> [TC.LogicExpr]
                  -> ExpectedStateGenerator t l ()
 esSetLogicValues cl tp lrhs = do
   -- Get value of rhs.
   value <- esResolveLogicExprs tp lrhs
   -- Update Initial assignments.
-  modify $ \es -> es { esInitialAssignments = 
+  modify $ \es -> es { esInitialAssignments =
                          map (\e -> (e,value)) cl ++  esInitialAssignments es }
   --TODO: liftIO $ putStrLn $ "esSetLogicValues setting values " ++ show cl
   -- Update value.
@@ -628,7 +618,7 @@ esSetLogicValues cl tp lrhs = do
                  return ref
        let insertValue r m = Map.insert r (fromIntegral l, value) m
        esModifyInitialPathState $ \ps -> ps {
-           JSS.arrays = foldr insertValue (JSS.arrays ps) refs 
+           JSS.arrays = foldr insertValue (JSS.arrays ps) refs
          }
      SymInt (widthConstant -> Just 32) ->
        mapM_ (flip esSetJavaValue (JSS.IValue value)) cl
@@ -655,7 +645,7 @@ esStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
   ref <- esEval $ evalJavaRefExpr refExpr
   value <- esEval $ evalMixedExpr rhsExpr
   -- Get dag engine
-  de <- gets esDagEngine 
+  de <- gets esDagEngine
   -- Check that instance field is already defined, if so add an equality check for that.
   ifMap <- gets esInstanceFields
   case (Map.lookup (ref, f) ifMap, value) of
@@ -663,7 +653,7 @@ esStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
     (Just Nothing, _) -> return ()
     (Just (Just (JSS.RValue prev)), JSS.RValue new)
       | prev == new -> return ()
-    (Just (Just (JSS.IValue prev)), JSS.IValue new) -> 
+    (Just (Just (JSS.IValue prev)), JSS.IValue new) ->
        esAddEqAssertion de (show refExpr) prev new
     (Just (Just (JSS.LValue prev)), JSS.LValue new) ->
        esAddEqAssertion de (show refExpr) prev new
@@ -687,7 +677,7 @@ esStep (EnsureArray _pos lhsExpr rhsExpr) = do
   value  <- esEval $ evalLogicExpr rhsExpr
   let SymArray (widthConstant -> Just (Wx l)) _ = termType value
   -- Get dag engine
-  de <- gets esDagEngine 
+  de <- gets esDagEngine
   -- Check if array has already been assigned value.
   aMap <- gets esArrays
   case Map.lookup ref aMap of
@@ -695,7 +685,7 @@ esStep (EnsureArray _pos lhsExpr rhsExpr) = do
       | oldLen == fromIntegral l ->
         esAddEqAssertion de (show lhsExpr) prev value
         -- TODO: Check to make sure this error is avoidable.
-        -- Need to make sure 
+        -- Need to make sure
       | otherwise -> error "internal: Incompatible values assigned to array."
     _ -> return ()
   -- Define instance field post condition.
@@ -706,7 +696,7 @@ esStep (ModifyArray refExpr _) = do
   -- Add postcondition if value has not been assigned.
   when (Map.notMember ref (esArrays es)) $ do
     put es { esArrays = Map.insert ref Nothing (esArrays es) }
-  
+
 initializeVerification :: MethodSpecIR
                        -> BehaviorSpec
                        -> RefEquivConfiguration
@@ -752,7 +742,6 @@ initializeVerification ir bs refConfig = do
                          , esMethod = specMethod ir
                          , esExprRefMap = Map.fromList
                              [ (e, r) | (cl,r) <- refAssignments, e <- cl ]
-                         , esInputs = []
                          , esInitialAssignments = []
                          , esInitialPathState = initPS
                          , esReturnValue = Nothing
@@ -765,7 +754,7 @@ initializeVerification ir bs refConfig = do
             forM_ cl $ \e -> esSetJavaValue e (JSS.RValue r)
           -- Set initial logic values.
           case bsLogicClasses bs refConfig of
-            Nothing -> 
+            Nothing ->
               let msg = "Unresolvable cyclic dependencies between assumptions."
                in throwIOExecException (specPos ir) (ftext msg) ""
             Just assignments -> mapM_ (\(l,t,r) -> esSetLogicValues l t r) assignments
@@ -774,8 +763,7 @@ initializeVerification ir bs refConfig = do
           mapM esStep (bsCommands bs)
   let ps = esInitialPathState es
   JSS.putPathState ps
-  return ESD { esdInputs = reverse (esInputs es)
-             , esdInitialAssignments = reverse (esInitialAssignments es)
+  return ESD { esdInitialAssignments = reverse (esInitialAssignments es)
              , esdRefExprMap =
                   Map.fromList [ (r, cl) | (cl,r) <- refAssignments ]
              , esdReturnValue = esReturnValue es
@@ -828,12 +816,10 @@ vcCounterexample (EqualityCheck nm jvmNode specNode) evalFn =
 
 -- | Describes the verification result arising from one symbolic execution path.
 data PathVC = PathVC {
-          -- | Inputs to verification problem (universally quantified).
-          pvcInputs :: [InputEvaluator Node]
-        , pvcInitialAssignments :: [(TC.JavaExpr, Node)]
+          pvcInitialAssignments :: [(TC.JavaExpr, Node)]
           -- | Assumptions on inputs.
         , pvcAssumptions :: Node
-          -- | Static errors found in path.         
+          -- | Static errors found in path.
         , pvcStaticErrors :: [Doc]
           -- | What to verify for this result.
         , pvcChecks :: [VerificationCheck Node]
@@ -841,18 +827,16 @@ data PathVC = PathVC {
 
 type PathVCGenerator = State PathVC
 
-runPathVCG :: [InputEvaluator Node] -- ^ Inputs 
-           -> [(TC.JavaExpr, Node)]
+runPathVCG :: [(TC.JavaExpr, Node)]
            -> Node -- ^ Assumptions
            -> PathVCGenerator () -- ^ Generator
            -> PathVC
-runPathVCG il ia a m =
+runPathVCG ia a m =
   execState m
-            PathVC { pvcInputs = il
-                   , pvcInitialAssignments = ia
+            PathVC { pvcInitialAssignments = ia
                    , pvcAssumptions = a
                    , pvcStaticErrors = []
-                   , pvcChecks = [] 
+                   , pvcChecks = []
                    }
 
 -- | Add verification condition to list.
@@ -874,7 +858,7 @@ generateVC :: MethodSpecIR
            -> RunResult Node -- ^ Results of symbolic execution.
            -> PathVC -- ^ Proof oblications
 generateVC ir esd (ps, res) =
-  runPathVCG (esdInputs esd) (esdInitialAssignments esd) (JSS.psAssumptions ps) $ do
+  runPathVCG (esdInitialAssignments esd) (JSS.psAssumptions ps) $ do
     case res of
       Left oe -> pvcgFail (ftext (ppOverrideError oe))
       Right maybeRetVal -> do
@@ -954,6 +938,7 @@ specVCs
   ) = do
   let pos = specPos ir
   let vrb = verbose opts
+  let svrb = simverbose opts
   -- Get list of behavior specs to start from and the equivclass for them.
   let executionParams = [ (bs,cl) | bs <- concat $ Map.elems $ specBehaviors ir
                                   , cl <- bsRefEquivClasses bs]
@@ -963,7 +948,7 @@ specVCs
     setVerbosity vrb
     JSS.runSimulator cb $ do
       -- Log execution.
-      setVerbosity vrb
+      setVerbosity svrb
       -- Add method spec overrides.
       mapM_ (overrideFromSpec pos) overrides
       -- Create initial Java state.
@@ -1019,7 +1004,7 @@ validateMethodSpec
       de <- getDagEngine
       results <- vcGenerator
       liftIO $ forM_ results $ \pvc -> do
-        let mkVState nm cfn = 
+        let mkVState nm cfn =
               VState { vsDagEngine = de
                      , vsVCName = nm
                      , vsMethodSpec = ir
@@ -1027,7 +1012,6 @@ validateMethodSpec
                      , vsRules = vpRules params
                      , vsEnabledRules = vpEnabledRules params
                      , vsEnabledOps = vpEnabledOps params
-                     , vsInputs = pvcInputs pvc
                      , vsInitialAssignments = pvcInitialAssignments pvc
                      , vsCounterexampleFn = cfn
                      , vsStaticErrors = pvcStaticErrors pvc
@@ -1056,7 +1040,6 @@ data VerifyState = VState {
        , vsRules :: [Rule]
        , vsEnabledRules :: Set String
        , vsEnabledOps :: Set OpIndex
-       , vsInputs :: [InputEvaluator Node]
        , vsInitialAssignments :: [(TC.JavaExpr, Node)]
        , vsCounterexampleFn :: CounterexampleFn Node
        , vsStaticErrors :: [Doc]
@@ -1070,7 +1053,7 @@ runVerify vs g cmds = evalStateT (applyTactics cmds g) vs
 runABC :: Node -> VerifyExecutor ()
 runABC goal = do
   de <- gets vsDagEngine
-  v <- gets vsVerbosity 
+  v <- gets vsVerbosity
   ir <- gets vsMethodSpec
   ia <- gets vsInitialAssignments
   cfn <- gets vsCounterexampleFn
@@ -1088,7 +1071,6 @@ runABC goal = do
         lc <- beInputLitCount be
         -- Create input variable.
         l <- let ?be = be in mkInputLitResultWithType tp
-        -- Record input function in esInputs
         let evalFn bits = mkInputEval tp $ SV.slice lc (typeBitCount tp) bits
         return (l,evalFn)
       let (iLits,inputs) = V.unzip inputPairs
@@ -1208,8 +1190,8 @@ testRandom de v ir test_num lim pvc =
   loop run passed = loop (run + 1) =<< testOne passed
 
   testOne passed = do
-    vs   <- mapM (QuickCheck.pickRandom . termType . fst) (pvcInputs pvc)
-    eval <- deConcreteEval (V.fromList vs)
+    vs   <- V.mapM QuickCheck.pickRandom =<< deInputTypes de
+    eval <- deConcreteEval vs
     badAsmp <- isViolated eval (pvcAssumptions pvc)
     if badAsmp
       then do return passed
@@ -1221,7 +1203,7 @@ testRandom de v ir test_num lim pvc =
                    when (v >= 4) $ dbugM "End concrete DAG eval for one VC check."
                    when bad_goal $ do
                      (vs1,goal1) <- QuickCheck.minimizeCounterExample
-                                            isCounterExample vs goal
+                                            isCounterExample (V.toList vs) goal
                      txt <- msg eval goal1
                      throwIOExecException (specPos ir) txt ""
               return $! passed + 1
@@ -1297,7 +1279,7 @@ useSMTLIB :: Maybe Int -> Maybe String -> Node -> VerifyExecutor ()
 useSMTLIB mbVer mbNm g = do
   ir <- gets vsMethodSpec
   enabledOps <- gets vsEnabledOps
-  inputs <- gets vsInputs
+  inputTypes <- liftIO . deInputTypes =<< gets vsDagEngine
   announce ("Translating to SMTLIB (version " ++ show version ++"): " ++ specName ir)
   let name = case mbNm of
                Just x  -> x
@@ -1305,7 +1287,7 @@ useSMTLIB mbVer mbNm g = do
   liftIO $ do
     let params = SmtLib.TransParams
                    { SmtLib.transName = name
-                   , SmtLib.transInputs = map (termType . fst) inputs
+                   , SmtLib.transInputs = V.toList inputTypes
                    , SmtLib.transAssume = mkCBool True
                    , SmtLib.transCheck = [g]
                    , SmtLib.transEnabled = enabledOps
@@ -1339,13 +1321,13 @@ useYices :: Maybe Int -> Node -> VerifyExecutor ()
 useYices mbTime g = do
   ir <- gets vsMethodSpec
   enabledOps <- gets vsEnabledOps
-  inputs <- gets vsInputs
+  inputTypes <- liftIO . deInputTypes =<< gets vsDagEngine
   ia <- gets vsInitialAssignments
   announce ("Using Yices2: " ++ specName ir)
   liftIO $ do
     (script,info) <- SmtLib.translate SmtLib.TransParams
         { SmtLib.transName = "CheckYices"
-        , SmtLib.transInputs = map (termType . fst) inputs
+        , SmtLib.transInputs = V.toList inputTypes
         , SmtLib.transAssume = mkCBool True
         , SmtLib.transCheck = [g]
         , SmtLib.transEnabled = enabledOps

@@ -15,8 +15,6 @@
 rule eq_elim    : forAll {x:a}. x == x -> true;
 rule join_split : forAll {x:[384]}. join(split(x) : [12][32]) -> x;
 rule not_not    : forAll {x:Bit}. not(not(x)) -> x;
-rule eq_elim    : forAll {x:a}. x == x -> true;
-rule join_split : forAll {x:[384]}. join(split(x) : [12][32]) -> x;
 
 // Boolean elimination rules 
 
