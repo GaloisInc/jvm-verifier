@@ -20,7 +20,7 @@ module SAWScript.MethodSpec
 -- Imports {{{1
 
 import Control.Applicative hiding (empty)
-import Control.Exception (assert)
+import Control.Exception (assert, finally)
 import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.Error (Error(..), ErrorT, runErrorT, throwError)
@@ -67,10 +67,7 @@ nyi msg = error $ "Not yet implemented: " ++ msg
 
 -- | Create a node with given number of bits.
 mkIntInput :: (SV.Storable l) => DagEngine n l -> Int -> IO n
-mkIntInput de w = do
-  let ?be = deBitEngine de
-  lv <- LV <$> SV.replicateM w lMkInput
-  deFreshInput de (Just lv) (SymInt (constantWidth (Wx w)))
+mkIntInput de w = deFreshInput de (SymInt (constantWidth (Wx w)))
 
 -- | Create a lit result with input bits for the given ground dag type.
 mkInputLitResultWithType :: (?be :: BitEngine l, SV.Storable l)
@@ -81,12 +78,6 @@ mkInputLitResultWithType (SymArray (widthConstant -> Just (Wx l)) eltTp) =
   LVN <$> V.replicateM l (mkInputLitResultWithType eltTp)
 mkInputLitResultWithType _ =
   error "internal: mkInputLitResultWithType called with unsupported type."
-
--- | Create ani node with given number of bits.
-mkInputWithType :: SV.Storable l => DagEngine n l -> DagType -> IO n
-mkInputWithType de tp = do
- r <- let ?be = deBitEngine de in mkInputLitResultWithType tp
- deFreshInput de (Just r) tp
 
 deEq :: TypedTerm t => DagEngine t l -> t -> t -> IO t
 deEq de x y = deApplyBinary de (eqOp (termType x)) x y
@@ -348,7 +339,7 @@ ocStep (ModifyInstanceField refExpr f) = do
 ocStep (ModifyArray refExpr tp) = do
   ref <- ocEval $ evalJavaRefExpr refExpr
   de <- gets (ecDagEngine . ocsEvalContext)
-  rhsVal <- liftIO (mkInputWithType de tp)
+  rhsVal <- liftIO (deFreshInput de tp)
   ocModifyResultState $ setArrayValue ref rhsVal
 ocStep (Return expr) = do
   val <- ocEval $ evalMixedExpr expr
@@ -600,7 +591,7 @@ esResolveLogicExprs tp [] = do
   -- Get number of literals.
   lc <- liftIO $ beInputLitCount (deBitEngine de)
   -- Create input variable.
-  t <- liftIO $ mkInputWithType de tp
+  t <- liftIO $ deFreshInput de tp
   -- Record input function in esInputs
   let evalFn bits = mkInputEval tp $ SV.slice lc (typeBitCount tp) bits
   modify $ \es -> es { esInputs = (t,evalFn):esInputs es }
@@ -1081,48 +1072,60 @@ runABC goal = do
   de <- gets vsDagEngine
   v <- gets vsVerbosity 
   ir <- gets vsMethodSpec
-  inputs <- gets (V.fromList . vsInputs)
   ia <- gets vsInitialAssignments
   cfn <- gets vsCounterexampleFn
+
   liftIO $ do
     when (v >= 3) $ do
       putStrLn $ "Running ABC on " ++ specName ir
       putStrLn $ "Goal is:"
       putStrLn $ prettyTerm goal
-    LV value <- deBitBlast de goal
-    unless (SV.length value == 1) $
-      error "internal: Unexpected number of in verification condition"
-    let be = deBitEngine de
-    case beCheckSat be of
-      Nothing -> error "internal: Bit engine does not support SAT checking."
-      Just checkSat -> do
-        b <- checkSat (beNeg be (value SV.! 0))
-        case b of
-          UnSat -> when (v >= 3) $ putStrLn "Verification succeeded."
-          Unknown -> do
-            let msg = "ABC has returned a status code indicating that it could not "
-                       ++ "determine whether the specification is correct.  This "
-                       ++ "result is not expected for sequential circuits, and could"
-                       ++ "indicate an internal error in ABC or JavaVerifer's "
-                       ++ "connection to ABC."
-             in throwIOExecException (specPos ir) (ftext msg) ""
-          Sat lits -> do
-            evalFn <- deConcreteEval (V.map (\(_,fn) -> fn lits) inputs)
+    be <- createBitEngine
+    flip finally (beFree be) $ do
+      inputTypes <- deInputTypes de
+      inputPairs <- V.forM inputTypes $ \tp -> do
+        -- Get number of literals.
+        lc <- beInputLitCount be
+        -- Create input variable.
+        l <- let ?be = be in mkInputLitResultWithType tp
+        -- Record input function in esInputs
+        let evalFn bits = mkInputEval tp $ SV.slice lc (typeBitCount tp) bits
+        return (l,evalFn)
+      let (iLits,inputs) = V.unzip inputPairs
+      lEval <- deEval (\i _ _ -> return (iLits V.! i))
+                      (mkBitBlastTermSemantics be)
+      LV value <- lEval goal
+      unless (SV.length value == 1) $
+        error "internal: Unexpected number of in verification condition"
+      case beCheckSat be of
+        Nothing -> error "internal: Bit engine does not support SAT checking."
+        Just checkSat -> do
+          b <- checkSat (beNeg be (value SV.! 0))
+          case b of
+            UnSat -> when (v >= 3) $ putStrLn "Verification succeeded."
+            Unknown -> do
+              let msg = "ABC has returned a status code indicating that it "
+                        ++ "could not determine whether the specification is "
+                        ++ "correct.  This result is not expected for "
+                        ++ "sequential circuits, and could indicate an internal"
+                        ++ "error in ABC or SAWScript's connection to ABC."
+               in throwIOExecException (specPos ir) (ftext msg) ""
+            Sat lits -> do
+              evalFn <- deConcreteEval (V.map (\fn -> fn lits) inputs)
+              -- Get doc showing inputs
+              let docInput (e,n) =
+                    do vn <- evalFn n
+                       return $ text (TC.ppJavaExpr e) <+> equals
+                                                       <+> ppCValueD Mixfix vn
+              inputDocs <- mapM docInput ia
 
-            -- Get doc showing inputs
-            let docInput (e,n) =
-                  do vn <- evalFn n
-                     return $ text (TC.ppJavaExpr e) <+> equals
-                                                     <+> ppCValueD Mixfix vn
-            inputDocs <- mapM docInput ia
-
-            -- Get differences between two.
-            val <- cfn evalFn
-            let msg = ftext ("ABC failed to verify " ++ specName ir ++ ".\n\n") $$
-                      ftext ("The inputs that generated the failure are:") $$
-                      nest 2 (vcat inputDocs) $$
-                       ftext ("Counterexample:") $$ nest 2 val
-            throwIOExecException (specPos ir) msg ""
+              -- Get differences between two.
+              val <- cfn evalFn
+              let msg = ftext ("ABC failed to verify " ++ specName ir ++ ".\n\n") $$
+                        ftext ("The inputs that generated the failure are:") $$
+                        nest 2 (vcat inputDocs) $$
+                         ftext ("Counterexample:") $$ nest 2 val
+              throwIOExecException (specPos ir) msg ""
 
 applyTactics :: [VerifyCommand] -> Node -> VerifyExecutor ()
 applyTactics (Rewrite:r) g = do

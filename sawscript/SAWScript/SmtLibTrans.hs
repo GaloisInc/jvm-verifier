@@ -48,7 +48,7 @@ translate ps =
   toScript ps (transName ps) (transExtArr ps) $
   do (xs,ts) <- unzip `fmap` mapM mkInp (transInputs ps)
      let js = V.fromList ts
-     eval <- deEval (\i _ _ -> js V.! i) (translateOps (transEnabled ps))
+     eval <- deEval (\i _ _ -> return (js V.! i)) (translateOps (transEnabled ps))
      as <- toForm =<< eval (transAssume ps)
      addAssumpt as
      gs <- mapM (toForm <=< eval) (transCheck ps)
