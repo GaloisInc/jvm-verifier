@@ -132,6 +132,14 @@ is_JacobianPoint f s =
             (s == ec_zero_point f)
   );
 
+type PointOps (fv,gv) = {
+       field : Field fv;
+       double : JacobianPoint fv -> JacobianPoint fv;
+       add : (JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
+       sub : (JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
+       group_field : Field gv;
+     };
+
 /* Double a Jacobian point */
 /* Line numbers taken from Routine 2.2.6 in [NSA 2008] */
 /* This version uses 4 multiplies and 4 squarings (4M + 4S).  The paper
@@ -190,22 +198,23 @@ ec_double(f,s) =
  *       called.
  * Algorithm comes from Routine 2.2.7 in [NSA 2008].
  */
-ec_add : {fv} (Field fv, JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
-ec_add(f,s,t) =
+ec_add : {fv gv} (PointOps (fv, [gv]), JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
+ec_add(p,s,t) =
   if is_zero(r13) then
     if is_zero(r14) then
-      { x = f.field_zero; y = f.field_zero; z = f.field_zero; } /* 17: r <- (0,0,0) and return */
+      p.double(s) /* 17: r <- (0,0,0) and return */
     else
-      { x = f.field_unit; y = f.field_unit; z = f.field_zero; } /* 19: r <- (1,1,0) and return */
+      { x = p.field.field_unit; y = p.field.field_unit; z = p.field.field_zero; } /* 19: r <- (1,1,0) and return */
   else
     { x = r32; y = r37; z = r27 }
   where {
-   add = f.add;
-   sub = f.sub;
-   mul = f.mul;
-   sq  = f.sq;
-   is_zero(x) = f.is_equal(x, f.field_zero);
+   add = p.field.add;
+   sub = p.field.sub;
+   mul = p.field.mul;
+   sq  = p.field.sq;
+   is_zero(x) = p.field.is_equal(x, p.field.field_zero);
    dbl(x) = add(x, x);
+   dbl_dec(x, y) = sub(sub(x, y), y);
    /* Line numbers from Routine 2.2.7 definition. */
 
    r9 = sq(s.z);             /*  9: t7 <- (t3)^2 */
@@ -224,42 +233,33 @@ ec_add(f,s,t) =
    r30 = mul(r22, r28);      /* 30: t7 <- t1 * t7 */
    r31 = sq(r14);            /* 31: t1 <- (t1)^2 */
    r32 = sub(r31, r30);      /* 32: t1 <- t1 - t7 */
-   r33 = sub(r30, dbl(r32)); /* 33: t7 <- t7 - 2*t1 */
+   /*r33 = sub(r30, dbl(r32));*/ /* 33: t7 <- t7 - 2*t1 */
+   /* The following is a better match for the Java implementation. */
+   r33 = dbl_dec(r30, r32);  /* 33: t7 <- t7 - 2*t1 */
    r34 = mul(r14, r33);      /* 34: t5 <- t5 * t7 */
    r35 = mul(r23, r29);      /* 35: t4 <- t2 * t4 */
    r36 = sub(r34, r35);      /* 36: t2 <- t5 - t4 */
-   r37 = f.half(r36);        /* 37: t2 <- t2/2 */
+   r37 = p.field.half(r36);  /* 37: t2 <- t2/2 */
   };
 
 /* Add Jacobian point to an affine point over the given field. */
 /* Algorithm comes from Routine 2.2.8 in [NSA 2008] */
-ec_full_add : {fv} (Field fv, JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
-ec_full_add(f, s, t) =
+ec_full_add : {fv gv} (fin gv) => (PointOps (fv, [gv]), JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
+ec_full_add(p, s, t) =
   if is_zero(s.z) then
-    { x = t.x; y = t.y; z = f.field_unit }
-  else if is_zero(r.x) & is_zero(r.y) & is_zero(r.z) then
-    ec_double(f, s)
+    { x = t.x; y = t.y; z = p.field.field_unit }
   else
-    r
+    ec_add(p, s, t)
  where {
-   r = ec_add(f, s, t);
-   is_zero(x) = f.is_equal(x, f.field_zero);
+   is_zero(x) = p.field.is_equal(x, p.field.field_zero);
  };
 
 /* Subtract affine point from Jacobian point over the given field. */
 /* Algorithm comes from Routine 2.2.9 in [NSA 2008] */
-ec_full_sub : {fv} (Field fv, JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
-ec_full_sub(f, s, t) = ec_full_add(f, s, { x = t.x; y = f.neg(t.y); });
+ec_full_sub : {fv gv} (PointOps (fv, [gv]), JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
+ec_full_sub(p, s, t) = p.add(s, { x = t.x; y = p.field.neg(t.y); });
 
 /* Scalar multiply operations {{{1 */
-
-type PointOps (fv,gv) = {
-       field : Field fv;
-       double : JacobianPoint fv -> JacobianPoint fv;
-       add : (JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
-       sub : (JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
-       group_field : Field gv;
-     };
 
 /* Multiplies a large word scalar by the an affine point. */
 ec_mul : {fv gv}  (fin gv) => (PointOps (fv, [gv]), [gv], AffinePoint fv) -> JacobianPoint fv;
@@ -566,10 +566,8 @@ p384_ec_double : JacobianPoint [384] -> JacobianPoint [384];
 p384_ec_double(p) = ec_double(p384_field, p);
 
 p384_ec_full_add : (JacobianPoint [384],AffinePoint [384]) -> JacobianPoint [384];
-p384_ec_full_add(p,q) = ec_full_add(p384_field, p, q);
 
 p384_ec_full_sub : (JacobianPoint [384],AffinePoint [384]) -> JacobianPoint [384];
-p384_ec_full_sub(p,q) = ec_full_sub(p384_field, p, q);
 
 p384_point_ops : PointOps ([384],[384]);
 p384_point_ops = {
@@ -579,6 +577,9 @@ p384_point_ops = {
     sub = p384_ec_full_sub;
     group_field = p384_group_field;
   };
+
+p384_ec_full_add(p,q) = ec_full_add(p384_point_ops, p, q);
+p384_ec_full_sub(p,q) = ec_full_sub(p384_point_ops, p, q);
 
 /* Matches Java implementation */
 p384_ec_mul_aux : ( JacobianPoint [384]
