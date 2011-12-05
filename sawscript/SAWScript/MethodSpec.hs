@@ -1294,9 +1294,10 @@ announce msg = do
 
 useSMTLIB :: Maybe Int -> Maybe String -> Node -> VerifyExecutor ()
 useSMTLIB mbVer mbNm g = do
+  de <- gets vsDagEngine
   ir <- gets vsMethodSpec
   enabledOps <- gets vsEnabledOps
-  inputs <- gets vsInputs
+  inputTypes <- liftIO $ deInputTypes de
   announce ("Translating to SMTLIB (version " ++ show version ++"): " ++ specName ir)
   let name = case mbNm of
                Just x  -> x
@@ -1304,7 +1305,7 @@ useSMTLIB mbVer mbNm g = do
   liftIO $ do
     let params = SmtLib.TransParams
                    { SmtLib.transName = name
-                   , SmtLib.transInputs = map (termType . fst) inputs
+                   , SmtLib.transInputs = V.toList inputTypes
                    , SmtLib.transAssume = mkCBool True
                    , SmtLib.transCheck = [g]
                    , SmtLib.transEnabled = enabledOps
@@ -1336,15 +1337,16 @@ useSMTLIB mbVer mbNm g = do
 
 useYices :: Maybe Int -> Node -> VerifyExecutor ()
 useYices mbTime g = do
+  de <- gets vsDagEngine
   ir <- gets vsMethodSpec
   enabledOps <- gets vsEnabledOps
-  inputs <- gets vsInputs
+  inputTypes <- liftIO $ deInputTypes de
   ia <- gets vsInitialAssignments
   announce ("Using Yices2: " ++ specName ir)
   liftIO $ do
     (script,info) <- SmtLib.translate SmtLib.TransParams
         { SmtLib.transName = "CheckYices"
-        , SmtLib.transInputs = map (termType . fst) inputs
+        , SmtLib.transInputs = V.toList inputTypes
         , SmtLib.transAssume = mkCBool True
         , SmtLib.transCheck = [g]
         , SmtLib.transEnabled = enabledOps
