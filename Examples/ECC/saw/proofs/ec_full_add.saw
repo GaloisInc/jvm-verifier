@@ -17,4 +17,4 @@ import "ec_double.spec";
 set verification on;
 
 enable ref_ec_full_add;
-import "ec_full_add.qcspec";
+import "ec_full_add.spec";
