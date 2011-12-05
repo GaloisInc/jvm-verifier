@@ -31,11 +31,16 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 :fm p384_field_sub    "generated/p384_field_sub.sbv"
 :fm p384_field_neg    "generated/p384_field_neg.sbv"
 :fm p384_field_mul    "generated/p384_field_mul.sbv"
+:fm p384_field_sq     "generated/p384_field_sq.sbv"
 :fm p384_mod_mul      "generated/p384_mod_mul.sbv"
 
 :load sbv_uninterpret_field_ops.cry
 :fm p384_ec_double   "generated/p384_ec_double.sbv"
+
+:load sbv_uninterpret_ec_double.cry
 :fm p384_ec_full_add "generated/p384_ec_full_add.sbv"
+
+:load sbv_uninterpret_ec_full_add.cry
 :fm p384_ec_full_sub "generated/p384_ec_full_sub.sbv"
 
 :load sbv_uninterpret_ec_point_ops.cry
