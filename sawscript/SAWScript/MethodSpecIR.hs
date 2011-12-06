@@ -67,8 +67,6 @@ import SAWScript.CongruenceClosure (CCSet)
 import SAWScript.Utils
 import Utils.Common (slashesToDots)
 
-import Debug.Trace (trace)
-
 -- Utility definitions {{{1
 
 int8DagType :: DagType
@@ -103,8 +101,8 @@ type JavaExprEquivClass = [TC.JavaExpr]
 -- | Returns a name for the equivalence class.
 ppJavaExprEquivClass :: JavaExprEquivClass -> String
 ppJavaExprEquivClass [] = error "internal: ppJavaExprEquivClass"
-ppJavaExprEquivClass [expr] = show expr
-ppJavaExprEquivClass cl = "{ " ++ intercalate ", " (map show (sort cl)) ++ " }"
+ppJavaExprEquivClass [expr] = TC.ppJavaExpr expr
+ppJavaExprEquivClass cl = "{ " ++ intercalate ", " (map TC.ppJavaExpr (sort cl)) ++ " }"
 
 -- MethodTypecheckContext {{{1
 
@@ -225,11 +223,14 @@ bsLogicEqs bs = [ (lhs,rhs) | (_,lhs,TC.JavaValue rhs _ _) <- bsLogicAssignments
 
 -- | Returns logic assignments to equivance class.
 bsAssignmentsForClass :: BehaviorSpec -> JavaExprEquivClass -> [TC.LogicExpr]
-bsAssignmentsForClass bs cl =
-   [ rhs | (_,lhs,rhs) <- bsLogicAssignments bs, Set.member lhs s, not (isJavaExpr rhs) ]
+bsAssignmentsForClass bs cl = res 
   where s = Set.fromList cl
         isJavaExpr (TC.JavaValue _ _ _) = True
         isJavaExpr _ = False
+        res = [ rhs 
+              | (_,lhs,rhs) <- bsLogicAssignments bs
+              , Set.member lhs s
+              , not (isJavaExpr rhs) ]
 
 -- | Retuns ordering of Java expressions to corresponding logic value.
 bsLogicClasses :: BehaviorSpec
@@ -288,13 +289,12 @@ type BehaviorTypechecker = StateT BehaviorTypecheckState (ReaderT MethodTypechec
 getBTCCodebase :: BehaviorTypechecker JSS.Codebase
 getBTCCodebase = asks (TC.codeBase . mtcGlobalBindings)
 
-forEachPath_ :: (BehaviorSpec -> BehaviorTypechecker a) -> BehaviorTypechecker ()
-forEachPath_ fn = mapM_ fn =<< gets btsPaths
+forEachPath_ :: (BehaviorSpec -> IO a) -> BehaviorTypechecker ()
+forEachPath_ fn = mapM_ (liftIO . fn) =<< gets btsPaths
 
 modifyPaths :: (BehaviorSpec -> BehaviorSpec) -> BehaviorTypechecker ()
 modifyPaths fn = do 
-  bts <- get
-  put bts { btsPaths = map fn (btsPaths bts) }
+  modify $ \bts -> bts { btsPaths = map fn (btsPaths bts) }
 
 -- Actual Type utilities {{{2
 
@@ -684,30 +684,29 @@ resolveDecl (AST.MethodIfElse pos condAst t f:r) = do
   checkLogicExprIsPred (AST.exprPos condAst) cond
   -- Branch execution.
   bts <- get
-  lift $ do
-    tBts <- flip execStateT bts $ do
-      -- Add assumption.
-      addCommand (AssumePred cond)
-      -- Resolve commands.
-      resolveDecl [t]
-    fBts <- flip execStateT bts $ do
-      let negCond = TC.Apply bNotOp [cond]
-      addCommand $ AssumePred negCond
-      resolveDecl [f]
-    when (btsReturnSet tBts /= btsReturnSet fBts) $ do
-      let msg = "Return value set in one branch, but not the other."
-          res = "Please ensure that both branches set the return value."
-       in throwIOExecException pos (ftext msg) res
-    let rBts = BTS { -- Use originl local type map and let bindings.
-                     btsPC = btsPC bts
-                   , btsActualTypeMap = btsActualTypeMap bts
-                   , btsLetBindings = btsLetBindings bts
-                     -- Use return set from tBts.
-                   , btsReturnSet = btsReturnSet tBts
-                     -- Union paths.
-                   , btsPaths = btsPaths tBts ++ btsPaths fBts
-                   }
-    evalStateT (resolveDecl r) rBts
+  tBts <- lift $ flip execStateT bts $ do
+    -- Add assumption.
+    addCommand (AssumePred cond)
+    -- Resolve commands.
+    resolveDecl [t]
+  fBts <- lift $ flip execStateT bts $ do
+    let negCond = TC.Apply bNotOp [cond]
+    addCommand $ AssumePred negCond
+    resolveDecl [f]
+  when (btsReturnSet tBts /= btsReturnSet fBts) $ do
+    let msg = "Return value set in one branch, but not the other."
+        res = "Please ensure that both branches set the return value."
+     in throwIOExecException pos (ftext msg) res
+  put BTS { -- Use originl local type map and let bindings.
+            btsPC = btsPC bts
+          , btsActualTypeMap = btsActualTypeMap bts
+          , btsLetBindings = btsLetBindings bts
+            -- Use return set from tBts.
+          , btsReturnSet = btsReturnSet tBts
+            -- Union paths.
+          , btsPaths = btsPaths tBts ++ btsPaths fBts
+          }
+  resolveDecl r
 resolveDecl (AST.Block ast:r) = do
   oldBts <- get
   -- Resolve declarations in block.
@@ -770,7 +769,7 @@ resolveBehaviorSpecs mtc pc block = do
                     AST.Block cmds -> cmds
                     _ -> [block]
   bts <- flip runReaderT mtc $
-           flip execStateT initBts $
+           flip execStateT initBts $ do
              resolveDecl flatDecls
   -- Check expressions that may alias to verify they have equivalent types.
   mapM_ (bsCheckAliasTypes (mtcPos mtc)) (btsPaths bts)

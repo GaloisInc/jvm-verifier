@@ -8,7 +8,7 @@ module SAWScript.CommandExec(runProofs) where
 
 -- Imports {{{1
 import Control.Applicative
-import Control.Exception (catch, handle)
+import Control.Exception (handle)
 import Control.Monad
 import Data.Int
 import Data.List (intercalate)
@@ -17,7 +17,6 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Traversable (Traversable, traverse)
 import qualified Data.Vector as V
 import Prelude hiding (catch)
 import System.Directory (makeRelativeToCurrentDirectory)
@@ -72,9 +71,6 @@ data ExecutorState = ES {
 type ExecErrors = [(Pos,Doc,String)]
 
 type Executor   = ErrorCollectorT ExecErrors (StateT ExecutorState IO)
-
-traverse_ :: (Applicative f, Traversable t) => (a -> f b) -> t a -> f ()
-traverse_ f d = () <$ traverse f d
 
 -- | Record a non-fatal error.
 reportError :: Pos -> Doc -> Executor ()
@@ -242,6 +238,11 @@ recordSBVOp pos sbvOpName op = do
 logicTermToTerm :: TC.LogicExpr -> Term
 logicTermToTerm (TC.Apply op args) = appTerm op (map logicTermToTerm args)
 logicTermToTerm (TC.Cns cns tp) = mkConst cns tp
+logicTermToTerm (TC.IntLit i we@(widthConstant -> Just w)) =
+  mkConst (mkCInt w i) (SymInt we)
+logicTermToTerm (TC.IntLit i we) = error $
+  "internal: logicToTerm given integer " ++ show i ++ " with non-constant type "
+    ++ ppWidthExpr we "."
 logicTermToTerm (TC.JavaValue _ _ _) =
   error "internal: Java value given to logicTermToTerm"
 logicTermToTerm (TC.Var name tp) = mkVar name tp
@@ -371,9 +372,8 @@ tcCommand pos (AST.GlobalFn nm argAsts resTypeAst rhsAst) = do
       rhsExpr <- TC.tcLogicExpr config rhsAst
       -- Evaluate right-hand expression.
       let inputMap = Map.fromList $ argNames `zip` (V.toList inputs)
-          inputFn nm = let Just v = Map.lookup nm inputMap in return v
+          inputFn name = let Just v = Map.lookup name inputMap in return v
       TC.globalEval inputFn (deTermSemantics de) rhsExpr
-      
   -- Update state with op and rules.
   recordOp pos op
 tcCommand pos (AST.SBVPragma nm sbvName) = do
@@ -496,15 +496,18 @@ runProofs cb ssOpts files = do
       action = do
         typecheckPath initialPath
         gets (reverse . verifications)
-  (errList,res) <- 
-    catch (evalStateT (runErrorCollectorT action) initState) $
-          \(ExecException absPos errorMsg resolution) ->
-             return $ ([(absPos,errorMsg, resolution)],Nothing)
-  case res of
-    Nothing -> do
-      printFailure errList
-      return $ ExitFailure (-1)
-    Just l -> do
-      mapM_ (uncurry (runMethodSpecValidate (verbose ssOpts))) l
-      putStrLn "Verification complete!"
-      return ExitSuccess
+  (errList,res) <-
+    handle (\(ExecException absPos errorMsg resolution) ->
+              return ([(absPos,errorMsg, resolution)], False)) $ do
+      (errList, ml) <- evalStateT (runErrorCollectorT action) initState
+      case (errList,ml) of
+        ([],Just l) -> do
+          mapM_ (uncurry (runMethodSpecValidate (verbose ssOpts))) l
+          return ([], null errList)
+        _ -> return (errList, False)
+  if res then do
+    putStrLn "Verification complete!"
+    return ExitSuccess
+  else do
+    printFailure errList
+    return $ ExitFailure (-1)

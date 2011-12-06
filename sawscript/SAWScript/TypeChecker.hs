@@ -233,7 +233,7 @@ globalEval varFn ts expr = eval expr
         eval (Apply op args) = tsApplyOp ts op (V.map eval (V.fromList args))
         eval (IntLit i (widthConstant -> Just w)) = 
           tsIntConstant ts w i
-        eval (IntLit i w) =
+        eval (IntLit _ w) =
           error $ "internal: globalEval given non-constant width expression "
                     ++ ppWidthExpr w "."
         eval (Cns c tp) = tsConstant ts c tp
@@ -516,7 +516,8 @@ tcE (AST.TypeExpr pos (AST.ConstantInt posCnst i) astTp) = do
     SymInt we@(widthConstant -> Just (Wx w)) -> do
       warnRanges posCnst tp i w
       return $ LE $ IntLit i we
-    SymInt we -> return $ LE $ IntLit i we
+    -- TODO: Support symbolic length integers.
+    SymInt _      -> nonGround
     SymShapeVar _ -> nonGround
     _             -> typeErr pos $   text "Incompatible type" <+> text (ppType tp)
                                  <+> ftext "assigned to integer literal."

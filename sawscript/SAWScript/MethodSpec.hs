@@ -63,11 +63,14 @@ import qualified SMTLib2 as SmtLib2
 
 nyi msg = error $ "Not yet implemented: " ++ msg
 
--- Verinf Utilities {{{1
+-- | Return first value satisfying predicate if any.
+findM :: Monad m => (a -> m Bool) -> [a] -> m (Maybe a)
+findM check [] = return Nothing
+findM check (x:xs)  = do ok <- check x
+                         if ok then return (Just x)
+                               else findM check xs
 
--- | Create a node with given number of bits.
-mkIntInput :: DagEngine -> Int -> IO DagTerm
-mkIntInput de w = deFreshInput de (SymInt (constantWidth (Wx w)))
+-- Verinf Utilities {{{1
 
 -- | Create a lit result with input bits for the given ground dag type.
 mkInputLitResultWithType :: (?be :: BitEngine l, SV.Storable l)
@@ -214,6 +217,9 @@ evalLogicExpr initExpr ec = eval initExpr
         eval (TC.Apply op exprs) =
           (liftIO . deApplyOp de op) =<< V.mapM eval (V.fromList exprs)
         eval (TC.Cns c tp) = return $ ConstTerm c tp
+        eval (TC.IntLit i we@(widthConstant -> Just w)) =
+          return $ ConstTerm (mkCInt w i) (SymInt we)
+        eval TC.IntLit{} = error "internal: evalLogicExpr called with non-ground literal."
         eval (TC.Var _ _) = error "internal: evalLogicExpr called with var"
         eval (TC.JavaValue expr _ _) = evalJavaExprAsLogic expr ec
 
@@ -336,8 +342,10 @@ ocStep (ModifyInstanceField refExpr f) = do
   lhsRef <- ocEval $ evalJavaRefExpr refExpr
   de <- gets (ecDagEngine . ocsEvalContext)
   let tp = JSS.fieldIdType f
-  n <- liftIO $ mkIntInput de (JSS.stackWidth tp)
-  ocModifyResultState $ setInstanceFieldValue lhsRef f (mkJSSValue tp n)
+  let logicType = SymInt (constantWidth (Wx (JSS.stackWidth tp)))
+  n <- liftIO $ deFreshInput de logicType
+  ocModifyResultState $
+    setInstanceFieldValue lhsRef f (mkJSSValue tp n)
 ocStep (ModifyArray refExpr tp) = do
   ref <- ocEval $ evalJavaRefExpr refExpr
   de <- gets (ecDagEngine . ocsEvalContext)
@@ -584,11 +592,9 @@ esResolveLogicExprs tp [] = do
   liftIO $ deFreshInput de tp
 esResolveLogicExprs _ (hrhs:rrhs) = do
   de <- gets esDagEngine
-  --TODO: liftIO $ putStrLn $ "esResolveLogicExprs evaluating " ++ show hrhs
   t <- esEval $ evalLogicExpr hrhs
-  -- Add assumptions for other methods.
+  -- Add assumptions for other equivalent expressions.
   forM_ rrhs $ \rhsExpr -> do
-    liftIO $ putStrLn $ "esResolveLogicExprs evaluating " ++ show rhsExpr
     rhs <- esEval $ evalLogicExpr rhsExpr
     esModifyInitialPathStateIO $ \s0 -> do prop <- deEq de t rhs
                                            addAssumption de prop s0
@@ -603,7 +609,6 @@ esSetLogicValues cl tp lrhs = do
   -- Update Initial assignments.
   modify $ \es -> es { esInitialAssignments =
                          map (\e -> (e,value)) cl ++  esInitialAssignments es }
-  --TODO: liftIO $ putStrLn $ "esSetLogicValues setting values " ++ show cl
   -- Update value.
   case termType value of
      SymArray (widthConstant -> Just (Wx l)) _ -> do
@@ -752,7 +757,6 @@ initializeVerification ir bs refConfig = do
                in throwIOExecException (specPos ir) (ftext msg) ""
             Just assignments -> mapM_ (\(l,t,r) -> esSetLogicValues l t r) assignments
           -- Process commands
-          --TODO: liftIO $ putStrLn "Running commands"
           mapM esStep (bsCommands bs)
   let ps = esInitialPathState es
   JSS.putPathState ps
@@ -771,9 +775,6 @@ initializeVerification ir bs refConfig = do
              }
 
 -- MethodSpec verification {{{1
-
--- JavaVerificationState {{{2
-type InputEvaluator n = (n,SV.Vector Bool -> CValue)
 
 -- VerificationCheck {{{2
 
@@ -879,7 +880,8 @@ generateVC ir esd (ps, res) =
              pvcgFail $ ftext $ "Modifies the static field " ++ fName ++ "."
         -- Check instance fields
         forM_ (Map.toList (JSS.instanceFields ps)) $ \((ref,f), jval) -> do
-          let fieldName = show (JSS.fieldIdName f) ++ " of " ++ esdRefName ref esd
+          let fieldName = show (JSS.fieldIdName f)
+                            ++ " of " ++ esdRefName ref esd
           case Map.lookup (ref,f) (esdInstanceFields esd) of
             Nothing ->
               pvcgFail $ ftext $ "Modifies the undefined field " ++ fieldName ++ "."
@@ -1171,7 +1173,7 @@ testRandom de v ir test_num lim pvc =
          putStrLn $ "Generating random tests: " ++ specName ir
        (passed,run) <- loop 0 0
        when (passed < test_num) $
-         let m = text "QuickCheck: Failed to generate enough good inputs."
+         let m = text "Quickcheck: Failed to generate enough good inputs."
                 $$ nest 2 (vcat [ text "Attempts:" <+> int run
                                 , text "Passed:" <+> int passed
                                 , text "Goal:" <+> int test_num
@@ -1187,7 +1189,8 @@ testRandom de v ir test_num lim pvc =
     eval <- concreteEvalFn vs
     badAsmp <- isViolated eval (pvcAssumptions pvc)
     if badAsmp
-      then do return passed
+      then do
+        return passed
       else do when (v >= 4) $
                 dbugM $ "Begin concrete DAG eval on random test case for all goals ("
                         ++ show (length $ pvcChecks pvc) ++ ")."
@@ -1208,15 +1211,8 @@ testRandom de v ir test_num lim pvc =
          then return Nothing
          else findM (isInvalid eval) (pvcChecks pvc)
 
-  isViolated eval goal = fmap (not . toBool) (eval goal)
+  isViolated eval goal = (not . toBool) <$> (eval goal)
   isInvalid eval vcc   = isViolated eval =<< vcGoal de vcc
-
-  -- XXX: Move this somewhere
-  findM :: Monad m => (a -> m Bool) -> [a] -> m (Maybe a)
-  findM check [] = return Nothing
-  findM check (x:xs)  = do ok <- check x
-                           if ok then return (Just x)
-                                 else findM check xs
 
   msg eval g =
     do what_happened <-
