@@ -42,7 +42,7 @@ method com.galois.ecc.P384ECC64.mod_div {
     modify valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   };
 
-  quickcheck 1 100;
+  quickcheck 20;
   /*
   verify {
     if (initialPC == 44) {
