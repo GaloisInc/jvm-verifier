@@ -4,7 +4,7 @@ method com.galois.ecc.P384ECC64.ec_mul_aux
 {
   var r                         :: com.galois.ecc.JacobianPoint;
   var s                         :: com.galois.ecc.AffinePoint;
-  var m, hi                     :: int;
+  var j, hi                     :: int;
   var i_lt_11                   :: boolean;
   var d_at_i, d_at_ip1          :: int;
   var this.a                    :: int[24];
@@ -13,7 +13,7 @@ method com.galois.ecc.P384ECC64.ec_mul_aux
   var s.x, s.y                  :: int[12];
   var this.field_prime          :: int[12];
 
-//  assert j >=u 0:[32] && j <u 384:[32];
+  assert j >=u 0:[32] && j <u 384:[32];
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
 
   let res = ref_ec_mul_aux( { x = join(valueOf(r.x))
@@ -23,7 +23,7 @@ method com.galois.ecc.P384ECC64.ec_mul_aux
                           , { x = join(valueOf(s.x))
                             ; y = join(valueOf(s.y))
                             }
-                          , m
+                          , j
                           , hi
                           , i_lt_11
                           , d_at_i
@@ -34,8 +34,8 @@ method com.galois.ecc.P384ECC64.ec_mul_aux
   ensure valueOf(r.z) := split(res.z) : [12][32];
   modify valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 
-//  quickcheck 10;
-  verify { rewrite; yices; };
+  quickcheck 10;
+//  verify { rewrite; yices; };
 // NB: The version of ec_mul_merge_aux at 94c87f64 discharges using the following.
 // verify { disable imp_true_elim1; rewrite; enable imp_true_elim1; rewrite; };
 };

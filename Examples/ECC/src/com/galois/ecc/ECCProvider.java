@@ -598,12 +598,13 @@ public abstract class ECCProvider {
     for (int j = 32 * h.length - 1; j >= 0; --j) {
       int i     = j >>> 5;
       boolean c = i < 11;
-      ec_mul_aux(r, s, 1 << j, h[i], c, d[i], c ? d[i+1] : 0);
+      ec_mul_aux(r, s, j, h[i], c, d[i], c ? d[i+1] : 0);
     }
   }
 
   private void ec_mul_aux(JacobianPoint r, AffinePoint s,
-                          int m, int hi, boolean i_lt_11, int d_at_i, int d_at_ip1) {
+                          int j, int hi, boolean i_lt_11, int d_at_i, int d_at_ip1) {
+    int m  = 1 << j;
     int ki = d_at_i >>> 1;
     if (i_lt_11) ki |= (d_at_ip1 & 1) << 31;    
     ec_double(r);
