@@ -50,11 +50,11 @@ tsIte tp ts c t f = tsApplyTernary ts (iteOp tp) c t f
 -- General purpose utility functions {{{1
 
 partitionVector :: [Int] -> V.Vector a -> V.Vector (V.Vector a)
-partitionVector cnts = impl [] cnts 
+partitionVector cnts = impl [] cnts
   where impl result (n : rest) cur =
           let (hd,tl) = V.splitAt n cur
            in impl (hd : result) rest tl
-        impl result [] cur 
+        impl result [] cur
           | V.null cur = V.reverse (V.fromList result)
           | otherwise = error $ "internal: bad number of elements in partitionVector"
 
@@ -250,7 +250,7 @@ joinTypesFn oc resTypes sbvTypes ts args =
   groupedTypes = V.fromList $ groupInputTypesBySize (V.toList typeSizes) sbvTypes
   sizes = V.toList $ V.map length groupedTypes
   fieldJoinFns = V.zipWith (joinSBVTerm oc) resTypes groupedTypes
- 
+
 
 -- | Join split terms from SBV into single argument
 -- for symbolic simulator.
@@ -270,7 +270,7 @@ joinSBVTerm _ SymInt{} (V.fromList -> exprTypes) ts args =
     impl 1 =<< toInt (exprTypes V.! 0) ts (args V.! 0)
 
   where n = V.length exprTypes
-        intSize SymBool = constantWidth 1 
+        intSize SymBool = constantWidth 1
         intSize (SymInt w) = w
         intSize _ = error "ilegal: joinSBVTerm given non-integer"
 
@@ -361,7 +361,7 @@ runChecker oc uFn inputs m = ins `seq` outs `seq` (ins, outs)
 
 -- | Asserts that two types are equal.
 assertTypesEqual :: String -> DagType -> DagType -> a -> a
-assertTypesEqual loc xtp ytp 
+assertTypesEqual loc xtp ytp
   | xtp == ytp = id
   | otherwise =
      throw $ SBVBadFormat
@@ -451,12 +451,25 @@ apply _ (BVDiv _) _args = error "BVDiv unsupported"
 apply _ (BVMod _) _args = error "BVMod unsupported"
 apply _ BVPow _args = error "BVPow unsupported"
 
-apply _ BVIte [cType, tType, fType] =
+apply _ BVIte [cType, tType0, fType0] =
+  let [tType, fType] = map coerceBoolTy [tType0, fType0] in
   assertTypesEqual "BVIte" tType fType $
     ( tType
-    , SFN $ \ts v -> assert (V.length v == 3) $
-                  let b = toBool cType ts (v V.! 0)
-                   in tsIte tType ts b (v V.! 1) (v V.! 2))
+    , SFN $ \ts v ->
+        assert (V.length v == 3) $
+          let b = toBool cType ts (v V.! 0)
+              t = case tType0 of
+                    SymBool -> toInt tType0 ts (v V.! 1)
+                    _       -> v V.! 1
+              f = case fType0 of
+                    SymBool -> toInt fType0 ts (v V.! 2)
+                    _       -> v V.! 2
+          in
+            tsIte tType ts b t f
+    )
+  where
+    coerceBoolTy x@SymBool = toIntType x
+    coerceBoolTy x         = x
 
 apply _ BVShl [x, y] = applyShiftOp shlOp x y
 apply _ BVShr [x, y] = applyShiftOp ushrOp x y
@@ -465,7 +478,7 @@ apply _ BVShr [x, y] = applyShiftOp ushrOp x y
 apply _ BVRol _args = error "BVRol unsupported"
 apply _ BVRor _args = error "BVRor unsupported"
 
-apply (oc,_) (BVExt hi lo) [SymInt wx@(widthConstant -> Just (Wx w))] 
+apply (oc,_) (BVExt hi lo) [SymInt wx@(widthConstant -> Just (Wx w))]
   | newWidth < 0 = throw $ SBVBadFormat "Negative size given to BVExt"
   | otherwise =
       ( SymInt (constantWidth newWidth)
@@ -596,7 +609,7 @@ apply (oc,uFn) (BVUnint (Loc _path _line _col) [] (name,ir)) inputArgTypes = do
                  ++ printType resType
                  ++ "Returned return type:\n"
                  ++ printType (opResultType uOp)
-      | otherwise -> 
+      | otherwise ->
          ( resType
          , SFN $ let joinFn = joinTypesFn oc fnArgTypes inputArgTypes
                   in \ts args -> tsApplyOp ts uOp (joinFn ts args)
@@ -688,7 +701,7 @@ parseSBV oc
                        cmds,
                        _vc,
                        _warnings,
-                       _opDecls)) 
+                       _opDecls))
   | not (vMajor == 4 && vMinor == 0) = throw $ SBVBadFileVersion vMajor vMinor
   | otherwise =
     let (inputNodes,outs) = runChecker oc uninterpFn
@@ -747,6 +760,3 @@ parseSBVOp oc
   op <- definedOp oc opDefName (V.toList argTypes) resType (OpSem (\_ -> evalFn))
 
   return (op, WEF evalFn)
-
-
-
