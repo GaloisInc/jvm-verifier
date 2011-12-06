@@ -1,6 +1,6 @@
 import "rules.saw";
 enable ref_ec_mul_aux;
-method com.galois.ecc.P384ECC64.ec_mul_merge_aux 
+method com.galois.ecc.P384ECC64.ec_mul_aux
 {
   var r                         :: com.galois.ecc.JacobianPoint;
   var s                         :: com.galois.ecc.AffinePoint;
