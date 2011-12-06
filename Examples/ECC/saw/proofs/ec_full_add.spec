@@ -1,4 +1,3 @@
-enable ref_ec_full_add;
 method com.galois.ecc.P384ECC64.ec_full_add
 {
   var args[0]                         :: com.galois.ecc.JacobianPoint; 
@@ -32,6 +31,5 @@ method com.galois.ecc.P384ECC64.ec_full_add
   ensure valueOf(args[0].z) := split(res.z) : [12][32];
 
   modify valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-  quickcheck 10;
-  //verify yices;
+  verify { rewrite; yices; };
 };

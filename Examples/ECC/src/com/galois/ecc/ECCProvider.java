@@ -531,7 +531,7 @@ public abstract class ECCProvider {
         set_zero(r.z);
       }
     } else {
-      field_dbl(r.x, r.x); 
+      field_dbl(r.x, r.x);
       field_sub(r.x, r.x, t4);    // 22: t1 <- 2*t1 - t4; r.x <- r.x + t.x * r.z^2
       field_dbl(r.y, r.y);
       field_sub(r.y, r.y, t5);    // 23: t2 <- 2*t2 - t5; r.y <- r.y + t.y * r.z^3

@@ -1,4 +1,2 @@
-include "sbv_uninterpret_field_ops.cry";
-pragma p384_ec_double     : SBV uninterpret;
-pragma p384_ec_full_add   : SBV uninterpret;
+include "sbv_uninterpret_ec_full_add.cry";
 pragma p384_ec_full_sub   : SBV uninterpret;

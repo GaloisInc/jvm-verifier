@@ -12,5 +12,6 @@ import "field_mul.qcspec";
 import "field_sq.qcspec";
 set verification on;
 
+enable ref_ec_double;
 import "ec_double.spec";
 

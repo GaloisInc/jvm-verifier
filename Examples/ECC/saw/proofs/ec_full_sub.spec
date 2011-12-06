@@ -1,4 +1,3 @@
-enable ref_ec_full_sub;
 method com.galois.ecc.P384ECC64.ec_full_sub
 {
   var args[0]                         :: com.galois.ecc.JacobianPoint; 
@@ -32,5 +31,7 @@ method com.galois.ecc.P384ECC64.ec_full_sub
   ensure valueOf(args[0].z) := split(r.z) : [12][32];
 
   modify valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-  quickcheck 10;
+  modify valueOf(args[1].x);
+  modify valueOf(args[1].y);
+  verify { rewrite; yices; };
 };
