@@ -72,9 +72,10 @@ import Utils.Common
 
 -- | Convert expression type from AST into WidthExpr
 tcheckExprWidth :: AST.ExprWidth -> WidthExpr
-tcheckExprWidth (AST.WidthConst _ i  ) = constantWidth (Wx i)
-tcheckExprWidth (AST.WidthVar   _ nm ) = varWidth nm
-tcheckExprWidth (AST.WidthAdd   _ u v) = addWidth (tcheckExprWidth u) (tcheckExprWidth v)
+tcheckExprWidth = fn
+  where fn (AST.WidthConst _ i  ) = constantWidth (Wx i)
+        fn (AST.WidthVar   _ nm ) = varWidth nm
+        fn (AST.WidthAdd   _ u v) = addWidth (fn u) (fn v)
 
 -- | Convert expression type from AST into DagType.
 -- Uses Executor monad for parsing record types.
@@ -190,6 +191,7 @@ tcValueOfExpr cfg ast = do
 -- method declaration, or rule term.
 data LogicExpr
    = Apply Op [LogicExpr]
+   | IntLit Integer WidthExpr
    | Cns CValue DagType
      -- | Refers to the logical value of a Java expression.  For scalars,
      -- this is the value of the scalar with the number of bits equal to
@@ -202,35 +204,42 @@ data LogicExpr
 -- | Return type of a typed expression.
 typeOfLogicExpr :: LogicExpr -> DagType
 typeOfLogicExpr (Apply     op _) = opResultType op
+typeOfLogicExpr (IntLit    _ tp) = SymInt tp
 typeOfLogicExpr (Cns       _ tp) = tp
 typeOfLogicExpr (JavaValue _ _ tp) = tp
 typeOfLogicExpr (Var       _ tp) = tp
 
 -- | Return java expressions in logic expression.
 logicExprJavaExprs :: LogicExpr -> Set JavaExpr
-logicExprJavaExprs t = impl t Set.empty
+logicExprJavaExprs = flip impl Set.empty
   where impl (Apply _ args) s = foldr impl s args
-        impl (Cns _ _) s = s
         impl (JavaValue e _ _) s = Set.insert e s
-        impl (Var _ _) s = s
+        impl _ s = s
 
 -- | Returns names of variables appearing in typedExpr.
 logicExprVarNames :: LogicExpr -> Set String
-logicExprVarNames (Apply _ exprs) = Set.unions (map logicExprVarNames exprs)
-logicExprVarNames (Cns _ _)       = Set.empty
-logicExprVarNames (JavaValue _ _ _) = Set.empty
-logicExprVarNames (Var nm _) = Set.singleton nm
+logicExprVarNames = flip impl Set.empty
+  where impl (Apply _ args) s = foldr impl s args
+        impl (Var nm _) s = Set.insert nm s
+        impl _ s = s
 
 -- | Evaluate a ground typed expression to a constant value.
-globalEval :: LogicExpr -> IO CValue
-globalEval expr = eval expr
-  where ts = evalTermSemantics
+globalEval :: (String -> m r)
+           -> TermSemantics m r
+           -> LogicExpr
+           -> m r
+globalEval varFn ts expr = eval expr
+  where --TODO: flag error if op is undefined.
         eval (Apply op args) = tsApplyOp ts op (V.map eval (V.fromList args))
+        eval (IntLit i (widthConstant -> Just w)) = 
+          tsIntConstant ts w i
+        eval (IntLit i w) =
+          error $ "internal: globalEval given non-constant width expression "
+                    ++ ppWidthExpr w "."
         eval (Cns c tp) = tsConstant ts c tp
         eval (JavaValue _nm _ _tp) =
-          error "internal: globalEval called with expression containing Java expressions."
-        eval (Var _nm _tp) =
-          error "internal: globalEval called with non-ground expression"
+          error "internal: globalEval called with Java expression."
+        eval (Var nm _tp) = varFn nm
 
 -- | Internal utility for flipping arguments to binary logic expressions.
 flipBinOpArgs :: LogicExpr -> LogicExpr
@@ -500,13 +509,14 @@ tcE (AST.MkArray p (es@(_:_))) = do
   return $ LE $ Apply (mkArrayOp oc (length es') t) es'
 tcE (AST.TypeExpr pos (AST.ConstantInt posCnst i) astTp) = do
   tp <- tcT astTp
-  let nonGround = typeErr pos $   text "The type" <+> text (ppType tp)
-                              <+> ftext "bound to literals must be a ground type."
+  let nonGround =
+        typeErr pos $   text "The type" <+> text (ppType tp)
+          <+> ftext "bound to literals must be a ground type."
   case tp of
-    SymInt (widthConstant -> Just (Wx w)) -> do
+    SymInt we@(widthConstant -> Just (Wx w)) -> do
       warnRanges posCnst tp i w
-      return $ LE $ Cns (mkCInt (Wx w) i) tp
-    SymInt      _ -> nonGround
+      return $ LE $ IntLit i we
+    SymInt we -> return $ LE $ IntLit i we
     SymShapeVar _ -> nonGround
     _             -> typeErr pos $   text "Incompatible type" <+> text (ppType tp)
                                  <+> ftext "assigned to integer literal."

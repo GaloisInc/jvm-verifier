@@ -37,6 +37,7 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'method'       { TReserved _ "method"       }
    'rule'         { TReserved _ "rule"         }
    'from'         { TReserved _ "from"         }
+   'pc'           { TReserved _ "pc"           }
    'mayAlias'     { TReserved _ "mayAlias"     }
    'assert'       { TReserved _ "assert"       }
    'ensure'       { TReserved _ "ensure"       }
@@ -264,7 +265,8 @@ MethodSpecDecls : termBy(MethodSpecDecl, ';') { $1 }
 
 MethodSpecDecl :: { MethodSpecDecl }
 MethodSpecDecl
-  : 'from' num LSpecBlock  { SpecAt   (tokPos $1) (tokNum $2) $3 }
+  : 'from' 'pc' num LSpecBlock
+                         { SpecAt (tokPos $1) (tokNum $3) $4 }
   | 'quickcheck' num opt(num)
                          { QuickCheck (tokPos $1) (tokNum $2) (fmap tokNum $3) }
   | 'verify' VerifyCommand
@@ -308,7 +310,7 @@ VerifyCommand
   | 'smtlib' opt(int) opt(str)         { SmtLib (fmap snd $2) $3 }
   | 'yices'  opt(int)                  { Yices (fmap snd $2) }
   | 'expand' Expr                      { Expand $2 }
-  | 'from' num VerifyCommand           { VerifyAt (tokPos $2) (tokNum $2) $3 }
+  | 'from' 'pc' num VerifyCommand      { VerifyAt (tokPos $1) (tokNum $3) $4 }
   | 'enable'  var                      { VerifyEnable  (tokPos $2) (tokStr $2) }
   | 'disable' var                      { VerifyDisable (tokPos $2) (tokStr $2) }
   | '{' termBy(VerifyCommand, ';') '}' { VerifyBlock $2 }

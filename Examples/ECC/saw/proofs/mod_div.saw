@@ -3,21 +3,21 @@ import "common.saw";
 
 // Definition of ref_div and egcd (should be moved to common.saw).
 
-let even(x:[n]) = (x & 1:[n]) == 0:[n];
+let even(x:[384]) : Bit = (x & 1:[384]) == 0:[384];
 
-let ref_egcd(p:[384], a:[384], ra:[384], b:[384], rb:[384]) =
+let ref_egcd(p:[384], a:[384], ra:[384], b:[384], rb:[384]) : [384] =
   if b == 0:[384] then
     ra
   else if even(b) then
-    ref_egcd(p, a, ra, b       >>u 1, ref_mod_half(p, rb))
+    ref_egcd(p, a, ra, b       >>u 1:[384], ref_mod_half(p, rb))
   else if a <u b then
-    ref_egcd(p, a, ra, (b - a) >>u 1, ref_mod_half(p, ref_mod_sub(p, rb, ra)))
+    ref_egcd(p, a, ra, (b - a) >>u 1:[384], ref_mod_half(p, ref_mod_sub(p, rb, ra)))
   else 
-    ref_egcd(p, b, rb, (a - b) >>u 1, ref_mod_half(p, ref_mod_sub(p, ra, rb)));
+    ref_egcd(p, b, rb, (a - b) >>u 1:[384], ref_mod_half(p, ref_mod_sub(p, ra, rb)));
 
-let ref_div(p:[384], x:[384], y:[384]) = ref_egcd(p, p, 0, y, x);
+let ref_mod_div(p:[384], x:[384], y:[384]) : [384] = ref_egcd(p, p, 0:[384], y, x);
 
 // Declares that "ref_div" is "mod_div" in Cryptol.
-assert SBV ref_div = "mod_div";
+pragma ref_mod_div : SBV "mod_div";
 
 import "mod_div.spec";

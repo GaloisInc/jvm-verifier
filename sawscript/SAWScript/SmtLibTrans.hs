@@ -13,7 +13,7 @@ import Verinf.Symbolic.Common
   , OpIndex
   , recDefFieldNames, recFieldTypes
   )
-import Verinf.Symbolic(DagTerm, evalDagTerm, evalDagTermFn, getSValW)
+import Verinf.Symbolic(DagTerm, evalDagTerm, opDefDefinition, evalDagTermFn, getSValW)
 import qualified Verinf.Symbolic.Common as Op (OpIndex(..))
 import Verinf.Utils.CacheM
 import qualified Data.Vector as V
@@ -464,7 +464,7 @@ translateOps enabled = termSem
       Op.Neg         -> negOp
       Op.Split w1 w2 -> splitOp (numBits w1) (numBits w2)
       Op.Join w1 w2  -> joinOp (numBits w1) (numBits w2)
-      Op.Dynamic x m -> \t -> dynOp x op m (V.fromList [t])
+      Op.Dynamic x   -> \t -> dynOp x op (V.fromList [t])
 
       i -> \_ -> err $ "Unknown unary operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -495,7 +495,7 @@ translateOps enabled = termSem
       Op.UnsignedLeq   -> unsignedLeqOp
       Op.UnsignedLt    -> unsignedLtOp
       Op.GetArrayValue -> getArrayValueOp
-      Op.Dynamic x m   -> \s t -> dynOp x op m (V.fromList [s,t])
+      Op.Dynamic x     -> \s t -> dynOp x op (V.fromList [s,t])
 
       i -> \_ _ -> err $ "Unknown binary operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -504,7 +504,7 @@ translateOps enabled = termSem
     case opDefIndex (opDef op) of
       Op.ITE           -> iteOp
       Op.SetArrayValue -> setArrayValueOp
-      Op.Dynamic x m   -> \r s t -> dynOp x op m (V.fromList [r,s,t])
+      Op.Dynamic x     -> \r s t -> dynOp x op (V.fromList [r,s,t])
 
       i -> \_ _ _ -> err $ "Unknown ternary operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -513,7 +513,7 @@ translateOps enabled = termSem
     case opDefIndex (opDef op) of
       Op.MkArray _  -> \vs -> do t <- cvtType (opResultType op)
                                  mkArray t vs
-      Op.Dynamic x m   -> \xs -> dynOp x op m (V.fromList xs)
+      Op.Dynamic x  -> \xs -> dynOp x op (V.fromList xs)
 
       i -> \_ -> err $ "Unknown variable arity operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -535,8 +535,8 @@ translateOps enabled = termSem
                          op ss
 
 
-  dynOp x op mbRhs args =
-    case mbRhs of
+  dynOp x op args =
+    case opDefDefinition (opDef op) of
       Just rhs | opDefIndex (opDef op) `S.member` enabled ->
         do as0 <- V.mapM save args
            mb <- lkpDefinedOp x as0
