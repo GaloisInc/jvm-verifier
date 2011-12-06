@@ -580,21 +580,24 @@ p384_point_ops = {
     group_field = p384_group_field;
   };
 
+java_ishl : ([32],[32]) -> [32];
+java_ishl (x,s) = x << (s & 0x1f);
+
 /* Matches Java implementation */
 p384_ec_mul_aux : ( JacobianPoint [384]
                    , AffinePoint [384]
                    , [32], [32], [32], [32], [32] ) -> JacobianPoint [384];
 p384_ec_mul_aux (r, s, j, hi, i_lt_11, d_at_i, d_at_ip1) = r'
   where {
-    m   = 1 << j;
+    m   = java_ishl(1, j);
     ki  = d_at_i >> 1;
     ki' = if i_lt_11 != 0 then ki | ((d_at_ip1 & 1) << 31) else ki;
     r'' = p384_ec_double(r);
-    r' = if ((hi & m) != zero) & ((ki' & m) == zero) then
-           p384_ec_full_add(r'', s)
-         else if ((hi & m) == zero) & ((ki' & m) != zero) then
-           p384_ec_full_sub(r'', s)
-         else r'';
+    r'  = if ((hi & m) != zero) & ((ki' & m) == zero) then
+            p384_ec_full_add(r'', s)
+          else if ((hi & m) == zero) & ((ki' & m) != zero) then
+            p384_ec_full_sub(r'', s)
+          else r'';
   };
 
 /* Matches Java implementation */
