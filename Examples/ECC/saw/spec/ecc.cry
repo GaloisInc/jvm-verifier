@@ -583,6 +583,48 @@ p384_point_ops = {
 /* Matches Java implementation */
 p384_ec_mul_aux : ( JacobianPoint [384]
                    , AffinePoint [384]
+                   , [32], [32], [32], [32], [32] ) -> JacobianPoint [384];
+p384_ec_mul_aux (r, s, m, hi, i_lt_11, d_at_i, d_at_ip1) = r'
+  where {
+    ki  = d_at_i >> 1;
+    ki' = if i_lt_11 != 0 then ki | ((d_at_ip1 & 1) << 31) else ki;
+    r'' = p384_ec_double(r);
+    r' = if ((hi & m) != zero) & ((ki' & m) == zero) then
+           p384_ec_full_add(r'', s)
+         else if ((hi & m) == zero) & ((ki' & m) != zero) then
+           p384_ec_full_sub(r'', s)
+         else r'';
+  };
+
+/* Matches Java implementation */
+p384_ec_mul : ([384], AffinePoint [384]) -> JacobianPoint [384];
+p384_ec_mul (d, s) = (res @ 384)
+  where {
+    d' : [12][32];
+    d' = split d;
+    (h, c) = ripple_adc(d', ripple_shr(d', False));
+    r0 = if c
+          then ec_projectify(p384_field, s)
+          else p384_ec_zero_point;
+    f (j, r) = p384_ec_mul_aux(r, s, 1 << j, h @ i, zero # [c], d'@i, d_at_ip1)
+      where {
+        i        = j >> 5;
+        c        = i < 11;
+        d_at_ip1 = if c then d'@(i+1) else 0; 
+                   /* NB: We guard indexing here to avoid bounds VCs;
+                      p384_ec_mul_aux's use of d_at_ip1 is likewise
+                      guarded. */
+      };
+    res = [r0] #
+          [| f(j, r)
+          || j <- mk_strm (reverse [0..383])
+          || r <- res
+          |]
+  };
+
+/*
+p384_ec_mul_aux : ( JacobianPoint [384]
+                   , AffinePoint [384]
                    , [32], [32], [32] ) -> JacobianPoint [384];
 p384_ec_mul_aux (r, s, m, hi, ki) = r'
   where {
@@ -593,9 +635,9 @@ p384_ec_mul_aux (r, s, m, hi, ki) = r'
            p384_ec_full_sub(r'', s)
          else r'';
   };
+*/
 
-/* Matches Java implementation */
-p384_ec_mul : ([384], AffinePoint [384]) -> JacobianPoint [384];
+/*
 p384_ec_mul (d, s) = (res @ 384)
   where {
     d' : [12][32];
@@ -616,6 +658,7 @@ p384_ec_mul (d, s) = (res @ 384)
           || r <- res
           |]
   };
+*/
 
 p384_ec_twin_mul : ([384], AffinePoint [384], [384], AffinePoint [384]) -> (JacobianPoint [384]);
 p384_ec_twin_mul(x,p,y,q) = ec_twin_mul(p384_point_ops, x, p, y, q);

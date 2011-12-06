@@ -596,6 +596,42 @@ public abstract class ECCProvider {
     }
     
     for (int j = 32 * h.length - 1; j >= 0; --j) {
+      int i     = j >>> 5;
+      boolean c = i < 11;
+      ec_mul_merge_aux(r, s, 1 << j, h[i], c, d[i], c ? d[i+1] : 0);
+    }
+  }
+
+  private void ec_mul_merge_aux(JacobianPoint r, AffinePoint s,
+                                int m, int hi, boolean i_lt_11, int d_at_i, int d_at_ip1) {
+    int ki = d_at_i >>> 1;
+    if (i_lt_11) ki |= (d_at_ip1 & 1) << 31;    
+    ec_double(r);
+
+    if ((hi & m) != 0 && (ki & m) == 0) {
+      ec_full_add(r, s);
+    } else if ((hi & m) == 0 && (ki & m) != 0) {
+      ec_full_sub(r, s);
+    }
+  }
+
+  /*
+  private void ec_mul(JacobianPoint r, int[] d, AffinePoint s) {
+    shr(h, 0, d);
+    // If h <- d + (d >> 1) overflows
+    if (add(h, d, h) != 0) {
+      // Start with r = s.
+      assign(r.x, s.x);
+      assign(r.y, s.y);
+      set_unit(r.z);
+    } else {
+      // Otherwise start with r = 0.
+      set_unit(r.x);
+      set_unit(r.y);
+      set_zero(r.z);
+    }
+    
+    for (int j = 32 * h.length - 1; j >= 0; --j) {
       int i = j >>> 5;
       int m = 1 << j;
       int hi = h[i];
@@ -604,7 +640,6 @@ public abstract class ECCProvider {
       ec_mul_merge_aux(r, s, m, hi, ki);
     }
   }
-
   // Auxiliary function for ec_mul to force path state merging by the simulator
   private void ec_mul_merge_aux(JacobianPoint r, AffinePoint s,
                                 int m, int hi, int ki) {
@@ -616,6 +651,7 @@ public abstract class ECCProvider {
       ec_full_sub(r, s);
     }
   }
+  */
 
   /**
    * Assigns r = d * s using a 2bit lookahead window.
