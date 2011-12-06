@@ -560,9 +560,10 @@ public abstract class ECCProvider {
    * @return <code>true</code> if s and t are not the same point.
    */
   private void ec_full_sub(JacobianPoint r, AffinePoint t) {
-    if (!is_zero(t.y)) sub(t.y, field_prime, t.y);
+    boolean z = is_zero(t.y);
+    if (!z) sub(t.y, field_prime, t.y);
     ec_full_add(r, t);
-    if (!is_zero(t.y)) sub(t.y, field_prime, t.y);
+    if (!z) sub(t.y, field_prime, t.y);
   }
 
   private static void copy_point(JacobianPoint r, JacobianPoint s) {
