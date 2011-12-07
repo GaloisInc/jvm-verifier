@@ -1,0 +1,11 @@
+method com.galois.ecc.P384ECC64.shr
+{
+  var z, x :: int[12];
+  var c :: int;
+  mayAlias { z, x };
+  let x' = join(valueOf(x)) : [384];
+  let mask = (0 : [352]) # (c << 31:[5]);
+  let x'' = mask | (x' >>u 1:[5]);
+  ensure valueOf(z) := split(x'') : [12][32];
+  verify abc;
+};
