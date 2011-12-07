@@ -28,26 +28,6 @@ import Control.Monad.Trans
 import Data.Maybe
 import Data.Monoid
 
-{-
--- ErrorPlusT {{{1 
-
-newtype ErrorPlusT e m v = ErrorPlusT { runErrorPlusT :: m (Either e v) }
-
-instance Functor m => Functor (ErrorPlusT e m) where
-  fmap fn t = ErrorPlusT (fmap (either Left (Right . fn)) (runErrorPlusT t))
-
-instance (Monoid e, Applicative m) => Applicative (ErrorPlusT e m) where
-  pure v = ErrorPlusT (pure (Right v))
-  tf <*> tv = ErrorPlusT $ liftA2 merge (runErrorPlusT tf) (runErrorPlusT tv)
-   where merge (Left ef) (Left ev) = Left (ef `mappend` ev)
-         merge (Left ef) (Right _) = Left ef
-         merge (Right _) (Left ev) = Left ev
-         merge (Right f) (Right v) = Right (f v)
-
-instance MonadTrans (ErrorPlusT e) where
-  lift m = ErrorPlusT (return . Right =<< m)
-  -}
-
 -- ErrorCollectorT {{{1
 
 -- | ErrorColllectorT is a monad transformer that allows errors to be throw,

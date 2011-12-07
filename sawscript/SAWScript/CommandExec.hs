@@ -337,8 +337,8 @@ tcCommand pos (AST.GlobalLet name rhsAst) = do
   debugWrite $ "Start defining let " ++ name
   valueExpr <- do
     bindings <- getGlobalBindings
-    let config = TC.mkGlobalTCConfig bindings Map.empty
-    liftIO $ TC.tcLogicExpr config rhsAst
+    let cfg = TC.mkGlobalTCConfig bindings Map.empty
+    liftIO $ TC.tcLogicExpr rhsAst cfg
   let ifn = error "internal: globalLet given non-ground expression"
   -- TODO: Figure out what happens if globalEval fails.
   -- This could be if an operator is uninterpreted due to SBV parsing failing.
@@ -368,8 +368,8 @@ tcCommand pos (AST.GlobalFn nm argAsts resTypeAst rhsAst) = do
                 TC.opBindings = Map.insert nm (opDef op)
                                  (TC.opBindings gbindings)
               }
-      let config = TC.mkGlobalTCConfig bindings (Map.fromList args)
-      rhsExpr <- TC.tcLogicExpr config rhsAst
+      let cfg = TC.mkGlobalTCConfig bindings (Map.fromList args)
+      rhsExpr <- TC.tcLogicExpr rhsAst cfg
       -- Evaluate right-hand expression.
       let inputMap = Map.fromList $ argNames `zip` (V.toList inputs)
           inputFn name = let Just v = Map.lookup name inputMap in return v
@@ -421,9 +421,9 @@ tcCommand pos (AST.Rule ruleName params astLhsExpr astRhsExpr) = do
   debugWrite $ "Start defining rule " ++ ruleName
   bindings <- getGlobalBindings
   ruleVars <- tcVarBindings params
-  let config = TC.mkGlobalTCConfig bindings (Map.fromList ruleVars)
-  lhsExpr <- liftIO $ TC.tcLogicExpr config astLhsExpr
-  rhsExpr <- liftIO $ TC.tcLogicExpr config astRhsExpr
+  let cfg = TC.mkGlobalTCConfig bindings (Map.fromList ruleVars)
+  lhsExpr <- liftIO $ TC.tcLogicExpr astLhsExpr cfg
+  rhsExpr <- liftIO $ TC.tcLogicExpr astRhsExpr cfg
   -- Check types are equivalence
   let lhsTp = TC.typeOfLogicExpr lhsExpr
       rhsTp = TC.typeOfLogicExpr rhsExpr

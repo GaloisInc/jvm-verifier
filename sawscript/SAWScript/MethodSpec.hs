@@ -26,7 +26,7 @@ import Control.Monad.Cont
 import Control.Monad.Error (Error(..), ErrorT, runErrorT, throwError)
 import Control.Monad.State
 import Data.Int
-import Data.List (foldl', sort, intercalate, intersperse)
+import Data.List (foldl', intercalate, intersperse)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -64,7 +64,7 @@ nyi msg = error $ "Not yet implemented: " ++ msg
 
 -- | Return first value satisfying predicate if any.
 findM :: Monad m => (a -> m Bool) -> [a] -> m (Maybe a)
-findM check [] = return Nothing
+findM _ [] = return Nothing
 findM check (x:xs)  = do ok <- check x
                          if ok then return (Just x)
                                else findM check xs
@@ -153,15 +153,12 @@ data EvalContext = EvalContext {
 evalContextFromPathState :: DagEngine -> DagPathState -> EvalContext
 evalContextFromPathState de ps =
   let f:_ = JSS.frames ps
-      method   = JSS.frmMethod f
-      paramCount = length (JSS.methodParameterTypes method)
       localMap = JSS.frmLocals f
    in EvalContext {
           ecDagEngine = de
         , ecLocals = localMap
         , ecPathState = ps
         }
-
 
 type ExprEvaluator a = ErrorT TC.JavaExpr IO a
 
@@ -487,6 +484,9 @@ overrideFromSpec pos ir
 data ExpectedStateDef = ESD {
          -- | PC that we started from.
          esdStartPC :: JSS.PC
+         -- | Initial path state (used for evaluating expressions in
+         -- verification).
+       , esdInitialPathState :: JSS.PathState Node
          -- | Stores initial assignments.
        , esdInitialAssignments :: [(TC.JavaExpr, Node)]
          -- | Map from references back to Java expressions denoting them.
@@ -577,7 +577,7 @@ esAssertEq _ _ _ = error "internal: esAssertEq given illegal arguments."
 esSetJavaValue :: TC.JavaExpr -> DagJavaValue -> ExpectedStateGenerator ()
 esSetJavaValue e@(CC.Term exprF) v = do
   case exprF of
-    TC.Local nm idx _ -> do
+    TC.Local _ idx _ -> do
       ps <- esGetInitialPathState
       let f:r = JSS.frames ps
       case Map.lookup idx (JSS.frmLocals f) of
@@ -774,15 +774,18 @@ initializeVerification ir bs refConfig = do
   let ps = esInitialPathState es
   JSS.putPathState ps
   return ESD { esdStartPC = bsPC bs
+             , esdInitialPathState = esInitialPathState es
              , esdInitialAssignments = reverse (esInitialAssignments es)
              , esdRefExprMap =
                   Map.fromList [ (r, cl) | (cl,r) <- refAssignments ]
              , esdReturnValue = esReturnValue es
-               -- Create esdArrays map while providing entry for unspecified expressions.
+               -- Create esdArrays map while providing entry for unspecified
+               -- expressions.
              , esdInstanceFields =
                  Map.union (esInstanceFields es)
                            (Map.map Just (JSS.instanceFields ps))
-               -- Create esdArrays map while providing entry for unspecified expressions.
+               -- Create esdArrays map while providing entry for unspecified
+               -- expressions.
              , esdArrays =
                  Map.union (esArrays es)
                            (Map.map Just (JSS.arrays ps))
@@ -822,6 +825,8 @@ vcCounterexample (EqualityCheck nm jvmNode specNode) evalFn =
         nest 2 (text "Encountered: " <> ppCValueD Mixfix jn) $$
         nest 2 (text "Expected:    " <> ppCValueD Mixfix sn))
 
+-- PathVC {{{2
+
 -- | Describes the verification result arising from one symbolic execution path.
 data PathVC = PathVC {
           pvcStartPC :: JSS.PC
@@ -849,6 +854,8 @@ pvcgAssert nm v =
 pvcgFail :: Doc -> PathVCGenerator ()
 pvcgFail msg =
   modify $ \pvc -> pvc { pvcStaticErrors = msg : pvcStaticErrors pvc }
+
+-- generateVC {{{2
 
 -- | Compare result with expected state.
 generateVC :: MethodSpecIR
@@ -932,58 +939,39 @@ generateVC ir esd (ps, endPC, res) = do
 
 -- verifyMethodSpec and friends {{{2
 
--- | Analyze the specification, and return a list of symbolic executions to run
--- that will generate the different paths we need to verify.
-specVCs :: VerifyParams -> [SymbolicMonad [PathVC]]
-specVCs
-  (VerifyParams
-    { vpCode = cb
-    , vpOpts = opts
-    , vpOver = overrides
-    , vpSpec = ir
-    }
-  ) = do
-  let pos = specPos ir
-  let vrb = verbose opts
-  let svrb = simverbose opts
-  -- Get list of behavior specs to start from and the equivclass for them.
-  let executionParams = [ (bs,cl) | bs <- concat $ Map.elems $ specBehaviors ir
-                                  , cl <- bsRefEquivClasses bs]
-  -- Return executions
-  flip map executionParams $ \(bs, refConfig) -> do
-    de <- getDagEngine
-    setVerbosity vrb
-    JSS.runSimulator cb $ do
-      -- Log execution.
-      setVerbosity svrb
-      -- Add method spec overrides.
-      mapM_ (overrideFromSpec pos) overrides
-      -- Create initial Java state.
-      -- Create map from expressions to references.
-      esd <- initializeVerification ir bs refConfig
-      -- Execute code.
-      when (vrb >= 3) $ do
-        liftIO $ putStrLn $ "Executing " ++ specName ir ++ " at PC " ++ show (bsPC bs) ++ "."
-      jssResults <- JSS.run
-      finalPathResults <-
-        forM jssResults $ \(pd, fr) -> do
-          finalPS <- JSS.getPathStateByName pd
-          case fr of
-            JSS.ReturnVal val -> return [(finalPS, Nothing, Right (Just val))]
-            JSS.Terminated ->    return [(finalPS, Nothing, Right Nothing)]
-            JSS.Breakpoint pc -> do
-              -- Execute behavior specs at PC.
-              let Just bsl = Map.lookup pc (specBehaviors ir)
-              let ec = evalContextFromPathState de finalPS
-              liftIO $ execBehavior bsl ec finalPS
-            JSS.Exc JSS.SimExtErr { JSS.simExtErrMsg = msg } ->
-              return [(finalPS, Nothing, Left [SimException msg]) ]
-            JSS.Exc JSS.JavaException{ JSS.excRef = r } ->
-              return [(finalPS, Nothing, Left [JavaException r])]
-            JSS.Aborted ->
-              return [(finalPS, Nothing, Left [Abort])]
-            JSS.Unassigned -> error "internal: run terminated before completing."
-      return $ map (generateVC ir esd) (concat finalPathResults)
+mkSpecVC :: VerifyParams
+         -> BehaviorSpec 
+         -> RefEquivConfiguration
+         -> ExpectedStateDef
+         -> JSS.Simulator SymbolicMonad [PathVC]
+mkSpecVC params bs refConfig esd = do
+  let ir = vpSpec params
+  -- Log execution.
+  setVerbosity (simverbose (vpOpts params))
+  -- Add method spec overrides.
+  mapM_ (overrideFromSpec (specPos ir)) (vpOver params)
+  -- Execute code.
+  jssResults <- JSS.run
+  finalPathResults <-
+    forM jssResults $ \(pd, fr) -> do
+      finalPS <- JSS.getPathStateByName pd
+      case fr of
+        JSS.ReturnVal val -> return [(finalPS, Nothing, Right (Just val))]
+        JSS.Terminated ->    return [(finalPS, Nothing, Right Nothing)]
+        JSS.Breakpoint pc -> do
+          de <- JSS.liftSymbolic getDagEngine
+          -- Execute behavior specs at PC.
+          let Just bsl = Map.lookup pc (specBehaviors ir)
+          let ec = evalContextFromPathState de finalPS
+          liftIO $ execBehavior bsl ec finalPS
+        JSS.Exc JSS.SimExtErr { JSS.simExtErrMsg = msg } ->
+          return [(finalPS, Nothing, Left [SimException msg]) ]
+        JSS.Exc JSS.JavaException{ JSS.excRef = r } ->
+          return [(finalPS, Nothing, Left [JavaException r])]
+        JSS.Aborted ->
+          return [(finalPS, Nothing, Left [Abort])]
+        JSS.Unassigned -> error "internal: run terminated before completing."
+  return $ map (generateVC ir esd) (concat finalPathResults)
 
 data VerifyParams = VerifyParams
   { vpOpCache :: OpCache
@@ -999,17 +987,30 @@ data VerifyParams = VerifyParams
 -- | Attempt to verify method spec using verification method specified.
 validateMethodSpec :: VerifyParams -> IO ()
 validateMethodSpec
-    params@VerifyParams { vpOpCache = oc
+    params@VerifyParams { vpCode = cb
+                        , vpOpCache = oc
                         , vpOpts = opts
                         , vpSpec = ir
                         } = do
   let verb = verbose opts
   when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName ir
-  let vcList = specVCs params
-  forM_ vcList $ \vcGenerator -> do
+  let configs = [ (bs, cl)
+                | bs <- concat $ Map.elems $ specBehaviors ir
+                , cl <- bsRefEquivClasses bs
+                ]
+  forM_ configs $ \(bs,cl) -> do
+    when (verb >= 3) $ do
+      liftIO $ putStrLn $ "Executing " ++ specName ir
+                             ++ " at PC " ++ show (bsPC bs) ++ "."
     runSymbolic oc $ do
       de <- getDagEngine
-      results <- vcGenerator
+      setVerbosity verb
+      (esd,results) <- 
+        JSS.runSimulator cb $ do
+           -- Create initial Java state.
+           esd <- initializeVerification ir bs cl
+           res <- mkSpecVC params bs cl esd
+           return (esd,res)
       liftIO $ forM_ results $ \pvc -> do
         let mkVState nm cfn =
               VState { vsDagEngine = de
@@ -1019,6 +1020,8 @@ validateMethodSpec
                      , vsRules = vpRules params
                      , vsEnabledRules = vpEnabledRules params
                      , vsEnabledOps = vpEnabledOps params
+                     , vsFromPC = bsPC bs
+                     , vsInitialPathState = esdInitialPathState esd
                      , vsInitialAssignments = pvcInitialAssignments pvc
                      , vsCounterexampleFn = cfn
                      , vsStaticErrors = pvcStaticErrors pvc
@@ -1053,6 +1056,10 @@ data VerifyState = VState {
        , vsRules :: [Rule]
        , vsEnabledRules :: Set String
        , vsEnabledOps :: Set OpIndex
+         -- | Starting PC is used for checking VerifyAt commands.
+       , vsFromPC :: JSS.PC
+         -- | Initial path state is used for parsing expand statement.
+       , vsInitialPathState :: JSS.PathState Node
        , vsInitialAssignments :: [(TC.JavaExpr, Node)]
        , vsCounterexampleFn :: CounterexampleFn
        , vsStaticErrors :: [Doc]
@@ -1062,6 +1069,8 @@ type VerifyExecutor = StateT VerifyState IO
 
 runVerify :: VerifyState -> Node -> [VerifyCommand] -> IO ()
 runVerify vs g cmds = evalStateT (applyTactics cmds g) vs
+
+-- runABC {{{2
 
 runABC :: Node -> VerifyExecutor ()
 runABC goal = do
@@ -1122,64 +1131,7 @@ runABC goal = do
                          ftext ("Counterexample:") $$ nest 2 val
               throwIOExecException (specPos ir) msg ""
 
-applyTactics :: [VerifyCommand] -> Node -> VerifyExecutor ()
-applyTactics (Rewrite:r) g = do
-  de <- gets vsDagEngine
-  rules <- gets vsRules
-  enRules <- gets vsEnabledRules
-  let pgm = foldl' addRule' emptyProgram rules
-      addRule' p r | ruleName r `Set.member` enRules = addRule p r
-                   | otherwise = p
-  g' <- liftIO $ do
-          rew <- mkRewriter pgm de
-          reduce rew g
-  case getBool g' of
-    Just True -> return ()
-    _ -> applyTactics r g'
-applyTactics (ABC:_) goal = runABC goal
-applyTactics (SmtLib ver file :_) g = useSMTLIB ver file g
-applyTactics (Yices v :_) g = useYices v g
-applyTactics (Expand p expr:_) g = do
-  nyi "applyTactics Expand" p expr g
-applyTactics (VerifyEnable nm :_) _ =
-  modify (\s -> s { vsEnabledRules = Set.insert nm (vsEnabledRules s) })
-applyTactics (VerifyDisable nm :_) _ =
-  modify (\s -> s { vsEnabledRules = Set.delete nm (vsEnabledRules s) })
-applyTactics (VerifyAt pc cmds :_) g = do
-  nyi "applyTactics VerifyAt" pc cmds g
-applyTactics [] g = do
-  nm <- gets vsVCName
-  ir <- gets vsMethodSpec
-  se <- gets vsStaticErrors
-  if null se then
-    let msg = ftext ("Failed to discharge the verification of " ++ nm
-                       ++ " in " ++ specName ir ++ " .\n\n") $$
-              ftext ("The remaining goal is:") $$
-              nest 2 (prettyTermD g)
-     in throwIOExecException (specPos ir) msg ""
-  else
-    let msg = ftext ("A potentially satisfiable error path was found when verifying "
-                       ++ nm ++ " in " ++ specName ir ++ " .\n\n") $$
-              ftext ("Path errors:") $$ nest 2 (vcat se) $$
-              ftext ("The remaining goal is:") $$ nest 2 (prettyTermD g)
-     in throwIOExecException (specPos ir) msg ""
-
-{-
-applyTactic :: Int -- ^ Verbosity
-            -> MethodSpecIR
-            -> (RewriteProgram Node, TacticContext)
-            -> AST.VerificationTactic
-            -> SymbolicMonad (RewriteProgram Node, TacticContext)
-applyTactic _ _ (pgm, gs) (AST.AddRule nm vars l r) = do
-  error "addrule not yet implemented."
-  -- TODO: we should really be type-checking the rules in advance, and
-  -- store compiled rules appropriate for passing to the addRule
-  -- function.
-  let lt = undefined
-      rt = undefined
-      pgm' = addRule pgm (mkRule nm lt rt)
-  return (pgm', gs)
--}
+-- testRandom {{{2
 
 type Verbosity = Int
 
@@ -1275,6 +1227,8 @@ testRandom de v ir test_num lim pvc =
                                  , "  Result:   " ++ ppCValue Mixfix value ""
                                  ]
 
+-- useSMTLIB {{{2
+
 announce :: String -> VerifyExecutor ()
 announce msg = do
   v <- gets vsVerbosity
@@ -1322,6 +1276,8 @@ useSMTLIB mbVer mbNm g = do
   (version, ver_exr) = case mbVer of
                          Just n | n /= 1 -> (n, show n)
                          _      -> (1, "")   -- For now, we use 1 by default.
+
+-- useYices {{{2
 
 useYices :: Maybe Int -> Node -> VerifyExecutor ()
 useYices mbTime g = do
@@ -1410,3 +1366,55 @@ useYices mbTime g = do
       [] -> empty
       ds -> text "Final values for array arguments:"
          $$ nest 2 (vcat (intersperse (text " ") ds))
+-- applyTactics {{{2
+
+applyTactics :: [VerifyCommand] -> Node -> VerifyExecutor ()
+applyTactics (Rewrite:r) g = do
+  de <- gets vsDagEngine
+  rules <- gets vsRules
+  enRules <- gets vsEnabledRules
+  let pgm = foldl' addRule' emptyProgram rules
+      addRule' p r | ruleName r `Set.member` enRules = addRule p r
+                   | otherwise = p
+  g' <- liftIO $ do
+          rew <- mkRewriter pgm de
+          reduce rew g
+  case getBool g' of
+    Just True -> return ()
+    _ -> applyTactics r g'
+applyTactics (ABC:_) goal = runABC goal
+-- SmtLib always succeeds.
+applyTactics (SmtLib ver file :_) g = useSMTLIB ver file g
+-- Yices always succeeds.
+applyTactics (Yices v :_) g = useYices v g
+applyTactics (Expand p expr:r) g = do
+  nyi "applyTactics Expand" p expr g
+  applyTactics r g
+applyTactics (VerifyEnable nm :r) g = do
+  modify (\s -> s { vsEnabledRules = Set.insert nm (vsEnabledRules s) })
+  applyTactics r g
+applyTactics (VerifyDisable nm :r) g = do
+  modify (\s -> s { vsEnabledRules = Set.delete nm (vsEnabledRules s) })
+  applyTactics r g
+applyTactics (VerifyAt pc cmds :r) g = do
+  fromPC <- gets vsFromPC
+  let newCmds | fromPC == pc = cmds ++ r
+              | otherwise = r
+  applyTactics newCmds g
+applyTactics [] g = do
+  nm <- gets vsVCName
+  ir <- gets vsMethodSpec
+  se <- gets vsStaticErrors
+  if null se then
+    let msg = ftext ("Failed to discharge the verification of " ++ nm
+                       ++ " in " ++ specName ir ++ " .\n\n") $$
+              ftext ("The remaining goal is:") $$
+              nest 2 (prettyTermD g)
+     in throwIOExecException (specPos ir) msg ""
+  else
+    let msg = ftext ("A potentially satisfiable error path was found when verifying "
+                       ++ nm ++ " in " ++ specName ir ++ " .\n\n") $$
+              ftext ("Path errors:") $$ nest 2 (vcat se) $$
+              ftext ("The remaining goal is:") $$ nest 2 (prettyTermD g)
+     in throwIOExecException (specPos ir) msg ""
+

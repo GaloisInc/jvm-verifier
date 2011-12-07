@@ -218,7 +218,6 @@ data VerifyCommand
    | Yices (Maybe Int)
    | Expand Expr
    | VerifyAt Pos Integer VerifyCommand
-   | VerifyRule RuleName [(Pos, String, ExprType)] Expr Expr
     -- | Enable use of a rule or extern definition.
    | VerifyEnable Pos String
      -- | Disable use of a rule or extern definition.

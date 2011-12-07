@@ -173,13 +173,13 @@ jssTypeOfJavaExpr (CC.Term exprF) =
 isRefJavaExpr :: JavaExpr -> Bool
 isRefJavaExpr = JSS.isRefType . jssTypeOfJavaExpr
 
-tcJavaExpr :: TCConfig -> AST.Expr -> IO JavaExpr
-tcJavaExpr cfg e = runTI cfg (tcJE e)
+tcJavaExpr :: AST.Expr -> TCConfig -> IO JavaExpr
+tcJavaExpr e cfg = runTI cfg (tcJE e)
 
 -- | Typecheck expression with form valueOf(args), returning java expression
 -- inside args.
-tcValueOfExpr ::  TCConfig -> AST.Expr -> IO JavaExpr
-tcValueOfExpr cfg ast = do
+tcValueOfExpr :: AST.Expr -> TCConfig -> IO JavaExpr
+tcValueOfExpr ast cfg = do
   expr <- runTI cfg (tcE ast)
   case expr of
     LE (JavaValue je _ _) -> return je
@@ -247,8 +247,8 @@ flipBinOpArgs (Apply o [a, b]) = Apply o [b, a]
 flipBinOpArgs e = error $ "internal: flipBinOpArgs: received: " ++ show e
 
 -- | Typecheck a logic expression.
-tcLogicExpr :: TCConfig -> AST.Expr -> IO LogicExpr
-tcLogicExpr cfg e = runTI cfg (tcLE e)
+tcLogicExpr :: AST.Expr -> TCConfig -> IO LogicExpr
+tcLogicExpr e cfg = runTI cfg (tcLE e)
 
 -- MixedExpr {{{1
 
@@ -261,8 +261,8 @@ data MixedExpr
 -- | Typecheck term as a mixed expression.
 -- Guarantees that if a Java expression is returned, the actual type has
 -- been defined.
-tcMixedExpr :: TCConfig -> AST.Expr -> IO MixedExpr
-tcMixedExpr cfg ast = runTI cfg $ do
+tcMixedExpr :: AST.Expr -> TCConfig -> IO MixedExpr
+tcMixedExpr ast cfg = runTI cfg $ do
   me <- tcE ast
   case me of
     JE je -> getActualType (AST.exprPos ast) je >> return ()
@@ -347,8 +347,8 @@ ppActualType (ArrayInstance l tp) = show tp ++ "[" ++ show l ++ "]"
 ppActualType (PrimitiveType tp) = show tp
 
 -- | Convert AST.JavaType into JavaActualType.
-tcActualType :: TCConfig -> AST.JavaType -> IO JavaActualType
-tcActualType cfg (AST.ArrayType eltTp l) = do
+tcActualType :: AST.JavaType -> TCConfig -> IO JavaActualType
+tcActualType (AST.ArrayType eltTp l) cfg = do
   let pos = AST.javaTypePos eltTp
   unless (0 <= l && toInteger l < toInteger (maxBound :: Int32)) $ do
     let msg  = "Array length " ++ show l ++ " is invalid."
@@ -356,10 +356,10 @@ tcActualType cfg (AST.ArrayType eltTp l) = do
   let res = jssTypeOfASTJavaType eltTp
   runTI cfg $ checkIsSupportedType pos (JSS.ArrayType res)
   return $ ArrayInstance (fromIntegral l) res
-tcActualType cfg (AST.RefType pos names) = do
+tcActualType (AST.RefType pos names) cfg = do
   let cb = codeBase (globalBindings cfg)
    in ClassInstance <$> lookupClass cb pos (intercalate "/" names)
-tcActualType cfg tp = do
+tcActualType tp cfg = do
   let pos = AST.javaTypePos tp
   let res = jssTypeOfASTJavaType tp
   runTI cfg $ checkIsSupportedType pos res

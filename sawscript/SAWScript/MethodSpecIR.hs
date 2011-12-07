@@ -271,7 +271,8 @@ bsLogicClasses bs rec
 
 data BehaviorTypecheckState = BTS {
          btsPC :: JSS.PC
-         -- | Maps expressions to actual type (forgets expressions within conditionals and blocks).
+         -- | Maps expressions to actual type (forgets expressions within conditionals and
+         -- blocks).
        , btsActualTypeMap :: ExprActualTypeMap
          -- | Maps let bindings already seen to position they were defined.
        , btsLetBindings :: Map String (Pos, TC.MixedExpr)
@@ -281,7 +282,8 @@ data BehaviorTypecheckState = BTS {
        , btsPaths :: [BehaviorSpec]
        }
 
-type BehaviorTypechecker = StateT BehaviorTypecheckState (ReaderT MethodTypecheckContext IO)
+type BehaviorTypechecker =
+  StateT BehaviorTypecheckState (ReaderT MethodTypecheckContext IO)
 
 -- BehaviorTypechecker Utilities {{{1
 
@@ -378,31 +380,33 @@ checkLogicExprIsPred pos expr =
 
 -- Typecheck utilities {{{2
 
-type Typechecker ast res = TC.TCConfig -> ast -> IO res
+behaviorTypecheckerConfig :: MethodTypecheckContext 
+                          -> BehaviorTypecheckState
+                          -> TC.TCConfig
+behaviorTypecheckerConfig mtc bts = typecheckerConfig mtc (btsPC bts) types lets
+ where types = btsActualTypeMap bts
+       lets  = Map.map snd (btsLetBindings bts)
 
-runTypechecker :: Typechecker ast res -> ast -> BehaviorTypechecker res
-runTypechecker typeChecker expr = do
-  msts <- ask
-  pc <- gets btsPC
-  actualTypes <- gets btsActualTypeMap
-  letBindings <- Map.map snd <$> gets btsLetBindings
-  let cfg = typecheckerConfig msts pc actualTypes letBindings
-  liftIO $ typeChecker cfg expr
+runTypechecker :: (TC.TCConfig -> IO res) -> BehaviorTypechecker res
+runTypechecker typeChecker = do
+  cfg <- liftM2 behaviorTypecheckerConfig ask get
+  liftIO (typeChecker cfg)
 
 -- | Check that a type declaration has been provided for this expression.
-typecheckRecordedJavaExpr :: Typechecker AST.Expr TC.JavaExpr
+typecheckRecordedJavaExpr :: (AST.Expr -> TC.TCConfig -> IO TC.JavaExpr)
                           -> AST.Expr
                           -> BehaviorTypechecker (TC.JavaExpr, TC.JavaActualType)
 typecheckRecordedJavaExpr typeChecker astExpr = do
   let pos = AST.exprPos astExpr
-  expr <- runTypechecker typeChecker astExpr
+  expr <- runTypechecker $ typeChecker astExpr
   at <- getActualType pos expr
   return (expr, at)
 
 -- | Typecheckes a 'valueOf' expression and returns Java expression inside
 -- of it.  The type must be an array, and if a DagType is provided, the expression
 -- must be compatible with the type.
-typecheckValueOfLhs :: AST.Expr -> Maybe DagType -> BehaviorTypechecker (TC.JavaExpr, DagType)
+typecheckValueOfLhs :: AST.Expr -> Maybe DagType
+                    -> BehaviorTypechecker (TC.JavaExpr, DagType)
 typecheckValueOfLhs astExpr maybeExpectedType = do
   let pos = AST.exprPos astExpr
   (expr, at) <- typecheckRecordedJavaExpr TC.tcValueOfExpr astExpr
@@ -463,13 +467,13 @@ typecheckLogicExpr :: Pos -> String -> JSS.Type -> AST.Expr
 typecheckLogicExpr lhsPos lhsName lhsType rhsAst =
   -- Check lhs can be assigned value in rhs (coercing if necessary).
   coercePrimitiveExpr lhsPos lhsName lhsType
-    =<< runTypechecker TC.tcLogicExpr rhsAst
+    =<< runTypechecker (TC.tcLogicExpr rhsAst)
 
 typecheckMixedExpr :: Pos -> String -> JSS.Type -> AST.Expr
                    -> BehaviorTypechecker (TC.MixedExpr, TC.JavaActualType)
 typecheckMixedExpr lhsPos lhsName lhsType rhsAst =
   if JSS.isRefType lhsType then do
-    rhsExpr <- runTypechecker TC.tcJavaExpr rhsAst
+    rhsExpr <- runTypechecker (TC.tcJavaExpr rhsAst)
     -- Check lhs can be assigned value on rhs.
     let rhsType = TC.jssTypeOfJavaExpr rhsExpr
     cb <- getBTCCodebase
@@ -517,13 +521,13 @@ resolveDecl :: [AST.BehaviorDecl] -> BehaviorTypechecker ()
 resolveDecl [] = return ()
 resolveDecl (AST.VarDecl _ exprAstList typeAst:r) = do
   -- Get actual type.
-  at <- runTypechecker TC.tcActualType typeAst
+  at <- runTypechecker $ TC.tcActualType typeAst
   -- Parse expressions.
   cb <- getBTCCodebase
   forM_ exprAstList $ \exprAst -> do
     -- Typecheck Java expression.
     let pos = AST.exprPos exprAst
-    expr <- runTypechecker TC.tcJavaExpr exprAst
+    expr <- runTypechecker $ TC.tcJavaExpr exprAst
     -- Check that type of exprAst and the type of tp are compatible.
     do let exprType = TC.jssTypeOfJavaExpr expr
            tgtType = TC.jssTypeOfActual at
@@ -539,7 +543,7 @@ resolveDecl (AST.VarDecl _ exprAstList typeAst:r) = do
   resolveDecl r
 resolveDecl (AST.MethodLet pos lhs rhsAst:r) = do
   -- Typecheck rhs.
-  rhsExpr <- runTypechecker TC.tcMixedExpr rhsAst
+  rhsExpr <- runTypechecker $ TC.tcMixedExpr rhsAst
   -- Record variable binding.
   do bts <- get
      let locals = btsLetBindings bts
@@ -564,7 +568,7 @@ resolveDecl (AST.MayAlias _ exprAstList:r) = do
   resolveDecl r
 resolveDecl (AST.AssertPred pos ast:r) = do
   -- Typecheck expression.
-  expr <- runTypechecker TC.tcLogicExpr ast
+  expr <- runTypechecker $ TC.tcLogicExpr ast
   -- Check expr is a Boolean
   checkLogicExprIsPred (AST.exprPos ast) expr
   -- Add assertion.
@@ -573,7 +577,7 @@ resolveDecl (AST.AssertPred pos ast:r) = do
   resolveDecl r
 resolveDecl (AST.AssertImp pos lhsAst@(AST.ApplyExpr _ "valueOf" _) rhsAst:r) = do
   -- Typecheck rhs
-  rhsExpr <- runTypechecker TC.tcLogicExpr rhsAst
+  rhsExpr <- runTypechecker $ TC.tcLogicExpr rhsAst
   let rhsType = TC.typeOfLogicExpr rhsExpr
   -- Typecheck lhs
   (lhsExpr, _) <- typecheckValueOfLhs lhsAst (Just rhsType)
@@ -584,7 +588,7 @@ resolveDecl (AST.AssertImp pos lhsAst@(AST.ApplyExpr _ "valueOf" _) rhsAst:r) = 
 resolveDecl (AST.AssertImp pos lhsAst rhsAst:r) = do
   -- Typecheck lhs expression.
   let lhsPos = AST.exprPos lhsAst
-  lhsExpr <- runTypechecker TC.tcJavaExpr lhsAst
+  lhsExpr <- runTypechecker $ TC.tcJavaExpr lhsAst
   let lhsName = "\'" ++ show lhsExpr ++ "\'"
   let lhsType = TC.jssTypeOfJavaExpr lhsExpr
   -- Typecheck right-hand side.
@@ -612,7 +616,7 @@ resolveDecl (AST.AssertImp pos lhsAst rhsAst:r) = do
   resolveDecl r
 resolveDecl (AST.EnsureImp pos lhsAst@(AST.ApplyExpr _ "valueOf" _) rhsAst:r) = do
   -- Typecheck rhs
-  rhsExpr <- runTypechecker TC.tcLogicExpr rhsAst
+  rhsExpr <- runTypechecker $ TC.tcLogicExpr rhsAst
   let rhsType = TC.typeOfLogicExpr rhsExpr
   -- Typecheck lhs
   (lhsExpr, _) <- typecheckValueOfLhs lhsAst (Just rhsType)
@@ -680,7 +684,7 @@ resolveDecl (AST.MethodIf p c t:r) =
   resolveDecl (AST.MethodIfElse p c t (AST.Block []):r)
 resolveDecl (AST.MethodIfElse pos condAst t f:r) = do
   -- Typecheck condition.
-  cond <- runTypechecker TC.tcLogicExpr condAst
+  cond <- runTypechecker $ TC.tcLogicExpr condAst
   checkLogicExprIsPred (AST.exprPos condAst) cond
   -- Branch execution.
   bts <- get
@@ -739,8 +743,7 @@ mayAliases l s = foldr splitClass (Set.singleton s) l
 resolveBehaviorSpecs :: MethodTypecheckContext 
                      -> JSS.PC
                      -> AST.BehaviorDecl
-                     -> IO (ExprActualTypeMap -- ^ Actual types that agree between specs.
-                           , [BehaviorSpec])
+                     -> IO BehaviorTypecheckState
 resolveBehaviorSpecs mtc pc block = do
   let method = mtcMethod mtc
   let this = TC.thisJavaExpr (mtcClass mtc)
@@ -785,7 +788,7 @@ resolveBehaviorSpecs mtc pc block = do
                      ++ "\' has a return value, but the spec does not define it."
      in throwIOExecException (mtcPos mtc) (ftext msg) ""
   -- Return paths parsed from this spec.
-  return (btsActualTypeMap bts, btsPaths bts)
+  return bts
 
 -- resolveValidationPlan {{{1
 
@@ -822,10 +825,11 @@ checkRuleIsDefined pos nm ruleNames = do
     throwIOExecException pos (ftext msg) ""
 
 data VerifyTypecheckerState = VTS {
-         vtsRuleNames :: Set String
-       , vtsExprTypes :: Map JSS.PC ExprActualTypeMap
+         vtsMTC :: MethodTypecheckContext
+       , vtsBehaviors :: Map JSS.PC BehaviorTypecheckState
+       , vtsRuleNames :: Set String
          -- | Current PC (if inside at command).
-       , vtsPC :: Maybe JSS.PC
+       , vtsPC :: Maybe (JSS.PC, BehaviorTypecheckState)
        }
 
 type VerifyTypechecker = StateT VerifyTypecheckerState IO
@@ -838,7 +842,15 @@ resolveVerifyCommand cmd =
     AST.SmtLib v f -> return [SmtLib v f]
     AST.Yices v -> return [Yices v]
     AST.Expand ast -> do
-      expr <- error "Not Yet implemented: resolveVerifyCommand Expand" -- TODO: Fix this
+      mtc <- gets vtsMTC
+      mpc <- gets vtsPC
+      let cfg = case mpc of
+                  Just (_,bts) -> behaviorTypecheckerConfig mtc bts
+                  _ -> TC.TCC { TC.globalBindings = mtcGlobalBindings mtc
+                              , TC.localBindings = Map.empty
+                              , TC.methodInfo = Nothing
+                              }
+      expr <- liftIO $ TC.tcLogicExpr ast cfg
       return [Expand (AST.exprPos ast) expr]
     AST.VerifyEnable pos nm -> do
       ruleNames <- gets vtsRuleNames
@@ -850,8 +862,22 @@ resolveVerifyCommand cmd =
       return [VerifyDisable nm]
     AST.VerifyAt pos astPC astCmd -> do
       pc <- typecheckPC pos astPC
-      cmds <- resolveVerifyCommand astCmd
-      return [VerifyAt pc cmds]
+      mOldPC <- gets vtsPC
+      case mOldPC of
+        Just (oldPC,_) | oldPC /= pc -> do
+          let msg = "A different verification PC already specified."
+          throwIOExecException pos (ftext msg) ""
+        _ -> return ()
+      -- Get behavior
+      behaviors <- gets vtsBehaviors
+      case Map.lookup pc behaviors of
+        Nothing ->
+          let msg = "No behavior is specified at PC " ++ show pc ++ "."
+           in throwIOExecException pos (ftext msg) ""
+        Just bts -> 
+          withStateT (\s -> s { vtsPC = Just (pc,bts) }) $ do
+            cmds <- resolveVerifyCommand astCmd
+            return [VerifyAt pc cmds]
     AST.VerifyBlock cmds ->
       concat <$> mapM resolveVerifyCommand cmds
 
@@ -861,15 +887,17 @@ throwMultipleValidationPlans pos =
    in throwIOExecException pos (ftext msg) ""
 
 resolveValidationPlan :: Set String -- ^ Names of rules in spec.
-                      -> Map JSS.PC ExprActualTypeMap
+                      -> MethodTypecheckContext
+                      -> Map JSS.PC BehaviorTypecheckState
                       -> [AST.MethodSpecDecl] -> IO ValidationPlan
-resolveValidationPlan ruleNames exprTypes decls = 
+resolveValidationPlan ruleNames mtc allBehaviors decls = 
   case filter isValidationPlanDecl decls of
     [] -> return $ Skip
     [AST.QuickCheck _ n mlimit] -> return $ QuickCheck n mlimit
     [AST.Verify _ cmds] ->
-       let initVTS = VTS { vtsRuleNames = ruleNames
-                         , vtsExprTypes = exprTypes
+       let initVTS = VTS { vtsMTC = mtc
+                         , vtsBehaviors = allBehaviors
+                         , vtsRuleNames = ruleNames
                          , vtsPC = Nothing
                          }
         in Verify <$> evalStateT (resolveVerifyCommand cmds) initVTS
@@ -936,13 +964,13 @@ resolveMethodSpecIR gb ruleNames pos thisClass mName cmds = do
   -- TODO: Check that no duplicates appear in local behavior specifications.
   let allBehaviors = Map.fromList $ (0, methodBehavior) : localBehaviors
   -- Resolve verification plan.
-  plan <- resolveValidationPlan ruleNames (Map.map fst allBehaviors) cmds
+  plan <- resolveValidationPlan ruleNames mtc allBehaviors cmds
   -- Return IR.
   return MSIR { specPos = pos
               , specThisClass = thisClass
               , specMethodClass = methodClass
               , specMethod = method
               , specInitializedClasses = map JSS.className superClasses
-              , specBehaviors = Map.map snd allBehaviors
+              , specBehaviors = Map.map btsPaths allBehaviors
               , specValidationPlan = plan
               }
