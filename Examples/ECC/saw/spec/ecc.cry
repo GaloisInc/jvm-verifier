@@ -434,6 +434,9 @@ p384_decFieldPrime x = { carry = if (bs ! 0) then -1 else 0; rslt = take(384, bs
 
 /* P384 modular arithmetic definitions. {{{2 */
 
+p384_safe_product : ([384], [384]) -> [768];
+p384_safe_product (x, y) = safe_product(x, y);
+
 p384_mod_add : ([384],[384],[384]) -> [384];
 p384_mod_add = mod_add;
 

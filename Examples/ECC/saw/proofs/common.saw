@@ -6,6 +6,7 @@
 let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
 let group_order = 0xffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973 : [384];
 
+extern SBV ref_safe_product("../spec/sbv/generated/p384_safe_product.sbv") : ([384], [384]) -> [768];
 extern SBV ref_field_mod("../spec/sbv/generated/p384_field_mod.sbv") : [768] -> [384];
 extern SBV ref_incFieldPrime("../spec/sbv/generated/p384_incFieldPrime.sbv")
   : [384] -> { carry : [32]; rslt : [384] };
