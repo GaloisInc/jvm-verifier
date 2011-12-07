@@ -42,9 +42,11 @@ method com.galois.ecc.P384ECC64.mod_div {
     modify valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   };
 
-  quickcheck 20;
-  /*
+
+  // quickcheck 4;
   verify {
+    rewrite;
+    /*
     if (initialPC == 44) {
        expand ref_egcd(join(valueOf(a)),
                        join(valueOf(ra)),
@@ -53,6 +55,6 @@ method com.galois.ecc.P384ECC64.mod_div {
     }
     uninterpret ref_egcd;
     yices;
+*/
   };
-  */
 };

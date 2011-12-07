@@ -382,7 +382,8 @@ public abstract class ECCProvider {
   private void mod_half(int[] x, int[] p) {
     // If x[0] is odd
     if ((x[0] & 0x1) != 0) {
-      shr(x, add(x, x, p), x);
+      int c = add(x,x,p);
+      shr(x, c, x);
     } else {
       shr(x, 0, x);
     }
