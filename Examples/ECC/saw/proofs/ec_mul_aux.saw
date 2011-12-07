@@ -1,4 +1,5 @@
 import "common.saw";
+import "rules.saw";
 
 set verification off;
 import "field_add.spec";
@@ -7,8 +8,9 @@ import "field_dbl.spec";
 import "field_mul.qcspec";
 import "field_sq.qcspec";
 import "ec_double.spec";
-import "ec_full_add.qcspec";
-import "ec_full_sub.qcspec";
+import "ec_full_add.spec";
+import "ec_full_sub.spec";
 set verification on;
 
+enable ref_ec_mul_aux;
 import "ec_mul_aux.spec";
