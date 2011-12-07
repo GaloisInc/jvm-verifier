@@ -1,0 +1,10 @@
+method com.galois.ecc.NIST64.mul
+{
+  var a :: int[24];
+  var x,y :: int[12];
+  mayAlias { a, x, y };
+  let x' = join(valueOf(x)) : [384];
+  let y' = join(valueOf(y)) : [384];
+  ensure valueOf(a) := split(ref_safe_product(x', y')) : [24][32];
+  quickcheck 10;
+};

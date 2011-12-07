@@ -2,7 +2,7 @@ import "common.saw";
 import "rules.saw";
 
 set verification off;
-import "sq.saw";
+import "sq.qcspec";
 import "field_red.qcspec";
 set verification on;
 
