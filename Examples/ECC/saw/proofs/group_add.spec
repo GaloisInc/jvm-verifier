@@ -1,5 +1,3 @@
-import "rules.saw";
-enable ref_group_add;
 method com.galois.ecc.P384ECC64.group_add
 {
   var z, x, y          :: int[12];
