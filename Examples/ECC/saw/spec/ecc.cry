@@ -501,7 +501,7 @@ p384_field_sub(x,y) = p384_mod_sub(p384_prime, x, y);
 p384_field_neg(x)        = if x == 0 then 0 else (p384_prime - x);
 
 p384_field_mul : ([384],[384]) -> [384];
-p384_field_mul(x,y)      = p384_field_mod(uext(x) * uext(y));
+p384_field_mul(x,y)      = p384_field_mod(p384_safe_product(x, y));
 
 p384_field_sq(x)         = p384_field_mul(x, x);
 p384_field_cube(x)       = p384_field_mul(x, p384_field_sq(x));
