@@ -1,0 +1,6 @@
+method com.galois.ecc.ECCProvider.leq
+{
+  var x, y :: int[12];
+  return join(valueOf(x)) <=u join(valueOf(y));
+  verify abc;
+};
