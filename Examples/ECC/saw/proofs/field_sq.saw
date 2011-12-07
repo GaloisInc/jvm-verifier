@@ -7,4 +7,4 @@ import "field_red.qcspec";
 set verification on;
 
 enable ref_field_sq;
-import "field_sq.qcspec";
+import "field_sq.spec";
