@@ -1,16 +1,21 @@
 import "common.saw";
 
 set verification off;
+import "add.saw";
+import "shr.saw";
 import "set_zero.saw";
 import "set_unit.saw";
 import "assign.saw";
+/*
 import "field_add.spec";
 import "field_sub.spec";
 import "field_mul.qcspec";
 import "ec_double.spec";
 import "ec_full_add.spec";
 import "ec_full_sub.spec";
+*/
 import "ec_mul_aux.spec";
 set verification on;
 
+enable ref_ec_mul;
 import "ec_mul.qcspec";
