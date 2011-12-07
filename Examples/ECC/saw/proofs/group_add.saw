@@ -1,0 +1,4 @@
+import "common.saw"; 
+import "rules.saw";
+enable ref_group_add;
+import "group_add.spec";

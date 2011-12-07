@@ -23,11 +23,17 @@ PROOFS :=              \
   is_zero.saw          \
   set_zero.saw         \
   set_unit.saw         \
-  mod_half.saw         \
-  field_add.saw        \
-  field_sub.saw        \
+  assign.saw           \
+  add.saw              \
+  sub.saw              \
+  shr.saw              \
+  leq.saw              \
   incFieldPrime.saw    \
   decFieldPrime.saw    \
+  mod_half.saw         \
+  mod_sub.saw          \
+  field_add.saw        \
+  field_sub.saw        \
   field_dbl.saw        \
   field_dbl_dec.saw    \
   field_mul3.saw       \
@@ -39,7 +45,8 @@ PROOFS :=              \
   ec_double.saw        \
   ec_full_add.saw      \
   ec_full_sub.saw      \
-  ec_mul_merge_aux.saw \
+  ec_mul_aux.saw       \
+  group_add.saw        \
 
 .PHONY: clean verify
 

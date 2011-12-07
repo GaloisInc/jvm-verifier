@@ -1,2 +1,8 @@
 import "common.saw";
+
+set verification off;
+import "leq.saw";
+import "decFieldPrime.spec";
+set verification on;
+
 import "field_dbl.spec";

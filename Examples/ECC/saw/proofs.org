@@ -27,14 +27,14 @@ far on a typical developer system.
 ** Level 2: Curve operations over points
 | Status | Name                   | Java        | Cryptol          | Impl directly calls | Prereqs     | Quickchecks | Verifies      | Comments |
 | DONE   | Point Doubling         | ec_double   | p384_ec_double   | [fn:7]              | [fn:8]      |        1000 | Yes, rewriter |          |
-| INPR   | Point Full Addition    | ec_full_add | p384_ec_full_add | [fn:9]              |             |         100 | No            |          |
-| TODO   | Point Full Subtraction | ec_full_sub | p384_ec_full_sub | ec_full_add, sub    | ec_full_add |         100 | No            |          |
+| DONE   | Point Full Addition    | ec_full_add | p384_ec_full_add | [fn:9]              |             |         100 | Yes, rw+yices |          |
+| DONE   | Point Full Subtraction | ec_full_sub | p384_ec_full_sub | ec_full_add, sub    | ec_full_add |         100 | Yes, rw+yices |          |
 
 ** Level 3: Scalar multiplication operations
-| Status | Name                          | Java          | Cryptol          | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments                                          |
-| INPR   | SD Multiply                   | ec_mul        | p384_ec_mul      | [fn:10]             |         | 0 (OOM)     | No       | Goes OOM while discharging VCs for 1 random input |
-| TODO   | SD Multiply w/ sliding window | ec_mul_window |                  |                     |         | no spec     | No       | Implementation uses, but more complex than ^      |
-| TODO   | Twin multiplication           | ec_twin_mul   | p384_ec_twin_mul |                     |         | no spec     | No       | High risk                                         |
+| Status | Name                          | Java          | Cryptol          | Impl directly calls | Prereqs | Quickchecks        | Verifies | Comments                                     |
+| INPR   | SD Multiply                   | ec_mul        | p384_ec_mul      | [fn:10]             |         | 0 (counterexample) | No       | Need to investigate CE                       |
+| TODO   | SD Multiply w/ sliding window | ec_mul_window |                  |                     |         | no spec            | No       | Implementation uses, but more complex than ^ |
+| TODO   | Twin multiplication           | ec_twin_mul   | p384_ec_twin_mul |                     |         | no spec            | No       | High risk                                    |
 
 ** Level 4: ECDSA
 | Status | Name           | Java                | Cryptol                  | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments  |
@@ -43,23 +43,23 @@ far on a typical developer system.
 | TODO   | Verification   | verifySignature     | p384_ecdsa_public_verify |                     |         | no spec     | No       | High risk |
 
 * Auxiliary Proofs
-| Status | Name                     | Java             | Cryptol            | Impl directly calls          | Prereqs   | Quickchecks | Verifies             | Best     | Comments |
-| DONE   | Field Double Decrement   | field_dbl_dec    | [fn:2]             | field_sub                    | field_sub | 1000        | Yes, abc             | 3s[fn:3] |          |
-| DONE   | Field Multiply x3        | field_mul3       | [fn:4]             | field_dbl, field_add         |           | 1000        | Yes, abc             | 17s      |          |
-| DONE   | Field Multiply x4        | field_mul4       | [fn:5]             | field_dbl                    |           | 1000        | Yes, abc             | 6s       |          |
-| DONE   | Field Multiply x8        | field_mul8       | [fn:6]             | field_dbl                    |           | 1000        | Yes, abc             | 13s      |          |
-| DONE   | Mod half                 | mod_half         | p384_mod_half      | shr, add                     |           | --          | Yes, abc             | <5s      |          |
-| INPR   | Field Reduction          | field_red        | p384_field_mod     | decFieldPrime, incFieldPrime |           | 100000      | No                   |          |          |
-| DONE   | Increment by field prime | incFieldPrime    | p384_incFieldPrime |                              |           | 100000      | Yes, abc             | 2s       |          |
-| DONE   | Decrement by field prime | decFieldPrime    | p384_decFieldPrime |                              |           | 100000      | Yes, abc             | <2s      |          |
-| DONE   | EC Mul Merge Aux         | ec_mul_merge_aux | p384_ec_mul_aux    | p384_ec_full_add/sub         | [fn:11]   | 100         | Yes, rewriter[fn:12] | <1s      |          |
-| TODO   | Large-Word Multiply      | mul              |                    |                              |           | no spec     | No                   |          |          |
-| TODO   | Add mod group size       | group_add        |                    |                              |           | no spec     | No                   |          |          |
-| TODO   | Mult mod group size      | group_mul        |                    |                              |           | no spec     | No                   |          |          |
-| DONE   | array assignment         | assign           | trivial            |                              |           | --          | Yes, abc             | <2s      |          |
-| DONE   | array-valued zero test   | is_zero          | trivial            |                              |           | --          | Yes, abc             | <2s      |          |
-| DONE   | array set zero           | set_zero         | trivial            |                              |           | --          | Yes, abc             | <2s      |          |
-| DONE   | array set one            | set_unit         | trivial            |                              |           | --          | Yes, abc             | <2s      |          |
+| Status | Name                     | Java          | Cryptol            | Impl directly calls          | Prereqs   | Quickchecks | Verifies            | Best     | Comments                                                                           |
+| DONE   | Field Double Decrement   | field_dbl_dec | [fn:2]             | field_sub                    | field_sub |        1000 | Yes, abc            | 3s[fn:3] |                                                                                    |
+| DONE   | Field Multiply x3        | field_mul3    | [fn:4]             | field_dbl, field_add         |           |        1000 | Yes, abc            | 17s      |                                                                                    |
+| DONE   | Field Multiply x4        | field_mul4    | [fn:5]             | field_dbl                    |           |        1000 | Yes, abc            | 6s       |                                                                                    |
+| DONE   | Field Multiply x8        | field_mul8    | [fn:6]             | field_dbl                    |           |        1000 | Yes, abc            | 13s      |                                                                                    |
+| DONE   | Mod half                 | mod_half      | p384_mod_half      | shr, add                     |           |          -- | Yes, abc            | <5s      |                                                                                    |
+| INPR   | Field Reduction          | field_red     | p384_field_mod     | decFieldPrime, incFieldPrime |           |      100000 | No                  |          |                                                                                    |
+| DONE   | Increment by field prime | incFieldPrime | p384_incFieldPrime |                              |           |      100000 | Yes, abc            | 2s       |                                                                                    |
+| DONE   | Decrement by field prime | decFieldPrime | p384_decFieldPrime |                              |           |      100000 | Yes, abc            | <2s      |                                                                                    |
+| INPR   | EC Mul Aux               | ec_mul_aux    | p384_ec_mul_aux    | p384_ec_full_add/sub         | [fn:11]   |         100 | Yes, rewriter       | <1s      | Also discharged by yices.                                                          |
+| TODO   | Large-Word Multiply      | mul           |                    |                              |           |     no spec | No                  |          | Perhaps not high-pri if it can be successfully uninterpreted in proofs that use it |
+| DONE   | Add mod group size       | group_add     | p384_group_add     | leq, sub                     |           |        1000 | Yes, rewriter+yices | 6s       | Also discharged by abc and yices without rewriting.                                |
+| TODO   | Mult mod group size      | group_mul     |                    |                              |           |     no spec | No                  |          |                                                                                    |
+| DONE   | array assignment         | assign        | trivial            |                              |           |          -- | Yes, abc            | <2s      |                                                                                    |
+| DONE   | array-valued zero test   | is_zero       | trivial            |                              |           |          -- | Yes, abc            | <2s      |                                                                                    |
+| DONE   | array set zero           | set_zero      | trivial            |                              |           |          -- | Yes, abc            | <2s      |                                                                                    |
+| DONE   | array set one            | set_unit      | trivial            |                              |           |          -- | Yes, abc            | <2s      |                                                                                    |
 
 * Footnotes
 [fn:1] \x -> p384_field_add(x,x)
@@ -73,4 +73,3 @@ far on a typical developer system.
 [fn:9] is_zero, field_eq, field_mul, field_sub, ec_double, set_unit, set_zero, field_dbl, field_dbl_dec, mod_half
 [fn:10] assign, set_unit, set_zero, ec_mul_merge_aux (which calls ec_double, ec_full_add/sub)
 [fn:11] is_zero, set_zero, set_unit, field_add, field_sub, field_dbl, field_mul, field_sq, ec_double, ec_full_add, ec_full_sub
-[fn:12] Currently via rewriting alone; also discharges via yices.

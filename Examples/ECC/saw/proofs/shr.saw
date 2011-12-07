@@ -1,11 +1,11 @@
 method com.galois.ecc.ECCProvider.shr
 {
   var z, x :: int[12];
-  mayAlias { z, x };
   var c :: int;
-
-  let jx = join(valueOf(x));
-  let sc = c # 0:[352];
-  ensure valueOf(z) := split((sc << 383:[32]) | (jx >>u 1:[32])) : [12][32]; 
+  mayAlias { z, x };
+  let x' = join(valueOf(x)) : [384];
+  let mask = (0 : [352]) # (c << 31:[5]);
+  let x'' = mask | (x' >>u 1:[5]);
+  ensure valueOf(z) := split(x'') : [12][32];
   verify abc;
 };

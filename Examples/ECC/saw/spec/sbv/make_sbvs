@@ -18,12 +18,14 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 :set +v
 
 :load ../ecc.cry
-:fm p384_mod_add     "generated/p384_mod_add.sbv"
-:fm p384_mod_sub     "generated/p384_mod_sub.sbv"
-:fm p384_mod_half    "generated/p384_mod_half.sbv"
+:fm p384_safe_product  "generated/p384_safe_product.sbv"
+:fm p384_mod_add       "generated/p384_mod_add.sbv"
+:fm p384_mod_sub       "generated/p384_mod_sub.sbv"
+:fm p384_mod_half      "generated/p384_mod_half.sbv"
 :fm p384_incFieldPrime "generated/p384_incFieldPrime.sbv"
 :fm p384_decFieldPrime "generated/p384_decFieldPrime.sbv"
 :fm p384_field_mod     "generated/p384_field_mod.sbv"
+:fm p384_group_add     "generated/p384_group_add.sbv"
 
 :load sbv_uninterpret_field_mod.cry
 :fm p384_is_field_val "generated/p384_is_field_val.sbv"
@@ -31,11 +33,16 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 :fm p384_field_sub    "generated/p384_field_sub.sbv"
 :fm p384_field_neg    "generated/p384_field_neg.sbv"
 :fm p384_field_mul    "generated/p384_field_mul.sbv"
+:fm p384_field_sq     "generated/p384_field_sq.sbv"
 :fm p384_mod_mul      "generated/p384_mod_mul.sbv"
 
 :load sbv_uninterpret_field_ops.cry
 :fm p384_ec_double   "generated/p384_ec_double.sbv"
+
+:load sbv_uninterpret_ec_double.cry
 :fm p384_ec_full_add "generated/p384_ec_full_add.sbv"
+
+:load sbv_uninterpret_ec_full_add.cry
 :fm p384_ec_full_sub "generated/p384_ec_full_sub.sbv"
 
 :load sbv_uninterpret_ec_point_ops.cry

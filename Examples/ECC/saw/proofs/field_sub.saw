@@ -1,2 +1,8 @@
 import "common.saw"; 
+
+set verification off;
+import "sub.saw";
+import "incFieldPrime.spec";
+set verification on;
+
 import "field_sub.spec";

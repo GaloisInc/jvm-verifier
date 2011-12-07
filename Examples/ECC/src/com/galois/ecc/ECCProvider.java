@@ -532,7 +532,7 @@ public abstract class ECCProvider {
         set_zero(r.z);
       }
     } else {
-      field_dbl(r.x, r.x); 
+      field_dbl(r.x, r.x);
       field_sub(r.x, r.x, t4);    // 22: t1 <- 2*t1 - t4; r.x <- r.x + t.x * r.z^2
       field_dbl(r.y, r.y);
       field_sub(r.y, r.y, t5);    // 23: t2 <- 2*t2 - t5; r.y <- r.y + t.y * r.z^3
@@ -561,9 +561,10 @@ public abstract class ECCProvider {
    * @return <code>true</code> if s and t are not the same point.
    */
   private void ec_full_sub(JacobianPoint r, AffinePoint t) {
-    if (!is_zero(t.y)) sub(t.y, field_prime, t.y);
+    boolean z = is_zero(t.y);
+    if (!z) sub(t.y, field_prime, t.y);
     ec_full_add(r, t);
-    if (!is_zero(t.y)) sub(t.y, field_prime, t.y);
+    if (!z) sub(t.y, field_prime, t.y);
   }
 
   private static void copy_point(JacobianPoint r, JacobianPoint s) {
@@ -597,6 +598,43 @@ public abstract class ECCProvider {
     }
     
     for (int j = 32 * h.length - 1; j >= 0; --j) {
+      int i     = j >>> 5;
+      boolean c = i < 11;
+      ec_mul_aux(r, s, j, h[i], c, d[i], c ? d[i+1] : 0);
+    }
+  }
+
+  private void ec_mul_aux(JacobianPoint r, AffinePoint s,
+                          int j, int hi, boolean i_lt_11, int d_at_i, int d_at_ip1) {
+    int m  = 1 << j;
+    int ki = d_at_i >>> 1;
+    if (i_lt_11) ki |= (d_at_ip1 & 1) << 31;    
+    ec_double(r);
+
+    if ((hi & m) != 0 && (ki & m) == 0) {
+      ec_full_add(r, s);
+    } else if ((hi & m) == 0 && (ki & m) != 0) {
+      ec_full_sub(r, s);
+    }
+  }
+
+  /*
+  private void ec_mul(JacobianPoint r, int[] d, AffinePoint s) {
+    shr(h, 0, d);
+    // If h <- d + (d >> 1) overflows
+    if (add(h, d, h) != 0) {
+      // Start with r = s.
+      assign(r.x, s.x);
+      assign(r.y, s.y);
+      set_unit(r.z);
+    } else {
+      // Otherwise start with r = 0.
+      set_unit(r.x);
+      set_unit(r.y);
+      set_zero(r.z);
+    }
+    
+    for (int j = 32 * h.length - 1; j >= 0; --j) {
       int i = j >>> 5;
       int m = 1 << j;
       int hi = h[i];
@@ -605,7 +643,6 @@ public abstract class ECCProvider {
       ec_mul_merge_aux(r, s, m, hi, ki);
     }
   }
-
   // Auxiliary function for ec_mul to force path state merging by the simulator
   private void ec_mul_merge_aux(JacobianPoint r, AffinePoint s,
                                 int m, int hi, int ki) {
@@ -617,6 +654,7 @@ public abstract class ECCProvider {
       ec_full_sub(r, s);
     }
   }
+  */
 
   /**
    * Assigns r = d * s using a 2bit lookahead window.

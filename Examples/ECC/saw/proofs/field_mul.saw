@@ -4,4 +4,5 @@ set verification off;
 import "field_red.qcspec";
 set verification on;
 
+enable ref_field_mul;
 import "field_mul.qcspec";

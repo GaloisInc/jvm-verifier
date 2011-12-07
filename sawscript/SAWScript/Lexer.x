@@ -44,7 +44,7 @@ $nl        = [\n\r]
              |quickcheck|verify|rewrite|abc|smtlib|yices|expand
              |boolean|byte|char|double|float|int|long|short
              |args|locals|this|true|false|if|then|else
-@reservedop  = "~"  | "-" | "*" | "+" | "/s" | "%s" | ">>" | "<<" | ">>u" | "|" | "&" | "^"
+@reservedop  = "~"  | "-" | "*" | "+" | "/s" | "%s" | ">>s" | "<<" | ">>u" | "|" | "&" | "^"
              | "#"  | "==" | "!=" | ">=s" | ">=u" | ">s" | ">u" | "<=s" | "<=u" | "<s" | "<u"
              | "&&" | "||" | "not" | "==>"
 @punct       = "," | ";" | "(" | ")" | ":" | "::" | "[" | "]" | "->" | "=" | "{" | "}" | "." | ":=" | "<|" | "|>"
