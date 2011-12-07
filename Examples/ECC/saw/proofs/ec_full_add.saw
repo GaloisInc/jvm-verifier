@@ -10,7 +10,7 @@ import "field_add.spec";
 import "field_dbl.spec";
 import "field_dbl_dec.spec";
 import "field_sub.spec";
-import "field_mul.qcspec";
+import "field_mul.spec";
 import "field_sq.qcspec";
 import "mod_half.spec";
 import "ec_double.spec";

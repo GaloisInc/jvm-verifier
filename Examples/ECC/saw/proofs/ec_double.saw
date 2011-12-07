@@ -8,7 +8,7 @@ import "set_unit.saw";
 import "field_add.spec";
 import "field_sub.spec";
 import "field_dbl.spec";
-import "field_mul.qcspec";
+import "field_mul.spec";
 import "field_sq.qcspec";
 set verification on;
 
