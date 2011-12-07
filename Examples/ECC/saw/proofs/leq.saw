@@ -1,0 +1,9 @@
+method com.galois.ecc.NIST64.leq
+{
+  var x, y :: int[12];
+  mayAlias { x, y };
+  let x' = join(valueOf(x)) : [384];
+  let y' = join(valueOf(y)) : [384];
+  return if x' <=u y' then 1:[32] else 0:[32];
+  verify abc;
+};
