@@ -1,2 +1,10 @@
 import "common.saw";
+import "rules.saw";
+
+set verification off;
+import "sq.saw";
+import "field_red.qcspec";
+set verification on;
+
+enable ref_field_sq;
 import "field_sq.qcspec";
