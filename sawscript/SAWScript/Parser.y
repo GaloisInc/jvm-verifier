@@ -124,6 +124,7 @@ import {-# SOURCE #-} SAWScript.ParserActions
    '==>'          { TOp       _ "==>"          }
 
 -- Operators, precedence increases as you go down in this list
+%nonassoc MIN
 %right 'else'
 %right '==>'
 %left '||'
@@ -159,7 +160,7 @@ SAWScriptCommand
   | 'pragma' var ':' 'SBV' str       { inp $1 (SBVPragma (tokStr $2) $5)    }
   | 'set' 'verification' 'on'        { inp $1 (SetVerification True)  }
   | 'set' 'verification' 'off'       { inp $1 (SetVerification False) }
-  | 'method' Qvar '{' MethodSpecDecls '}' 
+  | 'method' Qvar '{' seplist(MethodSpecDecl, ';') '}' 
                                      { inp $1 (DeclareMethodSpec (snd $2) $4) }
   | 'rule' var ':' RuleParams Expr '->' Expr 
                                      { inp $1 (Rule (tokStr $2) $4 $5 $7) }
@@ -262,26 +263,25 @@ RecordFlds :: { [(Pos, String, Expr)] }
 RecordFlds : sepBy(connected(var, '=', Expr), ';')
                                { map ((\(v, e) -> (tokPos v, tokStr v, e))) $1 }
 
--- Method spec body
-MethodSpecDecls :: { [MethodSpecDecl] }
-MethodSpecDecls : termBy(MethodSpecDecl, ';') { $1 }
-
 MethodSpecDecl :: { MethodSpecDecl }
 MethodSpecDecl
-  : 'from' 'pc' num LSpecBlock
+  : LSpecDecl            { Behavior $1 }
+  | 'from' 'pc' num LSpecDecl
                          { SpecAt (tokPos $1) (tokNum $3) $4 }
-  | 'quickcheck' num opt(num)
-                         { QuickCheck (tokPos $1) (tokNum $2) (fmap tokNum $3) }
+  | 'quickcheck' num opt(num) ';' { QuickCheck (tokPos $1) (tokNum $2) (fmap tokNum $3) }
   | 'verify' VerifyCommand
                          { Verify (tokPos $1) $2 }
-  | LSpecDecl            { Behavior $1 }
-
-LSpecBlock :: { BehaviorDecl }
-LSpecBlock : '{' termBy(LSpecDecl, ';') '}' { Block $2 }
-           | LSpecDecl ';' { $1 }
 
 LSpecDecl :: { BehaviorDecl }
-LSpecDecl
+LSpecDecl 
+  : '{' seplist(LSpecDecl, ';') '}' { Block $2 }
+  | LSpecStatement ';' { $1 }
+  | 'if' '(' Expr ')' LSpecDecl %prec MIN { MethodIf     (tokPos $1) $3 $5          }
+  | 'if' '(' Expr ')' LSpecDecl
+               'else' LSpecDecl { MethodIfElse (tokPos $1) $3 $5 $7       }
+
+LSpecStatement :: { BehaviorDecl }
+LSpecStatement
   : 'var' Exprs1 '::' JavaType   { VarDecl      (tokPos $1) $2 $4          }
   | 'mayAlias' '{' Exprs1 '}'    { MayAlias     (tokPos $1) $3             }
   | 'let' var '=' Expr           { MethodLet    (tokPos $1) (tokStr $2) $4 }
@@ -290,9 +290,6 @@ LSpecDecl
   | 'ensure' Expr ':=' Expr      { EnsureImp    (tokPos $1) $2 $4          }
   | 'modify' Exprs1              { Modify       (tokPos $1) $2             }
   | 'return' Expr                { Return       (tokPos $1) $2             }
-  | 'if' '(' Expr ')' LSpecBlock { MethodIf     (tokPos $1) $3 $5          }
-  | 'if' '(' Expr ')' LSpecBlock
-               'else' LSpecBlock { MethodIfElse (tokPos $1) $3 $5 $7       }
 
 JavaType :: { JavaType }
 JavaType : 'boolean'            { BoolType (tokPos $1)      }
@@ -308,15 +305,18 @@ JavaType : 'boolean'            { BoolType (tokPos $1)      }
 
 VerifyCommand :: { VerifyCommand }
 VerifyCommand
+  : 'from' 'pc' num VerifyCommand      { VerifyAt (tokPos $1) (tokNum $3) $4 }
+  | '{' list(VerifyCommand) '}'        { VerifyBlock $2 }
+  | VerifyStatement ';'                { $1 }
+
+VerifyStatement :: { VerifyCommand }
   : 'rewrite'                          { Rewrite }
   | 'abc'                              { ABC }
   | 'smtlib' opt(int) opt(str)         { SmtLib (fmap snd $2) $3 }
   | 'yices'  opt(int)                  { Yices (fmap snd $2) }
   | 'expand' Expr                      { Expand $2 }
-  | 'from' 'pc' num VerifyCommand      { VerifyAt (tokPos $1) (tokNum $3) $4 }
   | 'enable'  var                      { VerifyEnable  (tokPos $2) (tokStr $2) }
   | 'disable' var                      { VerifyDisable (tokPos $2) (tokStr $2) }
-  | '{' termBy(VerifyCommand, ';') '}' { VerifyBlock $2 }
 
 -- A qualified variable
 Qvar :: { (Pos, [String]) }
@@ -364,6 +364,14 @@ list1(p) : rev_list1(p)   { reverse $1 }
 -- A potentially empty list of p's
 list(p) : {- empty -}    { [] }
         | list1(p)       { $1 }
+
+-- A reversed list of at least 1 p's
+seprev_list(p,q) : seprev_list(p,q) p { $2 : $1 }
+                 | seprev_list(p,q) q { $1 }
+                 | {- empty -}    { [] }
+
+-- A potentially empty list of p's separated by zero or more qs (which are ignored).
+seplist(p,q) : seprev_list(p,q)  { reverse $1 }
 
 -- A list of at least one 1 p's, separated by q's
 sepBy1(p, q) : p list(snd(q, p)) { $1 : $2 }
