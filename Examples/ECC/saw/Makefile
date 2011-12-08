@@ -23,7 +23,15 @@ PROOFS :=              \
   is_zero.saw          \
   set_zero.saw         \
   set_unit.saw         \
+  assign.saw           \
+  add.saw              \
+  sub.saw              \
+  mul.saw              \
+  sq.saw               \
+  leq.saw              \
+  shr.saw              \
   mod_half.saw         \
+  mod_sub.saw          \
   field_add.saw        \
   field_sub.saw        \
   incFieldPrime.saw    \
@@ -40,6 +48,8 @@ PROOFS :=              \
   ec_full_add.saw      \
   ec_full_sub.saw      \
   ec_mul_aux.saw       \
+  ec_mul_init.saw      \
+  ec_mul.saw           \
   group_add.saw        \
 
 .PHONY: clean verify

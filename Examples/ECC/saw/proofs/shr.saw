@@ -1,4 +1,4 @@
-method com.galois.ecc.P384ECC64.shr
+method com.galois.ecc.ECCProvider.shr
 {
   var z, x :: int[12];
   var c :: int;

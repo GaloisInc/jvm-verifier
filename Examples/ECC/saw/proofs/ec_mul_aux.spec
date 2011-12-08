@@ -29,8 +29,5 @@ method com.galois.ecc.P384ECC64.ec_mul_aux
   ensure valueOf(r.z) := split(res.z) : [12][32];
   modify valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 
-//  quickcheck 10;
   verify { rewrite; yices; };
-// NB: The version of ec_mul_merge_aux at 94c87f64 discharges using the following.
-// verify { disable imp_true_elim1; rewrite; enable imp_true_elim1; rewrite; };
 };

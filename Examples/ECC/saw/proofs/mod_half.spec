@@ -1,5 +1,4 @@
-method com.galois.ecc.P384ECC64.mod_half
-{
+method com.galois.ecc.NIST64.mod_half {
   var x, p :: int[12]; 
   mayAlias { x, p };
   let jx = join(valueOf(x));

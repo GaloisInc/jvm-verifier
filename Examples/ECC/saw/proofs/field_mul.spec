@@ -12,5 +12,5 @@ method com.galois.ecc.P384ECC64.field_mul
 
   ensure valueOf(args[0]) := split(ref_field_mul(vx, vy)) : [12][32];
   modify valueOf(this.a);
-  quickcheck 100;
+  verify rewrite;
 };

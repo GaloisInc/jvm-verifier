@@ -1,3 +1,2 @@
 import "common.saw"; 
-enable ref_field_add;
 import "field_add.spec";
