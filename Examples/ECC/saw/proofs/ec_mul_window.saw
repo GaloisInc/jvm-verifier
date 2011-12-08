@@ -1,0 +1,9 @@
+import "common.saw";
+import "rules.saw";
+
+set verification off;
+import "ec_mul.spec";
+//set verification on;
+
+enable ref_ec_mul;
+import "ec_mul_window.qcspec";
