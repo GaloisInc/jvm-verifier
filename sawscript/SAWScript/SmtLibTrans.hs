@@ -609,8 +609,16 @@ mkConst val t =
 
         _ -> bug "mkConst" "Type error---array constant of non-array type."
 
-    CRec {} -> err "mkConst does not support records at the moment"
-
+    CRec _ _ vs ->
+      case t of
+        TRecord fs ->
+          do let ts = map (TBitVec . fiWidth) fs
+             xs <- mapM (uncurry mkConst) (zip (V.toList vs) ts)
+             return FTerm { asForm = Nothing
+                          , asTerm = foldr1 BV.concat (map asTerm xs)
+                          , smtType = t
+                          }
+        _ -> bug "mkConst" "Type error---record constant of non-record type."
 
 -- NOTE: Arrays whose size is not a power of 2 are padded with 0s.
 -- This is needed because otherwise  we can detect fake differences

@@ -1,12 +1,4 @@
 import "common.saw";
-/* We can't even fully simulate this method. Bleh. */
-method com.galois.ecc.NIST64.sq
-{
-  var a :: int[24];
-  var x :: int[12];
-  mayAlias { a, x };
-  let x' = join(valueOf(x)) : [384];
-  //ensure valueOf(a) := split(ref_safe_product(x', x')) : [24][32];
-  modify valueOf(a);
-  verify yices;
-};
+
+enable ref_safe_product;
+import "sq.qcspec";
