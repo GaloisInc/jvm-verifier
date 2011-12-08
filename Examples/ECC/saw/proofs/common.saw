@@ -7,22 +7,24 @@ let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
 let group_order = 0xffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973 : [384];
 
 extern SBV ref_safe_product("../spec/sbv/generated/p384_safe_product.sbv") : ([384], [384]) -> [768];
+extern SBV ref_incFieldPrime("../spec/sbv/generated/p384_incFieldPrime.sbv") 
+  : [384] -> { carry : [32]; rslt : [384] };
+extern SBV ref_decFieldPrime("../spec/sbv/generated/p384_decFieldPrime.sbv") 
+  : [384] -> { carry : [32]; rslt : [384] };
+extern SBV ref_field_mod_aux("../spec/sbv/generated/p384_field_mod_aux.sbv") 
+  : [768] -> { carry : [32]; rslt : [384] };
 extern SBV ref_field_mod("../spec/sbv/generated/p384_field_mod.sbv") : [768] -> [384];
-extern SBV ref_incFieldPrime("../spec/sbv/generated/p384_incFieldPrime.sbv")
-  : [384] -> { carry : [32]; rslt : [384] };
-extern SBV ref_decFieldPrime("../spec/sbv/generated/p384_decFieldPrime.sbv")
-  : [384] -> { carry : [32]; rslt : [384] };
 
-extern SBV ref_group_add("../spec/sbv/generated/p384_group_add.sbv")    : ([384],[384]) -> [384];
-extern SBV ref_mod_half("../spec/sbv/generated/p384_mod_half.sbv") : ([384], [384]) -> [384];
-extern SBV ref_mod_sub ("../spec/sbv/generated/p384_mod_sub.sbv") : ([384], [384], [384]) -> [384];
+extern SBV ref_group_add("../spec/sbv/generated/p384_group_add.sbv") : ([384],[384]) -> [384];
+extern SBV ref_mod_half("../spec/sbv/generated/p384_mod_half.sbv")   : ([384], [384]) -> [384];
+extern SBV ref_mod_sub ("../spec/sbv/generated/p384_mod_sub.sbv")    : ([384], [384], [384]) -> [384];
 
 extern SBV ref_is_field ("../spec/sbv/generated/p384_is_field_val.sbv") : [384] -> Bit;
 extern SBV ref_field_add("../spec/sbv/generated/p384_field_add.sbv")    : ([384],[384]) -> [384];
 extern SBV ref_field_sub("../spec/sbv/generated/p384_field_sub.sbv")    : ([384],[384]) -> [384];
 extern SBV ref_field_neg("../spec/sbv/generated/p384_field_neg.sbv")    : [384] -> [384];
 extern SBV ref_field_mul("../spec/sbv/generated/p384_field_mul.sbv")    : ([384],[384]) -> [384];
-extern SBV ref_field_sq("../spec/sbv/generated/p384_field_sq.sbv")    : [384] -> [384];
+extern SBV ref_field_sq("../spec/sbv/generated/p384_field_sq.sbv")      : [384] -> [384];
 
 extern SBV ref_ec_double("../spec/sbv/generated/p384_ec_double.sbv") :
   { x : [384]; y : [384]; z : [384] } -> { x : [384]; y : [384]; z : [384] };

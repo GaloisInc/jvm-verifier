@@ -1418,5 +1418,9 @@ useYices mbTime g = do
                  (map (ppJavaExpr . fst) ia)
                  (SmtLib.trInputs info) of
       [] -> empty
-      ds -> text "Final values for array arguments:"
+      ds -> text ("trInputs = " ++ show (SmtLib.trInputs info))
+         $$ text ("trArrays = " ++ show (SmtLib.trArrays info))
+         $$ text ("ia = " ++ show ia)
+         $$ text ("ia asexpr = " ++ show (map (ppJavaExpr . fst) ia))
+         $$ text ("Final values for array arguments:")
          $$ nest 2 (vcat (intersperse (text " ") ds))

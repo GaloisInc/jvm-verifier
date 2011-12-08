@@ -34,7 +34,7 @@ adc : {n} (fin n) => ([n],[n]) -> ([n],Bit);
 adc(x,y) = (take(width x,sum), sum @ width x)
   where sum = safe_add(x,y);
 
-/* ref_sbb(x,y,b) subtracts y+b from x, and returns result along with output borrow bit. */
+/* sbb(x,y) subtracts y from x, and returns result along with output borrow bit. */
 sbb : {n} (fin n) => ([n],[n]) -> ([n],Bit);
 sbb(x,y) = (take(width x, r), ~(r ! 0))
   where r = (x # [True]) - (y # [False]);
@@ -460,6 +460,51 @@ p384_prime = - (2 ** 384 + 2 ** 128 + 2 ** 96 - 2 ** 32 + 1);
 // P384 field reference modulus.
 p384_field_mod : [768] -> [384];
 p384_field_mod(a)
+    = take(384,
+           if b1 then r0
+           else if b2 then r1
+           else if b3 then r2
+           else if b4 then r3
+           else r4)
+  where {
+    p       = p384_prime # (zero : [32]);
+    rwc     = p384_field_mod_aux(a);
+    z       = rwc.rslt;
+    d       = rwc.carry;
+    r       = z # d;
+    r0      = if (d@31) then r + p else r; // fix potential underflow
+    (r1,b1) = sbb(r0, p);
+    (r2,b2) = sbb(r1, p);
+    (r3,b3) = sbb(r2, p);
+    (r4,b4) = sbb(r3, p);
+   };
+
+p384_field_mod_aux : [768] -> RsltWithCarry;
+p384_field_mod_aux(a) = {carry = drop(384, r); rslt = take(384, r)}
+  where {
+    [ a0  a1  a2  a3  a4  a5  a6  a7  a8  a9 a10 a11
+     a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23]
+        = split a;
+    z32 = zero : [32];
+    z64 = zero : [64];
+    p   = p384_prime # z32;
+    t   =  a0 #  a1 #  a2 #  a3 #  a4 #  a5 #  a6 #  a7 #  a8 #  a9 # a10 # a11 # z32;
+    s1  =     (zero : [128])    # a21 # a22 # a23 #      (zero : [160])         # z32;
+    s2  = a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # a21 # a22 # a23 # z32;
+    s3  = a21 # a22 # a23 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # z32; 
+    s4  = z32 # a23 # z32 # a20 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # z32;
+    s5  =     (zero : [128])    # a20 # a21 # a22 # a23 #    (zero : [128])     # z32;
+    s6  = a20 #    z64    # a21 # a22 # a23 #          (zero : [192])           # z32;
+    d1  = a23 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # a21 # a22 # z32;
+    d2  = z32 # a20 # a21 # a22 # a23 #              (zero : [224])             # z32;
+    d3  =  (zero : [96])  # a23 # a23 #              (zero : [224])             # z32;
+    r   = t + (s1 << 1) + s2 + s3 + s4 + s5 + s6 - d1 - d2 - d3;
+  };
+  
+theorem foo : {x}. p384_field_mod_orig(x) == p384_field_mod(x);
+
+p384_field_mod_orig : [768] -> [384];
+p384_field_mod_orig(a)
     = take(384,
            if b1 then r 
            else if b2 then r1

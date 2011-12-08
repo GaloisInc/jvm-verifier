@@ -216,6 +216,10 @@ public abstract class ECCProvider {
     }
   }
 
+  //tmp delete_me
+  public abstract int field_red_aux(int[] z, int[] a);
+  //tmp delete_me
+
   // Abstract operations {{{2
   // Large word operations {{{3
   /**
