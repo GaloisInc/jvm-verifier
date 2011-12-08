@@ -20,6 +20,10 @@ abstract class NIST32 extends ECCProvider {
     System.out.println("field_red_aux not implemented for NIST32");
     return 0;
   }
+  public int field_red_aux_dummy(int[] z, int[] a) {
+    System.out.println("field_red_aux_dummy not implemented for NIST32");
+    return 0;
+  }
   // tmp delete_me
 
   /**
@@ -959,6 +963,18 @@ class P384ECC64 extends NIST64 {
     // Perform final subtraction if neccary.
     if (d > 0 || leq(field_prime, z)) decFieldPrime(z); 
   }
+
+  // tmp delete_me
+  public int field_red_aux_dummy(int[] z, int[] a) {
+    /* a has two 32 bit elements; z has one. */
+    long a0 = a[0] & LONG_MASK;
+    long a1 = a[1] & LONG_MASK;
+    long d  = a0 + a1;
+    z[0] = (int) d;
+    d >>= 32;
+    return (int) d;
+  }
+  // tmp delete_me
 
   public int field_red_aux(int[] z, int[] a) {
     long d;

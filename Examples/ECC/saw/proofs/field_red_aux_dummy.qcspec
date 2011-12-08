@@ -1,0 +1,14 @@
+import "rules.saw";
+
+method com.galois.ecc.P384ECC64.field_red_aux_dummy
+{
+  var z :: int[1];
+  var a :: int[2];
+  let r = ref_field_mod_aux_dummy(join(valueOf(a)));
+//  ensure valueOf(z) := split(r.rsltDummy) : [1][32];
+  modify valueOf(z);
+  return r; // .carryDummy;
+  verify { rewrite; };
+//  verify { abc; }
+//  quickcheck 1000;
+};
