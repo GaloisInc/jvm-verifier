@@ -143,6 +143,12 @@ rule affineY :
   forAll { x0 : a, y0 : a }.
     { x = x0 ; y = y0 }.y -> y0;
 
+////
+
+rule trunc_shift_get : forAll {x:[384], s:[9]}.
+  trunc (x >>u s) : [32] ->
+  aget (split(x) : [12][32], (s >>u 5:[9]) # 0:[23]);
+
 // Field-specific elimination rules
 
 rule ite_zero_field_mul :

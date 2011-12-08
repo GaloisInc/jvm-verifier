@@ -625,7 +625,7 @@ p384_ec_mul (d, s) = (res @ 384)
     h : [12][32];
     h = split (ini.h);
     r0 = ini.r;
-    f (j, r) = p384_ec_mul_aux(r, s, j, h @ i, zero # [c], d'@i, d_at_ip1)
+    f (j, r) = p384_ec_mul_aux(r, s, j, h @ i, [c] # zero, d'@i, d_at_ip1)
       where {
         i        = j >> 5;
         c        = i < 11;

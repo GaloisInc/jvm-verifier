@@ -23,7 +23,7 @@ method com.galois.ecc.P384ECC64.ec_mul_init
   ensure valueOf(args[0].z) := split(res.r.z) : [12][32];
   ensure valueOf(this.h) := split(res.h) : [12][32];
 
-  modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  modify valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   //verify { rewrite; };
   verify abc;
 };
