@@ -9,34 +9,8 @@ method com.galois.ecc.P384ECC64.ec_mul
   var args[0].x, args[0].y, args[0].z :: int[12];
   var args[2].x, args[2].y            :: int[12];
 
-  /*
-  assert ref_is_field(join(valueOf(args[1])));
-  assert ref_is_field(join(valueOf(args[2].x)));
-  assert ref_is_field(join(valueOf(args[2].y)));
-  */
-
   var this.field_prime :: int[12];
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
-
-  /*
-  localSpec 162 {
-      let lres = ec_mul_aux(
-                   { x = join(valueOf(args[0].x))
-                   ; y = join(valueOf(args[0].y))
-                   ; z = join(valueOf(args[0].z))
-                   },
-                   { x = join(valueOf(args[2].x))
-                   ; y = join(valueOf(args[2].y))
-                   },
-                   TODO,
-                   TODO,
-                   TODO);
-      ensure: valueOf(args[0].x) := split(lres.x);
-      ensure: valueOf(args[0].y) := split(lres.y);
-      ensure: valueOf(args[0].z) := split(lres.z);
-
-  }
-  */
 
   let d  = join(valueOf(args[1]));
   let sx = join(valueOf(args[2].x));
@@ -48,9 +22,11 @@ method com.galois.ecc.P384ECC64.ec_mul
   ensure valueOf(args[0].y) := split(res.y) : [12][32];
   ensure valueOf(args[0].z) := split(res.z) : [12][32];
   modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  /*
   modify valueOf(args[1]);
   modify valueOf(args[2].x);
   modify valueOf(args[2].y);
+  */
   //quickcheck 1;
   verify { rewrite; /*yices; smtlib;*/ };
 };

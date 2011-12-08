@@ -12,4 +12,4 @@ import "ec_mul_init.spec";
 set verification on;
 
 enable ref_ec_mul;
-import "ec_mul.qcspec";
+import "ec_mul.spec";
