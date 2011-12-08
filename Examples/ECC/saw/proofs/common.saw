@@ -17,6 +17,8 @@ extern SBV ref_decFieldPrime("../spec/sbv/generated/p384_decFieldPrime.sbv")
 
 extern SBV ref_group_add("../spec/sbv/generated/p384_group_add.sbv")    : ([384],[384]) -> [384];
 extern SBV ref_mod_half("../spec/sbv/generated/p384_mod_half.sbv") : ([384], [384]) -> [384];
+extern SBV ref_mod_add ("../spec/sbv/generated/p384_mod_add.sbv")
+   : ([384], [384], [384]) -> [384];
 extern SBV ref_mod_sub ("../spec/sbv/generated/p384_mod_sub.sbv")
    : ([384], [384], [384]) -> [384];
 
@@ -31,7 +33,7 @@ let ref_egcd(p:[384], a:[384], ra:[384], b:[384], rb:[384]) : [384] =
     ref_egcd(p, b, rb, (a - b) >>u 1:[384], ref_mod_half(p, ref_mod_sub(p, ra, rb)));
 
 let ref_mod_div(p:[384], x:[384], y:[384]) : [384] = ref_egcd(p, p, 0:[384], y, x);
-pragma ref_mod_div : SBV "mod_div"; // Declares that "ref_div" is "mod_div" in Cryptol.
+pragma ref_mod_div : SBV "p384_mod_div"; // Declares that "ref_div" is "mod_div" in Cryptol.
 
 extern SBV ref_is_field ("../spec/sbv/generated/p384_is_field_val.sbv") : [384] -> Bit;
 extern SBV ref_field_add("../spec/sbv/generated/p384_field_add.sbv")    : ([384],[384]) -> [384];
@@ -65,3 +67,6 @@ extern SBV ref_ec_mul_aux("../spec/sbv/generated/p384_ec_mul_aux.sbv") :
 extern SBV ref_ec_mul("../spec/sbv/generated/p384_ec_mul.sbv") :
   ([384], { x: [384]; y: [384] }) -> { x: [384]; y: [384]; z: [384] };
 
+extern SBV ref_ec_twin_mul("../spec/sbv/generated/p384_ec_twin_mul.sbv") :
+  ([384], { x: [384]; y: [384] }, [384], { x: [384]; y: [384] }) ->
+  { x: [384]; y: [384]; z: [384] };
