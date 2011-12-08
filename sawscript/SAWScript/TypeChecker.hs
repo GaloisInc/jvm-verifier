@@ -72,9 +72,10 @@ import Utils.Common
 
 -- | Convert expression type from AST into WidthExpr
 tcheckExprWidth :: AST.ExprWidth -> WidthExpr
-tcheckExprWidth (AST.WidthConst _ i  ) = constantWidth (Wx i)
-tcheckExprWidth (AST.WidthVar   _ nm ) = varWidth nm
-tcheckExprWidth (AST.WidthAdd   _ u v) = addWidth (tcheckExprWidth u) (tcheckExprWidth v)
+tcheckExprWidth = fn
+  where fn (AST.WidthConst _ i  ) = constantWidth (Wx i)
+        fn (AST.WidthVar   _ nm ) = varWidth nm
+        fn (AST.WidthAdd   _ u v) = addWidth (fn u) (fn v)
 
 -- | Convert expression type from AST into DagType.
 -- Uses Executor monad for parsing record types.
@@ -172,13 +173,13 @@ jssTypeOfJavaExpr (CC.Term exprF) =
 isRefJavaExpr :: JavaExpr -> Bool
 isRefJavaExpr = JSS.isRefType . jssTypeOfJavaExpr
 
-tcJavaExpr :: TCConfig -> AST.Expr -> IO JavaExpr
-tcJavaExpr cfg e = runTI cfg (tcJE e)
+tcJavaExpr :: AST.Expr -> TCConfig -> IO JavaExpr
+tcJavaExpr e cfg = runTI cfg (tcJE e)
 
 -- | Typecheck expression with form valueOf(args), returning java expression
 -- inside args.
-tcValueOfExpr ::  TCConfig -> AST.Expr -> IO JavaExpr
-tcValueOfExpr cfg ast = do
+tcValueOfExpr :: AST.Expr -> TCConfig -> IO JavaExpr
+tcValueOfExpr ast cfg = do
   expr <- runTI cfg (tcE ast)
   case expr of
     LE (JavaValue je _ _) -> return je
@@ -190,6 +191,7 @@ tcValueOfExpr cfg ast = do
 -- method declaration, or rule term.
 data LogicExpr
    = Apply Op [LogicExpr]
+   | IntLit Integer WidthExpr
    | Cns CValue DagType
      -- | Refers to the logical value of a Java expression.  For scalars,
      -- this is the value of the scalar with the number of bits equal to
@@ -202,35 +204,42 @@ data LogicExpr
 -- | Return type of a typed expression.
 typeOfLogicExpr :: LogicExpr -> DagType
 typeOfLogicExpr (Apply     op _) = opResultType op
+typeOfLogicExpr (IntLit    _ tp) = SymInt tp
 typeOfLogicExpr (Cns       _ tp) = tp
 typeOfLogicExpr (JavaValue _ _ tp) = tp
 typeOfLogicExpr (Var       _ tp) = tp
 
 -- | Return java expressions in logic expression.
 logicExprJavaExprs :: LogicExpr -> Set JavaExpr
-logicExprJavaExprs t = impl t Set.empty
+logicExprJavaExprs = flip impl Set.empty
   where impl (Apply _ args) s = foldr impl s args
-        impl (Cns _ _) s = s
         impl (JavaValue e _ _) s = Set.insert e s
-        impl (Var _ _) s = s
+        impl _ s = s
 
 -- | Returns names of variables appearing in typedExpr.
 logicExprVarNames :: LogicExpr -> Set String
-logicExprVarNames (Apply _ exprs) = Set.unions (map logicExprVarNames exprs)
-logicExprVarNames (Cns _ _)       = Set.empty
-logicExprVarNames (JavaValue _ _ _) = Set.empty
-logicExprVarNames (Var nm _) = Set.singleton nm
+logicExprVarNames = flip impl Set.empty
+  where impl (Apply _ args) s = foldr impl s args
+        impl (Var nm _) s = Set.insert nm s
+        impl _ s = s
 
 -- | Evaluate a ground typed expression to a constant value.
-globalEval :: LogicExpr -> IO CValue
-globalEval expr = eval expr
-  where ts = evalTermSemantics
+globalEval :: (String -> m r)
+           -> TermSemantics m r
+           -> LogicExpr
+           -> m r
+globalEval varFn ts expr = eval expr
+  where --TODO: flag error if op is undefined.
         eval (Apply op args) = tsApplyOp ts op (V.map eval (V.fromList args))
+        eval (IntLit i (widthConstant -> Just w)) = 
+          tsIntConstant ts w i
+        eval (IntLit _ w) =
+          error $ "internal: globalEval given non-constant width expression "
+                    ++ ppWidthExpr w "."
         eval (Cns c tp) = tsConstant ts c tp
         eval (JavaValue _nm _ _tp) =
-          error "internal: globalEval called with expression containing Java expressions."
-        eval (Var _nm _tp) =
-          error "internal: globalEval called with non-ground expression"
+          error "internal: globalEval called with Java expression."
+        eval (Var nm _tp) = varFn nm
 
 -- | Internal utility for flipping arguments to binary logic expressions.
 flipBinOpArgs :: LogicExpr -> LogicExpr
@@ -238,8 +247,8 @@ flipBinOpArgs (Apply o [a, b]) = Apply o [b, a]
 flipBinOpArgs e = error $ "internal: flipBinOpArgs: received: " ++ show e
 
 -- | Typecheck a logic expression.
-tcLogicExpr :: TCConfig -> AST.Expr -> IO LogicExpr
-tcLogicExpr cfg e = runTI cfg (tcLE e)
+tcLogicExpr :: AST.Expr -> TCConfig -> IO LogicExpr
+tcLogicExpr e cfg = runTI cfg (tcLE e)
 
 -- MixedExpr {{{1
 
@@ -252,8 +261,8 @@ data MixedExpr
 -- | Typecheck term as a mixed expression.
 -- Guarantees that if a Java expression is returned, the actual type has
 -- been defined.
-tcMixedExpr :: TCConfig -> AST.Expr -> IO MixedExpr
-tcMixedExpr cfg ast = runTI cfg $ do
+tcMixedExpr :: AST.Expr -> TCConfig -> IO MixedExpr
+tcMixedExpr ast cfg = runTI cfg $ do
   me <- tcE ast
   case me of
     JE je -> getActualType (AST.exprPos ast) je >> return ()
@@ -338,8 +347,8 @@ ppActualType (ArrayInstance l tp) = show tp ++ "[" ++ show l ++ "]"
 ppActualType (PrimitiveType tp) = show tp
 
 -- | Convert AST.JavaType into JavaActualType.
-tcActualType :: TCConfig -> AST.JavaType -> IO JavaActualType
-tcActualType cfg (AST.ArrayType eltTp l) = do
+tcActualType :: AST.JavaType -> TCConfig -> IO JavaActualType
+tcActualType (AST.ArrayType eltTp l) cfg = do
   let pos = AST.javaTypePos eltTp
   unless (0 <= l && toInteger l < toInteger (maxBound :: Int32)) $ do
     let msg  = "Array length " ++ show l ++ " is invalid."
@@ -347,10 +356,10 @@ tcActualType cfg (AST.ArrayType eltTp l) = do
   let res = jssTypeOfASTJavaType eltTp
   runTI cfg $ checkIsSupportedType pos (JSS.ArrayType res)
   return $ ArrayInstance (fromIntegral l) res
-tcActualType cfg (AST.RefType pos names) = do
+tcActualType (AST.RefType pos names) cfg = do
   let cb = codeBase (globalBindings cfg)
    in ClassInstance <$> lookupClass cb pos (intercalate "/" names)
-tcActualType cfg tp = do
+tcActualType tp cfg = do
   let pos = AST.javaTypePos tp
   let res = jssTypeOfASTJavaType tp
   runTI cfg $ checkIsSupportedType pos res
@@ -498,15 +507,26 @@ tcE (AST.MkArray p (es@(_:_))) = do
   t   <- go $ zip [(1::Int)..] $ map typeOfLogicExpr es'
   oc <- gets (opCache . globalBindings)
   return $ LE $ Apply (mkArrayOp oc (length es') t) es'
+tcE (AST.GetArray pos arrayAst idxAst) = do
+  array <- tcLE arrayAst
+  idx <- tcLE idxAst
+  case (typeOfLogicExpr array, typeOfLogicExpr idx) of
+    (SymArray wl eltType, SymInt wi) ->
+       return $ LE $ Apply (getArrayValueOp wl wi eltType) [array, idx]
+    (arrayType, idxType) ->
+      typeErr pos $ ftext $ "Unexpected types " ++ ppType arrayType ++ " and "
+                              ++ ppType idxType ++ " to array access."
 tcE (AST.TypeExpr pos (AST.ConstantInt posCnst i) astTp) = do
   tp <- tcT astTp
-  let nonGround = typeErr pos $   text "The type" <+> text (ppType tp)
-                              <+> ftext "bound to literals must be a ground type."
+  let nonGround =
+        typeErr pos $   text "The type" <+> text (ppType tp)
+          <+> ftext "bound to literals must be a ground type."
   case tp of
-    SymInt (widthConstant -> Just (Wx w)) -> do
+    SymInt we@(widthConstant -> Just (Wx w)) -> do
       warnRanges posCnst tp i w
-      return $ LE $ Cns (mkCInt (Wx w) i) tp
-    SymInt      _ -> nonGround
+      return $ LE $ IntLit i we
+    -- TODO: Support symbolic length integers.
+    SymInt _      -> nonGround
     SymShapeVar _ -> nonGround
     _             -> typeErr pos $   text "Incompatible type" <+> text (ppType tp)
                                  <+> ftext "assigned to integer literal."
@@ -535,8 +555,8 @@ tcE (AST.TypeExpr _ (AST.ApplyExpr appPos "split" astArgs) astResType) = do
         oc <- gets (opCache . globalBindings)
         return $ LE $ Apply (splitOp oc l w) args
     _ -> typeErr appPos $ ftext $ "Illegal arguments and result type given to \'split\'."
-                                ++ " SAWScript currently requires that the argument is ground type, "
-                                ++ " and an explicit result type is given."
+                                ++ " SAWScript currently requires that the argument is "
+                                ++ "a ground type, and an explicit result type is given."
 tcE (AST.TypeExpr p (AST.MkArray _ []) astResType) = do
   resType <- tcT astResType
   case resType of

@@ -20,14 +20,13 @@ module SAWScript.MethodSpec
 -- Imports {{{1
 
 import Control.Applicative hiding (empty)
-import Control.Exception (assert)
+import Control.Exception (finally)
 import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.Error (Error(..), ErrorT, runErrorT, throwError)
-import Control.Monad.Identity
 import Control.Monad.State
 import Data.Int
-import Data.List (foldl', intercalate, sort,intersperse,find)
+import Data.List (foldl', intercalate, intersperse)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -63,14 +62,14 @@ import qualified SMTLib2 as SmtLib2
 
 nyi msg = error $ "Not yet implemented: " ++ msg
 
--- Verinf Utilities {{{1
+-- | Return first value satisfying predicate if any.
+findM :: Monad m => (a -> m Bool) -> [a] -> m (Maybe a)
+findM _ [] = return Nothing
+findM check (x:xs)  = do ok <- check x
+                         if ok then return (Just x)
+                               else findM check xs
 
--- | Create a node with given number of bits.
-mkIntInput :: (SV.Storable l) => DagEngine n l -> Int -> IO n
-mkIntInput de w = do
-  let ?be = deBitEngine de
-  lv <- LV <$> SV.replicateM w lMkInput
-  deFreshInput de (Just lv) (SymInt (constantWidth (Wx w)))
+-- Verinf Utilities {{{1
 
 -- | Create a lit result with input bits for the given ground dag type.
 mkInputLitResultWithType :: (?be :: BitEngine l, SV.Storable l)
@@ -82,16 +81,10 @@ mkInputLitResultWithType (SymArray (widthConstant -> Just (Wx l)) eltTp) =
 mkInputLitResultWithType _ =
   error "internal: mkInputLitResultWithType called with unsupported type."
 
--- | Create ani node with given number of bits.
-mkInputWithType :: SV.Storable l => DagEngine n l -> DagType -> IO n
-mkInputWithType de tp = do
- r <- let ?be = deBitEngine de in mkInputLitResultWithType tp
- deFreshInput de (Just r) tp
-
-deEq :: TypedTerm t => DagEngine t l -> t -> t -> IO t
+deEq :: DagEngine -> DagTerm -> DagTerm -> IO DagTerm
 deEq de x y = deApplyBinary de (eqOp (termType x)) x y
 
-deImplies :: DagEngine t l -> t -> t -> IO t
+deImplies :: DagEngine -> DagTerm -> DagTerm -> IO DagTerm
 deImplies de x y = deApplyBinary de bImpliesOp x y
 
 typeBitCount :: DagType -> Int
@@ -110,6 +103,9 @@ mkInputEval _ _ = error "internal: Unsupported type given to mkInputEval"
 
 -- JSS Utilities {{{1
 
+type DagPathState = JSS.PathState DagTerm
+type DagJavaValue = JSS.Value DagTerm
+
 -- | Set value of bound to instance field in path state.
 setInstanceFieldValue :: JSS.Ref -> JSS.FieldId -> JSS.Value n
                       -> JSS.PathState n -> JSS.PathState n
@@ -118,7 +114,8 @@ setInstanceFieldValue r f v ps =
 
 -- | Set value bound to array in path state.
 -- Assumes value is an array with a ground length.
-setArrayValue :: TypedTerm n => JSS.Ref -> n -> JSS.PathState n -> JSS.PathState n
+setArrayValue :: TypedTerm n => JSS.Ref -> n -> JSS.PathState n
+              -> JSS.PathState n
 setArrayValue r v ps = do
   let SymArray (widthConstant -> Just (Wx w)) _ = termType v
    in ps { JSS.arrays = Map.insert r (fromIntegral w, v) (JSS.arrays ps) }
@@ -134,7 +131,7 @@ mkJSSValue JSS.ShortType   n = JSS.IValue n
 mkJSSValue _ _ = error "internal: illegal type"
 
 -- | Add assumption for predicate to path state.
-addAssumption :: DagEngine n l -> n -> JSS.PathState n -> IO (JSS.PathState n)
+addAssumption :: DagEngine -> DagTerm -> DagPathState -> IO DagPathState
 addAssumption de x ps =
   do prop <- deApplyBinary de bAndOp (JSS.psAssumptions ps) x
      return ps { JSS.psAssumptions = prop }
@@ -147,17 +144,15 @@ addAssertion nm x ps =
 -- EvalContext {{{1
 
 -- | Contextual information needed to evaluate expressions.
-data EvalContext t l = EvalContext {
-         ecDagEngine :: DagEngine t l
-       , ecLocals :: Map JSS.LocalVariableIndex (JSS.Value t)
-       , ecPathState :: JSS.PathState t
+data EvalContext = EvalContext {
+         ecDagEngine :: DagEngine
+       , ecLocals :: Map JSS.LocalVariableIndex DagJavaValue
+       , ecPathState :: DagPathState
        }
 
-evalContextFromPathState :: DagEngine t l -> JSS.PathState t -> EvalContext  t l
+evalContextFromPathState :: DagEngine -> DagPathState -> EvalContext
 evalContextFromPathState de ps =
   let f:_ = JSS.frames ps
-      method   = JSS.frmMethod f
-      paramCount = length (JSS.methodParameterTypes method)
       localMap = JSS.frmLocals f
    in EvalContext {
           ecDagEngine = de
@@ -165,21 +160,20 @@ evalContextFromPathState de ps =
         , ecPathState = ps
         }
 
-
 type ExprEvaluator a = ErrorT TC.JavaExpr IO a
 
 instance Error TC.JavaExpr where
   noMsg = error "noMsg called with TC.JavaExpr"
 
-runEval :: ExprEvaluator b -> IO (Either TC.JavaExpr b)
-runEval v = runErrorT v
+runEval :: MonadIO m => ExprEvaluator b -> m (Either TC.JavaExpr b)
+runEval v = liftIO (runErrorT v)
 
 -- or undefined subexpression if not.
 -- N.B. This method assumes that the Java path state is well-formed, the
 -- the JavaExpression syntactically referes to the correct type of method
 -- (static versus instance), and correct well-typed arguments.  It does
 -- not assume that all the instanceFields in the JavaEvalContext are initialized.
-evalJavaExpr :: TC.JavaExpr -> EvalContext n l -> ExprEvaluator (JSS.Value n)
+evalJavaExpr :: TC.JavaExpr -> EvalContext -> ExprEvaluator DagJavaValue
 evalJavaExpr expr ec = eval expr
   where eval e@(CC.Term app) =
           case app of
@@ -193,14 +187,14 @@ evalJavaExpr expr ec = eval expr
                 Just v -> return v
                 Nothing -> throwError e
 
-evalJavaRefExpr :: TC.JavaExpr -> EvalContext n l -> ExprEvaluator JSS.Ref
+evalJavaRefExpr :: TC.JavaExpr -> EvalContext -> ExprEvaluator JSS.Ref
 evalJavaRefExpr expr ec = do
   val <- evalJavaExpr expr ec
   case val of
     JSS.RValue ref -> return ref
     _ -> error "internal: evalJavaRefExpr encountered illegal value."
 
-evalJavaExprAsLogic :: TC.JavaExpr -> EvalContext n l -> ExprEvaluator n
+evalJavaExprAsLogic :: TC.JavaExpr -> EvalContext -> ExprEvaluator DagTerm
 evalJavaExprAsLogic expr ec = do
   val <- evalJavaExpr expr ec
   case val of
@@ -213,18 +207,21 @@ evalJavaExprAsLogic expr ec = do
     _ -> error "internal: evalJavaExprAsExpr encountered illegal value."
 
 -- | Evaluates a typed expression.
-evalLogicExpr :: TC.LogicExpr -> EvalContext n l -> ExprEvaluator n
+evalLogicExpr :: TC.LogicExpr -> EvalContext -> ExprEvaluator DagTerm
 evalLogicExpr initExpr ec = eval initExpr
   where de = ecDagEngine ec
         eval (TC.Apply op exprs) =
           (liftIO . deApplyOp de op) =<< V.mapM eval (V.fromList exprs)
-        eval (TC.Cns c tp) = return $ deConstantTerm de c tp
+        eval (TC.Cns c tp) = return $ ConstTerm c tp
+        eval (TC.IntLit i we@(widthConstant -> Just w)) =
+          return $ ConstTerm (mkCInt w i) (SymInt we)
+        eval TC.IntLit{} = error "internal: evalLogicExpr called with non-ground literal."
         eval (TC.Var _ _) = error "internal: evalLogicExpr called with var"
         eval (TC.JavaValue expr _ _) = evalJavaExprAsLogic expr ec
 
 -- | Return Java value associated with mixed expression.
-evalMixedExpr :: TypedTerm n
-              => TC.MixedExpr -> EvalContext n l -> ExprEvaluator (JSS.Value n)
+evalMixedExpr :: TC.MixedExpr -> EvalContext 
+              -> ExprEvaluator DagJavaValue
 evalMixedExpr (LE expr) ec = do
   n <- evalLogicExpr expr ec
   case termType n of
@@ -237,10 +234,12 @@ evalMixedExpr (JE expr) ec = evalJavaExpr expr ec
 -- OverrideComputation definition {{{2
 
 -- | State for running the behavior specifications in a method override.
-data OCState n l = OCState {
-         ocsEvalContext :: !(EvalContext n l)
-       , ocsResultState :: !(JSS.PathState n)
-       , ocsReturnValue :: !(Maybe (JSS.Value n))
+data OCState = OCState {
+         ocsPC :: JSS.PC
+       , ocsEvalContext :: !EvalContext
+       , ocsResultState :: !DagPathState
+       , ocsReturnValue :: !(Maybe DagJavaValue)
+       , ocsErrors :: [OverrideError]
        }
 
 data OverrideError
@@ -253,64 +252,64 @@ data OverrideError
    deriving (Show)
 
 ppOverrideError :: OverrideError -> String
-ppOverrideError (UndefinedExpr expr) = "Could not evaluate " ++ show expr ++ "."
+ppOverrideError (UndefinedExpr expr) =
+  "Could not evaluate " ++ show (ppJavaExpr expr) ++ "."
 ppOverrideError (FalseAssertion p)   = "Assertion at " ++ show p ++ " is false."
-ppOverrideError (AliasingInputs x y) = "The expressions " ++ show x ++ " and " ++ show y
-  ++ " point to the same reference, but are not allowed to alias each other."
+ppOverrideError (AliasingInputs x y) =
+ "The expressions " ++ show (ppJavaExpr x) ++ " and " ++ show (ppJavaExpr y)
+    ++ " point to the same reference, but are not allowed to alias each other."
 ppOverrideError (JavaException _)    = "A Java exception was thrown."
 ppOverrideError (SimException s)     = "Simulation exception: " ++ s ++ "."
 ppOverrideError Abort                = "Path was aborted."
 
-data OverrideResult n
-   = SuccessfulRun (JSS.PathState n) (Maybe (JSS.Value n))
+data OverrideResult
+   = SuccessfulRun DagPathState (Maybe JSS.PC) (Maybe DagJavaValue)
    | FalseAssumption
-   | FailedRun (JSS.PathState n) OverrideError -- ^ Type of error and assumptions leading up to error.
+   | FailedRun DagPathState (Maybe JSS.PC) [OverrideError]
    deriving (Show)
 
-type RunResult n = (JSS.PathState n, Either OverrideError (Maybe (JSS.Value n)))
+type RunResult = (DagPathState, Maybe JSS.PC, Either [OverrideError] (Maybe DagJavaValue))
 
-orParseResults :: [OverrideResult n] -> [RunResult n]
-orParseResults l = [ (ps, Left e) | FailedRun ps e <- l ] ++ [ (ps, Right v) | SuccessfulRun ps v <- l ]
+orParseResults :: [OverrideResult] -> [RunResult]
+orParseResults l = [ (ps, pc, Left  e) | FailedRun     ps pc e <- l ]
+                ++ [ (ps, pc, Right v) | SuccessfulRun ps pc v <- l ]
 
-type OverrideComputation n l = ContT (OverrideResult n) (StateT (OCState n l) IO)
+type OverrideComputation = ContT OverrideResult (StateT OCState IO)
 
-ocError :: OverrideError -> OverrideComputation n l a
-ocError e = ContT $ \_ -> do
-  ps <- gets ocsResultState
-  return (FailedRun ps e)
+ocError :: OverrideError -> OverrideComputation ()
+ocError e = modify $ \ocs -> ocs { ocsErrors = e : ocsErrors ocs }
 
-ocAssumeFailed :: OverrideComputation n l a
+ocAssumeFailed :: OverrideComputation a
 ocAssumeFailed = ContT (\_ -> return FalseAssumption)
 
 -- OverrideComputation utilities {{{2
 
 -- | Runs an evaluate within an override computation.
-ocEval :: (EvalContext n l -> ExprEvaluator b) -> OverrideComputation n l b
-ocEval fn = do
+ocEval :: (EvalContext -> ExprEvaluator b)
+       -> (b -> OverrideComputation ())
+       -> OverrideComputation ()
+ocEval fn m = do
   ec <- gets ocsEvalContext
-  res <- liftIO (runEval (fn ec))
+  res <- runEval (fn ec)
   case res of
     Left expr -> ocError $ UndefinedExpr expr
-    Right v   -> return v
+    Right v   -> m v
 
 -- Modify result state
-ocModifyResultState :: (JSS.PathState n -> JSS.PathState n)
-                    -> OverrideComputation n l ()
+ocModifyResultState :: (DagPathState -> DagPathState) -> OverrideComputation ()
 ocModifyResultState fn = do
   bcs <- get
   put $! bcs { ocsResultState = fn (ocsResultState bcs) }
 
-ocModifyResultStateIO :: (JSS.PathState n -> IO (JSS.PathState n))
-                    -> OverrideComputation n l ()
+ocModifyResultStateIO :: (DagPathState -> IO DagPathState)
+                      -> OverrideComputation ()
 ocModifyResultStateIO fn = do
   bcs <- get
   new <- liftIO $ fn $ ocsResultState bcs
   put $! bcs { ocsResultState = new }
 
-
-
 -- | Add assumption for predicate.
-ocAssert :: ConstantProjection n => Pos -> String -> n -> OverrideComputation n l ()
+ocAssert :: Pos -> String -> DagTerm -> OverrideComputation ()
 ocAssert p nm x = do
   case getBool x of
     Just True -> return ()
@@ -319,81 +318,87 @@ ocAssert p nm x = do
 
 -- ocStep {{{2
 
-ocStep :: (ConstantProjection n, TypedTerm n, SV.Storable l)
-       => BehaviorCommand
-       -> OverrideComputation n l ()
+ocStep :: BehaviorCommand -> OverrideComputation ()
 ocStep (AssertPred pos expr) =
-  ocAssert pos "Override predicate" =<< ocEval (evalLogicExpr expr)
+  ocEval (evalLogicExpr expr) $ \p ->
+    ocAssert pos "Override predicate" p
 ocStep (AssumePred expr) = do
   de <- gets (ecDagEngine . ocsEvalContext)
-  v <- ocEval (evalLogicExpr expr)
-  case getBool v of
-    Just True -> return ()
-    Just False -> ocAssumeFailed
-    _ -> ocModifyResultStateIO $ addAssumption de v
+  ocEval (evalLogicExpr expr) $ \v ->
+    case getBool v of
+      Just True -> return ()
+      Just False -> ocAssumeFailed
+      _ -> ocModifyResultStateIO $ addAssumption de v
 ocStep (EnsureInstanceField _pos refExpr f rhsExpr) = do
-  lhsRef <- ocEval $ evalJavaRefExpr refExpr
-  value <- ocEval $ evalMixedExpr rhsExpr
-  ocModifyResultState $ setInstanceFieldValue lhsRef f value
+  ocEval (evalJavaRefExpr refExpr) $ \lhsRef ->
+    ocEval (evalMixedExpr rhsExpr) $ \value ->
+      ocModifyResultState $ setInstanceFieldValue lhsRef f value
 ocStep (EnsureArray _pos lhsExpr rhsExpr) = do
-  lhsRef <- ocEval $ evalJavaRefExpr lhsExpr
-  rhsVal <- ocEval $ evalLogicExpr   rhsExpr
-  ocModifyResultState $ setArrayValue lhsRef rhsVal
-ocStep (ModifyInstanceField refExpr f) = do
-  lhsRef <- ocEval $ evalJavaRefExpr refExpr
-  de <- gets (ecDagEngine . ocsEvalContext)
-  let tp = JSS.fieldIdType f
-  n <- liftIO $ mkIntInput de (JSS.stackWidth tp)
-  ocModifyResultState $ setInstanceFieldValue lhsRef f (mkJSSValue tp n)
+  ocEval (evalJavaRefExpr lhsExpr) $ \lhsRef ->
+    ocEval (evalLogicExpr   rhsExpr) $ \rhsVal ->
+      ocModifyResultState $ setArrayValue lhsRef rhsVal
+ocStep (ModifyInstanceField refExpr f) = 
+  ocEval (evalJavaRefExpr refExpr) $ \lhsRef -> do
+    de <- gets (ecDagEngine . ocsEvalContext)
+    let tp = JSS.fieldIdType f
+    let logicType = SymInt (constantWidth (Wx (JSS.stackWidth tp)))
+    n <- liftIO $ deFreshInput de logicType
+    ocModifyResultState $ setInstanceFieldValue lhsRef f (mkJSSValue tp n)
 ocStep (ModifyArray refExpr tp) = do
-  ref <- ocEval $ evalJavaRefExpr refExpr
-  de <- gets (ecDagEngine . ocsEvalContext)
-  rhsVal <- liftIO (mkInputWithType de tp)
-  ocModifyResultState $ setArrayValue ref rhsVal
+  ocEval (evalJavaRefExpr refExpr) $ \ref -> do
+    de <- gets (ecDagEngine . ocsEvalContext)
+    rhsVal <- liftIO (deFreshInput de tp)
+    ocModifyResultState $ setArrayValue ref rhsVal
 ocStep (Return expr) = do
-  val <- ocEval $ evalMixedExpr expr
-  modify $ \ocs -> ocs { ocsReturnValue = Just val }
+  ocEval (evalMixedExpr expr) $ \val ->
+    modify $ \ocs -> ocs { ocsReturnValue = Just val }
 
 -- Executing overrides {{{2
 
-execBehavior :: (ConstantProjection n, TypedTerm n, SV.Storable l)
-             => [BehaviorSpec]
-             -> EvalContext n l
-             -> JSS.PathState n
-             -> IO [RunResult n]
+execBehavior :: [BehaviorSpec] -> EvalContext -> DagPathState -> IO [RunResult]
 execBehavior bsl ec ps = do
   -- Get state of current execution path in simulator.
-  -- Get spec at PC 0.
-  let initOCS = OCState { ocsEvalContext = ec
-                        , ocsResultState = ps
-                        , ocsReturnValue = Nothing
-                        }
-  let resCont () = do
-        OCState { ocsResultState = resPS, ocsReturnValue = v } <- get
-        return (SuccessfulRun resPS v)
-  fmap orParseResults $ forM bsl $ \bs ->
+  fmap orParseResults $ forM bsl $ \bs -> do
+    let initOCS =
+          OCState { ocsPC = bsPC bs
+                  , ocsEvalContext = ec
+                  , ocsResultState = ps
+                  , ocsReturnValue = Nothing
+                  , ocsErrors = []
+                  }
+    let resCont () = do
+          OCState { ocsPC = pc
+                  , ocsResultState = resPS
+                  , ocsReturnValue = v
+                  , ocsErrors = l } <- get
+          return $
+            if null l then
+              SuccessfulRun resPS (Just pc) v
+            else
+              FailedRun resPS (Just pc) l
     flip evalStateT initOCS $ flip runContT resCont $ do
+
        -- Check that all expressions that reference each other may do so.
        do -- Build map from references to expressions that map to them.
           let exprs = bsRefExprs bs
-          refs <- ocEval $ \_ -> mapM (flip evalJavaRefExpr ec) exprs
-          let refExprMap = Map.fromListWith (++) $ refs `zip` [[e] | e <- exprs]
-          --- Get counterexamples.
-          let mayAliasSet = bsMayAliasSet bs
-          let badPairs = catMaybes
-                       $ map (\cl -> CC.checkEquivalence cl mayAliasSet)
-                       $ Map.elems refExprMap
-          -- Throw error if counterexample is found.
-          case badPairs of
-            [] -> return ()
-            (x,y):_ -> ocError (AliasingInputs x y)
+          ocEval (\_ -> mapM (flip evalJavaRefExpr ec) exprs) $ \refs -> do
+            let refExprMap = Map.fromListWith (++) $ refs `zip` [[e] | e <- exprs]
+            --- Get counterexamples.
+            let mayAliasSet = bsMayAliasSet bs
+            let badPairs = catMaybes
+                         $ map (\cl -> CC.checkEquivalence cl mayAliasSet)
+                         $ Map.elems refExprMap
+            -- Throw error if counterexample is found.
+            case badPairs of
+              [] -> return ()
+              (x,y):_ -> ocError (AliasingInputs x y)
        let de = ecDagEngine ec
        -- Verify the initial logic assignments
        forM_ (bsLogicAssignments bs) $ \(pos, lhs, rhs) -> do
-         lhsVal <- ocEval $ evalJavaExprAsLogic lhs
-         rhsVal <- ocEval $ evalLogicExpr rhs
-         ocAssert pos "Override value assertion"
-                                      =<< liftIO (deEq de lhsVal rhsVal)
+         ocEval (evalJavaExprAsLogic lhs) $ \lhsVal -> 
+           ocEval (evalLogicExpr rhs) $ \rhsVal ->
+             ocAssert pos "Override value assertion"
+                =<< liftIO (deEq de lhsVal rhsVal)
        -- Execute statements.
        mapM_ ocStep (bsCommands bs)
 
@@ -433,9 +438,9 @@ execOverride pos ir mbThis args = do
   when (null res) $ error "internal: execBehavior returned empty result list."
   -- Create function for generation resume actions.
   let -- Failed run
-      resAction (ps, Left e) = do
-        let msg = "Unsatisified assumptions in " ++ specName ir ++ ": "
-                        ++ ppOverrideError e
+      resAction (ps, _, Left el) = do
+        let msg = "Unsatisified assertions in " ++ specName ir ++ ":\n"
+                    ++ intercalate "\n" (map ppOverrideError el)
         JSS.CustomRA msg $ do
           verb <- getVerbosity
           let exc = JSS.SimExtErr { JSS.simExtErrMsg = msg
@@ -445,7 +450,7 @@ execOverride pos ir mbThis args = do
                                   }
           JSS.putPathState ps { JSS.finalResult = JSS.Exc exc }
           return $ JSS.NextInst
-      resAction (ps, Right mval) =
+      resAction (ps, _, Right mval) =
         JSS.CustomRA ("Override execution") $ do
           --TODO: Investigate if this is right.
           JSS.putPathState $
@@ -477,8 +482,11 @@ overrideFromSpec pos ir
 
 -- | Describes expected result of computation.
 data ExpectedStateDef = ESD {
-         -- | Inputs to expected value in order they appeared.
-         esdInputs :: [InputEvaluator Node]
+         -- | PC that we started from.
+         esdStartPC :: JSS.PC
+         -- | Initial path state (used for evaluating expressions in
+         -- verification).
+       , esdInitialPathState :: JSS.PathState Node
          -- | Stores initial assignments.
        , esdInitialAssignments :: [(TC.JavaExpr, Node)]
          -- | Map from references back to Java expressions denoting them.
@@ -502,61 +510,58 @@ esdRefName ref esd =
 -- Initial state generation {{{1
 
 -- | State for running the behavior specifications in a method override.
-data ESGState t l = ESGState {
-         esDagEngine :: DagEngine t l
+data ESGState = ESGState {
+         esDagEngine :: DagEngine
        , esMethod :: JSS.Method
        , esExprRefMap :: Map TC.JavaExpr JSS.Ref
-       , esInputs :: [InputEvaluator t] -- ^ Inputs created initially (in reverse order).
-       , esInitialAssignments :: [(TC.JavaExpr, t)]
-       , esInitialPathState :: JSS.PathState t
-       , esReturnValue :: Maybe (JSS.Value t)
-       , esInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe (JSS.Value t))
-       , esArrays :: Map JSS.Ref (Maybe (Int32, t))
+       , esInitialAssignments :: [(TC.JavaExpr, DagTerm)]
+       , esInitialPathState :: DagPathState
+       , esReturnValue :: Maybe DagJavaValue
+       , esInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe DagJavaValue)
+       , esArrays :: Map JSS.Ref (Maybe (Int32, DagTerm))
        }
 
 -- | Monad used to execute statements in a behavior specification for a method
 -- override.
-type ExpectedStateGenerator t l = StateT (ESGState t l) IO
+type ExpectedStateGenerator = StateT ESGState IO
 
-esEval :: (EvalContext t l -> ExprEvaluator b) -> ExpectedStateGenerator t l b
+esEval :: (EvalContext -> ExprEvaluator b) -> ExpectedStateGenerator b
 esEval fn = do
   de <- gets esDagEngine
   initPS <- gets esInitialPathState
   let ec = evalContextFromPathState de initPS
-  res <- liftIO (runEval (fn ec))
+  res <- runEval (fn ec)
   case res of
     Left expr -> fail $ "internal: esEval given " ++ show expr ++ "."
     Right v   -> return v
 
-esGetInitialPathState :: ExpectedStateGenerator t l (JSS.PathState t)
+esGetInitialPathState :: ExpectedStateGenerator DagPathState
 esGetInitialPathState = gets esInitialPathState
 
-esPutInitialPathState :: JSS.PathState t -> ExpectedStateGenerator t l ()
+esPutInitialPathState :: DagPathState -> ExpectedStateGenerator ()
 esPutInitialPathState ps = modify $ \es -> es { esInitialPathState = ps }
 
-esModifyInitialPathState :: (JSS.PathState t -> JSS.PathState t)
-                         -> ExpectedStateGenerator t l ()
+esModifyInitialPathState :: (DagPathState -> DagPathState)
+                         -> ExpectedStateGenerator ()
 esModifyInitialPathState fn =
   modify $ \es -> es { esInitialPathState = fn (esInitialPathState es) }
 
-esModifyInitialPathStateIO :: (JSS.PathState t -> IO (JSS.PathState t))
-                         -> ExpectedStateGenerator t l ()
+esModifyInitialPathStateIO :: (DagPathState -> IO DagPathState)
+                         -> ExpectedStateGenerator ()
 esModifyInitialPathStateIO fn =
   do s0 <- esGetInitialPathState
      esPutInitialPathState =<< liftIO (fn s0)
 
-
-
-esAddEqAssertion :: TypedTerm t =>
-           DagEngine t l -> String -> t -> t -> ExpectedStateGenerator t l ()
+esAddEqAssertion :: DagEngine -> String -> DagTerm -> DagTerm
+                 -> ExpectedStateGenerator ()
 esAddEqAssertion de nm x y =
   do prop <- liftIO (deEq de x y)
      esModifyInitialPathState (addAssertion nm prop)
 
 
 -- | Assert that two terms are equal.
-esAssertEq :: TypedTerm t
-           => String -> JSS.Value t -> JSS.Value t -> ExpectedStateGenerator t l ()
+esAssertEq :: String -> DagJavaValue -> DagJavaValue
+           -> ExpectedStateGenerator ()
 esAssertEq nm (JSS.RValue x) (JSS.RValue y) = do
   when (x /= y) $
     error $ "internal: Asserted different references for " ++ nm ++ " are equal."
@@ -569,11 +574,10 @@ esAssertEq nm (JSS.LValue x) (JSS.LValue y) = do
 esAssertEq _ _ _ = error "internal: esAssertEq given illegal arguments."
 
 -- | Set value in initial state.
-esSetJavaValue :: TypedTerm t
-               => TC.JavaExpr -> JSS.Value t -> ExpectedStateGenerator t l ()
+esSetJavaValue :: TC.JavaExpr -> DagJavaValue -> ExpectedStateGenerator ()
 esSetJavaValue e@(CC.Term exprF) v = do
   case exprF of
-    TC.Local nm idx _ -> do
+    TC.Local _ idx _ -> do
       ps <- esGetInitialPathState
       let f:r = JSS.frames ps
       case Map.lookup idx (JSS.frmLocals f) of
@@ -593,42 +597,31 @@ esSetJavaValue e@(CC.Term exprF) v = do
          JSS.instanceFields = Map.insert (ref,f) v (JSS.instanceFields ps)
        }
 
-esResolveLogicExprs :: (TypedTerm t, SV.Storable l)
-                    => DagType -> [TC.LogicExpr] -> ExpectedStateGenerator t l t
+esResolveLogicExprs :: DagType -> [TC.LogicExpr]
+                    -> ExpectedStateGenerator DagTerm
 esResolveLogicExprs tp [] = do
   de <- gets esDagEngine
-  -- Get number of literals.
-  lc <- liftIO $ beInputLitCount (deBitEngine de)
   -- Create input variable.
-  t <- liftIO $ mkInputWithType de tp
-  -- Record input function in esInputs
-  let evalFn bits = mkInputEval tp $ SV.slice lc (typeBitCount tp) bits
-  modify $ \es -> es { esInputs = (t,evalFn):esInputs es }
-  -- Return value.
-  return t
+  liftIO $ deFreshInput de tp
 esResolveLogicExprs _ (hrhs:rrhs) = do
   de <- gets esDagEngine
-  --TODO: liftIO $ putStrLn $ "esResolveLogicExprs evaluating " ++ show hrhs
   t <- esEval $ evalLogicExpr hrhs
-  -- Add assumptions for other methods.
+  -- Add assumptions for other equivalent expressions.
   forM_ rrhs $ \rhsExpr -> do
-    liftIO $ putStrLn $ "esResolveLogicExprs evaluating " ++ show rhsExpr
     rhs <- esEval $ evalLogicExpr rhsExpr
     esModifyInitialPathStateIO $ \s0 -> do prop <- deEq de t rhs
                                            addAssumption de prop s0
   -- Return value.
   return t
 
-esSetLogicValues :: (TypedTerm t, SV.Storable l)
-                 => [TC.JavaExpr] -> DagType -> [TC.LogicExpr]
-                 -> ExpectedStateGenerator t l ()
+esSetLogicValues :: [TC.JavaExpr] -> DagType -> [TC.LogicExpr]
+                 -> ExpectedStateGenerator ()
 esSetLogicValues cl tp lrhs = do
   -- Get value of rhs.
   value <- esResolveLogicExprs tp lrhs
   -- Update Initial assignments.
   modify $ \es -> es { esInitialAssignments =
                          map (\e -> (e,value)) cl ++  esInitialAssignments es }
-  --TODO: liftIO $ putStrLn $ "esSetLogicValues setting values " ++ show cl
   -- Update value.
   case termType value of
      SymArray (widthConstant -> Just (Wx l)) _ -> do
@@ -646,8 +639,7 @@ esSetLogicValues cl tp lrhs = do
      _ -> error "internal: initializing Java values given bad rhs."
 
 
-esStep :: (TypedTerm t, SV.Storable l)
-       => BehaviorCommand -> ExpectedStateGenerator t l ()
+esStep :: BehaviorCommand -> ExpectedStateGenerator ()
 esStep (AssertPred _ expr) = do
   de <- gets esDagEngine
   v <- esEval $ evalLogicExpr expr
@@ -761,7 +753,6 @@ initializeVerification ir bs refConfig = do
                          , esMethod = specMethod ir
                          , esExprRefMap = Map.fromList
                              [ (e, r) | (cl,r) <- refAssignments, e <- cl ]
-                         , esInputs = []
                          , esInitialAssignments = []
                          , esInitialPathState = initPS
                          , esReturnValue = Nothing
@@ -779,20 +770,22 @@ initializeVerification ir bs refConfig = do
                in throwIOExecException (specPos ir) (ftext msg) ""
             Just assignments -> mapM_ (\(l,t,r) -> esSetLogicValues l t r) assignments
           -- Process commands
-          --TODO: liftIO $ putStrLn "Running commands"
           mapM esStep (bsCommands bs)
   let ps = esInitialPathState es
   JSS.putPathState ps
-  return ESD { esdInputs = reverse (esInputs es)
+  return ESD { esdStartPC = bsPC bs
+             , esdInitialPathState = esInitialPathState es
              , esdInitialAssignments = reverse (esInitialAssignments es)
              , esdRefExprMap =
                   Map.fromList [ (r, cl) | (cl,r) <- refAssignments ]
              , esdReturnValue = esReturnValue es
-               -- Create esdArrays map while providing entry for unspecified expressions.
+               -- Create esdArrays map while providing entry for unspecified
+               -- expressions.
              , esdInstanceFields =
                  Map.union (esInstanceFields es)
                            (Map.map Just (JSS.instanceFields ps))
-               -- Create esdArrays map while providing entry for unspecified expressions.
+               -- Create esdArrays map while providing entry for unspecified
+               -- expressions.
              , esdArrays =
                  Map.union (esArrays es)
                            (Map.map Just (JSS.arrays ps))
@@ -800,32 +793,29 @@ initializeVerification ir bs refConfig = do
 
 -- MethodSpec verification {{{1
 
--- JavaVerificationState {{{2
-type InputEvaluator n = (n,SV.Vector Bool -> CValue)
-
 -- VerificationCheck {{{2
 
-data VerificationCheck n
-  = AssertionCheck String n -- ^ Name of assertion.
+data VerificationCheck
+  = AssertionCheck String DagTerm -- ^ Name of assertion.
   -- | Check that equalitassertion is true.
   | EqualityCheck String -- ^ Name of value to compare
-                  n -- ^ Value returned by JVM symbolic simulator.
-                  n -- ^ Expected value in Spec.
+                  DagTerm -- ^ Value returned by JVM symbolic simulator.
+                  DagTerm -- ^ Expected value in Spec.
   deriving (Eq, Ord, Show)
 
-vcName :: VerificationCheck n -> String
+vcName :: VerificationCheck -> String
 vcName (AssertionCheck nm _) = nm
 vcName (EqualityCheck nm _ _) = nm
 
 -- | Returns goal that one needs to prove.
-vcGoal :: TypedTerm n => DagEngine n l -> VerificationCheck n -> IO n
+vcGoal :: DagEngine -> VerificationCheck -> IO DagTerm
 vcGoal _ (AssertionCheck _ n) = return n
 vcGoal de (EqualityCheck _ x y) = deEq de x y
 
-type CounterexampleFn n = (n -> IO CValue) -> IO Doc
+type CounterexampleFn = (DagTerm -> IO CValue) -> IO Doc
 
 -- | Returns documentation for check that fails.
-vcCounterexample :: PrettyTerm n => VerificationCheck n -> CounterexampleFn n
+vcCounterexample :: VerificationCheck -> CounterexampleFn
 vcCounterexample (AssertionCheck nm n) _ =
   return $ text ("Assertion " ++ nm ++ " is unsatisfied:") <+> prettyTermD n
 vcCounterexample (EqualityCheck nm jvmNode specNode) evalFn =
@@ -835,34 +825,22 @@ vcCounterexample (EqualityCheck nm jvmNode specNode) evalFn =
         nest 2 (text "Encountered: " <> ppCValueD Mixfix jn) $$
         nest 2 (text "Expected:    " <> ppCValueD Mixfix sn))
 
+-- PathVC {{{2
+
 -- | Describes the verification result arising from one symbolic execution path.
 data PathVC = PathVC {
-          -- | Inputs to verification problem (universally quantified).
-          pvcInputs :: [InputEvaluator Node]
+          pvcStartPC :: JSS.PC
+        , pvcEndPC :: Maybe JSS.PC
         , pvcInitialAssignments :: [(TC.JavaExpr, Node)]
           -- | Assumptions on inputs.
         , pvcAssumptions :: Node
           -- | Static errors found in path.
         , pvcStaticErrors :: [Doc]
           -- | What to verify for this result.
-        , pvcChecks :: [VerificationCheck Node]
+        , pvcChecks :: [VerificationCheck]
         }
 
 type PathVCGenerator = State PathVC
-
-runPathVCG :: [InputEvaluator Node] -- ^ Inputs
-           -> [(TC.JavaExpr, Node)]
-           -> Node -- ^ Assumptions
-           -> PathVCGenerator () -- ^ Generator
-           -> PathVC
-runPathVCG il ia a m =
-  execState m
-            PathVC { pvcInputs = il
-                   , pvcInitialAssignments = ia
-                   , pvcAssumptions = a
-                   , pvcStaticErrors = []
-                   , pvcChecks = []
-                   }
 
 -- | Add verification condition to list.
 pvcgAssertEq :: String -> Node -> Node -> PathVCGenerator ()
@@ -877,15 +855,25 @@ pvcgFail :: Doc -> PathVCGenerator ()
 pvcgFail msg =
   modify $ \pvc -> pvc { pvcStaticErrors = msg : pvcStaticErrors pvc }
 
+-- generateVC {{{2
+
 -- | Compare result with expected state.
 generateVC :: MethodSpecIR
            -> ExpectedStateDef -- ^ What is expected
-           -> RunResult Node -- ^ Results of symbolic execution.
+           -> RunResult -- ^ Results of symbolic execution.
            -> PathVC -- ^ Proof oblications
-generateVC ir esd (ps, res) =
-  runPathVCG (esdInputs esd) (esdInitialAssignments esd) (JSS.psAssumptions ps) $ do
+generateVC ir esd (ps, endPC, res) = do
+  let initState  = 
+        PathVC { pvcInitialAssignments = esdInitialAssignments esd
+               , pvcStartPC = esdStartPC esd
+               , pvcEndPC = endPC
+               , pvcAssumptions = JSS.psAssumptions ps
+               , pvcStaticErrors = []
+               , pvcChecks = []
+               }
+  flip execState initState $ do
     case res of
-      Left oe -> pvcgFail (ftext (ppOverrideError oe))
+      Left oe -> pvcgFail (vcat (map (ftext . ppOverrideError) oe))
       Right maybeRetVal -> do
         -- Check return value
         case (maybeRetVal, esdReturnValue esd) of
@@ -911,7 +899,8 @@ generateVC ir esd (ps, res) =
              pvcgFail $ ftext $ "Modifies the static field " ++ fName ++ "."
         -- Check instance fields
         forM_ (Map.toList (JSS.instanceFields ps)) $ \((ref,f), jval) -> do
-          let fieldName = show (JSS.fieldIdName f) ++ " of " ++ esdRefName ref esd
+          let fieldName = show (JSS.fieldIdName f)
+                            ++ " of " ++ esdRefName ref esd
           case Map.lookup (ref,f) (esdInstanceFields esd) of
             Nothing ->
               pvcgFail $ ftext $ "Modifies the undefined field " ++ fieldName ++ "."
@@ -950,62 +939,42 @@ generateVC ir esd (ps, res) =
 
 -- verifyMethodSpec and friends {{{2
 
--- | Analyze the specification, and return a list of symbolic executions to run
--- that will generate the different paths we need to verify.
-specVCs :: VerifyParams -> [SymbolicMonad [PathVC]]
-specVCs
-  (VerifyParams
-    { vpPos = pos
-    , vpCode = cb
-    , vpOpts = opts
-    , vpOver = overrides
-    , vpSpec = ir
-    }
-  ) = do
-  let vrb  = verbose opts
-  let svrb = simverbose opts
-  -- Get list of behavior specs to start from and the equivclass for them.
-  let executionParams = [ (bs,cl) | bs <- concat $ Map.elems $ specBehaviors ir
-                                  , cl <- bsRefEquivClasses bs]
-  -- Return executions
-  flip map executionParams $ \(bs, refConfig) -> do
-    de <- getDagEngine
-    setVerbosity vrb
-    JSS.runSimulator cb $ do
-      -- Log execution.
-      setVerbosity svrb
-      -- Add method spec overrides.
-      mapM_ (overrideFromSpec pos) overrides
-      -- Create initial Java state.
-      -- Create map from expressions to references.
-      esd <- initializeVerification ir bs refConfig
-      -- Execute code.
-      when (vrb >= 3) $ do
-        liftIO $ putStrLn $ "Executing " ++ specName ir ++ " at PC " ++ show (bsPC bs) ++ "."
-      jssResults <- JSS.run
-      finalPathResults <-
-        forM jssResults $ \(pd, fr) -> do
-          finalPS <- JSS.getPathStateByName pd
-          case fr of
-            JSS.ReturnVal val -> return [(finalPS, Right (Just val))]
-            JSS.Terminated ->    return [(finalPS, Right Nothing)]
-            JSS.Breakpoint pc -> do
-              -- Execute behavior specs at PC.
-              let Just bsl = Map.lookup pc (specBehaviors ir)
-              let ec = evalContextFromPathState de finalPS
-              liftIO $ execBehavior bsl ec finalPS
-            JSS.Exc JSS.SimExtErr { JSS.simExtErrMsg = msg } ->
-              return [(finalPS, Left (SimException msg)) ]
-            JSS.Exc JSS.JavaException{ JSS.excRef = r } ->
-              return [(finalPS, Left (JavaException r))]
-            JSS.Aborted ->
-              return [(finalPS, Left Abort)]
-            JSS.Unassigned -> error "internal: run terminated before completing."
-      return $ map (generateVC ir esd) (concat finalPathResults)
+mkSpecVC :: VerifyParams
+         -> BehaviorSpec 
+         -> RefEquivConfiguration
+         -> ExpectedStateDef
+         -> JSS.Simulator SymbolicMonad [PathVC]
+mkSpecVC params bs refConfig esd = do
+  let ir = vpSpec params
+  -- Log execution.
+  setVerbosity (simverbose (vpOpts params))
+  -- Add method spec overrides.
+  mapM_ (overrideFromSpec (specPos ir)) (vpOver params)
+  -- Execute code.
+  jssResults <- JSS.run
+  finalPathResults <-
+    forM jssResults $ \(pd, fr) -> do
+      finalPS <- JSS.getPathStateByName pd
+      case fr of
+        JSS.ReturnVal val -> return [(finalPS, Nothing, Right (Just val))]
+        JSS.Terminated ->    return [(finalPS, Nothing, Right Nothing)]
+        JSS.Breakpoint pc -> do
+          de <- JSS.liftSymbolic getDagEngine
+          -- Execute behavior specs at PC.
+          let Just bsl = Map.lookup pc (specBehaviors ir)
+          let ec = evalContextFromPathState de finalPS
+          liftIO $ execBehavior bsl ec finalPS
+        JSS.Exc JSS.SimExtErr { JSS.simExtErrMsg = msg } ->
+          return [(finalPS, Nothing, Left [SimException msg]) ]
+        JSS.Exc JSS.JavaException{ JSS.excRef = r } ->
+          return [(finalPS, Nothing, Left [JavaException r])]
+        JSS.Aborted ->
+          return [(finalPS, Nothing, Left [Abort])]
+        JSS.Unassigned -> error "internal: run terminated before completing."
+  return $ map (generateVC ir esd) (concat finalPathResults)
 
 data VerifyParams = VerifyParams
   { vpOpCache :: OpCache
-  , vpPos     :: Pos
   , vpCode    :: JSS.Codebase
   , vpOpts    :: SSOpts
   , vpSpec    :: MethodSpecIR
@@ -1018,27 +987,41 @@ data VerifyParams = VerifyParams
 -- | Attempt to verify method spec using verification method specified.
 validateMethodSpec :: VerifyParams -> IO ()
 validateMethodSpec
-    params@VerifyParams { vpOpCache = oc
+    params@VerifyParams { vpCode = cb
+                        , vpOpCache = oc
                         , vpOpts = opts
                         , vpSpec = ir
                         } = do
   let verb = verbose opts
   when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName ir
-  let vcList = specVCs params
-  forM_ vcList $ \vcGenerator -> do
+  let configs = [ (bs, cl)
+                | bs <- concat $ Map.elems $ specBehaviors ir
+                , cl <- bsRefEquivClasses bs
+                ]
+  forM_ configs $ \(bs,cl) -> do
+    when (verb >= 3) $ do
+      liftIO $ putStrLn $ "Executing " ++ specName ir
+                             ++ " at PC " ++ show (bsPC bs) ++ "."
     runSymbolic oc $ do
       de <- getDagEngine
-      results <- vcGenerator
+      setVerbosity verb
+      (esd,results) <- 
+        JSS.runSimulator cb $ do
+           -- Create initial Java state.
+           esd <- initializeVerification ir bs cl
+           res <- mkSpecVC params bs cl esd
+           return (esd,res)
       liftIO $ forM_ results $ \pvc -> do
         let mkVState nm cfn =
-              VState { vsDagEngine = de
-                     , vsVCName = nm
+              VState { vsVCName = nm
                      , vsMethodSpec = ir
                      , vsVerbosity = verb
                      , vsRules = vpRules params
                      , vsEnabledRules = vpEnabledRules params
                      , vsEnabledOps = vpEnabledOps params
-                     , vsInputs = pvcInputs pvc
+                     , vsFromPC = bsPC bs
+                     , vsEvalContext = 
+                         evalContextFromPathState de (esdInitialPathState esd)
                      , vsInitialAssignments = pvcInitialAssignments pvc
                      , vsCounterexampleFn = cfn
                      , vsStaticErrors = pvcStaticErrors pvc
@@ -1049,153 +1032,120 @@ validateMethodSpec
             testRandom de verb ir (fromInteger n) (fromInteger <$> lim) pvc
           Verify cmds
             | null (pvcStaticErrors pvc) -> do
-              --TODO: Generate goals for verification.
                forM_ (pvcChecks pvc) $ \vc -> do
                  let vs = mkVState (vcName vc) (vcCounterexample vc)
                  g <- deImplies de (pvcAssumptions pvc) =<< vcGoal de vc
                  runVerify vs g cmds
             | otherwise -> do
-               let vs = mkVState "invalid path" (\_ -> return $ vcat (pvcStaticErrors pvc))
+               let vs = mkVState ("an invalid path "
+                                     ++ (case pvcStartPC pvc of
+                                           0 -> ""
+                                           pc -> " from pc " ++ show pc)
+                                     ++ maybe "" (\pc -> " to pc " ++ show pc) 
+                                              (pvcEndPC pvc))
+                                 (\_ -> return $ vcat (pvcStaticErrors pvc))
                g <- deImplies de (pvcAssumptions pvc) (mkCBool False)
+               putStrLn $ "Calling runVerify with " ++ prettyTerm (pvcAssumptions pvc)
                runVerify vs g cmds
 
 data VerifyState = VState {
-         vsDagEngine :: DagEngine Node Lit
-       , vsVCName :: String
+         vsVCName :: String
        , vsMethodSpec :: MethodSpecIR
        , vsVerbosity :: Verbosity
        , vsRules :: [Rule]
        , vsEnabledRules :: Set String
        , vsEnabledOps :: Set OpIndex
-       , vsInputs :: [InputEvaluator Node]
-       , vsInitialAssignments :: [(TC.JavaExpr, Node)]
-       , vsCounterexampleFn :: CounterexampleFn Node
+         -- | Starting PC is used for checking VerifyAt commands.
+       , vsFromPC :: JSS.PC
+         -- | Evaluation context used for parsing expressions during
+         -- verification.
+       , vsEvalContext :: EvalContext
+       , vsInitialAssignments :: [(TC.JavaExpr, DagTerm)]
+       , vsCounterexampleFn :: CounterexampleFn
        , vsStaticErrors :: [Doc]
        }
+
+vsDagEngine :: VerifyState -> DagEngine
+vsDagEngine = ecDagEngine . vsEvalContext
 
 type VerifyExecutor = StateT VerifyState IO
 
 runVerify :: VerifyState -> Node -> [VerifyCommand] -> IO ()
 runVerify vs g cmds = evalStateT (applyTactics cmds g) vs
 
+-- runABC {{{2
+
 runABC :: Node -> VerifyExecutor ()
 runABC goal = do
   de <- gets vsDagEngine
   v <- gets vsVerbosity
   ir <- gets vsMethodSpec
-  inputs <- gets (V.fromList . vsInputs)
   ia <- gets vsInitialAssignments
   cfn <- gets vsCounterexampleFn
+
   liftIO $ do
     when (v >= 3) $ do
       putStrLn $ "Running ABC on " ++ specName ir
       putStrLn $ "Goal is:"
       putStrLn $ prettyTerm goal
-    LV value <- deBitBlast de goal
-    unless (SV.length value == 1) $
-      error "internal: Unexpected number of in verification condition"
-    let be = deBitEngine de
-    case beCheckSat be of
-      Nothing -> error "internal: Bit engine does not support SAT checking."
-      Just checkSat -> do
-        b <- checkSat (beNeg be (value SV.! 0))
-        case b of
-          UnSat -> when (v >= 3) $ putStrLn "Verification succeeded."
-          Unknown -> do
-            let msg = "ABC has returned a status code indicating that it could not "
-                       ++ "determine whether the specification is correct.  This "
-                       ++ "result is not expected for sequential circuits, and could"
-                       ++ "indicate an internal error in ABC or JavaVerifer's "
-                       ++ "connection to ABC."
-             in throwIOExecException (specPos ir) (ftext msg) ""
-          Sat lits -> do
-            evalFn <- deConcreteEval (V.map (\(_,fn) -> fn lits) inputs)
+    be <- createBitEngine
+    flip finally (beFree be) $ do
+      inputTypes <- deInputTypes de
+      inputPairs <- V.forM inputTypes $ \tp -> do
+        -- Get number of literals.
+        lc <- beInputLitCount be
+        -- Create input variable.
+        l <- let ?be = be in mkInputLitResultWithType tp
+        let evalFn bits = mkInputEval tp $ SV.slice lc (typeBitCount tp) bits
+        return (l,evalFn)
+      let (iLits,inputs) = V.unzip inputPairs
+      let inputFn i _ = return (iLits V.! i)
+      lEval <- evalDagTermFn inputFn (mkBitBlastTermSemantics be)
+      LV value <- lEval goal
+      unless (SV.length value == 1) $
+        error "internal: Unexpected number of in verification condition"
+      case beCheckSat be of
+        Nothing -> error "internal: Bit engine does not support SAT checking."
+        Just checkSat -> do
+          b <- checkSat (beNeg be (value SV.! 0))
+          case b of
+            UnSat -> when (v >= 3) $ putStrLn "Verification succeeded."
+            Unknown -> do
+              let msg = "ABC has returned a status code indicating that it "
+                        ++ "could not determine whether the specification is "
+                        ++ "correct.  This result is not expected for "
+                        ++ "sequential circuits, and could indicate an internal"
+                        ++ "error in ABC or SAWScript's connection to ABC."
+               in throwIOExecException (specPos ir) (ftext msg) ""
+            Sat lits -> do
+              evalFn <- concreteEvalFn (V.map (\fn -> fn lits) inputs)
+              -- Get doc showing inputs
+              let docInput (e,n) =
+                    do vn <- evalFn n
+                       return $ text (TC.ppJavaExpr e) <+> equals
+                                                       <+> ppCValueD Mixfix vn
+              inputDocs <- mapM docInput ia
 
-            -- Get doc showing inputs
-            let docInput (e,n) =
-                  do vn <- evalFn n
-                     return $ text (TC.ppJavaExpr e) <+> equals
-                                                     <+> ppCValueD Mixfix vn
-            inputDocs <- mapM docInput ia
+              -- Get differences between two.
+              val <- cfn evalFn
+              let msg = ftext ("ABC failed to verify " ++ specName ir ++ ".\n\n") $$
+                        ftext ("The inputs that generated the failure are:") $$
+                        nest 2 (vcat inputDocs) $$
+                         ftext ("Counterexample:") $$ nest 2 val
+              throwIOExecException (specPos ir) msg ""
 
-            -- Get differences between two.
-            val <- cfn evalFn
-            let msg = ftext ("ABC failed to verify " ++ specName ir ++ ".\n\n") $$
-                      ftext ("The inputs that generated the failure are:") $$
-                      nest 2 (vcat inputDocs) $$
-                       ftext ("Counterexample:") $$ nest 2 val
-            throwIOExecException (specPos ir) msg ""
-
-applyTactics :: [VerifyCommand] -> Node -> VerifyExecutor ()
-applyTactics (Rewrite:r) g = do
-  de <- gets vsDagEngine
-  rules <- gets vsRules
-  enRules <- gets vsEnabledRules
-  let pgm = foldl' addRule' emptyProgram rules
-      addRule' p r | ruleName r `Set.member` enRules = addRule p r
-                   | otherwise = p
-  g' <- liftIO $ do
-          rew <- mkRewriter pgm (deTermSemantics de)
-          reduce rew g
-  case getBool g' of
-    Just True -> return ()
-    _ -> applyTactics r g'
-applyTactics (ABC:_) goal = runABC goal
-applyTactics (SmtLib ver file :_) g = useSMTLIB ver file g
-applyTactics (Yices v :_) g = useYices v g
-applyTactics (Expand p expr:_) g = do
-  nyi "applyTactics Expand" p expr g
-applyTactics (VerifyEnable nm :_) g =
-  modify (\s -> s { vsEnabledRules = Set.insert nm (vsEnabledRules s) })
-applyTactics (VerifyDisable nm :_) g =
-  modify (\s -> s { vsEnabledRules = Set.delete nm (vsEnabledRules s) })
-applyTactics (VerifyAt pc cmds :_) g = do
-  nyi "applyTactics VerifyAt" pc cmds g
-applyTactics [] g = do
-  nm <- gets vsVCName
-  ir <- gets vsMethodSpec
-  se <- gets vsStaticErrors
-  if null se then
-    let msg = ftext ("Failed to discharge the verification of " ++ nm
-                       ++ " in the Java method " ++ specName ir
-                       ++ " .\n\n") $$
-              ftext ("The remaining goal is:") $$
-              nest 2 (prettyTermD g)
-     in throwIOExecException (specPos ir) msg ""
-  else
-    let msg = ftext ("A potentially satisfiable error path was found in the Java method "
-                      ++ specName ir ++ " .\n\n") $$
-              ftext ("Path errors:") $$ nest 2 (vcat se) $$
-              ftext ("The remaining goal is:") $$ nest 2 (prettyTermD g)
-     in throwIOExecException (specPos ir) msg ""
-
-{-
-applyTactic :: Int -- ^ Verbosity
-            -> MethodSpecIR
-            -> (RewriteProgram Node, TacticContext)
-            -> AST.VerificationTactic
-            -> SymbolicMonad (RewriteProgram Node, TacticContext)
-applyTactic _ _ (pgm, gs) (AST.AddRule nm vars l r) = do
-  error "addrule not yet implemented."
-  -- TODO: we should really be type-checking the rules in advance, and
-  -- store compiled rules appropriate for passing to the addRule
-  -- function.
-  let lt = undefined
-      rt = undefined
-      pgm' = addRule pgm (mkRule nm lt rt)
-  return (pgm', gs)
--}
+-- testRandom {{{2
 
 type Verbosity = Int
 
-testRandom :: DagEngine Node Lit -> Verbosity
+testRandom :: DagEngine -> Verbosity
            -> MethodSpecIR -> Int -> Maybe Int -> PathVC -> IO ()
 testRandom de v ir test_num lim pvc =
     do when (v >= 3) $
          putStrLn $ "Generating random tests: " ++ specName ir
        (passed,run) <- loop 0 0
        when (passed < test_num) $
-         let m = text "QuickCheck: Failed to generate enough good inputs."
+         let m = text "Quickcheck: Failed to generate enough good inputs."
                 $$ nest 2 (vcat [ text "Attempts:" <+> int run
                                 , text "Passed:" <+> int passed
                                 , text "Goal:" <+> int test_num
@@ -1208,10 +1158,11 @@ testRandom de v ir test_num lim pvc =
 
   testOne passed = do
     vs   <- V.mapM QuickCheck.pickRandom =<< deInputTypes de
-    eval <- deConcreteEval vs
+    eval <- concreteEvalFn vs
     badAsmp <- isViolated eval (pvcAssumptions pvc)
     if badAsmp
-      then do return passed
+      then do
+        return passed
       else do when (v >= 4) $
                 dbugM $ "Begin concrete DAG eval on random test case for all goals ("
                         ++ show (length $ pvcChecks pvc) ++ ")."
@@ -1226,21 +1177,14 @@ testRandom de v ir test_num lim pvc =
               return $! passed + 1
 
   isCounterExample vs =
-    do eval    <- deConcreteEval (V.fromList vs)
+    do eval    <- concreteEvalFn (V.fromList vs)
        badAsmps <- isViolated eval (pvcAssumptions pvc)
        if badAsmps
          then return Nothing
          else findM (isInvalid eval) (pvcChecks pvc)
 
-  isViolated eval goal = fmap (not . toBool) (eval goal)
+  isViolated eval goal = (not . toBool) <$> (eval goal)
   isInvalid eval vcc   = isViolated eval =<< vcGoal de vcc
-
-  -- XXX: Move this somewhere
-  findM :: Monad m => (a -> m Bool) -> [a] -> m (Maybe a)
-  findM check [] = return Nothing
-  findM check (x:xs)  = do ok <- check x
-                           if ok then return (Just x)
-                                 else findM check xs
 
   msg eval g =
     do what_happened <-
@@ -1260,14 +1204,13 @@ testRandom de v ir test_num lim pvc =
          $$ nest 2 (vcat
             [ text "Method:" <+> text (specName ir)
             , what_happened
-            , text "Random arguments:" $$ nest 2 (vcat args)
+            , text "Arguments:" $$ nest 2 (vcat args)
             ])
          )
 
   ppInput eval (expr, n) =
     do val <- eval n
-       return $ case expr of
-                  t -> text (show t) <+> text "=" <+> ppCValueD Mixfix val
+       return $ text (ppJavaExpr expr) <+> text "=" <+> ppCValueD Mixfix val
          {-
          tsUnsorted ->
            let tsSorted = sortBy cmp tsUnsorted
@@ -1286,6 +1229,8 @@ testRandom de v ir test_num lim pvc =
                                  , "  Expected: boolean value"
                                  , "  Result:   " ++ ppCValue Mixfix value ""
                                  ]
+
+-- useSMTLIB {{{2
 
 announce :: String -> VerifyExecutor ()
 announce msg = do
@@ -1334,6 +1279,8 @@ useSMTLIB mbVer mbNm g = do
   (version, ver_exr) = case mbVer of
                          Just n | n /= 1 -> (n, show n)
                          _      -> (1, "")   -- For now, we use 1 by default.
+
+-- useYices {{{2
 
 useYices :: Maybe Int -> Node -> VerifyExecutor ()
 useYices mbTime g = do
@@ -1397,8 +1344,10 @@ useYices mbTime g = do
       [ Yices.ppVal (s, Yices.getIdent m i) $$ text " " | (i,s) <- us ]
     )
 
+{-
   varName base 0    = base
   varName base time = base ++ "@" ++ show time
+  -}
 
   varSuccessors m time i = (i,time) :
     case Map.lookup i m of
@@ -1420,3 +1369,72 @@ useYices mbTime g = do
       [] -> empty
       ds -> text "Final values for array arguments:"
          $$ nest 2 (vcat (intersperse (text " ") ds))
+-- applyTactics {{{2
+
+applyTactics :: [VerifyCommand] -> Node -> VerifyExecutor ()
+applyTactics (Rewrite:r) g = do
+  de <- gets vsDagEngine
+  rules <- gets vsRules
+  enRules <- gets vsEnabledRules
+  let pgm = foldl' addRule' emptyProgram rules
+      addRule' p r | ruleName r `Set.member` enRules = addRule p r
+                   | otherwise = p
+  g' <- liftIO $ do
+          rew <- mkRewriter pgm de
+          reduce rew g
+  case getBool g' of
+    Just True -> return ()
+    _ -> applyTactics r g'
+applyTactics (ABC:_) goal = runABC goal
+-- SmtLib always succeeds.
+applyTactics (SmtLib ver file :_) g = useSMTLIB ver file g
+-- Yices always succeeds.
+applyTactics (Yices v :_) g = useYices v g
+applyTactics (Expand p expandOp argExprs rhs:r) g = do
+  ec <- gets vsEvalContext
+  mterms <- runEval $ V.mapM (flip evalLogicExpr ec) (V.fromList argExprs)
+  case mterms of
+    Left expr -> 
+      error $ "internal: Unexpected expression " ++ ppJavaExpr expr
+    Right terms -> do
+      let de = ecDagEngine ec
+      let applyFn op lazyArgs = do
+            args <- V.sequence lazyArgs
+            if op == expandOp && args == terms then
+              let argFn i _ = return (terms V.! i)
+               in evalDagTerm argFn (deTermSemantics de) rhs
+            else 
+              deApplyOp de op args
+      let ts = mkTermSemantics (\i tp -> return (ConstTerm i tp)) applyFn
+      g' <- liftIO $ do
+        inputs <- deInputTerms de
+        evalDagTerm (\i _ -> return (inputs V.! i)) ts g
+      applyTactics r g'
+applyTactics (VerifyEnable nm :r) g = do
+  modify (\s -> s { vsEnabledRules = Set.insert nm (vsEnabledRules s) })
+  applyTactics r g
+applyTactics (VerifyDisable nm :r) g = do
+  modify (\s -> s { vsEnabledRules = Set.delete nm (vsEnabledRules s) })
+  applyTactics r g
+applyTactics (VerifyAt pc cmds :r) g = do
+  fromPC <- gets vsFromPC
+  let newCmds | fromPC == pc = cmds ++ r
+              | otherwise = r
+  applyTactics newCmds g
+applyTactics [] g = do
+  nm <- gets vsVCName
+  ir <- gets vsMethodSpec
+  se <- gets vsStaticErrors
+  if null se then
+    let msg = ftext ("Failed to discharge the verification of " ++ nm
+                       ++ " in " ++ specName ir ++ " .\n\n") $$
+              ftext ("The remaining goal is:") $$
+              nest 2 (prettyTermD g)
+     in throwIOExecException (specPos ir) msg ""
+  else
+    let msg = ftext ("A potentially satisfiable error path was found when verifying "
+                       ++ nm ++ " in " ++ specName ir ++ " .\n\n") $$
+              ftext ("Path errors:") $$ nest 2 (vcat se) $$
+              ftext ("The remaining goal is:") $$ nest 2 (prettyTermD g)
+     in throwIOExecException (specPos ir) msg ""
+

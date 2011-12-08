@@ -2,8 +2,9 @@ method com.galois.ecc.NIST64.sub
 {
   var z, x, y :: int[12];
   mayAlias { z, x, y };
-  let res = join(valueOf(x)) - join(valueOf(y));
-  ensure valueOf(z) := split(res) : [12][32];
-  return if join(valueOf(x)) >=u join(valueOf(y)) then (0 : [32]) else (-(1 : [32]));
+  let jx = join(valueOf(x));
+  let jy = join(valueOf(y));
+  ensure valueOf(z) := split(jx - jy) : [12][32]; 
+  return if jx >=u jy then 0:[32] else -(1:[32]);
   verify abc;
 };

@@ -10,10 +10,10 @@ import Verinf.Symbolic.Common
   , WidthExpr, widthConstant
   , DagType(..)
   , opArgTypes, opResultType, numBits
-  , OpSem(..), OpIndex
+  , OpIndex
   , recDefFieldNames, recFieldTypes
   )
-import Verinf.Symbolic(Node,deEval,getSValW)
+import Verinf.Symbolic(DagTerm, evalDagTerm, opDefDefinition, evalDagTermFn, getSValW)
 import qualified Verinf.Symbolic.Common as Op (OpIndex(..))
 import Verinf.Utils.CacheM
 import qualified Data.Vector as V
@@ -26,12 +26,11 @@ import Text.PrettyPrint
 data TransParams = TransParams
   { transName     :: String
   , transInputs   :: [DagType]
-  , transAssume   :: Node
-  , transCheck    :: [Node]
+  , transAssume   :: DagTerm
+  , transCheck    :: [DagTerm]
   , transEnabled  :: S.Set OpIndex
   , transExtArr   :: Bool
   }
-
 
 data MetaData = MetaData
   { trAsmp     :: Formula
@@ -42,13 +41,13 @@ data MetaData = MetaData
   , trArrays   :: M.Map Ident [Ident]
   }
 
-
 translate :: TransParams -> IO (Script, MetaData)
 translate ps =
   toScript ps (transName ps) (transExtArr ps) $
   do (xs,ts) <- unzip `fmap` mapM mkInp (transInputs ps)
      let js = V.fromList ts
-     eval <- deEval (\i _ _ -> js V.! i) (translateOps (transEnabled ps))
+     let inputFn i _ = return (js V.! i)
+     eval <- evalDagTermFn inputFn (translateOps (transEnabled ps))
      as <- toForm =<< eval (transAssume ps)
      addAssumpt as
      gs <- mapM (toForm <=< eval) (transCheck ps)
@@ -441,8 +440,7 @@ translateOps :: S.Set OpIndex -> TermSemantics M FTerm
 translateOps enabled = termSem
   where
   termSem = TermSemantics
-    { tsEqTerm = same
-    , tsConstant = \c t -> mkConst c =<< cvtType t
+    { tsConstant = \c t -> mkConst c =<< cvtType t
     , tsApplyUnary = apply1
     , tsApplyBinary = apply2
     , tsApplyTernary = apply3
@@ -466,7 +464,7 @@ translateOps enabled = termSem
       Op.Neg         -> negOp
       Op.Split w1 w2 -> splitOp (numBits w1) (numBits w2)
       Op.Join w1 w2  -> joinOp (numBits w1) (numBits w2)
-      Op.Dynamic x m -> \t -> dynOp x op m (V.fromList [t])
+      Op.Dynamic x   -> \t -> dynOp x op (V.fromList [t])
 
       i -> \_ -> err $ "Unknown unary operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -497,7 +495,7 @@ translateOps enabled = termSem
       Op.UnsignedLeq   -> unsignedLeqOp
       Op.UnsignedLt    -> unsignedLtOp
       Op.GetArrayValue -> getArrayValueOp
-      Op.Dynamic x m   -> \s t -> dynOp x op m (V.fromList [s,t])
+      Op.Dynamic x     -> \s t -> dynOp x op (V.fromList [s,t])
 
       i -> \_ _ -> err $ "Unknown binary operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -506,7 +504,7 @@ translateOps enabled = termSem
     case opDefIndex (opDef op) of
       Op.ITE           -> iteOp
       Op.SetArrayValue -> setArrayValueOp
-      Op.Dynamic x m   -> \r s t -> dynOp x op m (V.fromList [r,s,t])
+      Op.Dynamic x     -> \r s t -> dynOp x op (V.fromList [r,s,t])
 
       i -> \_ _ _ -> err $ "Unknown ternary operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -515,7 +513,7 @@ translateOps enabled = termSem
     case opDefIndex (opDef op) of
       Op.MkArray _  -> \vs -> do t <- cvtType (opResultType op)
                                  mkArray t vs
-      Op.Dynamic x m   -> \xs -> dynOp x op m (V.fromList xs)
+      Op.Dynamic x  -> \xs -> dynOp x op (V.fromList xs)
 
       i -> \_ -> err $ "Unknown variable arity operator: " ++ show i
                     ++ " (" ++ opDefName (opDef op) ++ ")"
@@ -537,16 +535,16 @@ translateOps enabled = termSem
                          op ss
 
 
-  dynOp x op mbSem args =
-    case mbSem of
-      Just sem | opDefIndex (opDef op) `S.member` enabled ->
+  dynOp x op args =
+    case opDefDefinition (opDef op) of
+      Just rhs | opDefIndex (opDef op) `S.member` enabled ->
         do as0 <- V.mapM save args
            mb <- lkpDefinedOp x as0
-           let as = V.map return as0
            case mb of
              Just t -> return t
              Nothing ->
-               do t <- save =<< applyOpSem sem (opSubst op) termSem as
+               do let inputFn i _ = return (as0 V.! i)
+                  t <- save =<< evalDagTerm inputFn termSem rhs
                   addDefinedOp x (opDefName (opDef op)) as0 t
                   return t
 

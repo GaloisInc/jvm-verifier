@@ -26,7 +26,7 @@ import Text.ParserCombinators.Parsec(runParser, many1, noneOf, sepBy, char)
 import Execution.Codebase(Codebase, loadCodebase)
 
 import Paths_jvm_verifier(version)
-import SAWScript.MethodAST(SSPgm, SAWScriptCommand(DeclareMethodSpec))
+import SAWScript.MethodAST(SSPgm, SAWScriptCommand(DeclareMethodSpec),inpVal)
 import SAWScript.ParserActions(parseSSPgm)
 import SAWScript.CommandExec(runProofs)
 import SAWScript.Utils
@@ -39,7 +39,8 @@ main = do ssOpts <- parseArgs
           case mbCycle of
             Just c  -> do complainCycle deps c
                           exitFailure
-            Nothing -> do let cnt   = M.fold (\a l -> l + noOfSpecs a) 0 pmap
+            Nothing -> do let cnt   = sum $ map (noOfSpecs . map inpVal)
+                                          $ M.elems pmap
                               plu   = if cnt /= 1 then "s" else ""
                           verboseAtLeast 2 ssOpts $ putStrLn $ "Loaded " ++ show cnt ++ " SAW script" ++ plu ++ " successfully."
                           if dump ssOpts

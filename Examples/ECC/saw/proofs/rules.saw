@@ -15,7 +15,6 @@
 rule eq_elim    : forAll {x:a}. x == x -> true;
 rule join_split : forAll {x:[384]}. join(split(x) : [12][32]) -> x;
 rule not_not    : forAll {x:Bit}. not(not(x)) -> x;
-rule eq_elim    : forAll {x:a}. x == x -> true;
 rule split_join : forAll {x:[12][32]}. split(join(x) : [384]) : [12][32] -> x;
 
 rule join_split2 : forAll {x:[768]}. join(split(x) : [24][32]) -> x;

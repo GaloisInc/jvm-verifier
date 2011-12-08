@@ -19,8 +19,9 @@ module SBVParser (
   , ppSBVException
   , UninterpFnMap
   , WordEvalFn(..)
+  , parseSBVType
+  , evalSBV
   , parseSBV
-  , parseSBVOp
   , inferSBVFunctionType
   ) where
 
@@ -38,7 +39,6 @@ import qualified Data.Vector as V
 import SBVModel.SBV
 
 import Verinf.Symbolic
-import Verinf.Utils.CatchMIO
 import Verinf.Utils.CacheM
 
 -- TermSemantics functions {{{1
@@ -79,7 +79,8 @@ data SBVException
   -- | Thrown if SBV file did not satisfy expected format.
   | SBVBadFormat String
   -- | Thrown if SBV file contains a record that could not be identified.
-  -- N.B. The argument contains a pretty printed version of the fields and types.
+  -- N.B. The argument contains a pretty printed version of the fields and
+  -- types.
   | SBVUnidentifiedRecord String
   -- | Thrown if SBV file contains a function that could not be identified.
   | SBVUnidentifiedFunction String
@@ -92,8 +93,10 @@ instance Exception SBVException
 
 ppSBVException :: SBVException -> String
 ppSBVException (SBVBadFileVersion vMajor vMinor) =
-  "SBV file had an unexpected version number of " ++ show vMajor ++ "." ++ show vMinor ++ "."
-ppSBVException (SBVUnsupportedFeature msg) = "This SBV file could not be loaded: " ++ msg
+  "SBV file had an unexpected version number of "
+     ++ show vMajor ++ "." ++ show vMinor ++ "."
+ppSBVException (SBVUnsupportedFeature msg) =
+  "This SBV file could not be loaded: " ++ msg
 ppSBVException (SBVBadFormat msg) = "This SBV file contained invalid contants: " ++ msg
 ppSBVException (SBVUnidentifiedRecord fields) =
   "Could not identify record type " ++ fields ++ "."
@@ -241,16 +244,15 @@ joinTypesFn :: (TypedTerm t, CacheM m)
             => OpCache -> V.Vector DagType -> [DagType]
             -> TermSemantics m t -> V.Vector (m t) -> V.Vector (m t)
 joinTypesFn oc resTypes sbvTypes ts args =
-        V.zipWith (\fn v -> fn ts v)
-                   fieldJoinFns
-                   (partitionVector sizes args)
+    V.zipWith (\fn v -> fn ts v)
+               fieldJoinFns
+               (partitionVector sizes args)
 
   where
   typeSizes = V.map typeSize resTypes
   groupedTypes = V.fromList $ groupInputTypesBySize (V.toList typeSizes) sbvTypes
   sizes = V.toList $ V.map length groupedTypes
   fieldJoinFns = V.zipWith (joinSBVTerm oc) resTypes groupedTypes
-
 
 -- | Join split terms from SBV into single argument
 -- for symbolic simulator.
@@ -260,8 +262,7 @@ joinSBVTerm :: (CacheM m, TypedTerm t)
             -> [DagType] -- ^ Type of inputs
             -> TermSemantics m t -> V.Vector (m t) -> m t
 joinSBVTerm _ SymBool [resType] ts args =
-  assert (V.length args == 1)
-            $ toBool resType ts (args V.! 0)
+  assert (V.length args == 1) $ toBool resType ts (args V.! 0)
 
 -- XXX: This might be better as a fold.
 joinSBVTerm _ SymInt{} (V.fromList -> exprTypes) ts args =
@@ -282,9 +283,6 @@ joinSBVTerm _ SymInt{} (V.fromList -> exprTypes) ts args =
                     op        = appendIntOp (intSize (termType r))
                                             (intSize thisType)
                 impl (i+1) =<< tsApplyBinary ts op (return r) (return thisField)
-
-
-
 
 joinSBVTerm oc (SymArray (widthConstant -> Just (Wx len)) resEltTp)
                                                         sbvTypes ts args =
@@ -666,8 +664,8 @@ parseSBVCommand (Decl _p (SBV _ (Right n)) (Just (SBVApp sOp sArgs))) = do
     case Map.lookup n m of
       Just r -> return r
       Nothing -> do
-        args <- mapM (\(SBVE fn) -> fn ts) argFuns
-        r <- lift $ applyFn ts $ V.fromList $ map return args
+        args <- V.mapM (\(SBVE fn) -> fn ts) (V.fromList argFuns)
+        r <- lift $ applyFn ts $ V.map return $ args
         m' <- get
         put (Map.insert n r m')
         return r
@@ -688,75 +686,59 @@ parseSBVType oc (SBVPgm (_,ir,_c, _v, _w, _ops)) = inferFunctionType oc ir
 newtype WordEvalFn =
   WEF (forall m t . CacheM m => TermSemantics m t -> V.Vector (m t) -> m t)
 
--- | Parse a SBV file into an action running in an arbitrary word monad.
-parseSBV :: (TypedTerm t, CacheM m) =>
-         OpCache -- ^ Stores current operators.
-         -> UninterpFnMap -- ^ Maps uninterpreted function names to corresponding op.
-         -> SBVPgm
-         -> TermSemantics m t -> V.Vector (m t) -> m t
-parseSBV oc
-         uninterpFn
-         pgrm@(SBVPgm ((Version vMajor vMinor),
-                       _ir,
-                       cmds,
-                       _vc,
-                       _warnings,
-                       _opDecls))
-  | not (vMajor == 4 && vMinor == 0) = throw $ SBVBadFileVersion vMajor vMinor
-  | otherwise =
-    let (inputNodes,outs) = runChecker oc uninterpFn
-                                (V.toList (V.concatMap id inputTypes)) $
-                                mapM_ parseSBVCommand (reverse cmds)
+evalSBV :: OpCache
+        -> UninterpFnMap -- ^ Map uninterpreted function to op.
+        -> SBVPgm
+        -> DagEngine
+        -> V.Vector DagTerm -- ^ Inputs
+        -> IO DagTerm
+evalSBV oc
+        uninterpFn
+        pgrm@(SBVPgm ((Version vMajor vMinor),
+                      _ir,
+                      cmds,
+                      vc,
+                      warnings,
+                      _opDecls))
+        de
+        inps
+  | not (vMajor == 4 && vMinor == 0) = 
+     throwIO $ SBVBadFileVersion vMajor vMinor
+  | not (null vc) = 
+     throwIO $ SBVUnsupportedFeature
+             $ "SBV Parser does not support loading SBV files with a "
+               ++ "verification condition."
+  | not (null warnings) =
+    throwIO $ SBVUnsupportedFeature
+            $ "SBV Parser does not support loading SBV files with warnings."
+  | otherwise = assert (argTypes == V.map termType inps) $ do
+     let ts = deTermSemantics de
+     let (inputNodes,outs) = runChecker oc uninterpFn
+                                 (V.toList (V.concatMap id inputTypes)) $
+                                 mapM_ parseSBVCommand (reverse cmds)
 
-        (outputTypes, outputEvals) = unzip outs
-
-    in \ts args -> do
-                 inputs <- sequence
-                         $ V.toList
-                         $ V.concatMap id
-                         $ V.zipWith (\(SF fn) a -> fn ts a) inputFns args
-                 let inputMap = Map.fromList (inputNodes `zip` inputs)
-                 outputs <- evalStateT (mapM (\(SBVE fn) -> fn ts) outputEvals)
-                                       inputMap
-                 joinSBVTerm oc resType outputTypes ts
-                      $ V.fromList $ map return outputs
+         (outputTypes, outputEvals) = unzip outs
+     inputs <- sequence
+             $ V.toList
+             $ V.concatMap id
+             $ V.zipWith (\(SF fn) a -> fn ts (return a)) inputFns inps
+     let inputMap = Map.fromList (inputNodes `zip` inputs)
+     outputs <- evalStateT (mapM (\(SBVE fn) -> fn ts) outputEvals)
+                           inputMap
+     joinSBVTerm oc resType outputTypes ts 
+            (V.map return (V.fromList outputs))
  where (argTypes, resType) = parseSBVType oc pgrm
        (inputTypes, inputFns) = V.unzip $ V.map splitInput argTypes
 
-
-
-
-
--- | Parse a SBV file into an operator and action.
-parseSBVOp :: OpCache
-           -> UninterpFnMap  -- ^ Maps uninterpreted function names to corresponding op
-           -> String -- ^ Name for new operator
-           -> SBVPgm
-           -> IO (OpDef, WordEvalFn)
-parseSBVOp oc
-           uninterpFn
-           opDefName
-           pgrm@(SBVPgm ((Version vMajor vMinor), _ir, _cmds, vc, warnings, _opDecls)) = do
-  unless (vMajor == 4 && vMinor == 0) $
-    throwMIO $ SBVBadFileVersion vMajor vMinor
-  unless (null vc) $
-    throwMIO $ SBVUnsupportedFeature
-             $ "SBV Parser does not support loading SBV files with verification condition."
-  unless (null warnings) $
-    throwMIO $ SBVUnsupportedFeature
-             $ "SBV Parser does not support loading SBV files with warnings."
-
-  de <- mkNodeDagEngine (error "WE USED THE BIT ENGINE!!!" :: BitEngine Lit)
-  let ts = deTermSemantics de
-  let (argTypes,resType) = parseSBVType oc pgrm
-
-  inps <- V.mapM (deFreshInput de Nothing) argTypes
-  evalTerm <- parseSBV oc uninterpFn pgrm ts (V.map return inps)
-
-  let evalFn ts args = do vals <- V.sequence args
-                          f <- deEval (\i _ _ -> vals V.! i) ts
-                          f evalTerm
-
-  op <- definedOp oc opDefName (V.toList argTypes) resType (OpSem (\_ -> evalFn))
-
-  return (op, WEF evalFn)
+-- | Parse a SBV file into an action running in an arbitrary word monad.
+parseSBV :: OpCache -- ^ Stores current operators.
+         -> UninterpFnMap -- ^ Map uninterpreted function to op.
+         -> String -- ^ Name for new operator
+         -> SBVPgm
+         -> IO (OpDef,DagTerm)
+parseSBV oc uninterpFn opDefName pgrm = do
+    op <- defineOp oc opDefName argTypes resType $ \de _ inps ->
+            evalSBV oc uninterpFn pgrm de inps
+    let Just rhs = opDefDefinition op
+    return (op, rhs)
+ where (argTypes, resType) = parseSBVType oc pgrm

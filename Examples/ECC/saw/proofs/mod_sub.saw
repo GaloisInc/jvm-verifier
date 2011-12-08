@@ -1,8 +1,8 @@
-import "common.saw";
+import "common.saw"; 
 
 set verification off;
 import "add.saw";
-import "shr.saw";
+import "sub.saw";
 set verification on;
 
-import "mod_half.spec";
+import "mod_sub.spec";

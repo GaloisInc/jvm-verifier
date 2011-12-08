@@ -20,10 +20,10 @@ make_sbvs:
 	(cd spec/sbv && sh make_sbvs)
 
 PROOFS :=              \
-  assign.saw           \
   is_zero.saw          \
   set_zero.saw         \
   set_unit.saw         \
+  assign.saw           \
   add.saw              \
   sub.saw              \
   mul.saw              \
@@ -31,6 +31,7 @@ PROOFS :=              \
   leq.saw              \
   shr.saw              \
   mod_half.saw         \
+  mod_sub.saw          \
   field_add.saw        \
   field_sub.saw        \
   incFieldPrime.saw    \

@@ -20,7 +20,7 @@ far on a typical developer system.
 | DONE   | Field Addition       | field_add | p384_field_add | leq, add, decFieldPrime | None    |        1000 | Yes, abc | 37s  |                                                   |
 | DONE   | Field Subtraction    | field_sub | p384_field_sub | sub, incFieldPrime      | None    |        1000 | Yes, abc | 47s  |                                                   |
 | DONE   | Field Doubling       | field_dbl | [fn:1]         | dbl, leq, decFieldPrime | None    |        1000 | Yes, abc | 4s   |                                                   |
-| TODO   | Field Division       | mod_div   | p384_mod_div   |                         |         |     no spec | No       |      | Pending inductive assertion support / local specs |
+| DONE   | Field Division       | mod_div   | p384_mod_div   |                         |         |          0  | No       | 10s  |                                                   |
 | DONE   | Field Squaring       | field_sq  | p384_field_mul | sq, field_red           |         |         100 | Yes, rw  | <1s  |                                                   |
 | DONE   | Field Multiplication | field_mul | p384_field_mul | mul, field_red          |         |         100 | Yes, rw  | <1s  |                                                   |
 
