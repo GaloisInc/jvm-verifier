@@ -5,5 +5,5 @@ method com.galois.ecc.NIST64.leq
   let x' = join(valueOf(x)) : [384];
   let y' = join(valueOf(y)) : [384];
   return if x' <=u y' then 1:[32] else 0:[32];
-  verify abc;
+  verify yices;
 };
