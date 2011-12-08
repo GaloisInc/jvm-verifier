@@ -370,6 +370,16 @@ assertTypesEqual loc xtp ytp
 -- Note: On integers, the operation is distributed over the bits.
 applyBoolOp :: Op -> (WidthExpr -> Op) -> DagType -> DagType
             -> (DagType, SymbolicFn)
+applyBoolOp bOp _iOp SymBool ytp@(SymInt (widthConstant -> Just (Wx 1))) =
+  ( SymBool
+  , SFN $ \ts v -> assert (V.length v == 2)
+                 $ tsApplyBinary ts bOp (v V.! 0) (toBool ytp ts (v V.! 1))
+  )
+applyBoolOp bOp _iOp xtp@(SymInt (widthConstant -> Just (Wx 1))) SymBool =
+  ( SymBool
+  , SFN $ \ts v -> assert (V.length v == 2)
+                 $ tsApplyBinary ts bOp (toBool xtp ts (v V.! 0)) (v V.! 1)
+  )
 applyBoolOp bOp _iOp SymBool SymBool =
   ( SymBool
   , SFN $ \ts v -> assert (V.length v == 2)
