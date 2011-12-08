@@ -6,6 +6,5 @@ import "incFieldPrime.spec";
 import "leq.saw";
 set verification on;
 
-
 enable ref_field_mod;
 import "field_red.qcspec";
