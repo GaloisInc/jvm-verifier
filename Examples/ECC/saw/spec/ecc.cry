@@ -503,8 +503,8 @@ p384_field_mod_aux(a) = {carry = drop(384, r); rslt = take(384, r)}
   
 // tmp delete_me
 type RsltWithCarryDummy = { carryDummy : [32]; rsltDummy : [32] };
-p384_field_mod_aux_dummy : [64] -> [32]; // RsltWithCarryDummy;
-p384_field_mod_aux_dummy(a) = drop(32,r) // {carryDummy = drop(32, r); rsltDummy = take(32, r)} 
+p384_field_mod_aux_dummy : [64] -> RsltWithCarryDummy;
+p384_field_mod_aux_dummy(a) = {carryDummy = drop(32, r); rsltDummy = take(32, r)} 
   where {
     [ a0 a1 ] = split a;
     z32       = zero : [32];

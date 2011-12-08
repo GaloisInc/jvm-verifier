@@ -563,7 +563,7 @@ translateOps enabled = termSem
            case (rty, as) of
              -- Record constructor
              (TRecord fis, _) | isCtor (map fiName fis) ->
-               rslt (foldr1 BV.concat args')
+               rslt (foldr1 BV.concat (reverse args'))
 
              -- Record selector
              (_, [TRecord fis]) | isSel fis ->
@@ -948,5 +948,3 @@ joinOp l w t0 =
                      [ select (asTerm t) (bv i n) | i <- [ 0 .. l - 1 ] ]
        , smtType = TBitVec (l * w)
        }
-
-
