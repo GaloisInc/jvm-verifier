@@ -34,11 +34,10 @@ method com.galois.ecc.P384ECC64.mod_div {
       assert this.t3 := ra;
 
       ensure valueOf(rb) := res;
-    };
+    }
 
     modify valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-  };
-
+  }
 
   //quickcheck 20;
   verify {
@@ -48,7 +47,7 @@ method com.galois.ecc.P384ECC64.mod_div {
                        join(valueOf(ra)),
                        join(valueOf(b)),
                        join(valueOf(rb)));
-    };
+    }
     yices;
-  };
+  }
 };
