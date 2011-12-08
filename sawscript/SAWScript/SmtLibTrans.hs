@@ -615,7 +615,7 @@ mkConst val t =
           do let ts = map (TBitVec . fiWidth) fs
              xs <- mapM (uncurry mkConst) (zip (V.toList vs) ts)
              return FTerm { asForm = Nothing
-                          , asTerm = foldr1 BV.concat (map asTerm xs)
+                          , asTerm = foldr1 BV.concat (reverse $ map asTerm xs)
                           , smtType = t
                           }
         _ -> bug "mkConst" "Type error---record constant of non-record type."
