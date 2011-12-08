@@ -10,7 +10,7 @@ let ref_egcd(p:[384], a:[384], ra:[384], b:[384], rb:[384]) : [384] =
     ra
   else if even(b) then
     ref_egcd(p, a, ra, b       >>u 1:[384], ref_mod_half(p, rb))
-  else if a <u b then
+  else if a <=u b then
     ref_egcd(p, a, ra, (b - a) >>u 1:[384], ref_mod_half(p, ref_mod_sub(p, rb, ra)))
   else 
     ref_egcd(p, b, rb, (a - b) >>u 1:[384], ref_mod_half(p, ref_mod_sub(p, ra, rb)));
@@ -35,7 +35,62 @@ set verification on;
 
 rule eq_elim    : forAll {x:a}. x == x -> true;
 rule implies_true : forAll {x:Bit}. x ==> true -> true;
+rule join_split : forAll {x:[384]}. join(split(x) : [12][32]) -> x;
+rule or0: forAll{x:[384]}. (0:[384] | x) -> x;
+rule shift1384 : forAll{x:[384]}. (x >>u 1:[384]) -> (x >>u 1:[5]);
 
+rule eq_ite_left :
+  forAll {c:Bit, t:a, f:a, z:a}.
+    ((if c then t else f) == z) -> (if c then t == z else f == z);
+
+rule eq_ite_right :
+  forAll {c:Bit, t:a, f:a, z:a}.
+    (z == (if c then t else f)) -> (if c then z == t else z == f);
+
+rule ite_false :
+  forAll {c:Bit, f:Bit}.
+    (if c then false else f) -> (not c && f);
+
+rule eq_split_1 :
+  forAll {x:[384], y:[12][32]}.
+    (split(x) : [12][32] == y) -> (x == join(y));
+
+rule eq_split_2 :
+  forAll {x:[12][32], y:[384]}.
+    (x == split(y) : [12][32]) -> (join(x) == y);
+
+rule and_true_elim_2 : forAll {c:Bit}.  (c && true) -> c;
+
+rule not_not : forAll {c:Bit}.  (not not c) -> c;
+
+rule implies_elim_weird_1 :
+  forAll {b:Bit, c:Bit, t:Bit, f:Bit}.
+    c && not b ==> (if b then t else f) -> c && not b ==> f;
+
+rule implies_elim_weird_2 :
+  forAll {b:Bit, c:Bit, t:Bit, f:Bit}.
+   b && c ==> (if b then t else f) -> b && c ==> t;
+
+rule implies_elim_weird_3 :
+  forAll {b:Bit, t:Bit, f:Bit}.
+   b ==> (if b then t else f) -> b ==> t;
+
+rule implies_elim_weird_4 :
+  forAll {b:Bit, c:Bit, d:Bit, t:Bit, f:Bit}.
+   b && (not c && d) ==> (if c then t else f) -> b && (c && not d) ==> f;
+
+rule implies_elim_weird_5 :
+  forAll {b:Bit, c:Bit, d:Bit, t:Bit, f:Bit}.
+   b && (c && not d) ==> (if d then t else f) -> b && (c && not d) ==> f;
+
+rule implies_elim_weird_6 :
+  forAll {b:Bit, c:Bit, t:Bit, f:Bit}.
+   not b && c ==> (if b then t else f) -> not b && c ==> f;
+
+rule even_array_reverse_def :
+  forAll {x:[12][32]}.  (x[0:[32]] & 1:[32]) == 0:[32] -> even(join(x));
+
+enable even;
 enable ref_mod_div;
 disable ref_mod_half;
 

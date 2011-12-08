@@ -43,18 +43,17 @@ method com.galois.ecc.P384ECC64.mod_div {
   };
 
 
-  // quickcheck 4;
+  //quickcheck 20;
   verify {
-    rewrite;
-    /*
-    if (initialPC == 44) {
-       expand ref_egcd(join(valueOf(a)),
+    from pc 44 {
+       expand ref_egcd(join(valueOf(p)),
+                       join(valueOf(a)),
                        join(valueOf(ra)),
                        join(valueOf(b)),
                        join(valueOf(rb)));
-    }
-    uninterpret ref_egcd;
-    yices;
-*/
+    };
+    rewrite;
+    //uninterpret ref_egcd;
+    //yices;
   };
 };
