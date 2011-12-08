@@ -16,7 +16,7 @@ extern SBV ref_decFieldPrime("../spec/sbv/generated/p384_decFieldPrime.sbv")
 extern SBV ref_field_mod_aux("../spec/sbv/generated/p384_field_mod_aux.sbv") 
   : [768] -> { carry : [32]; rslt : [384] };
 extern SBV ref_field_mod_aux_dummy("../spec/sbv/generated/p384_field_mod_aux_dummy.sbv") 
-  : [64] -> { carryDummy : [32]; rsltDummy : [32] };
+  : [64] -> { carry : [32]; rslt : [32] };
 
 extern SBV ref_field_mod("../spec/sbv/generated/p384_field_mod.sbv") : [768] -> [384];
 

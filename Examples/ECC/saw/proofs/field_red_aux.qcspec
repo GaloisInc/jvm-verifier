@@ -4,15 +4,12 @@ method com.galois.ecc.P384ECC64.field_red_aux
 {
   var z :: int[12];
   var a :: int[24];
-//  var this.field_prime :: int[12];
-//  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
-
-  let a' = join(valueOf(a));
   let r  = ref_field_mod_aux(join(valueOf(a)));
-  ensure valueOf(z) := split(r.rslt) : [12][32];
-//  modify valueOf(z);
+//  ensure valueOf(z) := split(r.rslt) : [12][32];
+  modify valueOf(z);
   return r.carry;
-  verify {abc;};
-//  verify { rewrite; yices; };
-//  quickcheck 100000;
+
+//  verify {abc;};
+  verify { rewrite; yices; };
+//  quickcheck 1000;
 };

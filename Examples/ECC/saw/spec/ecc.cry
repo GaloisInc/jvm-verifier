@@ -423,12 +423,13 @@ ecdsa_public_verify(c, e, (r, s), q)
 
 /* Utility functions {{{2 */ 
 
-type RsltWithCarry = { carry : [32]; rslt : [384] };
+type RsltWithCarry (a,b) = { carry : a ; rslt : b };
 
-p384_incFieldPrime : [384] -> RsltWithCarry;
+p384_incFieldPrime : [384] -> RsltWithCarry ([32],[384]);
 p384_incFieldPrime x = {carry = [(bs ! 0)] # zero; rslt = take(384, bs)}
   where bs = safe_add(x, p384_prime);
-p384_decFieldPrime : [384] -> RsltWithCarry;
+
+p384_decFieldPrime : [384] -> RsltWithCarry ([32],[384]);
 p384_decFieldPrime x = { carry = if (bs ! 0) then -1 else 0; rslt = take(384, bs)}
   where bs = safe_sub(x, p384_prime);
 
@@ -479,7 +480,7 @@ p384_field_mod(a)
     (r4,b4) = sbb(r3, p);
    };
 
-p384_field_mod_aux : [768] -> RsltWithCarry;
+p384_field_mod_aux : [768] -> RsltWithCarry ([32],[384]);
 p384_field_mod_aux(a) = {carry = drop(384, r); rslt = take(384, r)}
   where {
     [ a0  a1  a2  a3  a4  a5  a6  a7  a8  a9 a10 a11
@@ -502,9 +503,8 @@ p384_field_mod_aux(a) = {carry = drop(384, r); rslt = take(384, r)}
   };
   
 // tmp delete_me
-type RsltWithCarryDummy = { carryDummy : [32]; rsltDummy : [32] };
-p384_field_mod_aux_dummy : [64] -> RsltWithCarryDummy;
-p384_field_mod_aux_dummy(a) = {carryDummy = drop(32, r); rsltDummy = take(32, r)} 
+p384_field_mod_aux_dummy : [64] -> RsltWithCarry ([32], [32]);
+p384_field_mod_aux_dummy(a) = {carry = drop(32, r); rslt = take(32, r)} 
   where {
     [ a0 a1 ] = split a;
     z32       = zero : [32];
@@ -513,7 +513,7 @@ p384_field_mod_aux_dummy(a) = {carryDummy = drop(32, r); rsltDummy = take(32, r)
     r         = t1 + t2;
   };
 
-theorem foo : {x}. p384_field_mod_orig(x) == p384_field_mod(x);
+theorem p384_field_mod_aux_ok: {x}. p384_field_mod_orig(x) == p384_field_mod(x);
 
 p384_field_mod_orig : [768] -> [384];
 p384_field_mod_orig(a)
