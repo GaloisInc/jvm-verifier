@@ -1,2 +1,3 @@
 include "sbv_uninterpret_ec_point_ops.cry";
+pragma p384_ec_mul_init : SBV uninterpret;
 pragma p384_ec_mul_aux : SBV uninterpret;

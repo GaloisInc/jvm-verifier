@@ -604,16 +604,27 @@ p384_ec_mul_aux (r, s, j, hi, i_lt_11, d_at_i, d_at_ip1) = r'
           else r'';
   };
 
+p384_ec_mul_init : ([384], AffinePoint [384]) ->
+                   { h: [384]; r: JacobianPoint [384]; };
+p384_ec_mul_init (d, s) = { h = join h0; r = r0 }
+  where {
+    d' : [12][32];
+    d' = split d;
+    (h0, c) = ripple_adc(d', ripple_shr(d', False));
+    r0 = if c then ec_projectify(p384_field, s)
+              else p384_ec_zero_point;
+  };
+
 /* Matches Java implementation */
 p384_ec_mul : ([384], AffinePoint [384]) -> JacobianPoint [384];
 p384_ec_mul (d, s) = (res @ 384)
   where {
     d' : [12][32];
     d' = split d;
-    (h, c) = ripple_adc(d', ripple_shr(d', False));
-    r0 = if c
-          then ec_projectify(p384_field, s)
-          else p384_ec_zero_point;
+    ini =  p384_ec_mul_init(d, s);
+    h : [12][32];
+    h = split (ini.h);
+    r0 = ini.r;
     f (j, r) = p384_ec_mul_aux(r, s, j, h @ i, zero # [c], d'@i, d_at_ip1)
       where {
         i        = j >> 5;

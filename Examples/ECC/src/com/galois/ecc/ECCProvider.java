@@ -582,6 +582,15 @@ public abstract class ECCProvider {
    * @param h Temporary buffer with at least n-elements.
    */
   private void ec_mul(JacobianPoint r, int[] d, AffinePoint s) {
+    ec_mul_init(r, d, s);
+    for (int j = 32 * h.length - 1; j >= 0; --j) {
+      int i     = j >>> 5;
+      boolean c = i < 11;
+      ec_mul_aux(r, s, j, h[i], c, d[i], c ? d[i+1] : 0);
+    }
+  }
+
+  private void ec_mul_init(JacobianPoint r, int[] d, AffinePoint s) {
     shr(h, 0, d);
     // If h <- d + (d >> 1) overflows
     if (add(h, d, h) != 0) {
@@ -594,12 +603,6 @@ public abstract class ECCProvider {
       set_unit(r.x);
       set_unit(r.y);
       set_zero(r.z);
-    }
-    
-    for (int j = 32 * h.length - 1; j >= 0; --j) {
-      int i     = j >>> 5;
-      boolean c = i < 11;
-      ec_mul_aux(r, s, j, h[i], c, d[i], c ? d[i+1] : 0);
     }
   }
 
