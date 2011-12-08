@@ -798,7 +798,7 @@ data VerifyCommand
    | ABC
    | SmtLib (Maybe Int) (Maybe String) -- version, file
    | Yices (Maybe Int)
-   | Expand Pos TC.LogicExpr
+   | Expand Pos Op [TC.LogicExpr] DagTerm
     -- | Enable use of a rule or extern definition.
    | VerifyEnable String
      -- | Disable use of a rule or extern definition.
@@ -842,6 +842,7 @@ resolveVerifyCommand cmd =
     AST.SmtLib v f -> return [SmtLib v f]
     AST.Yices v -> return [Yices v]
     AST.Expand ast -> do
+      -- Evaluate expression.
       mtc <- gets vtsMTC
       mpc <- gets vtsPC
       let cfg = case mpc of
@@ -850,8 +851,16 @@ resolveVerifyCommand cmd =
                               , TC.localBindings = Map.empty
                               , TC.methodInfo = Nothing
                               }
+      let pos = AST.exprPos ast
       expr <- liftIO $ TC.tcLogicExpr ast cfg
-      return [Expand (AST.exprPos ast) expr]
+      case expr of
+        TC.Apply op args -> 
+          case opDefDefinition (opDef op) of
+            Just rhs -> return [Expand pos op args rhs]
+            _ -> let msg = show (opName op) ++ " is not a defined operation."
+                  in throwIOExecException pos (ftext msg) ""
+        _ -> let msg = "Expand must be given an application to expand."
+              in throwIOExecException pos (ftext msg) ""
     AST.VerifyEnable pos nm -> do
       ruleNames <- gets vtsRuleNames
       checkRuleIsDefined pos nm ruleNames

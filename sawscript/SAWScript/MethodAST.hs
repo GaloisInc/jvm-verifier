@@ -86,6 +86,8 @@ data Expr
     -- | Dereference field
     | DerefField Pos Expr String
     -- Precedence 12
+    -- | Extract value from array.
+    | GetArray Pos Expr Expr
     -- | Uninterpreted functions.
     | ApplyExpr Pos String [Expr]
     -- Precedence 11
@@ -167,6 +169,7 @@ exprPos (Var p _) = p
 exprPos (ConstantBool p _) = p
 exprPos (ConstantInt p _) = p
 exprPos (MkArray p _) = p
+exprPos (GetArray p _ _) = p
 exprPos (MkRecord p _) = p
 exprPos (ThisExpr p) = p
 exprPos (ArgExpr p _) = p

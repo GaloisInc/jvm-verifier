@@ -165,8 +165,8 @@ type ExprEvaluator a = ErrorT TC.JavaExpr IO a
 instance Error TC.JavaExpr where
   noMsg = error "noMsg called with TC.JavaExpr"
 
-runEval :: ExprEvaluator b -> IO (Either TC.JavaExpr b)
-runEval v = runErrorT v
+runEval :: MonadIO m => ExprEvaluator b -> m (Either TC.JavaExpr b)
+runEval v = liftIO (runErrorT v)
 
 -- or undefined subexpression if not.
 -- N.B. This method assumes that the Java path state is well-formed, the
@@ -290,7 +290,7 @@ ocEval :: (EvalContext -> ExprEvaluator b)
        -> OverrideComputation ()
 ocEval fn m = do
   ec <- gets ocsEvalContext
-  res <- liftIO (runEval (fn ec))
+  res <- runEval (fn ec)
   case res of
     Left expr -> ocError $ UndefinedExpr expr
     Right v   -> m v
@@ -530,7 +530,7 @@ esEval fn = do
   de <- gets esDagEngine
   initPS <- gets esInitialPathState
   let ec = evalContextFromPathState de initPS
-  res <- liftIO (runEval (fn ec))
+  res <- runEval (fn ec)
   case res of
     Left expr -> fail $ "internal: esEval given " ++ show expr ++ "."
     Right v   -> return v
@@ -1013,15 +1013,15 @@ validateMethodSpec
            return (esd,res)
       liftIO $ forM_ results $ \pvc -> do
         let mkVState nm cfn =
-              VState { vsDagEngine = de
-                     , vsVCName = nm
+              VState { vsVCName = nm
                      , vsMethodSpec = ir
                      , vsVerbosity = verb
                      , vsRules = vpRules params
                      , vsEnabledRules = vpEnabledRules params
                      , vsEnabledOps = vpEnabledOps params
                      , vsFromPC = bsPC bs
-                     , vsInitialPathState = esdInitialPathState esd
+                     , vsEvalContext = 
+                         evalContextFromPathState de (esdInitialPathState esd)
                      , vsInitialAssignments = pvcInitialAssignments pvc
                      , vsCounterexampleFn = cfn
                      , vsStaticErrors = pvcStaticErrors pvc
@@ -1049,8 +1049,7 @@ validateMethodSpec
                runVerify vs g cmds
 
 data VerifyState = VState {
-         vsDagEngine :: DagEngine
-       , vsVCName :: String
+         vsVCName :: String
        , vsMethodSpec :: MethodSpecIR
        , vsVerbosity :: Verbosity
        , vsRules :: [Rule]
@@ -1058,12 +1057,16 @@ data VerifyState = VState {
        , vsEnabledOps :: Set OpIndex
          -- | Starting PC is used for checking VerifyAt commands.
        , vsFromPC :: JSS.PC
-         -- | Initial path state is used for parsing expand statement.
-       , vsInitialPathState :: JSS.PathState Node
-       , vsInitialAssignments :: [(TC.JavaExpr, Node)]
+         -- | Evaluation context used for parsing expressions during
+         -- verification.
+       , vsEvalContext :: EvalContext
+       , vsInitialAssignments :: [(TC.JavaExpr, DagTerm)]
        , vsCounterexampleFn :: CounterexampleFn
        , vsStaticErrors :: [Doc]
        }
+
+vsDagEngine :: VerifyState -> DagEngine
+vsDagEngine = ecDagEngine . vsEvalContext
 
 type VerifyExecutor = StateT VerifyState IO
 
@@ -1387,9 +1390,26 @@ applyTactics (ABC:_) goal = runABC goal
 applyTactics (SmtLib ver file :_) g = useSMTLIB ver file g
 -- Yices always succeeds.
 applyTactics (Yices v :_) g = useYices v g
-applyTactics (Expand p expr:r) g = do
-  nyi "applyTactics Expand" p expr g
-  applyTactics r g
+applyTactics (Expand p expandOp argExprs rhs:r) g = do
+  ec <- gets vsEvalContext
+  mterms <- runEval $ V.mapM (flip evalLogicExpr ec) (V.fromList argExprs)
+  case mterms of
+    Left expr -> 
+      error $ "internal: Unexpected expression " ++ ppJavaExpr expr
+    Right terms -> do
+      let de = ecDagEngine ec
+      let applyFn op lazyArgs = do
+            args <- V.sequence lazyArgs
+            if op == expandOp && args == terms then
+              let argFn i _ = return (terms V.! i)
+               in evalDagTerm argFn (deTermSemantics de) rhs
+            else 
+              deApplyOp de op args
+      let ts = mkTermSemantics (\i tp -> return (ConstTerm i tp)) applyFn
+      g' <- liftIO $ do
+        inputs <- deInputTerms de
+        evalDagTerm (\i _ -> return (inputs V.! i)) ts g
+      applyTactics r g'
 applyTactics (VerifyEnable nm :r) g = do
   modify (\s -> s { vsEnabledRules = Set.insert nm (vsEnabledRules s) })
   applyTactics r g

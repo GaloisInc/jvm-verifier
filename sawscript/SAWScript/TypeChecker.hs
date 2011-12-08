@@ -507,6 +507,15 @@ tcE (AST.MkArray p (es@(_:_))) = do
   t   <- go $ zip [(1::Int)..] $ map typeOfLogicExpr es'
   oc <- gets (opCache . globalBindings)
   return $ LE $ Apply (mkArrayOp oc (length es') t) es'
+tcE (AST.GetArray pos arrayAst idxAst) = do
+  array <- tcLE arrayAst
+  idx <- tcLE idxAst
+  case (typeOfLogicExpr array, typeOfLogicExpr idx) of
+    (SymArray wl eltType, SymInt wi) ->
+       return $ LE $ Apply (getArrayValueOp wl wi eltType) [array, idx]
+    (arrayType, idxType) ->
+      typeErr pos $ ftext $ "Unexpected types " ++ ppType arrayType ++ " and "
+                              ++ ppType idxType ++ " to array access."
 tcE (AST.TypeExpr pos (AST.ConstantInt posCnst i) astTp) = do
   tp <- tcT astTp
   let nonGround =
@@ -533,8 +542,8 @@ tcE (AST.TypeExpr _ (AST.ApplyExpr appPos "split" astArgs) astResType) = do
         oc <- gets (opCache . globalBindings)
         return $ LE $ Apply (splitOp oc l w) args
     _ -> typeErr appPos $ ftext $ "Illegal arguments and result type given to \'split\'."
-                                ++ " SAWScript currently requires that the argument is ground type, "
-                                ++ " and an explicit result type is given."
+                                ++ " SAWScript currently requires that the argument is "
+                                ++ "a ground type, and an explicit result type is given."
 tcE (AST.TypeExpr p (AST.MkArray _ []) astResType) = do
   resType <- tcT astResType
   case resType of

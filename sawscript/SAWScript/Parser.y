@@ -138,6 +138,7 @@ import {-# SOURCE #-} SAWScript.ParserActions
 %left '+' '-'
 %left '*' '/s' '%s'
 %left ':'
+%left '['
 %left '.'
 %right NEG 'not' '~'
 %%
@@ -177,7 +178,8 @@ ExprTypes : sepBy1(ExprType, ',') { $1 }
 ExprType :: { ExprType }
 ExprType
    : 'Bit'                           {  BitType    (tokPos $1)             }
-   | '[' ExprWidth ']' opt(ExprType) {% mkExprType (tokPos $1) $2 $4       }
+   | '[' ExprWidth ']' %prec '#' { BitvectorType (tokPos $1) $2          }
+   | '[' ExprWidth ']' ExprType  { Array         (tokPos $1) $2 $4       }
    | '{' RecordFTypes '}'            {% mkRecordT  (tokPos $1) $2          }
    | var                             {  ShapeVar   (tokPos $1) (tokStr $1) }
 
@@ -214,6 +216,7 @@ Expr : var                             { Var (tokPos $1) (tokStr $1) }
      | Expr ':' ExprType               { TypeExpr     (tokPos $2) $1 $3 }
      | Expr '.' var                    { DerefField (tokPos $2) $1 (tokStr $3) }
      | var '(' Exprs ')'               { ApplyExpr (tokPos $1) (tokStr $1) $3 }
+     | Expr '[' Expr ']'               { GetArray     (tokPos $2) $1 $3 }
      | '[' Exprs ']'                   { MkArray      (tokPos $1) $2 }
      | '~' Expr                        { BitComplExpr (tokPos $1) $2 }
      | 'not' Expr                      { NotExpr      (tokPos $1) $2 }
