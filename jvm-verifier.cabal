@@ -169,6 +169,7 @@ executable sawScript
   other-modules    :
         SAWScript.CommandExec
         SAWScript.CongruenceClosure
+        SAWScript.ErrorPlus
         SAWScript.Lexer
         SAWScript.MethodAST
         SAWScript.MethodSpec
