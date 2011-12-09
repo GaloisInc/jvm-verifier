@@ -38,6 +38,8 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 :fm p384_mod_mul      "generated/p384_mod_mul.sbv"
 
 :load sbv_uninterpret_field_ops.cry
+:fm p384_jacobify    "generated/p384_ec_jacobify.sbv"
+:fm p384_affinify    "generated/p384_ec_affinify.sbv"
 :fm p384_ec_double   "generated/p384_ec_double.sbv"
 
 :load sbv_uninterpret_ec_double.cry

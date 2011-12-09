@@ -786,11 +786,12 @@ p384_curve = {
     twin_mul = p384_ec_twin_mul;
   };
 
-p384_ecdsa_sign : ([384], [384], [384]) -> ([384],[384]);
-p384_ecdsa_sign(d,e,k) = ecdsa_sign(p384_curve,d,e,k);
+p384_ecdsa_sign : ([384], [384], [384]) -> { r:[384]; s:[384] };
+p384_ecdsa_sign(d,e,k) = { r = rr; s = ss }
+  where (rr, ss) = ecdsa_sign(p384_curve,d,e,k);
 
-p384_ecdsa_public_verify : ([384], ([384],[384]), AffinePoint [384]) -> Bit;
-p384_ecdsa_public_verify(e,p,q) = ecdsa_public_verify(p384_curve,e,p,q);
+p384_ecdsa_public_verify : ([384], [384], [384], AffinePoint [384]) -> Bit;
+p384_ecdsa_public_verify(e,pr,ps,q) = ecdsa_public_verify(p384_curve,e,(pr,ps),q);
 
 /* P384 test code {{{2 */
 

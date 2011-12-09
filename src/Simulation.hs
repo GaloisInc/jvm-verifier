@@ -2072,6 +2072,7 @@ simExcHndlr' suppressOutput failMsg exc = do
     Just (SimExtErr msg _ _) -> do
       unless suppressOutput $ liftIO $ hPutStr stderr msg
       return [False]
+    Just se -> error $ ppSimulatorExc se
     _ -> error $ failMsg ++ ": " ++ show exc
 
 simExcHndlr ::
