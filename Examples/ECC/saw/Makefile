@@ -43,6 +43,7 @@ PROOFS :=              \
   incFieldPrime.saw    \
   is_zero.saw          \
   leq.saw              \
+  mod_div.saw          \
   mod_half.saw         \
   mod_sub.saw          \
   mul.saw              \
