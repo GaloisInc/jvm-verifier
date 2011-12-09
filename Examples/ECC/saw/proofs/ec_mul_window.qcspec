@@ -17,8 +17,14 @@ method com.galois.ecc.P384ECC64.ec_mul_window
   let d  = join(valueOf(args[1]));
   let sx = join(valueOf(args[2].x));
   let sy = join(valueOf(args[2].y));
-  let s3 = ref_ec_mul(3 : [384], { x = sx; y = sy });
-  let s5 = ref_ec_mul(5 : [384], { x = sx; y = sy });
+
+  let s = { x = sx ; y = sy };
+  let sj = ref_ec_jacobify(s);
+  let s4 = ref_ec_double(ref_ec_double(sj));
+  let s3j = ref_ec_full_sub(s4, s);
+  let s5j = ref_ec_full_add(s4, s);
+  let s3 = ref_ec_affinify(s3j);
+  let s5 = ref_ec_affinify(s5j);
 
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   assert valueOf(args[3].x) := split(s3.x) : [12][32];
@@ -33,6 +39,6 @@ method com.galois.ecc.P384ECC64.ec_mul_window
   ensure valueOf(args[0].y) := split(res.y) : [12][32];
   ensure valueOf(args[0].z) := split(res.z) : [12][32];
   modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-  quickcheck 1;
+  //quickcheck 1;
   //verify { rewrite; /*yices; smtlib;*/ };
 };

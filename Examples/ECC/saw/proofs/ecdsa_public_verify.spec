@@ -30,5 +30,5 @@ method com.galois.ecc.P384ECC64.verifySignature
 
   modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   //quickcheck 1;
-  verify { rewrite; /*yices; smtlib;*/ };
+  //verify { rewrite; /*yices; smtlib;*/ };
 };

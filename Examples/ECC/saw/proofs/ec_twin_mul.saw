@@ -3,7 +3,7 @@ import "rules.saw";
 
 set verification off;
 import "ec_mul.spec";
-//set verification on;
+set verification on;
 
 extern SBV ref_ec_twin_mul("../spec/sbv/generated/p384_ec_twin_mul.sbv") :
   ([384], { x: [384]; y: [384] }, [384], { x: [384]; y: [384] }) ->
