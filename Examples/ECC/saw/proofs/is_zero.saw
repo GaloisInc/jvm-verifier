@@ -1,4 +1,4 @@
-method com.galois.ecc.ECCProvider.is_zero 
+method com.galois.ecc.P384ECC64.is_zero 
 {
   var args[0] :: int[12];
   return join(valueOf(args[0])) == 0:[384];
