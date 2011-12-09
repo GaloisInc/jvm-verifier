@@ -1,0 +1,6 @@
+method com.galois.ecc.ECCProvider.is_equal
+{
+  var args[0], args[1] :: int[12];
+  return join(valueOf(args[0])) == join(valueOf(args[1]));
+  verify abc;
+};
