@@ -8,7 +8,6 @@ let even(x:[384]) : Bit = (x & 1:[384]) == 0:[384];
 let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
 let group_order = 0xffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973 : [384];
 
-/* TODO: use better forms for these constants. */
 let basePointX = join(
   [ 0x72760ab7:[32], 0x3a545e38:[32], 0xbf55296c:[32], 0x5502f25d:[32],
     0x82542a38:[32], 0x59f741e0:[32], 0x8ba79b98:[32], 0x6e1d3b62:[32],
