@@ -563,7 +563,8 @@ p384_field_mod_aux(a) = {carry = drop(384, r); rslt = take(384, r)}
     r   = t + (s1 << 1) + s2 + s3 + s4 + s5 + s6 - d1 - d2 - d3;
   };
   
-theorem p384_field_mod_aux_ok: {x}. p384_field_mod_orig(x) == p384_field_mod(x);
+theorem p384_field_mod_aux_same_as_dummy2 : {x}. p384_field_mod_aux(x) == p384_field_mod_aux_dummy2(x);
+//theorem p384_field_mod_aux_ok: {x}. p384_field_mod_orig(x) == p384_field_mod(x);
 
 p384_field_mod_orig : [768] -> [384];
 p384_field_mod_orig(a)
