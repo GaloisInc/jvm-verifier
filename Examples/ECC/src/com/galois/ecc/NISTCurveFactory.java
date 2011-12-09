@@ -24,6 +24,10 @@ abstract class NIST32 extends ECCProvider {
     System.out.println("field_red_aux_dummy not implemented for NIST32");
     return 0;
   }
+  public int field_red_aux_dummy2(int[] z, int[] a) {
+    System.out.println("field_red_aux_dummy2 not implemented for NIST32");
+    return 0;
+  }
   // tmp delete_me
 
   /**
@@ -973,6 +977,36 @@ class P384ECC64 extends NIST64 {
     z[0] = (int) d;
     d >>= 32;
     return (int) d;
+  }
+  public int field_red_aux_dummy2(int[] z, int[] a) {
+    long a0  = a[ 0] & LONG_MASK; long a12 = a[12] & LONG_MASK;
+    long a1  = a[ 1] & LONG_MASK; long a13 = a[13] & LONG_MASK;
+    long a2  = a[ 2] & LONG_MASK; long a14 = a[14] & LONG_MASK;
+    long a3  = a[ 3] & LONG_MASK; long a15 = a[15] & LONG_MASK;
+    long a4  = a[ 4] & LONG_MASK; long a16 = a[16] & LONG_MASK;
+    long a5  = a[ 5] & LONG_MASK; long a17 = a[17] & LONG_MASK;
+    long a6  = a[ 6] & LONG_MASK; long a18 = a[18] & LONG_MASK;
+    long a7  = a[ 7] & LONG_MASK; long a19 = a[19] & LONG_MASK;
+    long a8  = a[ 8] & LONG_MASK; long a20 = a[20] & LONG_MASK;
+    long a9  = a[ 9] & LONG_MASK; long a21 = a[21] & LONG_MASK;
+    long a10 = a[10] & LONG_MASK; long a22 = a[22] & LONG_MASK;
+    long a11 = a[11] & LONG_MASK; long a23 = a[23] & LONG_MASK;
+    long d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11;
+    
+    long zd0  =  a0 + a12 + a21 + a20 - a23;                                            z[ 0] = (int) zd0;  d0  = zd0 >> 32;
+    long zd1  =  d0 + a1 + a13 + a22 + a23 - a12 - a20;                                 z[ 1] = (int) zd1;  d1  = zd1 >> 32;
+    long zd2  =  d1 + a2 + a14 + a23 - a13 - a21;                                       z[ 2] = (int) zd2;  d2  = zd2 >> 32;
+    long zd3  =  d2 + a3 + a15 + a12 + a20 + a21 - a14 - a22 - a23;                     z[ 3] = (int) zd3;  d3  = zd3 >> 32;
+    long zd4  =  d3 + a4 + (a21 << 1) + a16 + a13 + a12 + a20 + a22 - a15 - (a23 << 1); z[ 4] = (int) zd4;  d4  = zd4 >> 32;
+    long zd5  =  d4 + a5 + (a22 << 1) + a17 + a14 + a13 + a21 + a23 - a16;              z[ 5] = (int) zd5;  d5  = zd5 >> 32;
+    long zd6  =  d5 + a6 + (a23 << 1) + a18 + a15 + a14 + a22       - a17;              z[ 6] = (int) zd6;  d6  = zd6 >> 32;
+    long zd7  =  d6 + a7 + a19 + a16 + a15 + a23 - a18;                                 z[ 7] = (int) zd7;  d7  = zd7 >> 32;
+    long zd8  =  d7 + a8 + a20 + a17 + a16 - a19;                                       z[ 8] = (int) zd8;  d8  = zd8 >> 32;
+    long zd9  =  d8 + a9 + a21 + a18 + a17 - a20;                                       z[ 9] = (int) zd9;  d9  = zd9 >> 32;
+    long zd10 =  d9 + a10 + a22 + a19 + a18 - a21;                                      z[10] = (int) zd10; d10 = zd10 >> 32;
+    long zd11 = d10 + a11 + a23 + a20 + a19 - a22;                                      z[11] = (int) zd11; d11 = zd11 >> 32;
+    
+    return (int) d11;
   }
   // tmp delete_me
 
