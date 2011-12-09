@@ -1,12 +1,17 @@
 import "common.saw";
-import "rules.saw";
+//import "rules.saw";
 
 set verification off;
+import "ec_mul_window.qcspec";
 import "mod_div.spec";
-import "mod_sub.spec";
-import "ec_mul.spec";
-import "field_mul.spec";
 import "field_sq.spec";
+import "field_mul.spec";
+import "leq.saw";
+import "sub.saw";
+import "group_mul.spec";
+import "group_add.spec";
+import "is_zero.saw";
+import "set_zero.saw";
 set verification on;
 
 enable ref_ecdsa_sign;

@@ -9,19 +9,66 @@ method com.galois.ecc.P384ECC64.signHash
   var this.t1, this.t2, this.t3       :: int[12];
   var args[0].r, args[0].s            :: int[12];
 
-  var this.field_prime :: int[12];
-  var this.group_order :: int[12];
-  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
+  var this.width                      :: int;
+  var this.field_prime                :: int[12];
+  var this.field_unit                 :: int[12];
+  var this.group_order                :: int[12];
+  var this.rP                         :: com.galois.ecc.JacobianPoint;
+  var this.rP.x                       :: int[12];
+  var this.rP.y                       :: int[12];
+  var this.rP.z                       :: int[12];
+  var this.basePoint                  :: com.galois.ecc.AffinePoint;
+  var this.basePoint.x                :: int[12];
+  var this.basePoint.y                :: int[12];
+  var this.basePoint3                 :: com.galois.ecc.AffinePoint;
+  var this.basePoint3.x               :: int[12];
+  var this.basePoint3.y               :: int[12];
+  var this.basePoint5                 :: com.galois.ecc.AffinePoint;
+  var this.basePoint5.x               :: int[12];
+  var this.basePoint5.y               :: int[12];
+
+  /* TODO: use better forms for these constants. */
+  let group_order = join(
+    [ 0xccc52973:[32], 0xecec196a:[32], 0x48b0a77a:[32], 0x581a0db2:[32],
+      0xf4372ddf:[32], 0xc7634d81:[32], 0xffffffff:[32], 0xffffffff:[32],
+      0xffffffff:[32], 0xffffffff:[32], 0xffffffff:[32], 0xffffffff:[32]
+    ]);
+  let b1x = join(
+    [ 0x72760ab7:[32], 0x3a545e38:[32], 0xbf55296c:[32], 0x5502f25d:[32],
+      0x82542a38:[32], 0x59f741e0:[32], 0x8ba79b98:[32], 0x6e1d3b62:[32],
+      0xf320ad74:[32], 0x8eb1c71e:[32], 0xbe8b0537:[32], 0xaa87ca22:[32]
+    ]);
+  let b1y = join(
+    [ 0x90ea0e5f:[32], 0x7a431d7c:[32], 0x1d7e819d:[32], 0x0a60b1ce:[32],
+      0xb5f0b8c0:[32], 0xe9da3113:[32], 0x289a147c:[32], 0xf8f41dbd:[32],
+      0x9292dc29:[32], 0x5d9e98bf:[32], 0x96262c6f:[32], 0x3617de4a:[32]
+    ]);
+  let b1 = { x = b1x ; y = b1y };
+  let b1j = ref_ec_jacobify(b1);
+  let b4 = ref_ec_double(ref_ec_double(b1j));
+  let b3j = ref_ec_full_sub(b4, b1);
+  let b5j = ref_ec_full_add(b4, b1);
+  let b3 = ref_ec_affinify(b3j);
+  let b5 = ref_ec_affinify(b5j);
+  assert valueOf(this.basePoint.x)  := split(b1.x)        : [12][32];
+  assert valueOf(this.basePoint.y)  := split(b1.y)        : [12][32];
+  assert valueOf(this.basePoint3.x) := split(b3.x)        : [12][32];
+  assert valueOf(this.basePoint3.y) := split(b3.y)        : [12][32];
+  assert valueOf(this.basePoint5.x) := split(b5.x)        : [12][32];
+  assert valueOf(this.basePoint5.y) := split(b5.y)        : [12][32];
+  assert valueOf(this.group_order)  := split(group_order) : [12][32];
+  assert valueOf(this.field_prime)  := split(field_prime) : [12][32];
+  assert valueOf(this.field_unit)   := split(1:[384])     : [12][32];
+  assert this.width                 := 12                 : [32];
 
   let d = join(valueOf(args[1]));
   let e = join(valueOf(args[2]));
   let k = join(valueOf(args[3]));
-  let g = join(valueOf(this.group_order));
   assert d != 0:[384];
   assert k != 0:[384];
-  assert d <u g;
-  assert e <u g;
-  assert k <u g;
+  assert d <u group_order;
+  assert e <u group_order;
+  assert k <u group_order;
 
   let res = ref_ecdsa_sign(d, e, k);
 
