@@ -8,6 +8,19 @@ let even(x:[384]) : Bit = (x & 1:[384]) == 0:[384];
 let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
 let group_order = 0xffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973 : [384];
 
+/* TODO: use better forms for these constants. */
+let basePointX = join(
+  [ 0x72760ab7:[32], 0x3a545e38:[32], 0xbf55296c:[32], 0x5502f25d:[32],
+    0x82542a38:[32], 0x59f741e0:[32], 0x8ba79b98:[32], 0x6e1d3b62:[32],
+    0xf320ad74:[32], 0x8eb1c71e:[32], 0xbe8b0537:[32], 0xaa87ca22:[32]
+  ]);
+let basePointY = join(
+  [ 0x90ea0e5f:[32], 0x7a431d7c:[32], 0x1d7e819d:[32], 0x0a60b1ce:[32],
+    0xb5f0b8c0:[32], 0xe9da3113:[32], 0x289a147c:[32], 0xf8f41dbd:[32],
+    0x9292dc29:[32], 0x5d9e98bf:[32], 0x96262c6f:[32], 0x3617de4a:[32]
+  ]);
+let basePoint = { x = basePointX ; y = basePointY };
+
 extern SBV ref_safe_product("../spec/sbv/generated/p384_safe_product.sbv") : ([384], [384]) -> [768];
 extern SBV ref_field_mod("../spec/sbv/generated/p384_field_mod.sbv") : [768] -> [384];
 extern SBV ref_incFieldPrime("../spec/sbv/generated/p384_incFieldPrime.sbv")

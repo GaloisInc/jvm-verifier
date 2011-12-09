@@ -27,23 +27,7 @@ method com.galois.ecc.P384ECC64.signHash
   var this.basePoint5.x               :: int[12];
   var this.basePoint5.y               :: int[12];
 
-  /* TODO: use better forms for these constants. */
-  let group_order = join(
-    [ 0xccc52973:[32], 0xecec196a:[32], 0x48b0a77a:[32], 0x581a0db2:[32],
-      0xf4372ddf:[32], 0xc7634d81:[32], 0xffffffff:[32], 0xffffffff:[32],
-      0xffffffff:[32], 0xffffffff:[32], 0xffffffff:[32], 0xffffffff:[32]
-    ]);
-  let b1x = join(
-    [ 0x72760ab7:[32], 0x3a545e38:[32], 0xbf55296c:[32], 0x5502f25d:[32],
-      0x82542a38:[32], 0x59f741e0:[32], 0x8ba79b98:[32], 0x6e1d3b62:[32],
-      0xf320ad74:[32], 0x8eb1c71e:[32], 0xbe8b0537:[32], 0xaa87ca22:[32]
-    ]);
-  let b1y = join(
-    [ 0x90ea0e5f:[32], 0x7a431d7c:[32], 0x1d7e819d:[32], 0x0a60b1ce:[32],
-      0xb5f0b8c0:[32], 0xe9da3113:[32], 0x289a147c:[32], 0xf8f41dbd:[32],
-      0x9292dc29:[32], 0x5d9e98bf:[32], 0x96262c6f:[32], 0x3617de4a:[32]
-    ]);
-  let b1 = { x = b1x ; y = b1y };
+  let b1 = basePoint;
   let b1j = ref_ec_jacobify(b1);
   let b4 = ref_ec_double(ref_ec_double(b1j));
   let b3j = ref_ec_full_sub(b4, b1);
