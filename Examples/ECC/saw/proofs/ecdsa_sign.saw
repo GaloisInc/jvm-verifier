@@ -1,0 +1,13 @@
+import "common.saw";
+import "rules.saw";
+
+set verification off;
+import "mod_div.spec";
+import "mod_sub.spec";
+import "ec_mul.spec";
+import "field_mul.spec";
+import "field_sq.spec";
+set verification on;
+
+enable ref_ecdsa_sign;
+import "ecdsa_sign.spec";
