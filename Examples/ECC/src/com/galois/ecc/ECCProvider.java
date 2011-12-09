@@ -219,7 +219,6 @@ public abstract class ECCProvider {
   //tmp delete_me
   public abstract int field_red_aux(int[] z, int[] a);
   public abstract int field_red_aux_dummy(int[] z, int[] a);
-  public abstract int field_red_aux_dummy2(int[] z, int[] a);
   //tmp delete_me
 
   // Abstract operations {{{2

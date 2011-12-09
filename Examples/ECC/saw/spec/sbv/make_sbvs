@@ -25,8 +25,6 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 :fm p384_incFieldPrime "generated/p384_incFieldPrime.sbv"
 :fm p384_decFieldPrime "generated/p384_decFieldPrime.sbv"
 :fm p384_field_mod_aux "generated/p384_field_mod_aux.sbv"
-:fm p384_field_mod_aux_dummy "generated/p384_field_mod_aux_dummy.sbv"
-:fm p384_field_mod_aux_dummy2 "generated/p384_field_mod_aux_dummy2.sbv"
 :fm p384_field_mod     "generated/p384_field_mod.sbv"
 :fm p384_group_add     "generated/p384_group_add.sbv"
 

@@ -480,35 +480,10 @@ p384_field_mod(a)
     (r4,b4) = sbb(r3, p);
    };
 
-// tmp delete_me
-p384_field_mod_aux_dummy : [64] -> RsltWithCarry ([32], [32]);
-p384_field_mod_aux_dummy(a) = {carry = drop(32, r); rslt = take(32, r)} 
-  where {
-    [ a0 a1 ] = split a;
-    z32       = zero : [32];
-    t1        = a0 # z32;
-    t2        = a1 # z32;
-    r         = t1 + t2;
-  };
-
-tv = (zero : [736]) # 0x1;
-
-p384_field_mod_aux_dummy2_temp : [768] -> ([64],[32],[32],[64],[32],[32]);
-p384_field_mod_aux_dummy2_temp(a) = (zd0, z0, d0, zd1, z1, d1)
-  where {
-    [ a0  a1  a2  a3  a4  a5  a6  a7  a8  a9 a10 a11
-     a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 ]
-            = [| zext x || x <- (split a : [24][32]) |];
-    zext x  = x # (zero:[32]);
-    chop x  = (take (32,x), drop(32, x));
-    zd0     = a0 + a12 + a21 + a20 - a23; 
-    zd1     = iext(d0) + a1 + a13 + a22 + a23 - a12 - a20;
-    (z0,d0) = chop zd0;
-    (z1,d1) = chop zd1;
-  };
-
-p384_field_mod_aux_dummy2 : [768] -> RsltWithCarry ([32],[384]);
- p384_field_mod_aux_dummy2(a) = { carry = d11; rslt = z0 # z1 # z2 # z3 # z4 # z5 # z6 # z7 # z8 # z9 # z10 # z11} 
+p384_field_mod_aux : [768] -> RsltWithCarry ([32],[384]);
+ p384_field_mod_aux(a) = 
+  { carry = d11; 
+    rslt  = z0 # z1 # z2 # z3 # z4 # z5 # z6 # z7 # z8 # z9 # z10 # z11 } 
   where {
     [ a0  a1  a2  a3  a4  a5  a6  a7  a8  a9 a10 a11
      a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 ]
@@ -539,10 +514,21 @@ p384_field_mod_aux_dummy2 : [768] -> RsltWithCarry ([32],[384]);
     (z10,d10) = chop zd10;
     (z11,d11) = chop zd11;
   };
+
+// tmp delete_me
+p384_field_mod_aux_dummy : [64] -> RsltWithCarry ([32], [32]);
+p384_field_mod_aux_dummy(a) = {carry = drop(32, r); rslt = take(32, r)} 
+  where {
+    [ a0 a1 ] = split a;
+    z32       = zero : [32];
+    t1        = a0 # z32;
+    t2        = a1 # z32;
+    r         = t1 + t2;
+  };
 // tmp delete_me
 
-p384_field_mod_aux : [768] -> RsltWithCarry ([32],[384]);
-p384_field_mod_aux(a) = {carry = drop(384, r); rslt = take(384, r)}
+p384_field_mod_aux_orig : [768] -> RsltWithCarry ([32],[384]);
+p384_field_mod_aux_orig(a) = {carry = drop(384, r); rslt = take(384, r)}
   where {
     [ a0  a1  a2  a3  a4  a5  a6  a7  a8  a9 a10 a11
      a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23]
@@ -563,8 +549,8 @@ p384_field_mod_aux(a) = {carry = drop(384, r); rslt = take(384, r)}
     r   = t + (s1 << 1) + s2 + s3 + s4 + s5 + s6 - d1 - d2 - d3;
   };
   
-theorem p384_field_mod_aux_same_as_dummy2 : {x}. p384_field_mod_aux(x) == p384_field_mod_aux_dummy2(x);
-//theorem p384_field_mod_aux_ok: {x}. p384_field_mod_orig(x) == p384_field_mod(x);
+theorem p384_field_mod_aux_same_as_orig : {x}. p384_field_mod_aux_orig(x) == p384_field_mod_aux(x);
+theorem p384_field_mod_with_aux_ok      : {x}. p384_field_mod_orig(x) == p384_field_mod(x);
 
 p384_field_mod_orig : [768] -> [384];
 p384_field_mod_orig(a)
