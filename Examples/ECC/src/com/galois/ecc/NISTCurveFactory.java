@@ -16,6 +16,9 @@ package com.galois.ecc;
  */
 abstract class NIST32 extends ECCProvider {
   // tmp delete_me
+  public void field_red_orig(int[] z, int[] a) {
+    System.out.println("field_red_orig not implemented for NIST32");
+  }
   public int field_red_aux(int[] z, int[] a) {
     System.out.println("field_red_aux not implemented for NIST32");
     return 0;
@@ -314,8 +317,6 @@ abstract class NIST32 extends ECCProvider {
     field_red(z, a);
   }
 
-  protected abstract void field_red(int[] z, int[] a);
-
   protected void field_sq(int[] z, int[] x) {
     sq(a, x);
     field_red(z, a);
@@ -559,8 +560,6 @@ abstract class NIST64 extends ECCProvider {
 
   // Underlying field operations {{{2
   
-  protected abstract void field_red(int[] z, int[] a);
-
   protected void field_mul(int[] z, int[] x, int[] y) {
     mul(a, x, y);
     field_red(z, a);
@@ -753,7 +752,7 @@ class P384ECC32 extends NIST32 {
     return c + 1;
   }
 
-  protected void field_red(int[] z, int[] a) {
+  public void field_red(int[] z, int[] a) {
     int a12l = a[12] & INT_MASK; int a12h = a[12] >>> 16;
     int a13l = a[13] & INT_MASK; int a13h = a[13] >>> 16;
     int a14l = a[14] & INT_MASK; int a14h = a[14] >>> 16;
@@ -937,8 +936,8 @@ class P384ECC64 extends NIST64 {
   }
 
   /* Original field_red implemenation, for reference */
-  /*
-  protected void field_red(int[] z, int[] a) {
+  public void field_red_orig(int[] z, int[] a) {
+    System.out.println("field_red_orig entry.");
     long d;
 
     long a12 = a[12] & LONG_MASK;
@@ -1014,7 +1013,6 @@ class P384ECC64 extends NIST64 {
     d += (a[11] & LONG_MASK)              + a23 + a20 + a19             - a22;
     z[11] = (int) d; d >>= 32;
 
-
     if (d < 0) {
       incFieldPrime(z);
       return;
@@ -1041,10 +1039,9 @@ class P384ECC64 extends NIST64 {
     // Perform final subtraction if neccary.
     if (d > 0 || leq(field_prime, z)) decFieldPrime(z); 
   }
-   */
 
- protected void field_red(int[] z, int[] a) {
-    long d = field_red_aux(z,a) & LONG_MASK;
+ public void field_red(int[] z, int[] a) {
+    long d = field_red_aux(z,a);
     if (d < 0) {
       incFieldPrime(z);
       return;
@@ -1116,19 +1113,6 @@ class P384ECC64 extends NIST64 {
     // long zd11 = d10 + a11 + a23 + a20 + a19 - a22;                                      z[11] = (int) zd11; d11 = zd11 >> 32;
     // return (int) d11;
   }
-
-  // tmp delete_me
-  public int field_red_aux_dummy(int[] z, int[] a) {
-    /* a has two 32 bit elements; z has one. */
-    long a0 = a[0] & LONG_MASK;
-    long a1 = a[1] & LONG_MASK;
-    long d  = a0 + a1;
-    z[0] = (int) d;
-    d >>= 32;
-    return (int) d;
-  }
-  // tmp delete_me
-
 }
 
 // NISTCurveFactory {{{1

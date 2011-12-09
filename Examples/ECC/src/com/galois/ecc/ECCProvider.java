@@ -216,9 +216,13 @@ public abstract class ECCProvider {
     }
   }
 
+  // Exposed in ECCProvider for testing purposes; should really be a
+  // protected abstract method of NIST32/NIST64.
+  public abstract void field_red(int[] z, int[] a);
+
   //tmp delete_me
   public abstract int field_red_aux(int[] z, int[] a);
-  public abstract int field_red_aux_dummy(int[] z, int[] a);
+  public abstract void field_red_orig(int[] z, int[] a);
   //tmp delete_me
 
   // Abstract operations {{{2
