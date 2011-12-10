@@ -228,7 +228,6 @@ data VerifyCommand
    | VerifyBlock [VerifyCommand]
   deriving (Show)
 
-
 data BehaviorDecl
   = VarDecl Pos [Expr] JavaType
     -- | Local binding within a method spec.
@@ -245,12 +244,17 @@ data BehaviorDecl
   | Block [BehaviorDecl]
   deriving (Show)
 
+data ValidationPlan 
+  = QuickCheck Integer (Maybe Integer)
+  | Blif (Maybe String) -- file
+  | Verify VerifyCommand
+  deriving (Show)
+
 -- | Commands in a method spec.
 data MethodSpecDecl
   -- | List of Java expressions that may alias.
   = SpecAt Pos Integer BehaviorDecl
-  | QuickCheck Pos Integer (Maybe Integer)
-  | Verify Pos VerifyCommand
+  | SpecPlan Pos ValidationPlan
   | Behavior BehaviorDecl
  deriving (Show)
 

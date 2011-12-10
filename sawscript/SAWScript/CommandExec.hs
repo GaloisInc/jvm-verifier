@@ -215,6 +215,9 @@ runMethodSpecValidate verb v vp = do
       when (verb > 1) $
         putPrefixTSLn $ "Start testing " ++ specName ++ "."
       runValidate
+    TC.Blif _ -> do
+      putPrefixTSLn $ "Generating blif for " ++ specName ++ "... "
+      runValidate
     TC.Verify{} -> do
       when (verb == 1) $
         putPrefixTS $ "Verifying  " ++ specName ++ "... "

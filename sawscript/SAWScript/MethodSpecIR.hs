@@ -809,14 +809,9 @@ data VerifyCommand
 data ValidationPlan
   = Skip
   | QuickCheck Integer (Maybe Integer)
+  | Blif (Maybe FilePath)
   | Verify [VerifyCommand]
   deriving (Show)
-
--- | Returns true if this is a validation plan declaration.
-isValidationPlanDecl :: AST.MethodSpecDecl -> Bool
-isValidationPlanDecl AST.Verify{} = True
-isValidationPlanDecl AST.QuickCheck{} = True
-isValidationPlanDecl _ = False
 
 checkRuleIsDefined :: MonadIO m => Pos -> String -> Set String -> m ()
 checkRuleIsDefined pos nm ruleNames = do
@@ -890,28 +885,25 @@ resolveVerifyCommand cmd =
     AST.VerifyBlock cmds ->
       concat <$> mapM resolveVerifyCommand cmds
 
-throwMultipleValidationPlans :: Pos -> IO a
-throwMultipleValidationPlans pos =
-  let msg = "Multiple validation approaches set in method specification."
-   in throwIOExecException pos (ftext msg) ""
-
 resolveValidationPlan :: Set String -- ^ Names of rules in spec.
                       -> MethodTypecheckContext
                       -> Map JSS.PC BehaviorTypecheckState
                       -> [AST.MethodSpecDecl] -> IO ValidationPlan
 resolveValidationPlan ruleNames mtc allBehaviors decls = 
-  case filter isValidationPlanDecl decls of
+  case [ (p,d) | AST.SpecPlan p d <- decls ] of
     [] -> return $ Skip
-    [AST.QuickCheck _ n mlimit] -> return $ QuickCheck n mlimit
-    [AST.Verify _ cmds] ->
+    [(_,AST.Blif mpath)] -> return $ Blif mpath
+    [(_,AST.QuickCheck n mlimit)] -> return $ QuickCheck n mlimit
+    [(_,AST.Verify cmds)] ->
        let initVTS = VTS { vtsMTC = mtc
                          , vtsBehaviors = allBehaviors
                          , vtsRuleNames = ruleNames
                          , vtsPC = Nothing
                          }
         in Verify <$> evalStateT (resolveVerifyCommand cmds) initVTS
-    _:AST.QuickCheck p _ _:_ -> throwMultipleValidationPlans p
-    _:AST.Verify p _:_       -> throwMultipleValidationPlans p
+    _:(pos,_):_ ->
+      let msg = "Multiple validation approaches set in method specification."
+       in throwIOExecException pos (ftext msg) ""
     _ -> error "internal: resolveValidationPlan reached illegal state."
 
 -- MethodSpecIR {{{1

@@ -43,6 +43,7 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'ensure'       { TReserved _ "ensure"       }
    'modify'       { TReserved _ "modify"       }
    'return'       { TReserved _ "return"       }
+   'blif'         { TReserved _ "blif"         }
    'quickcheck'   { TReserved _ "quickcheck"   }
    'verify'       { TReserved _ "verify"       }
    'enable'       { TReserved _ "enable"       }
@@ -268,15 +269,18 @@ MethodSpecDecl
   : LSpecDecl            { Behavior $1 }
   | 'from' 'pc' num LSpecDecl
                          { SpecAt (tokPos $1) (tokNum $3) $4 }
-  | 'quickcheck' num opt(num) ';' { QuickCheck (tokPos $1) (tokNum $2) (fmap tokNum $3) }
+  | 'quickcheck' num opt(num) ';'
+                         { SpecPlan (tokPos $1)
+                                    (QuickCheck (tokNum $2) (fmap tokNum $3)) }
+  | 'blif' opt(str) ';'  { SpecPlan (tokPos $1) (Blif $2) }
   | 'verify' VerifyCommand
-                         { Verify (tokPos $1) $2 }
+                         { SpecPlan (tokPos $1) (Verify $2) }
 
 LSpecDecl :: { BehaviorDecl }
 LSpecDecl 
   : '{' seplist(LSpecDecl, ';') '}' { Block $2 }
   | LSpecStatement ';' { $1 }
-  | 'if' '(' Expr ')' LSpecDecl %prec MIN { MethodIf     (tokPos $1) $3 $5          }
+  | 'if' '(' Expr ')' LSpecDecl %prec MIN { MethodIf (tokPos $1) $3 $5    }
   | 'if' '(' Expr ')' LSpecDecl
                'else' LSpecDecl { MethodIfElse (tokPos $1) $3 $5 $7       }
 

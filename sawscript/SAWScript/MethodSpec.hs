@@ -36,6 +36,8 @@ import qualified Data.Vector.Storable as SV
 import qualified Data.Vector as V
 import Text.PrettyPrint.HughesPJ
 import System.Directory(doesFileExist)
+import System.FilePath (splitExtension, addExtension)
+import System.IO
 
 import qualified Execution.Codebase as JSS
 import qualified JavaParser as JSS
@@ -52,6 +54,7 @@ import SAWScript.TypeChecker
 import Utils.Common
 
 import Verinf.Symbolic
+import qualified Verinf.Symbolic.BLIF as Blif
 import Verinf.Symbolic.Lit.Functional
 import Verinf.Utils.LogMonad
 
@@ -70,16 +73,6 @@ findM check (x:xs)  = do ok <- check x
                                else findM check xs
 
 -- Verinf Utilities {{{1
-
--- | Create a lit result with input bits for the given ground dag type.
-mkInputLitResultWithType :: (?be :: BitEngine l, SV.Storable l)
-                         => DagType -> IO (LitResult l)
-mkInputLitResultWithType (SymInt (widthConstant -> Just (Wx w))) =
-  LV <$> SV.replicateM w lMkInput
-mkInputLitResultWithType (SymArray (widthConstant -> Just (Wx l)) eltTp) =
-  LVN <$> V.replicateM l (mkInputLitResultWithType eltTp)
-mkInputLitResultWithType _ =
-  error "internal: mkInputLitResultWithType called with unsupported type."
 
 deEq :: DagEngine -> DagTerm -> DagTerm -> IO DagTerm
 deEq de x y = deApplyBinary de (eqOp (termType x)) x y
@@ -831,9 +824,9 @@ vcCounterexample (EqualityCheck nm jvmNode specNode) evalFn =
 data PathVC = PathVC {
           pvcStartPC :: JSS.PC
         , pvcEndPC :: Maybe JSS.PC
-        , pvcInitialAssignments :: [(TC.JavaExpr, Node)]
+        , pvcInitialAssignments :: [(TC.JavaExpr, DagTerm)]
           -- | Assumptions on inputs.
-        , pvcAssumptions :: Node
+        , pvcAssumptions :: DagTerm
           -- | Static errors found in path.
         , pvcStaticErrors :: [Doc]
           -- | What to verify for this result.
@@ -984,6 +977,24 @@ data VerifyParams = VerifyParams
   , vpEnabledOps  :: Set OpIndex
   }
 
+writeToNewFile :: FilePath -- ^ Base file name
+               -> String -- ^ Default extension
+               -> (Handle -> IO ())
+               -> IO FilePath
+-- Warning: Contains race conition between checking if file exists and
+-- writing.
+writeToNewFile path defaultExt m =
+  case splitExtension path of
+    (base,"") -> impl base 0 defaultExt
+    (base,ext) -> impl base 0 ext
+ where impl base cnt ext = do
+          let nm = addExtension (base ++ ('.' : show cnt)) ext
+          b <- doesFileExist nm
+          if b then
+            impl base (cnt + 1) ext
+          else 
+            withFile nm WriteMode m >> return nm
+
 -- | Attempt to verify method spec using verification method specified.
 validateMethodSpec :: VerifyParams -> IO ()
 validateMethodSpec
@@ -999,54 +1010,107 @@ validateMethodSpec
                 , cl <- bsRefEquivClasses bs
                 ]
   forM_ configs $ \(bs,cl) -> do
-    when (verb >= 3) $ do
-      liftIO $ putStrLn $ "Executing " ++ specName ir
-                             ++ " at PC " ++ show (bsPC bs) ++ "."
-    runSymbolic oc $ do
-      de <- getDagEngine
-      setVerbosity verb
-      (esd,results) <- 
+    when (verb >= 3) $
+      putStrLn $ "Executing " ++ specName ir ++ " at PC " ++ show (bsPC bs)
+                              ++ "."
+    de <- mkConstantFoldingDagEngine
+    (esd,results) <- 
+      runSymbolicWithDagEngine oc de $ do
+        setVerbosity verb
         JSS.runSimulator cb $ do
-           -- Create initial Java state.
-           esd <- initializeVerification ir bs cl
-           res <- mkSpecVC params bs cl esd
-           return (esd,res)
-      liftIO $ forM_ results $ \pvc -> do
-        let mkVState nm cfn =
-              VState { vsVCName = nm
-                     , vsMethodSpec = ir
-                     , vsVerbosity = verb
-                     , vsRules = vpRules params
-                     , vsEnabledRules = vpEnabledRules params
-                     , vsEnabledOps = vpEnabledOps params
-                     , vsFromPC = bsPC bs
-                     , vsEvalContext = 
-                         evalContextFromPathState de (esdInitialPathState esd)
-                     , vsInitialAssignments = pvcInitialAssignments pvc
-                     , vsCounterexampleFn = cfn
-                     , vsStaticErrors = pvcStaticErrors pvc
-                     }
-        case specValidationPlan ir of
-          Skip -> error "internal: Unexpected call to validateMethodSpec with Skip"
-          QuickCheck n lim -> do
-            testRandom de verb ir (fromInteger n) (fromInteger <$> lim) pvc
-          Verify cmds
-            | null (pvcStaticErrors pvc) -> do
-               forM_ (pvcChecks pvc) $ \vc -> do
-                 let vs = mkVState (vcName vc) (vcCounterexample vc)
-                 g <- deImplies de (pvcAssumptions pvc) =<< vcGoal de vc
-                 runVerify vs g cmds
-            | otherwise -> do
-               let vs = mkVState ("an invalid path "
-                                     ++ (case pvcStartPC pvc of
-                                           0 -> ""
-                                           pc -> " from pc " ++ show pc)
-                                     ++ maybe "" (\pc -> " to pc " ++ show pc) 
-                                              (pvcEndPC pvc))
-                                 (\_ -> return $ vcat (pvcStaticErrors pvc))
-               g <- deImplies de (pvcAssumptions pvc) (mkCBool False)
-               putStrLn $ "Calling runVerify with " ++ prettyTerm (pvcAssumptions pvc)
-               runVerify vs g cmds
+          -- Create initial Java state and expected state definition.
+          esd <- initializeVerification ir bs cl
+          res <- mkSpecVC params bs cl esd
+          return (esd,res)
+    let invalidPathName pvc = 
+           "an invalid path " ++ (case pvcStartPC pvc of
+                                    0 -> ""
+                                    pc -> " from pc " ++ show pc)
+                              ++ maybe "" (\pc -> " to pc " ++ show pc) 
+                                          (pvcEndPC pvc) 
+    case specValidationPlan ir of
+      Skip -> error "internal: Unexpected call to validateMethodSpec with Skip"
+      QuickCheck n lim -> do
+        forM_ results $ \pvc -> do
+          testRandom de verb ir (fromInteger n) (fromInteger <$> lim) pvc
+      Blif (Just path) -> do
+        -- 1. Generate BLIF for each verification path.
+        blif <- Blif.defineBLIF $ do
+          let mInputs = V.mapM Blif.mkInputTerm =<< liftIO (deInputTypes de)
+          let joinModels nm ml = do
+                Blif.addModel nm $ do
+                  inputs <- mInputs
+                  Blif.mkConjunction
+                     =<< mapM (\m -> Blif.mkSubckt m inputs SymBool) ml
+          models <-
+            forM ([0..] `zip` results) $ \(i,pvc) -> do
+              let pathname = "path_" ++ show i ++ "_"
+              --TOOD: Get path check name.
+              condModel <- 
+                Blif.addModel (pathname ++ "cond") $
+                  Blif.mkTermCircuit (pvcAssumptions pvc) =<< mInputs
+              if null (pvcStaticErrors pvc) then
+                let addCheck (AssertionCheck nm t) = do
+                      Blif.addModel (pathname ++ nm) $ do
+                         inputs <- mInputs
+                         condVal <- Blif.mkSubckt condModel inputs SymBool
+                         predVal <- Blif.mkTermCircuit t inputs
+                         Blif.mkImplication condVal predVal
+                    addCheck (EqualityCheck nm simTerm expTerm) = do
+                      let tp = termType simTerm
+                      simModel <-
+                        Blif.addModel (pathname ++ nm ++ "_lhs") $
+                          Blif.mkTermCircuit simTerm =<< mInputs
+                      expModel <-
+                        Blif.addModel (pathname ++ nm ++ "_rhs") $
+                          Blif.mkTermCircuit expTerm =<< mInputs
+                      Blif.addModel (pathname ++ nm ++ "_goal") $ do
+                        inputs <- mInputs
+                        condVal <- Blif.mkSubckt condModel inputs SymBool
+                        simVal <- Blif.mkSubckt simModel inputs tp
+                        expVal <- Blif.mkSubckt expModel inputs tp
+                        Blif.mkImplication condVal
+                          =<< Blif.mkEquality tp simVal expVal
+                 in joinModels (pathname ++ "goal")
+                      =<< mapM addCheck (pvcChecks pvc)
+              else
+                Blif.addModel (pathname ++ "goal") $ do
+                  inputs <- mInputs
+                  Blif.mkNegation <$> Blif.mkSubckt condModel inputs SymBool
+          void $ joinModels "all" models
+        nm <- writeToNewFile path ".blif" (flip Blif.write blif)
+        putStrLn $ "Written to " ++ show nm ++ "." 
+      Verify cmds -> do
+        forM_ results $ \pvc -> do
+          let ps = esdInitialPathState esd
+          let mkVState nm cfn =
+                VState { vsVCName = nm
+                       , vsMethodSpec = ir
+                       , vsVerbosity = verb
+                       , vsRules = vpRules params
+                       , vsEnabledRules = vpEnabledRules params
+                       , vsEnabledOps = vpEnabledOps params
+                       , vsFromPC = bsPC bs
+                       , vsEvalContext = evalContextFromPathState de ps
+                       , vsInitialAssignments = pvcInitialAssignments pvc
+                       , vsCounterexampleFn = cfn
+                       , vsStaticErrors = pvcStaticErrors pvc
+                       }
+          if null (pvcStaticErrors pvc) then
+           forM_ (pvcChecks pvc) $ \vc -> do
+             let vs = mkVState (vcName vc) (vcCounterexample vc)
+             g <- deImplies de (pvcAssumptions pvc) =<< vcGoal de vc
+             runVerify vs g cmds
+          else do
+            let vs = mkVState ("an invalid path "
+                                  ++ (case pvcStartPC pvc of
+                                        0 -> ""
+                                        pc -> " from pc " ++ show pc)
+                                  ++ maybe "" (\pc -> " to pc " ++ show pc) 
+                                           (pvcEndPC pvc))
+                              (\_ -> return $ vcat (pvcStaticErrors pvc))
+            g <- deImplies de (pvcAssumptions pvc) (mkCBool False)
+            runVerify vs g cmds
 
 data VerifyState = VState {
          vsVCName :: String
@@ -1095,7 +1159,7 @@ runABC goal = do
         -- Get number of literals.
         lc <- beInputLitCount be
         -- Create input variable.
-        l <- let ?be = be in mkInputLitResultWithType tp
+        l <- let ?be = be in lMkInputLitResult tp
         let evalFn bits = mkInputEval tp $ SV.slice lc (typeBitCount tp) bits
         return (l,evalFn)
       let (iLits,inputs) = V.unzip inputPairs
@@ -1390,7 +1454,7 @@ applyTactics (ABC:_) goal = runABC goal
 applyTactics (SmtLib ver file :_) g = useSMTLIB ver file g
 -- Yices always succeeds.
 applyTactics (Yices v :_) g = useYices v g
-applyTactics (Expand p expandOp argExprs rhs:r) g = do
+applyTactics (Expand _ expandOp argExprs rhs:r) g = do
   ec <- gets vsEvalContext
   mterms <- runEval $ V.mapM (flip evalLogicExpr ec) (V.fromList argExprs)
   case mterms of
