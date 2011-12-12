@@ -1,4 +1,4 @@
-method com.galois.ecc.NIST64.sub
+method com.galois.ecc.P384ECC64.sub
 {
   var z, x, y :: int[12];
   mayAlias { z, x, y };

@@ -27,15 +27,18 @@ method com.galois.ecc.P384ECC64.signHash
   var this.basePoint5.x               :: int[12];
   var this.basePoint5.y               :: int[12];
 
-  let b1 = basePoint;
-  let b1j = ref_ec_jacobify(b1);
-  let b4 = ref_ec_double(ref_ec_double(b1j));
-  let b3j = ref_ec_full_sub(b4, b1);
-  let b5j = ref_ec_full_add(b4, b1);
-  let b3 = ref_ec_affinify(b3j);
-  let b5 = ref_ec_affinify(b5j);
-  assert valueOf(this.basePoint.x)  := split(b1.x)        : [12][32];
-  assert valueOf(this.basePoint.y)  := split(b1.y)        : [12][32];
+  let b3 = {
+    x = 0x077a41d4606ffa1464793c7e5fdc7d98cb9d3910202dcd06bea4f240d3566da6b408bbae5026580d02d7e5c70500c831 : [384];
+    y = 0xc995f7ca0b0c42837d0bbe9602a9fc998520b41c85115aa5f7684c0edc111eacc24abd6be4b5d298b65f28600a2f1df1 : [384]
+  };
+
+  let b5 = {
+    x = 0x11de24a2c251c777573cac5ea025e467f208e51dbff98fc54f6661cbe56583b037882f4a1ca297e60abcdbc3836d84bc : [384];
+    y = 0x8fa696c77440f92d0f5837e90a00e7c5284b447754d5dee88c986533b6901aeb3177686d0ae8fb33184414abe6c1713a : [384]
+  };
+
+  assert valueOf(this.basePoint.x)  := split(basePoint.x) : [12][32];
+  assert valueOf(this.basePoint.y)  := split(basePoint.y) : [12][32];
   assert valueOf(this.basePoint3.x) := split(b3.x)        : [12][32];
   assert valueOf(this.basePoint3.y) := split(b3.y)        : [12][32];
   assert valueOf(this.basePoint5.x) := split(b5.x)        : [12][32];
@@ -48,11 +51,10 @@ method com.galois.ecc.P384ECC64.signHash
   let d = join(valueOf(args[1]));
   let e = join(valueOf(args[2]));
   let k = join(valueOf(args[3]));
-  assert d != 0:[384];
-  assert k != 0:[384];
-  assert d <u group_order;
-  assert e <u group_order;
-  assert k <u group_order;
+  assert not(d == 0:[384]);
+  assert not(k == 0:[384]);
+  assert not(group_order <=u d);
+  assert not(group_order <=u k);
 
   let res = ref_ecdsa_sign(d, e, k);
 
@@ -61,6 +63,15 @@ method com.galois.ecc.P384ECC64.signHash
   return res.r == 0:[384] || res.s == 0:[384];
 
   modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  modify valueOf(this.rP.x);
+  modify valueOf(this.rP.y);
+  modify valueOf(this.rP.z);
+  modify valueOf(this.basePoint5.y);
+  modify valueOf(this.basePoint5.x);
+  modify valueOf(this.basePoint3.y);
+  modify valueOf(this.basePoint3.x);
+  modify valueOf(this.basePoint.y);
+  modify valueOf(this.basePoint.x);
   //quickcheck 1;
   verify { rewrite; /*yices; smtlib;*/ };
 };

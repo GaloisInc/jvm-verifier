@@ -11,11 +11,12 @@ method com.galois.ecc.P384ECC64.verifySignature
   var this.basePoint                  :: com.galois.ecc.AffinePoint;
   var this.basePoint.x                :: int[12];
   var this.basePoint.y                :: int[12];
+  var this.field_prime                :: int[12];
+  var this.group_order                :: int[12];
+  var this.field_unit                 :: int[12];
 
-  var this.field_prime :: int[12];
-  var this.group_order :: int[12];
-  var this.field_unit  :: int[12];
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
+  assert valueOf(this.group_order) := split(group_order) : [12][32];
   assert valueOf(this.field_unit)  := split(1 : [384])   : [12][32];
   assert this.width := 12 : [32];
 
@@ -32,6 +33,18 @@ method com.galois.ecc.P384ECC64.verifySignature
   return ref_ecdsa_public_verify(e, r, s, {x = qx; y = qy});
 
   modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  /*
+  modify valueOf(this.basePoint.y);
+  modify valueOf(this.basePoint.x);
+  modify valueOf(args[2].x);
+  modify valueOf(args[2].y);
+  modify valueOf(args[1].r);
+  modify valueOf(args[1].s);
+  modify valueOf(this.group_order);
+  modify valueOf(this.field_prime);
+  modify valueOf(this.field_unit);
+  modify valueOf(args[0]);
+  */
   //quickcheck 1;
-  verify { rewrite; yices; /*smtlib;*/ };
+  verify { rewrite; /*yices; smtlib;*/ };
 };

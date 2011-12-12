@@ -1,8 +1,11 @@
 import "common.saw";
-//import "rules.saw";
+import "rules.saw";
+
+rule imp_false_elim1 : forAll {x:Bit}. x     ==> false -> not x;
 
 set verification off;
-import "ec_mul_window.qcspec";
+//import "ec_mul_window.qcspec";
+import "ec_mul.spec";
 import "mod_div.spec";
 import "field_sq.spec";
 import "field_mul.spec";

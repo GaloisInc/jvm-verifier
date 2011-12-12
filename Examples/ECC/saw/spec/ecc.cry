@@ -900,6 +900,16 @@ p384_affinify p = ec_affinify(p384_field, p);
 p384_jacobify : AffinePoint [384] -> JacobianPoint [384];
 p384_jacobify p = { x = p.x; y = p.y; z = 1 };
 
+p384_base4 : JacobianPoint [384];
+p384_base4 = p384_ec_double(p384_ec_double(p384_jacobify(p384_base)));
+
+p384_base3 : AffinePoint [384];
+p384_base3 = p384_affinify(p384_ec_full_sub(p384_base4, p384_base));
+
+p384_base5 : AffinePoint [384];
+p384_base5 = p384_affinify(p384_ec_full_add(p384_base4, p384_base));
+
+
 /* Does an affine point lie on the curve? */
 p384_is_affine_point : AffinePoint [384] -> Bit;
 p384_is_affine_point p =

@@ -947,10 +947,13 @@ public abstract class ECCProvider {
     if (privateKey == null) throw new NullPointerException("privateKey");
     if (privateKey.length != width)
        throw new IllegalArgumentException("Unexpected private key size.");
+    // FIXME!
+    /*
     if (is_zero(privateKey))
       throw new IllegalArgumentException("privateKey is zero.");
     if (leq(group_order, privateKey))
       throw new IllegalArgumentException("privateKey must be less than group order.");
+    */
 
     if (hashValue == null) throw new NullPointerException("hashValue");
     if (hashValue.length != width)
@@ -961,13 +964,17 @@ public abstract class ECCProvider {
     if (ephemeralKey == null) throw new NullPointerException("ephemeralKey");
     if (ephemeralKey.length != width)
        throw new IllegalArgumentException("Unexpected ephemeral key size.");
+    // FIXME!
+    /*
     if (is_zero(ephemeralKey))
       throw new IllegalArgumentException("ephemeralKey is zero.");
     if (leq(group_order, ephemeralKey))
       throw new IllegalArgumentException("ephemeralKey must be less than group order.");
+    */
 
-    //ec_mul(rP, ephemeralKey, basePoint);
-    ec_mul_window(rP, ephemeralKey, basePoint, basePoint3, basePoint5);
+    ec_mul(rP, ephemeralKey, basePoint);
+    // FIXME!
+    //ec_mul_window(rP, ephemeralKey, basePoint, basePoint3, basePoint5);
 
     int[] r = signature.r;
 
@@ -981,7 +988,8 @@ public abstract class ECCProvider {
 
     // Fail if the r coordinate is zero (should be rare)
     if (is_zero(signature.r)) {
-      cleanup();
+      // FIXME!
+      //cleanup();
       return false;
     }
 
@@ -991,7 +999,8 @@ public abstract class ECCProvider {
     // Let signature.s = (e + d * sig_r) / ephemeralKey (mod group_order)
     mod_div(signature.s, h, ephemeralKey, group_order);
     boolean failed = is_zero(signature.s);
-    cleanup();
+    // FIXME!
+    //cleanup();
     return !failed;
   }
 
