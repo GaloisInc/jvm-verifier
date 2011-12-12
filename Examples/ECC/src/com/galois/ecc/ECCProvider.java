@@ -973,8 +973,7 @@ public abstract class ECCProvider {
     if (is_zero(signature.r)) {
       //cleanup(); //FIXME!
       set_zero(signature.s);
-      //return false;
-      return true; //FIXME!
+      return false;
     }
 
     group_mul(h, privateKey, signature.r);
@@ -986,8 +985,7 @@ public abstract class ECCProvider {
     //cleanup(); //FIXME!
 
     if(failed) set_zero(signature.r);
-    //return !failed;
-    return true; //FIXME!
+    return !failed;
   }
 
   /**

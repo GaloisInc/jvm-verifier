@@ -60,7 +60,7 @@ method com.galois.ecc.P384ECC64.signHash
 
   ensure valueOf(args[0].r) := split(res.r) : [12][32];
   ensure valueOf(args[0].s) := split(res.s) : [12][32];
-  return true;
+  return res.r != 0:[384] && res.s != 0:[384];
 
   modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   modify valueOf(this.rP.x);
