@@ -16,13 +16,13 @@ The "Best" column indicates the best running time of proof completion seen so
 far on a typical developer system. 
 
 ** Level 1: Finite field arithmetic
-| Status | Name                 | Java      | Cryptol        | Impl directly calls     | Prereqs | Quickchecks | Verifies | Best | Comments                                          |
-| DONE   | Field Addition       | field_add | p384_field_add | leq, add, decFieldPrime | None    |        1000 | Yes, abc   | 37s  |                                                   |
-| DONE   | Field Subtraction    | field_sub | p384_field_sub | sub, incFieldPrime      | None    |        1000 | Yes, abc   | 47s  |                                                   |
-| DONE   | Field Doubling       | field_dbl | [fn:1]         | dbl, leq, decFieldPrime | None    |        1000 | Yes, abc   | 4s   |                                                   |
-| DONE   | Field Division       | mod_div   | p384_mod_div   |                         |         |           1 | Yes, yices | 10s  |                                                   |
-| DONE   | Field Squaring       | field_sq  | p384_field_mul | sq, field_red           |         |         100 | Yes, rw    | <1s  |                                                   |
-| DONE   | Field Multiplication | field_mul | p384_field_mul | mul, field_red          |         |         100 | Yes, rw    | <1s  |                                                   |
+| Status | Name                 | Java      | Cryptol        | Impl directly calls     | Prereqs | Quickchecks | Verifies   | Best | Comments |
+| DONE   | Field Addition       | field_add | p384_field_add | leq, add, decFieldPrime | None    |        1000 | Yes, abc   | 37s  |          |
+| DONE   | Field Subtraction    | field_sub | p384_field_sub | sub, incFieldPrime      | None    |        1000 | Yes, abc   | 47s  |          |
+| DONE   | Field Doubling       | field_dbl | [fn:1]         | dbl, leq, decFieldPrime | None    |        1000 | Yes, abc   | 4s   |          |
+| DONE   | Field Division       | mod_div   | p384_mod_div   |                         |         |           1 | Yes, yices | 10s  |          |
+| DONE   | Field Squaring       | field_sq  | p384_field_mul | sq, field_red           |         |         100 | Yes, rw    | <1s  |          |
+| DONE   | Field Multiplication | field_mul | p384_field_mul | mul, field_red          |         |         100 | Yes, rw    | <1s  |          |
 
 ** Level 2: Curve operations over points
 | Status | Name                   | Java        | Cryptol          | Impl directly calls | Prereqs     | Quickchecks | Verifies      | Comments |
