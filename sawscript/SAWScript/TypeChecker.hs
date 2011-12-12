@@ -530,6 +530,19 @@ tcE (AST.TypeExpr pos (AST.ConstantInt posCnst i) astTp) = do
     SymShapeVar _ -> nonGround
     _             -> typeErr pos $   text "Incompatible type" <+> text (ppType tp)
                                  <+> ftext "assigned to integer literal."
+tcE (AST.TypeExpr _ (AST.ApplyExpr appPos "trunc" astArgs) astResType) = do
+  args <- mapM tcLE astArgs
+  checkArgCount appPos "trunc" args 1
+  resType <- tcT astResType
+  let argType = typeOfLogicExpr (head args)
+  case (argType, resType) of
+    (SymInt (widthConstant -> Just l),
+     SymInt (widthConstant -> Just l')) | l' <= l -> do
+        oc <- gets (opCache . globalBindings)
+        return $ LE $ Apply (truncOp oc (constantWidth l) l') args
+    _ -> typeErr appPos $ ftext $ "Illegal arguments and result type given to \'trunc\'."
+                                ++ " SAWScript currently requires that the argument is "
+                                ++ "a ground type, and an explicit result type is given."
 tcE (AST.TypeExpr _ (AST.ApplyExpr appPos "split" astArgs) astResType) = do
   args <- mapM tcLE astArgs
   checkArgCount appPos "split" args 1

@@ -44,7 +44,7 @@ rule and_redundant2 : forAll {x:Bit,y:Bit}. (x && y) && x -> x && y;
 //rule imp_true_elim1  : forAll {x:Bit}. x     ==> true  -> true;
 /*
 rule imp_true_elim2  : forAll {x:Bit}. true  ==> x     -> x;
-rule imp_false_elim1 : forAll {x:Bit}. x     ==> false -> x;
+rule imp_false_elim1 : forAll {x:Bit}. x     ==> false -> not x;
 rule imp_false_elim2 : forAll {x:Bit}. false ==> x     -> true;
 */
 
@@ -141,6 +141,12 @@ rule affineX :
 rule affineY :
   forAll { x0 : a, y0 : a }.
     { x = x0 ; y = y0 }.y -> y0;
+
+////
+
+rule trunc_shift_get : forAll {x:[384], s:[9]}.
+  trunc (x >>u s) : [32] ->
+  aget (split(x) : [12][32], (s >>u 5:[9]) # 0:[23]);
 
 // Field-specific elimination rules
 

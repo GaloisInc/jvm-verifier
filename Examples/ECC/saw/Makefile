@@ -20,33 +20,38 @@ make_sbvs:
 	(cd spec/sbv && sh make_sbvs)
 
 PROOFS :=              \
-  is_zero.saw          \
-  set_zero.saw         \
-  set_unit.saw         \
-  assign.saw           \
   add.saw              \
-  sub.saw              \
-  shr.saw              \
-  leq.saw              \
-  incFieldPrime.saw    \
+  assign.saw           \
   decFieldPrime.saw    \
-  mod_half.saw         \
-  mod_sub.saw          \
-  field_add.saw        \
-  field_sub.saw        \
-  field_dbl.saw        \
-  field_dbl_dec.saw    \
-  field_mul3.saw       \
-  field_mul4.saw       \
-  field_mul8.saw       \
-  field_mul.saw        \
-  field_sq.saw         \
-  field_red.saw        \
   ec_double.saw        \
   ec_full_add.saw      \
   ec_full_sub.saw      \
+  ec_mul.saw           \
   ec_mul_aux.saw       \
+  ec_mul_init.saw      \
+  field_add.saw        \
+  field_dbl.saw        \
+  field_dbl_dec.saw    \
+  field_mul.saw        \
+  field_mul3.saw       \
+  field_mul4.saw       \
+  field_mul8.saw       \
+  field_red.saw        \
+  field_sq.saw         \
+  field_sub.saw        \
   group_add.saw        \
+  incFieldPrime.saw    \
+  is_zero.saw          \
+  leq.saw              \
+  mod_div.saw          \
+  mod_half.saw         \
+  mod_sub.saw          \
+  mul.saw              \
+  set_unit.saw         \
+  set_zero.saw         \
+  shr.saw              \
+  sq.saw               \
+  sub.saw              \
 
 .PHONY: clean verify
 

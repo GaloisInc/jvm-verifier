@@ -8,6 +8,18 @@ let even(x:[384]) : Bit = (x & 1:[384]) == 0:[384];
 let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
 let group_order = 0xffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973 : [384];
 
+let basePointX = join(
+  [ 0x72760ab7:[32], 0x3a545e38:[32], 0xbf55296c:[32], 0x5502f25d:[32],
+    0x82542a38:[32], 0x59f741e0:[32], 0x8ba79b98:[32], 0x6e1d3b62:[32],
+    0xf320ad74:[32], 0x8eb1c71e:[32], 0xbe8b0537:[32], 0xaa87ca22:[32]
+  ]);
+let basePointY = join(
+  [ 0x90ea0e5f:[32], 0x7a431d7c:[32], 0x1d7e819d:[32], 0x0a60b1ce:[32],
+    0xb5f0b8c0:[32], 0xe9da3113:[32], 0x289a147c:[32], 0xf8f41dbd:[32],
+    0x9292dc29:[32], 0x5d9e98bf:[32], 0x96262c6f:[32], 0x3617de4a:[32]
+  ]);
+let basePoint = { x = basePointX ; y = basePointY };
+
 extern SBV ref_safe_product("../spec/sbv/generated/p384_safe_product.sbv") : ([384], [384]) -> [768];
 extern SBV ref_field_mod("../spec/sbv/generated/p384_field_mod.sbv") : [768] -> [384];
 extern SBV ref_incFieldPrime("../spec/sbv/generated/p384_incFieldPrime.sbv")
@@ -17,6 +29,8 @@ extern SBV ref_decFieldPrime("../spec/sbv/generated/p384_decFieldPrime.sbv")
 
 extern SBV ref_group_add("../spec/sbv/generated/p384_group_add.sbv")    : ([384],[384]) -> [384];
 extern SBV ref_mod_half("../spec/sbv/generated/p384_mod_half.sbv") : ([384], [384]) -> [384];
+extern SBV ref_mod_add ("../spec/sbv/generated/p384_mod_add.sbv")
+   : ([384], [384], [384]) -> [384];
 extern SBV ref_mod_sub ("../spec/sbv/generated/p384_mod_sub.sbv")
    : ([384], [384], [384]) -> [384];
 
@@ -31,7 +45,7 @@ let ref_egcd(p:[384], a:[384], ra:[384], b:[384], rb:[384]) : [384] =
     ref_egcd(p, b, rb, (a - b) >>u 1:[384], ref_mod_half(p, ref_mod_sub(p, ra, rb)));
 
 let ref_mod_div(p:[384], x:[384], y:[384]) : [384] = ref_egcd(p, p, 0:[384], y, x);
-pragma ref_mod_div : SBV "mod_div"; // Declares that "ref_div" is "mod_div" in Cryptol.
+pragma ref_mod_div : SBV "p384_mod_div"; // Declares that "ref_div" is "mod_div" in Cryptol.
 
 extern SBV ref_is_field ("../spec/sbv/generated/p384_is_field_val.sbv") : [384] -> Bit;
 extern SBV ref_field_add("../spec/sbv/generated/p384_field_add.sbv")    : ([384],[384]) -> [384];
@@ -40,6 +54,11 @@ extern SBV ref_field_neg("../spec/sbv/generated/p384_field_neg.sbv")    : [384] 
 extern SBV ref_field_mul("../spec/sbv/generated/p384_field_mul.sbv")    : ([384],[384]) -> [384];
 extern SBV ref_field_sq("../spec/sbv/generated/p384_field_sq.sbv")    : [384] -> [384];
 
+extern SBV ref_ec_jacobify("../spec/sbv/generated/p384_ec_jacobify.sbv") :
+  { x : [384]; y : [384] } -> { x : [384]; y : [384]; z : [384] };
+extern SBV ref_ec_affinify("../spec/sbv/generated/p384_ec_affinify.sbv") :
+  { x : [384]; y : [384]; z : [384] } -> { x : [384]; y : [384] };
+
 extern SBV ref_ec_double("../spec/sbv/generated/p384_ec_double.sbv") :
   { x : [384]; y : [384]; z : [384] } -> { x : [384]; y : [384]; z : [384] };
 extern SBV ref_ec_full_add("../spec/sbv/generated/p384_ec_full_add.sbv") 
@@ -47,6 +66,9 @@ extern SBV ref_ec_full_add("../spec/sbv/generated/p384_ec_full_add.sbv")
 extern SBV ref_ec_full_sub("../spec/sbv/generated/p384_ec_full_sub.sbv") 
   : ({ x: [384]; y: [384]; z: [384] }, { x:[384]; y:[384] }) -> { x:[384]; y:[384]; z:[384] };
 
+extern SBV ref_ec_mul_init("../spec/sbv/generated/p384_ec_mul_init.sbv") :
+  ([384], { x: [384]; y: [384] }) ->
+  { h: [384]; r: { x: [384]; y: [384]; z: [384] } };
 
 extern SBV ref_ec_mul_aux("../spec/sbv/generated/p384_ec_mul_aux.sbv") :
   ( { x: [384]; y: [384]; z: [384] }
@@ -62,3 +84,10 @@ extern SBV ref_ec_mul_aux("../spec/sbv/generated/p384_ec_mul_aux.sbv") :
 extern SBV ref_ec_mul("../spec/sbv/generated/p384_ec_mul.sbv") :
   ([384], { x: [384]; y: [384] }) -> { x: [384]; y: [384]; z: [384] };
 
+let ref_mod_mul(p:[384], x:[384], y:[384]) : [384] =
+  trunc(((x # 0:[384]) * (y # 0:[384])) %s (p # 0:[384])) : [384];
+
+pragma ref_mod_mul : SBV "p384_mod_mul"; // Declares that "ref_div" is "mod_div" in Cryptol.
+
+extern SBV ref_ecdsa_sign("../spec/sbv/generated/p384_ecdsa_sign.sbv") :
+  ([384], [384], [384]) -> { r:[384]; s:[384] };

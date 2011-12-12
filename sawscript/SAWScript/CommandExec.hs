@@ -4,6 +4,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module SAWScript.CommandExec(runProofs) where
 
 -- Imports {{{1
@@ -26,6 +27,7 @@ import System.IO (hFlush, stdout)
 import Text.PrettyPrint.HughesPJ
 
 import qualified Execution.Codebase as JSS
+import Simulation (SimulatorExc, ppSimulatorExc)
 import SAWScript.ErrorPlus
 import SAWScript.Utils
 import qualified SAWScript.MethodAST as AST
@@ -501,7 +503,11 @@ runProofs cb ssOpts files = do
         gets (reverse . verifications)
   (errList,res) <-
     handle (\(ExecException absPos errorMsg resolution) ->
-              return ([(absPos,errorMsg, resolution)], False)) $ do
+              return ([(absPos,errorMsg, resolution)], False)) $
+    handle (\(se::SimulatorExc Node) ->
+              return ([( PosInternal "simulation"
+                       , text (ppSimulatorExc se)
+                       , "")], False)) $ do
       (errList, ml) <- evalStateT (runErrorCollectorT action) initState
       case (errList,ml) of
         ([],Just l) -> do

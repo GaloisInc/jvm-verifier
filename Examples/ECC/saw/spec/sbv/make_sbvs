@@ -37,6 +37,8 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 :fm p384_mod_mul      "generated/p384_mod_mul.sbv"
 
 :load sbv_uninterpret_field_ops.cry
+:fm p384_jacobify    "generated/p384_ec_jacobify.sbv"
+:fm p384_affinify    "generated/p384_ec_affinify.sbv"
 :fm p384_ec_double   "generated/p384_ec_double.sbv"
 
 :load sbv_uninterpret_ec_double.cry
@@ -46,6 +48,7 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 :fm p384_ec_full_sub "generated/p384_ec_full_sub.sbv"
 
 :load sbv_uninterpret_ec_point_ops.cry
+:fm p384_ec_mul_init "generated/p384_ec_mul_init.sbv"
 :fm p384_ec_mul_aux "generated/p384_ec_mul_aux.sbv"
 
 :load sbv_uninterpret_ec_mul_aux.cry

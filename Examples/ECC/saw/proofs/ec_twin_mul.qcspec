@@ -1,0 +1,53 @@
+method com.galois.ecc.P384ECC64.ec_twin_mul
+{
+  var args[0]                         :: com.galois.ecc.JacobianPoint;
+  var args[1]                         :: int[12];
+  var args[2]                         :: com.galois.ecc.AffinePoint;
+  var args[3]                         :: int[12];
+  var args[4]                         :: com.galois.ecc.AffinePoint;
+  var args[5]                         :: com.galois.ecc.JacobianPoint;
+  var args[6]                         :: com.galois.ecc.JacobianPoint;
+  var args[7]                         :: com.galois.ecc.AffinePoint;
+  var args[8]                         :: com.galois.ecc.AffinePoint;
+  var this.a                          :: int[24];
+  var this.h                          :: int[12];
+  var this.t1, this.t2, this.t3       :: int[12];
+  var args[0].x, args[0].y, args[0].z :: int[12];
+  var args[2].x, args[2].y            :: int[12];
+  var args[4].x, args[4].y            :: int[12];
+  var args[5].x, args[5].y, args[5].z :: int[12];
+  var args[6].x, args[6].y, args[6].z :: int[12];
+  var args[7].x, args[7].y            :: int[12];
+  var args[8].x, args[8].y            :: int[12];
+
+  var this.field_prime :: int[12];
+  assert valueOf(this.field_prime) := split(field_prime) : [12][32];
+
+  let d0  = join(valueOf(args[1]));
+  let sx = join(valueOf(args[2].x));
+  let sy = join(valueOf(args[2].y));
+  let d1  = join(valueOf(args[3]));
+  let tx = join(valueOf(args[4].x));
+  let ty = join(valueOf(args[4].y));
+
+  let res = ref_ec_twin_mul(d0, { x = sx; y = sy },
+                            d1, { x = tx; y = ty });
+
+  ensure valueOf(args[0].x) := split(res.x) : [12][32];
+  ensure valueOf(args[0].y) := split(res.y) : [12][32];
+  ensure valueOf(args[0].z) := split(res.z) : [12][32];
+  modify valueOf(this.a), valueOf(this.h), 
+         valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  modify valueOf(args[5].x);
+  modify valueOf(args[5].y);
+  modify valueOf(args[5].z);
+  modify valueOf(args[6].x);
+  modify valueOf(args[6].y);
+  modify valueOf(args[6].z);
+  modify valueOf(args[7].x);
+  modify valueOf(args[7].y);
+  modify valueOf(args[8].x);
+  modify valueOf(args[8].y);
+  //quickcheck 1;
+  //verify { rewrite; /*yices; smtlib;*/ };
+};

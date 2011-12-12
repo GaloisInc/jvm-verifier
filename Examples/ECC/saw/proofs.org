@@ -17,12 +17,12 @@ far on a typical developer system.
 
 ** Level 1: Finite field arithmetic
 | Status | Name                 | Java      | Cryptol        | Impl directly calls     | Prereqs | Quickchecks | Verifies | Best | Comments                                          |
-| DONE   | Field Addition       | field_add | p384_field_add | leq, add, decFieldPrime | None    |        1000 | Yes, abc | 37s  |                                                   |
-| DONE   | Field Subtraction    | field_sub | p384_field_sub | sub, incFieldPrime      | None    |        1000 | Yes, abc | 47s  |                                                   |
-| DONE   | Field Doubling       | field_dbl | [fn:1]         | dbl, leq, decFieldPrime | None    |        1000 | Yes, abc | 4s   |                                                   |
-| DONE   | Field Division       | mod_div   | p384_mod_div   |                         |         |          0  | No       | 10s  |                                                   |
-| DONE   | Field Squaring       | field_sq  | p384_field_mul | sq, field_red           |         |         100 | Yes, rw  | <1s  |                                                   |
-| DONE   | Field Multiplication | field_mul | p384_field_mul | mul, field_red          |         |         100 | Yes, rw  | <1s  |                                                   |
+| DONE   | Field Addition       | field_add | p384_field_add | leq, add, decFieldPrime | None    |        1000 | Yes, abc   | 37s  |                                                   |
+| DONE   | Field Subtraction    | field_sub | p384_field_sub | sub, incFieldPrime      | None    |        1000 | Yes, abc   | 47s  |                                                   |
+| DONE   | Field Doubling       | field_dbl | [fn:1]         | dbl, leq, decFieldPrime | None    |        1000 | Yes, abc   | 4s   |                                                   |
+| DONE   | Field Division       | mod_div   | p384_mod_div   |                         |         |           1 | Yes, yices | 10s  |                                                   |
+| DONE   | Field Squaring       | field_sq  | p384_field_mul | sq, field_red           |         |         100 | Yes, rw    | <1s  |                                                   |
+| DONE   | Field Multiplication | field_mul | p384_field_mul | mul, field_red          |         |         100 | Yes, rw    | <1s  |                                                   |
 
 ** Level 2: Curve operations over points
 | Status | Name                   | Java        | Cryptol          | Impl directly calls | Prereqs     | Quickchecks | Verifies      | Comments |
@@ -31,10 +31,10 @@ far on a typical developer system.
 | DONE   | Point Full Subtraction | ec_full_sub | p384_ec_full_sub | ec_full_add, sub    | ec_full_add |         100 | Yes, rw+yices |          |
 
 ** Level 3: Scalar multiplication operations
-| Status | Name                          | Java          | Cryptol          | Impl directly calls | Prereqs | Quickchecks        | Verifies | Comments                                     |
-| INPR   | SD Multiply                   | ec_mul        | p384_ec_mul      | [fn:10]             |         | 0 (counterexample) | No       | Need to investigate CE                       |
-| TODO   | SD Multiply w/ sliding window | ec_mul_window |                  |                     |         | no spec            | No       | Implementation uses, but more complex than ^ |
-| TODO   | Twin multiplication           | ec_twin_mul   | p384_ec_twin_mul |                     |         | no spec            | No       | High risk                                    |
+| Status | Name                          | Java          | Cryptol          | Impl directly calls | Prereqs | Quickchecks | Verifies   | Comments                                     |
+| DONE   | SD Multiply                   | ec_mul        | p384_ec_mul      | [fn:10]             |         | 1           | Yes, yices |
+| TODO   | SD Multiply w/ sliding window | ec_mul_window |                  |                     |         | no spec     | No         | Implementation uses, but more complex than ^ |
+| TODO   | Twin multiplication           | ec_twin_mul   | p384_ec_twin_mul |                     |         | no spec     | No         | High risk                                    |
 
 ** Level 4: ECDSA
 | Status | Name           | Java                | Cryptol                  | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments  |
@@ -52,8 +52,8 @@ far on a typical developer system.
 | INPR   | Field Reduction          | field_red     | p384_field_mod     | decFieldPrime, incFieldPrime |           |      100000 | No                  |          |                                                                                    |
 | DONE   | Increment by field prime | incFieldPrime | p384_incFieldPrime |                              |           |      100000 | Yes, abc            | 2s       |                                                                                    |
 | DONE   | Decrement by field prime | decFieldPrime | p384_decFieldPrime |                              |           |      100000 | Yes, abc            | <2s      |                                                                                    |
-| INPR   | EC Mul Aux               | ec_mul_aux    | p384_ec_mul_aux    | p384_ec_full_add/sub         | [fn:11]   |         100 | Yes, rewriter       | <1s      | Also discharged by yices.                                                          |
-| TODO   | Large-Word Multiply      | mul           |                    |                              |           |     no spec | No                  |          | Perhaps not high-pri if it can be successfully uninterpreted in proofs that use it |
+| DONE   | EC Mul Aux               | ec_mul_aux    | p384_ec_mul_aux    | p384_ec_full_add/sub         | [fn:11]   |         100 | Yes, rewriter       | <1s      | Also discharged by yices.                                                          |
+| INPR   | Large-Word Multiply      | mul           |                    |                              |           |         100 | No                  |          | Perhaps not high-pri if it can be successfully uninterpreted in proofs that use it |
 | DONE   | Add mod group size       | group_add     | p384_group_add     | leq, sub                     |           |        1000 | Yes, rewriter+yices | 6s       | Also discharged by abc and yices without rewriting.                                |
 | TODO   | Mult mod group size      | group_mul     |                    |                              |           |     no spec | No                  |          |                                                                                    |
 | DONE   | array assignment         | assign        | trivial            |                              |           |          -- | Yes, abc            | <2s      |                                                                                    |
