@@ -1045,7 +1045,9 @@ validateMethodSpec
                                               (pvcEndPC pvc))
                                  (\_ -> return $ vcat (pvcStaticErrors pvc))
                g <- deImplies de (pvcAssumptions pvc) (mkCBool False)
-               putStrLn $ "Calling runVerify with " ++ prettyTerm (pvcAssumptions pvc)
+               when (verb >= 3) $ do
+                 putStrLn $ "Calling runVerify with " ++
+                            prettyTerm (pvcAssumptions pvc)
                runVerify vs g cmds
 
 data VerifyState = VState {
