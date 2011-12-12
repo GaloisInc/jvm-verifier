@@ -142,6 +142,14 @@ rule affineY :
   forAll { x0 : a, y0 : a }.
     { x = x0 ; y = y0 }.y -> y0;
 
+rule sigR :
+  forAll { r0 : a, s0 : a }.
+    { r = r0 ; s = s0 }.r -> r0;
+
+rule sigS :
+  forAll { r0 : a, s0 : a }.
+    { r = r0 ; s = s0 }.s -> s0;
+
 ////
 
 rule trunc_shift_get : forAll {x:[384], s:[9]}.
