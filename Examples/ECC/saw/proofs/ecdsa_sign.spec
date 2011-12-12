@@ -60,7 +60,7 @@ method com.galois.ecc.P384ECC64.signHash
 
   ensure valueOf(args[0].r) := split(res.r) : [12][32];
   ensure valueOf(args[0].s) := split(res.s) : [12][32];
-  return res.r == 0:[384] || res.s == 0:[384];
+  return true;
 
   modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   modify valueOf(this.rP.x);
@@ -72,6 +72,11 @@ method com.galois.ecc.P384ECC64.signHash
   modify valueOf(this.basePoint3.x);
   modify valueOf(this.basePoint.y);
   modify valueOf(this.basePoint.x);
-  //quickcheck 1;
-  verify { rewrite; /*yices; smtlib;*/ };
+  modify valueOf(this.group_order);
+  modify valueOf(this.field_unit);
+  modify valueOf(this.field_prime);
+  modify valueOf(args[3]);
+  modify valueOf(args[2]);
+  modify valueOf(args[1]);
+  verify { rewrite; yices; };
 };
