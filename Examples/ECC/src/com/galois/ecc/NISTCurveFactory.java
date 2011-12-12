@@ -1049,20 +1049,18 @@ class P384ECC64 extends NIST64 {
     // Subtract prime_field if necessary.
     if (d > 0) {
       long of = d;
-      d = (z[ 0] & LONG_MASK) + of;
-      z[ 0] = (int) d; d >>= 32;
-      d += (z[ 1] & LONG_MASK) - of;
-      z[ 1] = (int) d; d >>= 32;
-      d += (z[ 2] & LONG_MASK);
-      z[ 2] = (int) d; d >>= 32;
-      d += (z[ 3] & LONG_MASK) + of;
-      z[ 3] = (int) d; d >>= 32;
-      d += (z[ 4] & LONG_MASK) + of;
-      z[ 4] = (int) d; d >>= 32;
-      for (int i = 5; i != 12; ++i) {
-        d += z[i] & LONG_MASK;
-        z[i] = (int) d; d >>= 32;
-      }
+      d =     (z[ 0] & LONG_MASK) + of; z[ 0] = (int) d; d >>= 32;
+      d = d + (z[ 1] & LONG_MASK) - of; z[ 1] = (int) d; d >>= 32;
+      d = d + (z[ 2] & LONG_MASK)     ; z[ 2] = (int) d; d >>= 32;
+      d = d + (z[ 3] & LONG_MASK) + of; z[ 3] = (int) d; d >>= 32;
+      d = d + (z[ 4] & LONG_MASK) + of; z[ 4] = (int) d; d >>= 32;
+      d = d + (z[ 5] & LONG_MASK)     ; z[ 5] = (int) d; d >>= 32;
+      d = d + (z[ 6] & LONG_MASK)     ; z[ 6] = (int) d; d >>= 32;       
+      d = d + (z[ 7] & LONG_MASK)     ; z[ 7] = (int) d; d >>= 32;       
+      d = d + (z[ 8] & LONG_MASK)     ; z[ 8] = (int) d; d >>= 32;       
+      d = d + (z[ 9] & LONG_MASK)     ; z[ 9] = (int) d; d >>= 32;       
+      d = d + (z[10] & LONG_MASK)     ; z[10] = (int) d; d >>= 32;       
+      d = d + (z[11] & LONG_MASK)     ; z[11] = (int) d; d >>= 32;       
     }
     // Perform final subtraction if neccary.
     if (d > 0 || leq(field_prime, z)) decFieldPrime(z); 

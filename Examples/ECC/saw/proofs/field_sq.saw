@@ -3,7 +3,7 @@ import "rules.saw";
 
 set verification off;
 import "sq.qcspec";
-import "field_red.qcspec";
+import "field_red.spec";
 set verification on;
 
 enable ref_field_sq;
