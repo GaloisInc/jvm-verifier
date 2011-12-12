@@ -384,7 +384,7 @@ ecdsa_sign(c,d,e,k) = if is_zero(r) | is_zero(s) then (0,0) else (r, s)
     j = (c.affinify(c.mul(k, c.base))).x;
     /* c) Set r = j mod n */
     r = g.norm(j);
-    s = g.div(g.add(e, g.mul(d, r)), k);
+    s = g.div(g.add(g.norm(e), g.mul(d, r)), k);
   };
 
 /**
