@@ -17,6 +17,20 @@ method com.galois.ecc.P384ECC64.signHash
   var this.rP.x                       :: int[12];
   var this.rP.y                       :: int[12];
   var this.rP.z                       :: int[12];
+  var this.sPtP                       :: com.galois.ecc.JacobianPoint;
+  var this.sPtP.x                     :: int[12];
+  var this.sPtP.y                     :: int[12];
+  var this.sPtP.z                     :: int[12];
+  var this.sMtP                       :: com.galois.ecc.JacobianPoint;
+  var this.sMtP.x                     :: int[12];
+  var this.sMtP.y                     :: int[12];
+  var this.sMtP.z                     :: int[12];
+  var this.sPt                        :: com.galois.ecc.AffinePoint;
+  var this.sPt.x                      :: int[12];
+  var this.sPt.y                      :: int[12];
+  var this.sMt                        :: com.galois.ecc.AffinePoint;
+  var this.sMt.x                      :: int[12];
+  var this.sMt.y                      :: int[12];
   var this.basePoint                  :: com.galois.ecc.AffinePoint;
   var this.basePoint.x                :: int[12];
   var this.basePoint.y                :: int[12];
@@ -63,9 +77,11 @@ method com.galois.ecc.P384ECC64.signHash
   return res.r == 0:[384] || res.s == 0:[384];
 
   modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-  modify valueOf(this.rP.x);
-  modify valueOf(this.rP.y);
-  modify valueOf(this.rP.z);
+  modify valueOf(this.rP.x), valueOf(this.rP.y), valueOf(this.rP.z);
+  modify valueOf(this.sPtP.x), valueOf(this.sPtP.y), valueOf(this.sPtP.z);
+  modify valueOf(this.sMtP.x), valueOf(this.sMtP.y), valueOf(this.sMtP.z);
+  modify valueOf(this.sPt.x), valueOf(this.sPt.y);
+  modify valueOf(this.sMt.x), valueOf(this.sMt.y);
   modify valueOf(this.basePoint5.y);
   modify valueOf(this.basePoint5.x);
   modify valueOf(this.basePoint3.y);

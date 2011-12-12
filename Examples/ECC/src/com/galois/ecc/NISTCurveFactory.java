@@ -937,7 +937,6 @@ class P384ECC64 extends NIST64 {
 
   /* Original field_red implemenation, for reference */
   public void field_red_orig(int[] z, int[] a) {
-    System.out.println("field_red_orig entry.");
     long d;
 
     long a12 = a[12] & LONG_MASK;

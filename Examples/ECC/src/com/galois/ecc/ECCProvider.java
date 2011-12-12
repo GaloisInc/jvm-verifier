@@ -988,8 +988,7 @@ public abstract class ECCProvider {
 
     // Fail if the r coordinate is zero (should be rare)
     if (is_zero(signature.r)) {
-      // FIXME!
-      //cleanup();
+      cleanup();
       return false;
     }
 
@@ -999,8 +998,7 @@ public abstract class ECCProvider {
     // Let signature.s = (e + d * sig_r) / ephemeralKey (mod group_order)
     mod_div(signature.s, h, ephemeralKey, group_order);
     boolean failed = is_zero(signature.s);
-    // FIXME!
-    //cleanup();
+    cleanup();
     return !failed;
   }
 

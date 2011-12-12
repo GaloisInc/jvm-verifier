@@ -507,13 +507,13 @@ step (Invokeinterface iName key) = {-# SCC "Invokeinterface" #-}  do
 step (Invokespecial (ClassType methodClass) key) = {-# SCC "Invokespecial" #-}  do
   currentClassName <- getCurrentClassName
   reverseArgs      <- replicateM (length (methodKeyParameterTypes key)) popValue
-  objectRef        <- rPop
-  cb <- getCodebase
-  currentClass <- liftIO $ lookupClass cb currentClassName
-  let args         = reverse reverseArgs
-      call cl      = do gotoNextInstruction
-                        invokeInstanceMethod cl key objectRef args
-  b <- liftIO $ isStrictSuper cb methodClass currentClass
+  cb               <- getCodebase
+  currentClass     <- liftIO $ lookupClass cb currentClassName
+  objectRef        <- flip coerceRef (ClassType (className currentClass)) =<< rPop
+  b                <- liftIO $ isStrictSuper cb methodClass currentClass
+  let args          = reverse reverseArgs
+      call cl       = do gotoNextInstruction
+                         invokeInstanceMethod cl key objectRef args
   if classHasSuperAttribute currentClass && b && methodKeyName key /= "<init>"
     then do
       dynBind' methodClass key objectRef $ \cl ->
