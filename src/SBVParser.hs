@@ -712,9 +712,9 @@ evalSBV oc
                       _opDecls))
         de
         inps
-  | not (vMajor == 4 && vMinor == 0) = 
+  | not (vMajor == 4 && vMinor == 0) =
      throwIO $ SBVBadFileVersion vMajor vMinor
-  | not (null vc) = 
+  | not (null vc) =
      throwIO $ SBVUnsupportedFeature
              $ "SBV Parser does not support loading SBV files with a "
                ++ "verification condition."
@@ -735,7 +735,7 @@ evalSBV oc
      let inputMap = Map.fromList (inputNodes `zip` inputs)
      outputs <- evalStateT (mapM (\(SBVE fn) -> fn ts) outputEvals)
                            inputMap
-     joinSBVTerm oc resType outputTypes ts 
+     joinSBVTerm oc resType outputTypes ts
             (V.map return (V.fromList outputs))
  where (argTypes, resType) = parseSBVType oc pgrm
        (inputTypes, inputFns) = V.unzip $ V.map splitInput argTypes

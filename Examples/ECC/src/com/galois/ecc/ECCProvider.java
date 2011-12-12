@@ -216,6 +216,15 @@ public abstract class ECCProvider {
     }
   }
 
+  // Exposed in ECCProvider for testing purposes; should really be a
+  // protected abstract method of NIST32/NIST64.
+  public abstract void field_red(int[] z, int[] a);
+
+  //tmp delete_me
+  public abstract int field_red_aux(int[] z, int[] a);
+  public abstract void field_red_orig(int[] z, int[] a);
+  //tmp delete_me
+
   // Abstract operations {{{2
   // Large word operations {{{3
   /**
@@ -971,8 +980,8 @@ public abstract class ECCProvider {
 
     // Fail if the r coordinate is zero (should be rare)
     if (is_zero(signature.r)) {
-      //cleanup(); //FIXME!
       set_zero(signature.s);
+      cleanup();
       return false;
     }
 
@@ -982,9 +991,8 @@ public abstract class ECCProvider {
     // Let signature.s = (e + d * sig_r) / ephemeralKey (mod group_order)
     mod_div(signature.s, h, ephemeralKey, group_order);
     boolean failed = is_zero(signature.s);
-    //cleanup(); //FIXME!
-
     if(failed) set_zero(signature.r);
+    cleanup();
     return !failed;
   }
 

@@ -8,6 +8,9 @@ method com.galois.ecc.P384ECC64.verifySignature
   var this.t1, this.t2, this.t3       :: int[12];
   var args[1].r, args[1].s            :: int[12];
   var args[2].x, args[2].y            :: int[12];
+  var this.qPoint                     :: com.galois.ecc.AffinePoint;
+  var this.qPoint.x                   :: int[12];
+  var this.qPoint.y                   :: int[12];
   var this.basePoint                  :: com.galois.ecc.AffinePoint;
   var this.basePoint.x                :: int[12];
   var this.basePoint.y                :: int[12];
@@ -34,6 +37,7 @@ method com.galois.ecc.P384ECC64.verifySignature
 
   modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   /*
+  modify valueOf(this.qPoint.y), valueOf(this.q.x);
   modify valueOf(this.basePoint.y);
   modify valueOf(this.basePoint.x);
   modify valueOf(args[2].x);

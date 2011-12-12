@@ -7,14 +7,16 @@
 TOP=../../../..
 JAVA_IMPL=../../build
 
-
 SAWSCRIPT:=$(TOP)/dist/build/sawScript/sawScript
 CLASSES_JAR:=$(TOP)/jdk1.6/classes.jar
 RUNSAWSCRIPT:=$(SAWSCRIPT) -c $(JAVA_IMPL) -j$(CLASSES_JAR) +RTS -K64M -RTS
 
 REF_IMPL_SOURCE := spec/ecc.cry spec/Set.cry spec/Morphism.cry spec/Field.cry
 
-all: make_sbvs verify
+all: make_java make_sbvs verify
+
+make_java:
+	(cd .. && make build)
 
 make_sbvs: 
 	(cd spec/sbv && sh make_sbvs)
@@ -36,6 +38,7 @@ PROOFS :=              \
   field_mul3.saw       \
   field_mul4.saw       \
   field_mul8.saw       \
+  field_red_aux.saw    \
   field_red.saw        \
   field_sq.saw         \
   field_sub.saw        \

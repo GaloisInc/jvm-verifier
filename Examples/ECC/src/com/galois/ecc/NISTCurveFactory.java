@@ -15,6 +15,20 @@ package com.galois.ecc;
  * operations and types, so that it can be run on the SCORE processor.
  */
 abstract class NIST32 extends ECCProvider {
+  // tmp delete_me
+  public void field_red_orig(int[] z, int[] a) {
+    System.out.println("field_red_orig not implemented for NIST32");
+  }
+  public int field_red_aux(int[] z, int[] a) {
+    System.out.println("field_red_aux not implemented for NIST32");
+    return 0;
+  }
+  public int field_red_aux_dummy(int[] z, int[] a) {
+    System.out.println("field_red_aux_dummy not implemented for NIST32");
+    return 0;
+  }
+  // tmp delete_me
+
   /**
    * Intermediate buffer used for field multiplication and squaring.
    */
@@ -303,8 +317,6 @@ abstract class NIST32 extends ECCProvider {
     field_red(z, a);
   }
 
-  protected abstract void field_red(int[] z, int[] a);
-
   protected void field_sq(int[] z, int[] x) {
     sq(a, x);
     field_red(z, a);
@@ -548,8 +560,6 @@ abstract class NIST64 extends ECCProvider {
 
   // Underlying field operations {{{2
   
-  protected abstract void field_red(int[] z, int[] a);
-
   protected void field_mul(int[] z, int[] x, int[] y) {
     mul(a, x, y);
     field_red(z, a);
@@ -742,7 +752,7 @@ class P384ECC32 extends NIST32 {
     return c + 1;
   }
 
-  protected void field_red(int[] z, int[] a) {
+  public void field_red(int[] z, int[] a) {
     int a12l = a[12] & INT_MASK; int a12h = a[12] >>> 16;
     int a13l = a[13] & INT_MASK; int a13h = a[13] >>> 16;
     int a14l = a[14] & INT_MASK; int a14h = a[14] >>> 16;
@@ -925,7 +935,8 @@ class P384ECC64 extends NIST64 {
     return 1 + (int) b;
   }
 
-  protected void field_red(int[] z, int[] a) {
+  /* Original field_red implemenation, for reference */
+  public void field_red_orig(int[] z, int[] a) {
     long d;
 
     long a12 = a[12] & LONG_MASK;
@@ -941,15 +952,40 @@ class P384ECC64 extends NIST64 {
     long a22 = a[22] & LONG_MASK;
     long a23 = a[23] & LONG_MASK;
 
-    // s1 =     (zero : [128])    # a21 # a22 # a23 #      (zero : [160])         # z32;
-    // s2 = a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # a21 # a22 # a23 # z32;
-    // s3 = a21 # a22 # a23 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # z32;
-    // s4 = z32 # a23 # z32 # a20 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # z32;
-    // s5 =     (zero : [128])    # a20 # a21 # a22 # a23 #    (zero : [128])     # z32;
-    // s6 = a20 #    z64    # a21 # a22 # a23 #          (zero : [192])           # z32;
-    // d1 = a23 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # a21 # a22 # z32;
-    // d2 = z32 # a20 # a21 # a22 # a23 #              (zero : [224])             # z32;
-    // d3 =  (zero : [96])  # a23 # a23 #              (zero : [224])             # z32;
+    // Cryptol implementation (with minor tweaks for clarity):
+    // z32 = zero : [32];
+    // p   = p384_prime # z32;
+    //
+    // t   =  a0 #  a1 #  a2 #  a3 #  a4 #  a5 #  a6 #  a7 #  a8 #  a9 # a10 # a11 # z32;
+    // s1  = z32 # z32 # z32 # z32 # a21 # a22 # a23 # z32 # z32 # z32 # z32 # z32 # z32;
+    // s2  = a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # a21 # a22 # a23 # z32;
+    // s3  = a21 # a22 # a23 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # z32; 
+    // s4  = z32 # a23 # z32 # a20 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # z32;
+    // s5  = z32 # z32 # z32 # z32 # a20 # a21 # a22 # a23 # z32 # z32 # z32 # z32 # z32;
+    // s6  = a20 # z32 # z32 # a21 # a22 # a23 # z32 # z32 # z32 # z32 # z32 # z32 # z32;
+    // d1  = a23 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # a21 # a22 # z32;
+    // d2  = z32 # a20 # a21 # a22 # a23 # z32 # z32 # z32 # z32 # z32 # z32 # z32 # z32;
+    // d3  = z32 # z32 # z32 # a23 # a23 # z32 # z32 # z32 # z32 # z32 # z32 # z32 # z32;
+    // d1' = p - d1;
+    // r   = t + (s1 << 1) + s2 + s3 + s4 + s5 + s6 + d1' - d2 - d3;
+    //
+    // The Java and Cryptol operations can be thought of as transposes of one
+    // another.  Each computation of 'd' below corresponds to the add/sub of
+    // each element from one "column" of bitvector slices in the above Cryptol
+    // code, added/subtracted/left-shifted according to the definition of 'r' in
+    // Cryptol.
+    // 
+    // The Cryptol implementation adds/subs 10 numbers (t, s1..s6, d1..d3) in
+    // computing 'r'; call these 'components of r'.
+    // 
+    // The Java implementation below is essentially a RCA that:
+    //   - add/sub lowest-order 32 bits of each component of 'r', storing the
+    //       result in z[0] and leaving the carry in d for the next step
+    //   - start with the carry in d from the last step, then add/sub the next
+    //       lowest-order 32 bits of each component of 'r', storing the result
+    //       in z[1] and leaving the carry in d for the next step
+    //   - ... and so on
+    // 
 
     d =  (a[ 0] & LONG_MASK)              + a12 + a21       + a20       - a23;
     z[ 0] = (int) d; d >>= 32;
@@ -976,7 +1012,6 @@ class P384ECC64 extends NIST64 {
     d += (a[11] & LONG_MASK)              + a23 + a20 + a19             - a22;
     z[11] = (int) d; d >>= 32;
 
-
     if (d < 0) {
       incFieldPrime(z);
       return;
@@ -1002,6 +1037,78 @@ class P384ECC64 extends NIST64 {
     }
     // Perform final subtraction if neccary.
     if (d > 0 || leq(field_prime, z)) decFieldPrime(z); 
+  }
+
+ public void field_red(int[] z, int[] a) {
+    long d = field_red_aux(z,a);
+    if (d < 0) {
+      incFieldPrime(z);
+      return;
+    }
+    // Subtract prime_field if necessary.
+    if (d > 0) {
+      long of = d;
+      d =     (z[ 0] & LONG_MASK) + of; z[ 0] = (int) d; d >>= 32;
+      d = d + (z[ 1] & LONG_MASK) - of; z[ 1] = (int) d; d >>= 32;
+      d = d + (z[ 2] & LONG_MASK)     ; z[ 2] = (int) d; d >>= 32;
+      d = d + (z[ 3] & LONG_MASK) + of; z[ 3] = (int) d; d >>= 32;
+      d = d + (z[ 4] & LONG_MASK) + of; z[ 4] = (int) d; d >>= 32;
+      d = d + (z[ 5] & LONG_MASK)     ; z[ 5] = (int) d; d >>= 32;
+      d = d + (z[ 6] & LONG_MASK)     ; z[ 6] = (int) d; d >>= 32;       
+      d = d + (z[ 7] & LONG_MASK)     ; z[ 7] = (int) d; d >>= 32;       
+      d = d + (z[ 8] & LONG_MASK)     ; z[ 8] = (int) d; d >>= 32;       
+      d = d + (z[ 9] & LONG_MASK)     ; z[ 9] = (int) d; d >>= 32;       
+      d = d + (z[10] & LONG_MASK)     ; z[10] = (int) d; d >>= 32;       
+      d = d + (z[11] & LONG_MASK)     ; z[11] = (int) d; d >>= 32;       
+    }
+    // Perform final subtraction if neccary.
+    if (d > 0 || leq(field_prime, z)) decFieldPrime(z); 
+  }
+
+  public int field_red_aux(int[] z, int[] a) {
+    long a0  = a[ 0] & LONG_MASK; long a12 = a[12] & LONG_MASK;
+    long a1  = a[ 1] & LONG_MASK; long a13 = a[13] & LONG_MASK;
+    long a2  = a[ 2] & LONG_MASK; long a14 = a[14] & LONG_MASK;
+    long a3  = a[ 3] & LONG_MASK; long a15 = a[15] & LONG_MASK;
+    long a4  = a[ 4] & LONG_MASK; long a16 = a[16] & LONG_MASK;
+    long a5  = a[ 5] & LONG_MASK; long a17 = a[17] & LONG_MASK;
+    long a6  = a[ 6] & LONG_MASK; long a18 = a[18] & LONG_MASK;
+    long a7  = a[ 7] & LONG_MASK; long a19 = a[19] & LONG_MASK;
+    long a8  = a[ 8] & LONG_MASK; long a20 = a[20] & LONG_MASK;
+    long a9  = a[ 9] & LONG_MASK; long a21 = a[21] & LONG_MASK;
+    long a10 = a[10] & LONG_MASK; long a22 = a[22] & LONG_MASK;
+    long a11 = a[11] & LONG_MASK; long a23 = a[23] & LONG_MASK;
+    long d;
+
+    d =     a0 + a12 + a21 + a20 - a23;                                       z[ 0] = (int) d; d >>= 32;
+    d = d + a1 + a13 + a22 + a23 - a12 - a20;                                 z[ 1] = (int) d; d >>= 32;
+    d = d + a2 + a14 + a23 - a13 - a21;                                       z[ 2] = (int) d; d >>= 32;
+    d = d + a3 + a15 + a12 + a20 + a21 - a14 - a22 - a23;                     z[ 3] = (int) d; d >>= 32;
+    d = d + a4 + (a21 << 1) + a16 + a13 + a12 + a20 + a22 - a15 - (a23 << 1); z[ 4] = (int) d; d >>= 32;
+    d = d + a5 + (a22 << 1) + a17 + a14 + a13 + a21 + a23 - a16;              z[ 5] = (int) d; d >>= 32;
+    d = d + a6 + (a23 << 1) + a18 + a15 + a14 + a22       - a17;              z[ 6] = (int) d; d >>= 32;
+    d = d + a7 + a19 + a16 + a15 + a23 - a18;                                 z[ 7] = (int) d; d >>= 32;
+    d = d + a8 + a20 + a17 + a16 - a19;                                       z[ 8] = (int) d; d >>= 32;
+    d = d + a9 + a21 + a18 + a17 - a20;                                       z[ 9] = (int) d; d >>= 32;
+    d = d + a10 + a22 + a19 + a18 - a21;                                      z[10] = (int) d; d >>= 32;
+    d = d + a11 + a23 + a20 + a19 - a22;                                      z[11] = (int) d; d >>= 32;
+
+    return (int) d;
+
+    // long d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11;
+    // long zd0  =  a0 + a12 + a21 + a20 - a23;                                            z[ 0] = (int) zd0;  d0  = zd0 >> 32;
+    // long zd1  =  d0 + a1 + a13 + a22 + a23 - a12 - a20;                                 z[ 1] = (int) zd1;  d1  = zd1 >> 32;
+    // long zd2  =  d1 + a2 + a14 + a23 - a13 - a21;                                       z[ 2] = (int) zd2;  d2  = zd2 >> 32;
+    // long zd3  =  d2 + a3 + a15 + a12 + a20 + a21 - a14 - a22 - a23;                     z[ 3] = (int) zd3;  d3  = zd3 >> 32;
+    // long zd4  =  d3 + a4 + (a21 << 1) + a16 + a13 + a12 + a20 + a22 - a15 - (a23 << 1); z[ 4] = (int) zd4;  d4  = zd4 >> 32;
+    // long zd5  =  d4 + a5 + (a22 << 1) + a17 + a14 + a13 + a21 + a23 - a16;              z[ 5] = (int) zd5;  d5  = zd5 >> 32;
+    // long zd6  =  d5 + a6 + (a23 << 1) + a18 + a15 + a14 + a22       - a17;              z[ 6] = (int) zd6;  d6  = zd6 >> 32;
+    // long zd7  =  d6 + a7 + a19 + a16 + a15 + a23 - a18;                                 z[ 7] = (int) zd7;  d7  = zd7 >> 32;
+    // long zd8  =  d7 + a8 + a20 + a17 + a16 - a19;                                       z[ 8] = (int) zd8;  d8  = zd8 >> 32;
+    // long zd9  =  d8 + a9 + a21 + a18 + a17 - a20;                                       z[ 9] = (int) zd9;  d9  = zd9 >> 32;
+    // long zd10 =  d9 + a10 + a22 + a19 + a18 - a21;                                      z[10] = (int) zd10; d10 = zd10 >> 32;
+    // long zd11 = d10 + a11 + a23 + a20 + a19 - a22;                                      z[11] = (int) zd11; d11 = zd11 >> 32;
+    // return (int) d11;
   }
 }
 
