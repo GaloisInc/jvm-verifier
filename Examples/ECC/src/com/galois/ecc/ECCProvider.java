@@ -938,61 +938,56 @@ public abstract class ECCProvider {
     if (privateKey == null) throw new NullPointerException("privateKey");
     if (privateKey.length != width)
        throw new IllegalArgumentException("Unexpected private key size.");
-    // FIXME!
-    /*
     if (is_zero(privateKey))
       throw new IllegalArgumentException("privateKey is zero.");
     if (leq(group_order, privateKey))
       throw new IllegalArgumentException("privateKey must be less than group order.");
-    */
 
     if (hashValue == null) throw new NullPointerException("hashValue");
     if (hashValue.length != width)
        throw new IllegalArgumentException("hashValue has incorrect size.");
-    if (leq(group_order, hashValue)) sub(hashValue, hashValue, group_order); 
-
+    if (leq(group_order, hashValue)) sub(hashValue, hashValue, group_order);
     // Check emphemeral key
     if (ephemeralKey == null) throw new NullPointerException("ephemeralKey");
     if (ephemeralKey.length != width)
        throw new IllegalArgumentException("Unexpected ephemeral key size.");
-    // FIXME!
-    /*
     if (is_zero(ephemeralKey))
       throw new IllegalArgumentException("ephemeralKey is zero.");
     if (leq(group_order, ephemeralKey))
       throw new IllegalArgumentException("ephemeralKey must be less than group order.");
-    */
 
-    ec_mul(rP, ephemeralKey, basePoint);
-    // FIXME!
-    //ec_mul_window(rP, ephemeralKey, basePoint, basePoint3, basePoint5);
+    //ec_mul(rP, ephemeralKey, basePoint);
+    ec_mul_window(rP, ephemeralKey, basePoint, basePoint3, basePoint5);
 
     int[] r = signature.r;
 
     // Get affine coordinate for rP.x
     mod_div(r, field_unit, rP.z, field_prime); // rX = 1 / rP.z
     field_sq(r, r); // r = 1 / rP.z^2
-    field_mul(r, rP.x, r); // r = rP.x / rP.z^2
+    field_mul(r, r, rP.x); // r = rP.x / rP.z^2
 
     // Subtract group_order from rX if needed (should be rare).
     if (leq(group_order, r)) sub(r, r, group_order);
 
     // Fail if the r coordinate is zero (should be rare)
     if (is_zero(signature.r)) {
-      // FIXME!
-      //cleanup();
-      return false;
+      //cleanup(); //FIXME!
+      set_zero(signature.s);
+      //return false;
+      return true; //FIXME!
     }
 
     group_mul(h, privateKey, signature.r);
-    group_add(h, h, hashValue);
+    group_add(h, hashValue, h);
 
     // Let signature.s = (e + d * sig_r) / ephemeralKey (mod group_order)
     mod_div(signature.s, h, ephemeralKey, group_order);
     boolean failed = is_zero(signature.s);
-    // FIXME!
-    //cleanup();
-    return !failed;
+    //cleanup(); //FIXME!
+
+    if(failed) set_zero(signature.r);
+    //return !failed;
+    return true; //FIXME!
   }
 
   /**
