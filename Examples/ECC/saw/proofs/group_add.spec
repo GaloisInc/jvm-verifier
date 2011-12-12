@@ -6,6 +6,6 @@ method com.galois.ecc.P384ECC64.group_add
   assert valueOf(this.group_order) := split(group_order) : [12][32];
   let jx = join(valueOf(x));
   let jy = join(valueOf(y));
-  ensure valueOf(z) := split(ref_group_add(jx, jy)) : [12][32];
+  ensure valueOf(z) := split(ref_mod_add(group_order, jx, jy)) : [12][32];
   verify{ rewrite; yices; };
 };
