@@ -995,6 +995,55 @@ writeToNewFile path defaultExt m =
           else 
             withFile nm WriteMode m >> return nm
 
+
+writeBlif :: DagEngine -> [PathVC] -> FilePath -> IO FilePath
+writeBlif de results path = do
+  iTypes <- deInputTypes de
+  -- 1. Generate BLIF for each verification path.
+  writeToNewFile path ".blif" $ \h -> do
+    Blif.writeBLIF h $ do
+      let joinModels ml inputs = do
+            Blif.mkConjunction
+              =<< mapM (\m -> Blif.mkSubckt m inputs SymBool) ml
+      models <-
+        forM ([0..] `zip` results) $ \(i,pvc) -> do
+          let pathname = "path_" ++ show i ++ "_"
+          --TOOD: Get path check name.
+          condModel <- 
+            Blif.addModel (pathname ++ "cond") iTypes SymBool $
+              Blif.mkTermCircuit (pvcAssumptions pvc)
+          if null (pvcStaticErrors pvc) then do
+            let addCheck (AssertionCheck nm t) = do
+                  Blif.addModel (pathname ++ nm) iTypes SymBool $ \il -> do
+                    condVal <- Blif.mkSubckt condModel il SymBool
+                    predVal <- Blif.mkTermCircuit t il
+                    Blif.mkImplication condVal predVal
+                addCheck (EqualityCheck nm simTerm expTerm) = do
+                  let tp = termType simTerm
+                  simModel <-
+                    Blif.addModel (pathname ++ nm ++ "_lhs") iTypes tp $ \il ->
+                      Blif.mkTermCircuit simTerm il
+                  expModel <-
+                    Blif.addModel (pathname ++ nm ++ "_rhs") iTypes tp $ \il ->
+                      Blif.mkTermCircuit expTerm il
+                  let goalName = pathname ++ nm ++ "_goal"
+                  Blif.addModel goalName iTypes SymBool $ \il -> do
+                    condVal <- Blif.mkSubckt condModel il SymBool
+                    simVal <- Blif.mkSubckt simModel il tp
+                    expVal <- Blif.mkSubckt expModel il tp
+                    Blif.mkImplication condVal
+                      =<< Blif.mkEquality tp simVal expVal
+            checks <- mapM addCheck (pvcChecks pvc)
+            Blif.addModel (pathname ++ "goal") iTypes SymBool $
+              joinModels checks
+          else do
+            let goalName = pathname ++ "goal"
+            Blif.addModel goalName iTypes SymBool $ \inputs -> do
+              Blif.mkNegation <$> Blif.mkSubckt condModel inputs SymBool
+      void $ Blif.addModel "all" iTypes SymBool $ \inputs ->
+        Blif.mkNegation <$> joinModels models inputs
+
+
 -- | Attempt to verify method spec using verification method specified.
 validateMethodSpec :: VerifyParams -> IO ()
 validateMethodSpec
@@ -1033,52 +1082,11 @@ validateMethodSpec
       QuickCheck n lim -> do
         forM_ results $ \pvc -> do
           testRandom de verb ir (fromInteger n) (fromInteger <$> lim) pvc
-      Blif (Just path) -> do
-        -- 1. Generate BLIF for each verification path.
-        blif <- Blif.defineBLIF $ do
-          let mInputs = V.mapM Blif.mkInputTerm =<< liftIO (deInputTypes de)
-          let joinModels ml = do
-                inputs <- mInputs
-                Blif.mkConjunction
-                  =<< mapM (\m -> Blif.mkSubckt m inputs SymBool) ml
-          models <-
-            forM ([0..] `zip` results) $ \(i,pvc) -> do
-              let pathname = "path_" ++ show i ++ "_"
-              --TOOD: Get path check name.
-              condModel <- 
-                Blif.addModel (pathname ++ "cond") $
-                  Blif.mkTermCircuit (pvcAssumptions pvc) =<< mInputs
-              if null (pvcStaticErrors pvc) then do
-                let addCheck (AssertionCheck nm t) =
-                      Blif.addModel (pathname ++ nm) $ do
-                        inputs <- mInputs
-                        condVal <- Blif.mkSubckt condModel inputs SymBool
-                        predVal <- Blif.mkTermCircuit t inputs
-                        Blif.mkImplication condVal predVal
-                    addCheck (EqualityCheck nm simTerm expTerm) = do
-                      let tp = termType simTerm
-                      simModel <-
-                        Blif.addModel (pathname ++ nm ++ "_lhs") $
-                          Blif.mkTermCircuit simTerm =<< mInputs
-                      expModel <-
-                        Blif.addModel (pathname ++ nm ++ "_rhs") $
-                          Blif.mkTermCircuit expTerm =<< mInputs
-                      Blif.addModel (pathname ++ nm ++ "_goal") $ do
-                        inputs <- mInputs
-                        condVal <- Blif.mkSubckt condModel inputs SymBool
-                        simVal <- Blif.mkSubckt simModel inputs tp
-                        expVal <- Blif.mkSubckt expModel inputs tp
-                        Blif.mkImplication condVal
-                          =<< Blif.mkEquality tp simVal expVal
-                checks <- mapM addCheck (pvcChecks pvc)
-                Blif.addModel (pathname ++ "goal") $ joinModels checks
-              else
-                Blif.addModel (pathname ++ "goal") $ do
-                  inputs <- mInputs
-                  Blif.mkNegation <$> Blif.mkSubckt condModel inputs SymBool
-          void $ Blif.addModel "all" $ 
-            Blif.mkNegation <$> joinModels models
-        nm <- writeToNewFile path ".blif" (flip Blif.write blif)
+      Blif mpath -> do
+        let path = case mpath of
+                     Just p -> p
+                     Nothing -> JSS.methodName (specMethod ir)
+        nm <- writeBlif de results path
         putStrLn $ "Written to " ++ show nm ++ "." 
       Verify cmds -> do
         forM_ results $ \pvc -> do
