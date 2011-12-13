@@ -1058,7 +1058,7 @@ public abstract class ECCProvider {
     if (hashValue == null) throw new NullPointerException("hashValue");
     if (hashValue.length != width)
        throw new IllegalArgumentException("hashValue has incorrect size.");
-    if (leq(group_order, hashValue)) sub(hashValue, hashValue, group_order); 
+    if (leq(group_order, hashValue)) sub(hashValue, hashValue, group_order);
 
     if (signature == null) throw new NullPointerException("signature");
     if (signature.r.length != width)
