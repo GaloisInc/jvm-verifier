@@ -38,6 +38,7 @@ method com.galois.ecc.P384ECC64.ec_twin_mul
   ensure valueOf(args[0].z) := split(res.z) : [12][32];
   modify valueOf(this.a), valueOf(this.h), 
          valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  /*
   modify valueOf(args[5].x);
   modify valueOf(args[5].y);
   modify valueOf(args[5].z);
@@ -48,6 +49,7 @@ method com.galois.ecc.P384ECC64.ec_twin_mul
   modify valueOf(args[7].y);
   modify valueOf(args[8].x);
   modify valueOf(args[8].y);
+  */
   //quickcheck 1;
   //verify { rewrite; /*yices; smtlib;*/ };
 };
