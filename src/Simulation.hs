@@ -1535,6 +1535,9 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   typeOf NullRef    = return Nothing
   typeOf (Ref _ ty) = return (Just ty)
 
+  coerceRef NullRef _    = return NullRef
+  coerceRef (Ref x _) ty = return (Ref x ty)
+
   -- Retuns predicate indicating super class of ref has given type.
   superHasType ref tp = do
     ClassType refClassname <- getType ref
@@ -2615,5 +2618,3 @@ instance PrettyTerm term => Show (PathState term) where
       "  starting PC    : " ++ show (startingPC state)
       ++
       "  instr count    : " ++ show (insnCount state)
-
-

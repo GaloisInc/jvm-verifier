@@ -7,6 +7,7 @@ method com.galois.ecc.P384ECC64.signHash
   var this.a                          :: int[24];
   var this.h                          :: int[12];
   var this.t1, this.t2, this.t3       :: int[12];
+  var this.u1, this.u2                :: int[12];
   var args[0].r, args[0].s            :: int[12];
 
   var this.width                      :: int;
@@ -17,6 +18,20 @@ method com.galois.ecc.P384ECC64.signHash
   var this.rP.x                       :: int[12];
   var this.rP.y                       :: int[12];
   var this.rP.z                       :: int[12];
+  var this.sPtP                       :: com.galois.ecc.JacobianPoint;
+  var this.sPtP.x                     :: int[12];
+  var this.sPtP.y                     :: int[12];
+  var this.sPtP.z                     :: int[12];
+  var this.sMtP                       :: com.galois.ecc.JacobianPoint;
+  var this.sMtP.x                     :: int[12];
+  var this.sMtP.y                     :: int[12];
+  var this.sMtP.z                     :: int[12];
+  var this.sPt                        :: com.galois.ecc.AffinePoint;
+  var this.sPt.x                      :: int[12];
+  var this.sPt.y                      :: int[12];
+  var this.sMt                        :: com.galois.ecc.AffinePoint;
+  var this.sMt.x                      :: int[12];
+  var this.sMt.y                      :: int[12];
   var this.basePoint                  :: com.galois.ecc.AffinePoint;
   var this.basePoint.x                :: int[12];
   var this.basePoint.y                :: int[12];
@@ -60,18 +75,29 @@ method com.galois.ecc.P384ECC64.signHash
 
   ensure valueOf(args[0].r) := split(res.r) : [12][32];
   ensure valueOf(args[0].s) := split(res.s) : [12][32];
-  return res.r == 0:[384] || res.s == 0:[384];
+  return res.r != 0:[384] && res.s != 0:[384];
 
-  modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-  modify valueOf(this.rP.x);
-  modify valueOf(this.rP.y);
-  modify valueOf(this.rP.z);
-  modify valueOf(this.basePoint5.y);
-  modify valueOf(this.basePoint5.x);
-  modify valueOf(this.basePoint3.y);
-  modify valueOf(this.basePoint3.x);
-  modify valueOf(this.basePoint.y);
-  modify valueOf(this.basePoint.x);
-  //quickcheck 1;
-  verify { rewrite; /*yices; smtlib;*/ };
+  ensure valueOf(this.h) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.t1) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.t2) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.t3) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.u1) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.u2) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.rP.x) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.rP.y) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.rP.z) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sPtP.x) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sPtP.y) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sPtP.z) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sMtP.x) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sMtP.y) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sMtP.z) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sPt.x) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sPt.y) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sMt.x) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sMt.y) := split(0 : [384]) : [12][32];
+
+  modify valueOf(this.a);
+  modify valueOf(args[2]);
+  verify { rewrite; yices; };
 };

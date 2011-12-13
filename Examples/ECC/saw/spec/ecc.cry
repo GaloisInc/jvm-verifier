@@ -34,7 +34,7 @@ adc : {n} (fin n) => ([n],[n]) -> ([n],Bit);
 adc(x,y) = (take(width x,sum), sum @ width x)
   where sum = safe_add(x,y);
 
-/* ref_sbb(x,y,b) subtracts y+b from x, and returns result along with output borrow bit. */
+/* sbb(x,y) subtracts y from x, and returns result along with output borrow bit. */
 sbb : {n} (fin n) => ([n],[n]) -> ([n],Bit);
 sbb(x,y) = (take(width x, r), ~(r ! 0))
   where r = (x # [True]) - (y # [False]);
@@ -384,7 +384,7 @@ ecdsa_sign(c,d,e,k) = if is_zero(r) | is_zero(s) then (0,0) else (r, s)
     j = (c.affinify(c.mul(k, c.base))).x;
     /* c) Set r = j mod n */
     r = g.norm(j);
-    s = g.div(g.add(e, g.mul(d, r)), k);
+    s = g.div(g.add(g.norm(e), g.mul(d, r)), k);
   };
 
 /**
@@ -423,12 +423,13 @@ ecdsa_public_verify(c, e, (r, s), q)
 
 /* Utility functions {{{2 */ 
 
-type RsltWithCarry = { carry : [32]; rslt : [384] };
+type RsltWithCarry (a,b) = { carry : a ; rslt : b };
 
-p384_incFieldPrime : [384] -> RsltWithCarry;
+p384_incFieldPrime : [384] -> RsltWithCarry ([32],[384]);
 p384_incFieldPrime x = {carry = [(bs ! 0)] # zero; rslt = take(384, bs)}
   where bs = safe_add(x, p384_prime);
-p384_decFieldPrime : [384] -> RsltWithCarry;
+
+p384_decFieldPrime : [384] -> RsltWithCarry ([32],[384]);
 p384_decFieldPrime x = { carry = if (bs ! 0) then -1 else 0; rslt = take(384, bs)}
   where bs = safe_sub(x, p384_prime);
 
@@ -461,6 +462,129 @@ p384_prime = - (2 ** 384 + 2 ** 128 + 2 ** 96 - 2 ** 32 + 1);
 p384_field_mod : [768] -> [384];
 p384_field_mod(a)
     = take(384,
+            if b1 then r0
+            else if b2 then r1
+            else if b3 then r2
+            else if b4 then r3
+            else r4)
+  where {
+    p       = p384_prime # (zero : [32]);
+    rwc     = p384_field_mod_aux(a);
+    z       = rwc.rslt;
+    d       = rwc.carry;
+    r       = z # d;
+    r0      = if (d!0) then r + p else r; // Fix potential underflow
+    // Fix potential overflow
+    (r1,b1) = sbb(r0, p);
+    (r2,b2) = sbb(r1, p);
+    (r3,b3) = sbb(r2, p);
+    (r4,b4) = sbb(r3, p);
+   };
+
+p384_field_mod_aux : [768] -> RsltWithCarry ([32],[384]);
+ p384_field_mod_aux(a) = 
+  { carry = d11; 
+    rslt  = z0 # z1 # z2 # z3 # z4 # z5 # z6 # z7 # z8 # z9 # z10 # z11 } 
+  where {
+    [ a0  a1  a2  a3  a4  a5  a6  a7  a8  a9 a10 a11
+     a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 ]
+              = [| uext x || x <- (split a : [24][32]) |] : [24][64];
+    chop x    = (take (32,x), drop(32, x));
+    zd0       =             a0 + a12  + a21 + a20 - a23; 
+    zd1       = iext(d0)  + a1 + a13 + a22 + a23 - a12 - a20;
+    zd2       = iext(d1)  + a2 + a14 + a23 - a13 - a21;
+    zd3       = iext(d2)  + a3 + a15 + a12 + a20 + a21 - a14 - a22 - a23;
+    zd4       = iext(d3)  + a4 + (a21 << 1) + a16 + a13 + a12 + a20 + a22 - a15 - (a23 << 1);
+    zd5       = iext(d4)  + a5 + (a22 << 1) + a17 + a14 + a13 + a21 + a23 - a16;
+    zd6       = iext(d5)  + a6 + (a23 << 1) + a18 + a15 + a14 + a22 - a17;
+    zd7       = iext(d6)  + a7 + a19 + a16 + a15 + a23 - a18;
+    zd8       = iext(d7)  + a8 + a20 + a17 + a16 - a19;
+    zd9       = iext(d8)  + a9 + a21 + a18 + a17 - a20;
+    zd10      = iext(d9)  + a10 + a22 + a19 + a18 - a21;
+    zd11      = iext(d10) + a11 + a23 + a20 + a19 - a22;
+    (z0,d0)   = chop zd0;
+    (z1,d1)   = chop zd1;
+    (z2,d2)   = chop zd2;
+    (z3,d3)   = chop zd3;
+    (z4,d4)   = chop zd4;
+    (z5,d5)   = chop zd5;
+    (z6,d6)   = chop zd6;
+    (z7,d7)   = chop zd7;
+    (z8,d8)   = chop zd8;
+    (z9,d9)   = chop zd9;
+    (z10,d10) = chop zd10;
+    (z11,d11) = chop zd11;
+  };
+
+/* ABC also discharges equivalence of Java's field_red against these two
+   candidate functions, and does so fairly quickly.  However, the operation
+   above is closer to the original specification, and ABC handles it within a
+   few minutes, so we'll keep it as our primary reference implementation for
+   field_red.  The original spec is found below as p384_field_mod_orig. */
+
+p384_field_mod_candidate1 : [768] -> [384];
+p384_field_mod_candidate1(a) = rslt
+  where {
+    p       = p384_prime # (zero : [32]);
+    rwc     = p384_field_mod_aux(a);
+    z       = rwc.rslt;
+    d       = rwc.carry;
+    r       = z # d;
+    rslt    = if (d!0) 
+                then t.rslt where { t = p384_incFieldPrime(z) }
+                else p384_field_add(r', iext(of) * (2 ** 128 + 2 ** 96 - 2 ** 32 + 1))
+              where {
+                (r',of) = (take(384, r), drop(384, r));
+              };
+  };
+
+p384_field_mod_candidate2 : [768] -> [384];
+p384_field_mod_candidate2(a) = rslt
+  where {
+    rwc     = p384_field_mod_aux(a);
+    z       = rwc.rslt;
+    d       = rwc.carry;
+    rslt    = if (d!0) 
+                then (t.rslt where { t = p384_incFieldPrime(z) }
+                     )
+                else (if (d11 > 0) | (p384_prime <= z') then (p384_decFieldPrime(z')).rslt else z'
+                     ) 
+              where {
+                of         = iext d;
+                zd0        =              z0 + of;
+                zd1        = iext (d0)  + z1 - of;
+                zd2        = iext (d1)  + z2;
+                zd3        = iext (d2)  + z3 + of;
+                zd4        = iext (d3)  + z4 + of;
+                zd5        = iext (d4)  + z5;
+                zd6        = iext (d5)  + z6;
+                zd7        = iext (d6)  + z7;
+                zd8        = iext (d7)  + z8;
+                zd9        = iext (d8)  + z9;
+                zd10       = iext (d9)  + z10;
+                zd11       = iext (d10) + z11;
+                (z0',d0)   = chop zd0;
+                (z1',d1)   = chop zd1;
+                (z2',d2)   = chop zd2;
+                (z3',d3)   = chop zd3;
+                (z4',d4)   = chop zd4;
+                (z5',d5)   = chop zd5;
+                (z6',d6)   = chop zd6;
+                (z7',d7)   = chop zd7;
+                (z8',d8)   = chop zd8;
+                (z9',d9)   = chop zd9;
+                (z10',d10) = chop zd10;
+                (z11',d11) = chop zd11;
+                [z0 z1 z2 z3 z4 z5 z6 z7 z8 z9 z10 z11] 
+                           = [| uext x || x <- split z |] : [12][64];
+                z'         = join [ z0' z1' z2' z3' z4' z5' z6' z7' z8' z9' z10' z11' ] : [384];
+              };
+    chop x = (take (32,x), drop(32, x));
+  };
+
+p384_field_mod_orig : [768] -> [384];
+p384_field_mod_orig(a)
+    = take(384,
            if b1 then r 
            else if b2 then r1
            else if b3 then r2
@@ -490,6 +614,31 @@ p384_field_mod(a)
     (r3,b3) = sbb(r2, p);
     (r4,b4) = sbb(r3, p);
    };
+
+p384_field_mod_aux_orig : [768] -> RsltWithCarry ([32],[384]);
+p384_field_mod_aux_orig(a) = {carry = drop(384, r); rslt = take(384, r)}
+  where {
+    [ a0  a1  a2  a3  a4  a5  a6  a7  a8  a9 a10 a11
+     a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23]
+        = split a;
+    z32 = zero : [32];
+    z64 = zero : [64];
+    p   = p384_prime # z32;
+    t   =  a0 #  a1 #  a2 #  a3 #  a4 #  a5 #  a6 #  a7 #  a8 #  a9 # a10 # a11 # z32;
+    s1  =     (zero : [128])    # a21 # a22 # a23 #      (zero : [160])         # z32;
+    s2  = a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # a21 # a22 # a23 # z32;
+    s3  = a21 # a22 # a23 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # z32; 
+    s4  = z32 # a23 # z32 # a20 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # z32;
+    s5  =     (zero : [128])    # a20 # a21 # a22 # a23 #    (zero : [128])     # z32;
+    s6  = a20 #    z64    # a21 # a22 # a23 #          (zero : [192])           # z32;
+    d1  = a23 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # a21 # a22 # z32;
+    d2  = z32 # a20 # a21 # a22 # a23 #              (zero : [224])             # z32;
+    d3  =  (zero : [96])  # a23 # a23 #              (zero : [224])             # z32;
+    r   = t + (s1 << 1) + s2 + s3 + s4 + s5 + s6 - d1 - d2 - d3;
+  };
+  
+theorem p384_field_mod_aux_same_as_orig : {x}. p384_field_mod_aux_orig(x) == p384_field_mod_aux(x);
+theorem p384_field_mod_with_aux_ok      : {x}. p384_field_mod_orig(x) == p384_field_mod(x);
 
 // Give explicit names to these finite field operators, so SBV
 //  can uninterpret them.

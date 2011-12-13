@@ -10,6 +10,5 @@ method com.galois.ecc.P384ECC64.field_add
   let jargs2 = join(valueOf(y));
   ensure valueOf(z) := split(ref_field_add(jargs1, jargs2)) : [12][32];
 
-  verify abc;
+  verify yices;
 };
-

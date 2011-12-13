@@ -561,7 +561,7 @@ translateOps enabled = termSem
            case (rty, as) of
              -- Record constructor
              (TRecord fis, _) | isCtor (map fiName fis) ->
-               rslt (foldr1 BV.concat args')
+               rslt (foldr1 BV.concat (reverse args'))
 
              -- Record selector
              (_, [TRecord fis]) | isSel fis ->
@@ -615,7 +615,7 @@ mkConst val t =
           do let ts = map (TBitVec . fiWidth) fs
              xs <- mapM (uncurry mkConst) (zip (V.toList vs) ts)
              return FTerm { asForm = Nothing
-                          , asTerm = foldr1 BV.concat (map asTerm xs)
+                          , asTerm = foldr1 BV.concat (reverse $ map asTerm xs)
                           , smtType = t
                           }
         _ -> bug "mkConst" "Type error---record constant of non-record type."
@@ -954,5 +954,3 @@ joinOp l w t0 =
                      [ select (asTerm t) (bv i n) | i <- [ 0 .. l - 1 ] ]
        , smtType = TBitVec (l * w)
        }
-
-
