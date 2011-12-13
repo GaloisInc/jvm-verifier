@@ -1068,8 +1068,8 @@ public abstract class ECCProvider {
     if (publicKey.x.length != width)
        throw new IllegalArgumentException("Unexpected public key size.");
 
-    if (is_zero(signature.r) || !leq(signature.r, group_order)) return false;
-    if (is_zero(signature.s) || !leq(signature.s, group_order)) return false;
+    if (is_zero(signature.r) || leq(group_order, signature.r)) return false;
+    if (is_zero(signature.s) || leq(group_order, signature.s)) return false;
 
     mod_div(h, field_unit, signature.s, group_order); // h = 1 / s
     group_mul(u1, hashValue, h); // u1 <- hashValue / s
