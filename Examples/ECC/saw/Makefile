@@ -25,6 +25,7 @@ PROOFS :=              \
   add.saw              \
   assign.saw           \
   decFieldPrime.saw    \
+  ecdsa_sign.saw       \
   ec_double.saw        \
   ec_full_add.saw      \
   ec_full_sub.saw      \
