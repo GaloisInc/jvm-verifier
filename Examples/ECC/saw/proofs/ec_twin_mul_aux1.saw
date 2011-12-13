@@ -1,0 +1,15 @@
+import "common.saw";
+
+set verification off;
+import "field_add.spec";
+import "field_sub.spec";
+import "field_dbl.spec";
+import "field_mul.spec";
+import "field_sq.spec";
+import "ec_double.spec";
+import "ec_full_add.spec";
+import "ec_full_sub.spec";
+set verification on;
+
+enable ref_ec_twin_mul_aux1;
+import "ec_twin_mul_aux1.spec";
