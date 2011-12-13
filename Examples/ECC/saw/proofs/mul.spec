@@ -13,8 +13,8 @@ method com.galois.ecc.P384ECC64.mul
   let x = join(valueOf(args[1]));
   let y = join(valueOf(args[2]));
 
-  ensures
+  ensure
     valueOf(args[0]) := split(nat_mul(x, y)) : [4][32];
 
-  verifyUsing: abc;
+  verify { abc; };
 };
