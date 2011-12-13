@@ -36,8 +36,7 @@ method com.galois.ecc.P384ECC64.verifySignature
   return ref_ecdsa_public_verify(e, r, s, {x = qx; y = qy});
 
   modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-  /*
-  modify valueOf(this.qPoint.y), valueOf(this.q.x);
+  modify valueOf(this.qPoint.y), valueOf(this.qPoint.x);
   modify valueOf(this.basePoint.y);
   modify valueOf(this.basePoint.x);
   modify valueOf(args[2].x);
@@ -48,7 +47,5 @@ method com.galois.ecc.P384ECC64.verifySignature
   modify valueOf(this.field_prime);
   modify valueOf(this.field_unit);
   modify valueOf(args[0]);
-  */
-  //quickcheck 1;
-  verify { rewrite; /*yices; smtlib;*/ };
+  verify { rewrite; yices; };
 };
