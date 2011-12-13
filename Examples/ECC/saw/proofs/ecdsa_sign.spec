@@ -7,6 +7,7 @@ method com.galois.ecc.P384ECC64.signHash
   var this.a                          :: int[24];
   var this.h                          :: int[12];
   var this.t1, this.t2, this.t3       :: int[12];
+  var this.u1, this.u2                :: int[12];
   var args[0].r, args[0].s            :: int[12];
 
   var this.width                      :: int;
@@ -76,7 +77,9 @@ method com.galois.ecc.P384ECC64.signHash
   ensure valueOf(args[0].s) := split(res.s) : [12][32];
   return res.r != 0:[384] && res.s != 0:[384];
 
-  modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  modify valueOf(this.a), valueOf(this.h);
+  modify valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  modify valueOf(this.u1), valueOf(this.u2);
   modify valueOf(this.rP.x), valueOf(this.rP.y), valueOf(this.rP.z);
   modify valueOf(this.sPtP.x), valueOf(this.sPtP.y), valueOf(this.sPtP.z);
   modify valueOf(this.sMtP.x), valueOf(this.sMtP.y), valueOf(this.sMtP.z);
