@@ -37,13 +37,13 @@ data AtomicValue double float int long ref
   | RValue { unRValue :: ref }
   | AValue PC
 
-type family JSDouble m
-type family JSFloat m
-type family JSInt m
-type family JSLong m
-type family JSRef m
-type family JSBool m
-type family JSRslt m
+type family JSDouble (m :: * -> *)
+type family JSFloat  (m :: * -> *)
+type family JSInt    (m :: * -> *)
+type family JSLong   (m :: * -> *)
+type family JSRef    (m :: * -> *)
+type family JSBool   (m :: * -> *)
+type family JSRslt   (m :: * -> *)
 
 type JSValue m = AtomicValue (JSDouble m) (JSFloat m) (JSInt m) (JSLong m) (JSRef m)
 
@@ -430,6 +430,11 @@ class ( Monad m
   -- Returns the type of ref; Nothing if the given ref is null
   typeOf :: JSRef m -> m (Maybe Type)
 
+  -- @coerceRef r ty@ coerces the reference @r@ to type @ty@.  Note that
+  -- it is the responsibility of the caller to ensure that the coercion
+  -- is safe and correct.
+  coerceRef :: JSRef m -> Type -> m (JSRef m)
+
   -- | @superHasType ref typeName@ returns true if super class of @ref@ has
   -- type @typeName@.
   -- Note: Requires @ref@ points to a class type.
@@ -629,7 +634,6 @@ invokeInstanceMethod cName key objectRef args = do
      Nothing -> error $
        "Could not find instance method " ++ show key ++ " in " ++ cName
          ++ "\n  objectRef = " ++ show objectRef ++ ", args = " ++ show args
-
 
 -- | Invokes a static method in a particular class.
 invokeStaticMethod :: JavaSemantics m
