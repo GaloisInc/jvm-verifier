@@ -419,6 +419,35 @@ ecdsa_public_verify(c, e, (r, s), q)
     v = g.norm(j);
   };
 
+/* This version performs a cheaper sequence of operations, and matches
+ * the Java implementation. Correspondence between the reference and
+ * implementation versions of ecdsa_public_verify is probably best proved
+ * independent of the Java code.
+ */
+ecdsa_public_verify_imp :
+  (Curve ([384],[384]), [384], ([384], [384]), AffinePoint [384]) -> Bit;
+ecdsa_public_verify_imp(c, e, (r, s), q)
+   = in_range(r) & in_range(s) &
+     ~is_zero(r2.z) &
+     (g.is_equal(j, r2.x) | ((carry == False) & (g.is_equal(k, r2.x))))
+  where {
+    f = c.point_ops.field;
+    g = c.point_ops.group_field;
+    mul(x,y) = g.mul(x, y);
+    div(x,y) = g.div(x, y);
+    is_zero(x) = g.is_equal(x, g.field_zero);
+    in_range(x) = ~is_zero(x) & g.is_val(x);
+    s_inv = div(1, s);
+    u1 = mul(g.norm(e), s_inv);
+    u2 = mul(r, s_inv);
+    r2 = c.twin_mul(u1, c.base, u2, q);
+    r2zsq = f.sq(r2.z);
+    j = f.mul(r, r2zsq);
+    sum = r + p384_group_size;
+    carry = (sum < r) & (sum < p384_group_size);
+    k = f.mul(sum, r2zsq);
+  };
+
 /* P384 reference definitions {{{1 */
 
 /* Utility functions {{{2 */ 
@@ -848,7 +877,8 @@ p384_ecdsa_sign(d,e,k) = { r = rr; s = ss }
   where (rr, ss) = ecdsa_sign(p384_curve,d,e,k);
 
 p384_ecdsa_public_verify : ([384], [384], [384], AffinePoint [384]) -> Bit;
-p384_ecdsa_public_verify(e,pr,ps,q) = ecdsa_public_verify(p384_curve,e,(pr,ps),q);
+p384_ecdsa_public_verify(e,pr,ps,q) =
+  ecdsa_public_verify_imp(p384_curve,e,(pr,ps),q);
 
 /* P384 test code {{{2 */
 
