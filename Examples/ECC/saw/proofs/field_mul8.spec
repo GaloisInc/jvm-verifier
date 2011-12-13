@@ -12,6 +12,6 @@ method com.galois.ecc.P384ECC64.field_mul8
 
   ensure 
     valueOf(args[0]) := split (ref_field_add(x4, x4)) : [12][32];
- 
-  verify abc;
+
+  verify yices;
 };

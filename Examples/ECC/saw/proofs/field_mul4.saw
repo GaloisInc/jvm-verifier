@@ -1,2 +1,7 @@
 import "common.saw";
+
+set verification off;
+import "field_dbl.spec";
+set verification on;
+
 import "field_mul4.spec";
