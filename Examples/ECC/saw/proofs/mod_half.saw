@@ -5,4 +5,5 @@ import "add.saw";
 import "shr.saw";
 set verification on;
 
+enable ref_mod_half;
 import "mod_half.spec";

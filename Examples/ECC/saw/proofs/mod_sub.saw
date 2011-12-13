@@ -5,4 +5,5 @@ import "add.saw";
 import "sub.saw";
 set verification on;
 
+enable ref_mod_sub;
 import "mod_sub.spec";
