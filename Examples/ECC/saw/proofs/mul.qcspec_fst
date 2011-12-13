@@ -1,0 +1,15 @@
+method com.galois.ecc.P384ECC64.mul
+{
+  var args[0] :: int[24];
+  var args[1], args[2] :: int[12];
+
+  mayAlias { args[1], args[2] };
+
+  let x = join(valueOf(args[1]));
+  let y = join(valueOf(args[2]));
+
+  ensures 
+    valueOf(args[0]) := split(nat_mul(x, y)) : [24][32];
+
+  verifyUsing: quickcheck 10000;
+};

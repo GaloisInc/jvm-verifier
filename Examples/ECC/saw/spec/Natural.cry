@@ -1,0 +1,8 @@
+mul : {a b} (fin a,fin b) => ([a],[b]) -> [a+b];
+mul(x,y) = (x # 0) * (y # 0);
+
+add_with_carry : {a} (fin a) => ([a],[a]) -> (Bit,[a]);
+add_with_carry(x, y) = (z ! 0, take(`a, z))
+ where {
+  z = (x # [False]) + (y # [False]);
+ };
