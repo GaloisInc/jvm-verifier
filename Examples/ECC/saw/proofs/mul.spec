@@ -1,4 +1,4 @@
-rule eq_elim: forAll {x:a}. x == x -> True;
+rule eq_elim: forAll {x:a}. x == x -> true;
 
 rule join_split_384: forAll {x:[384]}. join(split(x) : [12][32]) -> x;
 rule join_split_768: forAll {x:[768]}. join(split(x) : [24][32]) -> x;
