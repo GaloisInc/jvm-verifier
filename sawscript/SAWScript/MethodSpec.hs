@@ -1043,16 +1043,14 @@ writeBlif de results path = do
       void $ Blif.addModel "all" iTypes SymBool $ \inputs ->
         Blif.mkNegation <$> joinModels models inputs
 
-
 -- | Attempt to verify method spec using verification method specified.
 validateMethodSpec :: VerifyParams -> IO ()
 validateMethodSpec
     params@VerifyParams { vpCode = cb
                         , vpOpCache = oc
-                        , vpOpts = opts
                         , vpSpec = ir
                         } = do
-  let verb = verbose opts
+  let verb = verbose (vpOpts params)
   when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName ir
   let configs = [ (bs, cl)
                 | bs <- concat $ Map.elems $ specBehaviors ir
@@ -1060,8 +1058,7 @@ validateMethodSpec
                 ]
   forM_ configs $ \(bs,cl) -> do
     when (verb >= 3) $
-      putStrLn $ "Executing " ++ specName ir ++ " at PC " ++ show (bsPC bs)
-                              ++ "."
+      putStrLn $ "Executing " ++ specName ir ++ " at PC " ++ show (bsPC bs) ++ "."
     de <- mkConstantFoldingDagEngine
     (esd,results) <- 
       runSymbolicWithDagEngine oc de $ do
@@ -1071,12 +1068,6 @@ validateMethodSpec
           esd <- initializeVerification ir bs cl
           res <- mkSpecVC params bs cl esd
           return (esd,res)
-    let invalidPathName pvc = 
-           "an invalid path " ++ (case pvcStartPC pvc of
-                                    0 -> ""
-                                    pc -> " from pc " ++ show pc)
-                              ++ maybe "" (\pc -> " to pc " ++ show pc) 
-                                          (pvcEndPC pvc) 
     case specValidationPlan ir of
       Skip -> error "internal: Unexpected call to validateMethodSpec with Skip"
       QuickCheck n lim -> do
