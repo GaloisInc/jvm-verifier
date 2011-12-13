@@ -1,5 +1,8 @@
-extern SBV ref_field_add("../spec/sbv/generated/ref_p384_add.sbv") 
-  : ([384],[384]) -> [384];
-
 import "common.saw";
+
+set verification off;
+import "leq.saw";
+import "decFieldPrime.spec";
+set verification on;
+
 import "field_dbl.spec";

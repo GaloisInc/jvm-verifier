@@ -1,0 +1,18 @@
+include "../ecc.cry";
+
+/* Uninterpret ops used for underlying field. */
+pragma p384_is_field_val : SBV uninterpret;
+pragma p384_field_add  : SBV uninterpret;
+pragma p384_field_sub  : SBV uninterpret;
+//pragma p384_field_neg  : SBV uninterpret;
+pragma p384_field_mul  : SBV uninterpret;
+pragma p384_field_sq   : SBV uninterpret;
+
+/* Uninterpret ops used by group field. */
+pragma p384_mod_add  : SBV uninterpret;
+pragma p384_mod_sub  : SBV uninterpret;
+pragma p384_mod_mul  : SBV uninterpret;
+pragma p384_mod_half : SBV uninterpret;
+
+/* Uninterpret modular division. */
+pragma p384_mod_div  : SBV uninterpret;

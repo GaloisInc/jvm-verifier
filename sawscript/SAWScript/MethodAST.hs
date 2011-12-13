@@ -9,9 +9,16 @@ module SAWScript.MethodAST where
 
 import SAWScript.Utils
 import qualified Data.Map as M
+import SAWScript.Token
+
+data Input v = Input { inpPos :: Pos, inpVal :: v }
+  deriving (Show)
+
+inp :: Token Pos -> v -> Input v
+inp tok v = Input (tokPos tok) v
 
 -- result of parsing a bunch of method specs
-type SSPgm = M.Map FilePath [VerifierCommand]
+type SSPgm = M.Map FilePath ([Input SAWScriptCommand])
 
 type BitWidth = Int
 
@@ -72,13 +79,15 @@ data Expr
     -- | Making a record
     | MkRecord Pos [(Pos, String, Expr)]
     | ArgExpr Pos Int
-    | LocalExpr Pos String
+    | LocalExpr Pos Integer
     -- Precedence 13
     -- | Type annotation on an expression.
     | TypeExpr Pos Expr ExprType
     -- | Dereference field
     | DerefField Pos Expr String
     -- Precedence 12
+    -- | Extract value from array.
+    | GetArray Pos Expr Expr
     -- | Uninterpreted functions.
     | ApplyExpr Pos String [Expr]
     -- Precedence 11
@@ -148,6 +157,9 @@ data Expr
     -- | Boolean or (||)
     | OrExpr   Pos Expr Expr
     -- Precedence 0
+    -- | Implication
+    | ImpExpr  Pos Expr Expr
+    -- Precedence 0
     -- | If-then-else
     | IteExpr  Pos Expr Expr Expr
   deriving (Show)
@@ -157,6 +169,7 @@ exprPos (Var p _) = p
 exprPos (ConstantBool p _) = p
 exprPos (ConstantInt p _) = p
 exprPos (MkArray p _) = p
+exprPos (GetArray p _ _) = p
 exprPos (MkRecord p _) = p
 exprPos (ThisExpr p) = p
 exprPos (ArgExpr p _) = p
@@ -191,6 +204,7 @@ exprPos (SLtExpr  p _ _) = p
 exprPos (ULtExpr  p _ _) = p
 exprPos (AndExpr  p _ _) = p
 exprPos (OrExpr   p _ _) = p
+exprPos (ImpExpr  p _ _) = p
 exprPos (IteExpr  p _ _ _) = p
 
 type JavaFieldName = String
@@ -200,55 +214,74 @@ data RewriteVar = RewriteVar Pos String
 
 type SpecName = String
 
-data VerificationTactic = Skip 
-                        | Rewrite
-                        | QuickCheck Int (Maybe Int)
-                        | ABC
-                        | SmtLib (Maybe Int) (Maybe String) -- version, file
-                        | Yices (Maybe Int)
-  deriving (Eq, Show)
+data VerifyCommand
+   = Rewrite
+   | ABC
+   | SmtLib (Maybe Int) (Maybe String) -- version, file
+   | Yices (Maybe Int)
+   | Expand Expr
+   | VerifyAt Pos Integer VerifyCommand
+    -- | Enable use of a rule or extern definition.
+   | VerifyEnable Pos String
+     -- | Disable use of a rule or extern definition.
+   | VerifyDisable Pos String
+   | VerifyBlock [VerifyCommand]
+  deriving (Show)
+
+
+data BehaviorDecl
+  = VarDecl Pos [Expr] JavaType
+    -- | Local binding within a method spec.
+  | MethodLet Pos String Expr
+  | MayAlias Pos [Expr]
+    -- | Assert a given precondition is true when method is called.
+  | AssertPred Pos Expr
+  | AssertImp Pos Expr Expr
+  | EnsureImp Pos Expr Expr
+  | Modify Pos [Expr]
+  | Return Pos Expr
+  | MethodIf Pos Expr BehaviorDecl
+  | MethodIfElse Pos Expr BehaviorDecl BehaviorDecl
+  | Block [BehaviorDecl]
+  deriving (Show)
 
 -- | Commands in a method spec.
 data MethodSpecDecl
-  = Type Pos [Expr] JavaType
   -- | List of Java expressions that may alias.
-  | MayAlias Pos [Expr]
-  -- | Contant value in reference.
-  | Const Pos Expr Expr
-  -- | Local binding within a method spec.
-  | MethodLet Pos String Expr
-  -- | Assume a given precondition is true when method is called.
-  | Assume Pos Expr
-  | AssumeImp Pos Expr Expr
-  | Ensures Pos Expr Expr
-  | Modifies Pos [Expr]
-  | LocalSpec Pos Integer [MethodSpecDecl]
-  | Choice Pos [MethodSpecDecl] [MethodSpecDecl]
-  | Returns Pos Expr
-  | VerifyUsing Pos [VerificationTactic]
+  = SpecAt Pos Integer BehaviorDecl
+  | QuickCheck Pos Integer (Maybe Integer)
+  | Verify Pos VerifyCommand
+  | Behavior BehaviorDecl
  deriving (Show)
 
 type RuleName = String
 
-data VerifierCommand
+type VarBinding = (String, ExprType)
+
+data SAWScriptCommand
   -- | Import declarations from another Java verifier file.
-  = ImportCommand Pos FilePath
+  = ImportCommand FilePath
   -- | Load a SBV function from the given file path, and give
   -- it the corresponding name in this context.
   -- The function will be uninterpreted in future SBV function reads.
   -- This additionally introduces a rule named "<function_name>.def"
-  | ExternSBV Pos String FilePath FnType
-  -- | Global binding.
-  | GlobalLet Pos String Expr
+  | ExternSBV String FilePath FnType
+  -- | Global constant binding.
+  | GlobalLet String Expr
+  -- | Global function binding.
+  | GlobalFn String [Input VarBinding] ExprType Expr
+  -- | Pragma to bind a function to an SBV input (automatic with ExternSBV).
+  | SBVPragma String -- ^ SAWScript function name
+              String -- ^ SBV function name.
   -- | Verification option ("on" == True && "off" == False)
-  | SetVerification Pos Bool
+  | SetVerification Bool
   -- | Define a Java method spec.
-  | DeclareMethodSpec Pos [String] [MethodSpecDecl]
+  | DeclareMethodSpec [String] [MethodSpecDecl]
   -- | Define a rewrite rule with the given name, left-hand-side and right-hand
   -- side.
-  | Rule Pos RuleName [(Pos, String, ExprType)] Expr Expr
-  -- | Disable use of a rule or extern definition.
-  | Disable Pos String
+  | Rule RuleName [Input VarBinding] Expr Expr
   -- | Enable use of a rule or extern definition.
-  | Enable Pos String
+  | Enable String
+  -- | Disable use of a rule or extern definition.
+  | Disable String
  deriving (Show)

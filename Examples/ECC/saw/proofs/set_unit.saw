@@ -1,8 +1,8 @@
-method com.galois.ecc.P384ECC64.set_unit 
+method com.galois.ecc.P384ECC64.set_unit
 {
   var args[0] :: int[12];
-  ensures valueOf(args[0]) := split(1:[384]) : [12][32];
-  verifyUsing: abc;
+  ensure valueOf(args[0]) := split(1:[384]) : [12][32];
+  verify abc;
 };
 
 

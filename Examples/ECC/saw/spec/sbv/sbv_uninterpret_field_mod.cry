@@ -1,0 +1,4 @@
+include "../ecc.cry";
+
+pragma p384_field_mod     : SBV uninterpret;
+pragma p384_safe_product  : SBV uninterpret;

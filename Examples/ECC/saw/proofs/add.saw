@@ -1,0 +1,11 @@
+method com.galois.ecc.P384ECC64.add
+{
+  var z, x, y :: int[12];
+  mayAlias { z, x, y };
+  let x' = join(valueOf(x)) : [384];
+  let y' = join(valueOf(y)) : [384];
+  let z' = x' + y';
+  ensure valueOf(z) := split(z') : [12][32];
+  return if z' <u x' && z' <u y' then 1:[32] else 0:[32];
+  verify yices;
+};

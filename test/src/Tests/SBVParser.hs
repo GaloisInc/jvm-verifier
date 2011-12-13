@@ -7,7 +7,6 @@ Point-of-contact : jhendrix
 
 module Tests.SBVParser (sbvParserTests) where
 
-import Control.Monad.Identity
 import Control.Monad.Trans (liftIO)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -18,7 +17,6 @@ import Test.QuickCheck.Monadic as MQC
 
 import SBVModel.SBV
 
-import Verinf.IO.Session
 import Verinf.Symbolic
 
 sbvParserTests :: [(Args, Property)]
@@ -53,10 +51,10 @@ testCPlus = monadicIO $ do
         uninterpFn "cplus" args = error $ "Unexpected arg count " ++ show (length args)
         uninterpFn name _ = error $ "Unexpected uninterpreted function " ++ name
     sbv <- liftIO $ loadSBV "test/src/support/cplus.sbv"
-    (cPlusSbvOp,WEF applyCPlus) <- parseSBVOp oc uninterpFn "cplus" sbv
-    runSymbolic oc $ do
-      args <- V.mapM freshUninterpretedVar (opDefArgTypes cPlusSbvOp) :: SymbolicMonad (V.Vector Node)
-      ts <- getTermSemantics
-      let v = applyCPlus ts args
-      v `seq` return ()
+    (cPlusSbvOp, cPlusTerm) <- parseSBV oc uninterpFn "cplus" sbv
+    de <- mkExactDagEngine
+    args <- V.mapM (deFreshInput de) (opDefArgTypes cPlusSbvOp)
+    let inputFn i _ = return (args V.! i)
+    v <- evalDagTerm inputFn (deTermSemantics de) cPlusTerm
+    v `seq` return ()
   assert True

@@ -2,7 +2,7 @@
 // Rewrite Rules
 //
 // This section defines common rules for verification tasks that use the
-// rewriter.
+// rewrite.
 // 
 // Strategies for creating rewrite rules:
 //   Push split and join towards bottom of terms.
@@ -12,33 +12,43 @@
 
 // Misc cancelation rules
 
-rule eq_elim    : forAll {x:a}. x == x -> True;
+rule eq_elim    : forAll {x:a}. x == x -> true;
 rule join_split : forAll {x:[384]}. join(split(x) : [12][32]) -> x;
 rule not_not    : forAll {x:Bit}. not(not(x)) -> x;
-rule eq_elim    : forAll {x:a}. x == x -> True;
-rule join_split : forAll {x:[384]}. join(split(x) : [12][32]) -> x;
+rule split_join : forAll {x:[12][32]}. split(join(x) : [384]) : [12][32] -> x;
+
+rule join_split2 : forAll {x:[768]}. join(split(x) : [24][32]) -> x;
+rule split_join1 : forAll {x:[24][32]}. split(join(x) : [768]) : [24][32] -> x;
 
 // Boolean elimination rules 
 
-rule and_true_elim1  : forAll {x:Bit}. True && x -> x;
-rule and_true_elim2  : forAll {x:Bit}. x && True -> x;
-rule and_false_elim1 : forAll {x:Bit}. False && x -> False;
-rule and_false_elim2 : forAll {x:Bit}. x && False -> False;
+rule and_true_elim1  : forAll {x:Bit}. true && x -> x;
+rule and_true_elim2  : forAll {x:Bit}. x && true -> x;
+rule and_false_elim1 : forAll {x:Bit}. false && x -> false;
+rule and_false_elim2 : forAll {x:Bit}. x && false -> false;
 rule and_left_assoc  : forAll {x:Bit, y:Bit, z:Bit}.  x && (y && z) -> (x && y) && z;
+// rule and_contr_elim1 : forAll {x:Bit}. x && not x -> false;
+// rule and_contr_elim2 : forAll {x:Bit}. not x && x -> false;
 
-rule or_true_elim1  : forAll {x:Bit}. True || x -> True;
-rule or_true_elim1  : forAll {x:Bit}. x || True -> True;
-rule or_false_elim1 : forAll {x:Bit}. False || x -> x;
-rule or_false_elim2 : forAll {x:Bit}. x || False -> x;
-rule or_trivial     : forAll {x:Bit}. not x || x -> True;
+rule or_true_elim1  : forAll {x:Bit}. true || x -> true;
+rule or_true_elim2  : forAll {x:Bit}. x || true -> true;
+rule or_false_elim1 : forAll {x:Bit}. false || x -> x;
+rule or_false_elim2 : forAll {x:Bit}. x || false -> x;
+rule or_trivial     : forAll {x:Bit}. not x || x -> true;
 
 rule or_redundant1  : forAll {x:Bit,y:Bit}. (x || y) || y -> x || y;
 rule or_redundant2  : forAll {x:Bit,y:Bit}. (x || y) || x -> x || y;
 rule and_redundant1 : forAll {x:Bit,y:Bit}. (x && y) && y -> x && y;
 rule and_redundant2 : forAll {x:Bit,y:Bit}. (x && y) && x -> x && y;
 
-// De Morgan's 
+//rule imp_true_elim1  : forAll {x:Bit}. x     ==> true  -> true;
+/*
+rule imp_true_elim2  : forAll {x:Bit}. true  ==> x     -> x;
+rule imp_false_elim1 : forAll {x:Bit}. x     ==> false -> not x;
+rule imp_false_elim2 : forAll {x:Bit}. false ==> x     -> true;
+*/
 
+// De Morgan's 
 rule not_or  : forAll {x:Bit, y:Bit}. not (x || y) -> not x && not y;
 rule not_and : forAll {x:Bit, y:Bit}. not (x && y) -> not x || not y;
 
@@ -63,11 +73,11 @@ rule ite_bit : forAll {b:Bit, c:Bit, d:Bit}.
 
 rule ite_bit_false_1 :
   forAll { b:Bit, c:Bit }.
-    (if b then False else c) -> not b && c;
+    (if b then false else c) -> not b && c;
 
 rule ite_bit_true_1 :
   forAll { b:Bit, c:Bit }.
-    (if b then True else c) -> b || c;
+    (if b then true else c) -> b || c;
 
 // Congruence rules for ite 
 
@@ -132,11 +142,21 @@ rule affineY :
   forAll { x0 : a, y0 : a }.
     { x = x0 ; y = y0 }.y -> y0;
 
-// Field-specific elimination rules
+rule sigR :
+  forAll { r0 : a, s0 : a }.
+    { r = r0 ; s = s0 }.r -> r0;
 
-rule field_sq_def :
-  forAll { x:[384] }.
-   ref_field_sq(x) -> ref_field_mul(x, x);
+rule sigS :
+  forAll { r0 : a, s0 : a }.
+    { r = r0 ; s = s0 }.s -> s0;
+
+////
+
+rule trunc_shift_get : forAll {x:[384], s:[9]}.
+  trunc (x >>u s) : [32] ->
+  aget (split(x) : [12][32], (s >>u 5:[9]) # 0:[23]);
+
+// Field-specific elimination rules
 
 rule ite_zero_field_mul :
   forAll { x:[384], y:[384], z:[384], c:Bit }.

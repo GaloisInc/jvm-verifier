@@ -1,6 +1,6 @@
 include "Field.cry"; /* Defines Field type and generic operations */
 
-/* Field primitives common to group and underlying field. {{{1 */
+/* Core bit-level operations. {{{1 */
 
 /* Unsigned word extension. */
 uext : {a b} (b >= a, fin a) => [a] -> [b];
@@ -30,55 +30,64 @@ safe_mod : {a b} (fin a, fin b) => ([b],[a]) -> [b];
 safe_mod(p,x) = take(width(p), (x # zero) % (p # zero));
 
 /* Add two n-bit numbers and input carry to obtain a n bit number and output carry. */
-ref_adc : {n} (fin n) => ([n],[n]) -> ([n],Bit);
-ref_adc(x,y) = (take(width x,sum), sum @ width x)
+adc : {n} (fin n) => ([n],[n]) -> ([n],Bit);
+adc(x,y) = (take(width x,sum), sum @ width x)
   where sum = safe_add(x,y);
 
-/* ref_sbb(x,y,b) subtracts y+b from x, and returns result along with output borrow bit. */
-ref_sbb : {n} (fin n) => ([n],[n]) -> ([n],Bit);
-ref_sbb(x,y) = (take(width x, r), ~(r ! 0))
+/* sbb(x,y) subtracts y from x, and returns result along with output borrow bit. */
+sbb : {n} (fin n) => ([n],[n]) -> ([n],Bit);
+sbb(x,y) = (take(width x, r), ~(r ! 0))
   where r = (x # [True]) - (y # [False]);
 
+/* Field primitives common to group and underlying field. {{{1 */
+
 /* Add two numbers in normalized form. */
-ref_prime_add : {n} (fin n) => ([n],[n],[n]) -> [n];
-ref_prime_add(p,x,y) = if c1 | ~c2 then r2 else r1
+mod_add : {n} (fin n) => ([n],[n],[n]) -> [n];
+mod_add(p,x,y) = if c1 | ~c2 then r2 else r1
   where {
-    (r1,c1) = ref_adc( x, y);
-    (r2,c2) = ref_sbb(r1, p);
+    (r1,c1) = adc( x, y);
+    (r2,c2) = sbb(r1, p);
   };
 
 /* Subtract two numbers in normalized form. */
-ref_prime_sub : {n} (fin n) => ([n],[n],[n]) -> [n];
-ref_prime_sub(p,x,y) = if b then r2 else r1
+mod_sub : {n} (fin n) => ([n],[n],[n]) -> [n];
+mod_sub(p,x,y) = if b then r2 else r1
   where {
-    (r1,b) = ref_sbb( x, y);
-    (r2,_) = ref_adc(r1, p);
+    (r1,b) = sbb( x, y);
+    (r2,_) = adc(r1, p);
   };
+
+mod_neg : {n} (fin n) => ([n],[n]) -> [n];
+mod_neg(p,x) = if x == 0 then 0 else (p - x);
+
+mod_half : {n} (fin n, n >= 1) => ([n],[n]) -> [n];
+mod_half(p, x) = if even(x) then x >> 1
+                 else drop(1, safe_add(x, p))
+  where { even x = (x & 1) == 0; };
+
+/* Definition of modular multiplication. */
+mod_mul : {n} (fin n) => ([n],[n],[n]) -> [n];
+mod_mul(p,x,y) = safe_mod(p, safe_product(x, y));
 
 /* Returns x/y in F_p using Euler's binary gcd algorithm. */
 /* Taken from [HMV] */
-ref_prime_div : {a} (fin a, a >= 1) => ([a],[a],[a]) -> [a];
-ref_prime_div(p,x,y) = egcd(p,0,y,x)
+mod_div : {a} (fin a, a >= 1) => ([a],[a],[a]) -> [a];
+mod_div(p,x,y) = egcd(p,0,y,x)
   where {
-    even : {a} (fin a, a >= 0) => [a+1] -> Bit;
-    even x = ~(x@0);
-    /* Returns x / 2. */
-    half x = if even(x) then x >> 1 else drop(1, safe_add(x, p));
     /* In code below, a is always odd. */
     egcd(a,ra,b,rb) =
       if b == 0 then
         ra
+      else if (b & 1) == 0 then /* b is even. */
+        egcd(a, ra, b >> 1, mod_half(p, rb))
+      else if a < b then
+        egcd(a, ra, (b - a) >> 1, mod_half(p, mod_sub(p, rb, ra)))
       else 
-        egcd(if even(b) then
-               (a, ra, b >> 1, half(rb))
-             else if a < b then
-               (a, ra, (b - a) >> 1, half(ref_prime_sub(p, rb, ra)))
-             else 
-               (b, rb, (a - b) >> 1, half(ref_prime_sub(p, ra, rb))));
+        egcd(b, rb, (a - b) >> 1, mod_half(p, mod_sub(p, ra, rb)));
     pragma egcd: ISABELLE skipTerminationProof;
   };
 
-/* Affine points {{{1 */
+/* Point operations {{{1 */
 
 type AffinePoint fv = { x : fv; y : fv; };
 
@@ -86,16 +95,13 @@ type AffinePoint fv = { x : fv; y : fv; };
 nzAffinePoint : {fv} (fv,fv) -> AffinePoint fv;
 nzAffinePoint (ax,ay) = { x = ax; y = ay };
 
-/* Morphisms between affine points */
-type AffinePoint_Mor (iv,rv) = Mor (AffinePoint iv,
-                                    AffinePoint rv);
-
 /* Define Jacobian points */
 type JacobianPoint fv = { x : fv; y : fv; z : fv; };
 
-/* Morphisms between Jacobian points */
-type JacobianPoint_Mor (iv,rv) = Mor (JacobianPoint iv,
-                                      JacobianPoint rv);
+/* Create affine point from Jacobian (only well-defined if z coordinate is non-zero). */
+ec_affinify : {fv} (Field fv, JacobianPoint fv) -> AffinePoint fv;
+ec_affinify(f,s) = { x = f.mul(g2, s.x); y = f.mul(g3, s.y); }
+  where { g = f.div(f.field_unit, s.z); g2 = f.sq(g); g3 = f.mul(g, g2); };
 
 /* Create projective value from affine. */
 /* Routine 2.2.1 in [NSA 2008] */
@@ -126,9 +132,13 @@ is_JacobianPoint f s =
             (s == ec_zero_point f)
   );
 
-ec_affinify : {fv} (Field fv, JacobianPoint fv) -> AffinePoint fv;
-ec_affinify(f,s) = { x = f.mul(g2, s.x); y = f.mul(g3, s.y); }
-  where { g = f.div(f.field_unit, s.z); g2 = f.sq(g); g3 = f.mul(g, g2); };
+type PointOps (fv,gv) = {
+       field : Field fv;
+       double : JacobianPoint fv -> JacobianPoint fv;
+       add : (JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
+       sub : (JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
+       group_field : Field gv;
+     };
 
 /* Double a Jacobian point */
 /* Line numbers taken from Routine 2.2.6 in [NSA 2008] */
@@ -182,29 +192,29 @@ ec_double(f,s) =
    r23 = sub(r22, r20);      /* 23: t2 <- t5 - t2 */
   };
 
-
 /**
  * Add a Jacobian point to an affine point over the given field.
  * Note: Will return { 0, 0, 0 } if points are equivalent, and double should be
  *       called.
  * Algorithm comes from Routine 2.2.7 in [NSA 2008].
  */
-ec_add : {fv} (Field fv, JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
-ec_add(f,s,t) =
+ec_add : {fv gv} (PointOps (fv, [gv]), JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
+ec_add(p,s,t) =
   if is_zero(r13) then
     if is_zero(r14) then
-      { x = f.field_zero; y = f.field_zero; z = f.field_zero; } /* 17: r <- (0,0,0) and return */
+      p.double(s) /* 17: r <- (0,0,0) and return */
     else
-      { x = f.field_unit; y = f.field_unit; z = f.field_zero; } /* 19: r <- (1,1,0) and return */
+      { x = p.field.field_unit; y = p.field.field_unit; z = p.field.field_zero; } /* 19: r <- (1,1,0) and return */
   else
     { x = r32; y = r37; z = r27 }
   where {
-   add = f.add;
-   sub = f.sub;
-   mul = f.mul;
-   sq  = f.sq;
-   is_zero(x) = f.is_equal(x, f.field_zero);
+   add = p.field.add;
+   sub = p.field.sub;
+   mul = p.field.mul;
+   sq  = p.field.sq;
+   is_zero(x) = p.field.is_equal(x, p.field.field_zero);
    dbl(x) = add(x, x);
+   dbl_dec(x, y) = sub(sub(x, y), y);
    /* Line numbers from Routine 2.2.7 definition. */
 
    r9 = sq(s.z);             /*  9: t7 <- (t3)^2 */
@@ -223,67 +233,71 @@ ec_add(f,s,t) =
    r30 = mul(r22, r28);      /* 30: t7 <- t1 * t7 */
    r31 = sq(r14);            /* 31: t1 <- (t1)^2 */
    r32 = sub(r31, r30);      /* 32: t1 <- t1 - t7 */
-   r33 = sub(r30, dbl(r32)); /* 33: t7 <- t7 - 2*t1 */
+   /*r33 = sub(r30, dbl(r32));*/ /* 33: t7 <- t7 - 2*t1 */
+   /* The following is a better match for the Java implementation. */
+   r33 = dbl_dec(r30, r32);  /* 33: t7 <- t7 - 2*t1 */
    r34 = mul(r14, r33);      /* 34: t5 <- t5 * t7 */
    r35 = mul(r23, r29);      /* 35: t4 <- t2 * t4 */
    r36 = sub(r34, r35);      /* 36: t2 <- t5 - t4 */
-   r37 = f.half(r36);        /* 37: t2 <- t2/2 */
+   r37 = p.field.half(r36);  /* 37: t2 <- t2/2 */
   };
 
 /* Add Jacobian point to an affine point over the given field. */
 /* Algorithm comes from Routine 2.2.8 in [NSA 2008] */
-ec_full_add : {fv} (Field fv, JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
-ec_full_add(f, s, t) =
+ec_full_add : {fv gv} (fin gv) => (PointOps (fv, [gv]), JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
+ec_full_add(p, s, t) =
   if is_zero(s.z) then
-    { x = t.x; y = t.y; z = f.field_unit }
-  else if is_zero(r.x) & is_zero(r.y) & is_zero(r.z) then
-    ec_double(f, s)
+    { x = t.x; y = t.y; z = p.field.field_unit }
   else
-    r
+    ec_add(p, s, t)
  where {
-   r = ec_add(f, s, t);
-   is_zero(x) = f.is_equal(x, f.field_zero);
+   is_zero(x) = p.field.is_equal(x, p.field.field_zero);
  };
 
 /* Subtract affine point from Jacobian point over the given field. */
 /* Algorithm comes from Routine 2.2.9 in [NSA 2008] */
-ec_full_sub : {fv} (Field fv, JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
-ec_full_sub(f, s, t) = ec_full_add(f, s, { x = t.x; y = f.neg(t.y); });
+ec_full_sub : {fv gv} (PointOps (fv, [gv]), JacobianPoint fv, AffinePoint fv) -> JacobianPoint fv;
+ec_full_sub(p, s, t) = p.add(s, { x = t.x; y = p.field.neg(t.y); });
+
+/* Scalar multiply operations {{{1 */
 
 /* Multiplies a large word scalar by the an affine point. */
-ec_ref_mul : {fv gv}  (fin gv) => (Field fv, [gv], AffinePoint fv) -> JacobianPoint fv;
-ec_ref_mul (f, d, s) = res@`(gv+1)
+ec_mul : {fv gv}  (fin gv) => (PointOps (fv, [gv]), [gv], AffinePoint fv) -> JacobianPoint fv;
+ec_mul (m, d, s) = res@`(gv+1)
   where {
     k = d # [False False];
     h = k + (k + k);
     res : [inf](JacobianPoint fv);
-    res = [(ec_zero_point f)]
+    res = [(ec_zero_point(m.field))]
           #  [| if hi & ~ki then
-                  ec_full_add(f, ec_double(f, r), s)
+                  m.add(m.double(r), s)
                 else if ~hi  & ki then
-                  ec_full_sub(f, ec_double(f, r), s)
+                  m.sub(m.double(r), s)
                 else
-                  ec_double(f, r)
+                  m.double(r)
              || hi <- reverse(h) # zero
              || ki <- reverse(k) # zero
              || r  <- res |];
     };
 
+
 /* Return d0 * S + d1 * T. All points projective, 0 <= d0, d1 < p. */
-ec_ref_twin_mul : {fv gv} (fin gv, gv >= 4) 
-            => (Field fv, [gv], [gv], AffinePoint fv, [gv], AffinePoint fv)
+ec_twin_mul : {fv gv} (fin gv, gv >= 4) 
+            => (PointOps (fv,[gv]), [gv], AffinePoint fv, [gv], AffinePoint fv)
             -> (JacobianPoint fv);
-ec_ref_twin_mul(f,gP, d0, s, d1, t) =
+ec_twin_mul(m, d0, s, d1, t) =
   if ec_is_zero_point(f, sPtP) then /* s + t = 0 */
-    ec_ref_mul(f,ref_prime_sub(gP, d0, d1), s)
+    ec_mul(m, g.sub(d0, d1), s)
   else if ec_is_zero_point(f, sMtP) then /* s = t */
-    ec_ref_mul(f,ref_prime_add(gP, d0, d1), s)
+    ec_mul(m, g.add(d0, d1), s)
   else
     r!0
  where {
+   f = m.field;
+   g = m.group_field;
    sP = ec_projectify(f, s);
-   sPtP = ec_full_add(f, sP, t); /* 1: ec_full_add (SpT, S, T) */
-   sMtP = ec_full_sub(f, sP, t); /* 2: ec_full_sub (SmT, S, T) */
+   sPtP = m.add(sP, t); /* 1: ec_full_add (SpT, S, T) */
+   sMtP = m.sub(sP, t); /* 2: ec_full_sub (SmT, S, T) */
    sDiv = f.div(f.field_unit, f.mul(sPtP.z, sMtP.z));
    sPt = { x = f.mul(g2, sPtP.x); y = f.mul(f.mul(g, g2), sPtP.y); }
     where { g = f.mul(sMtP.z, sDiv); g2 = f.sq(g) };
@@ -327,52 +341,30 @@ ec_ref_twin_mul(f,gP, d0, s, d1, t) =
        || [[c00 c01 c02 c03 c04 c05] [c10 c11 c12 c13 c14 c15]] <- c 
        |];
    r = [(ec_zero_point f)]
-     # [| if      (u0 == -1) & (u1 == -1) then ec_full_sub(f, r2, sPt)
-          else if (u0 == -1) & (u1 ==  0) then ec_full_sub(f, r2, s)
-          else if (u0 == -1) & (u1 ==  1) then ec_full_sub(f, r2, sMt)
-          else if (u0 ==  0) & (u1 == -1) then ec_full_sub(f, r2, t)
-          else if (u0 ==  0) & (u1 ==  1) then ec_full_add(f, r2, t)
-          else if (u0 ==  1) & (u1 == -1) then ec_full_add(f, r2, sMt)
-          else if (u0 ==  1) & (u1 ==  0) then ec_full_add(f, r2, s)
-          else if (u0 ==  1) & (u1 ==  1) then ec_full_add(f, r2, sPt)
+     # [| if      (u0 == -1) & (u1 == -1) then m.sub(r2, sPt)
+          else if (u0 == -1) & (u1 ==  0) then m.sub(r2, s)
+          else if (u0 == -1) & (u1 ==  1) then m.sub(r2, sMt)
+          else if (u0 ==  0) & (u1 == -1) then m.sub(r2, t)
+          else if (u0 ==  0) & (u1 ==  1) then m.add(r2, t)
+          else if (u0 ==  1) & (u1 == -1) then m.add(r2, sMt)
+          else if (u0 ==  1) & (u1 ==  0) then m.add(r2, s)
+          else if (u0 ==  1) & (u1 ==  1) then m.add(r2, sPt)
           else r2
-           where r2 = ec_double(f, rP)
+           where r2 = m.double(rP)
        || rP <- r
        || [u0 u1] <- u
        |];
  };
 
-/* AffinePoint morphism constructor */
-AffinePoint_mor : {a b} Mor (a,b) -> AffinePoint_Mor (a,b);
-AffinePoint_mor m pt =
-  { x = m ((pt:AffinePoint a).x)
-  ; y = m (pt.y)
-  };
+/* ECDSA Operations {{{1 */
 
-/* JacobianPoint EP-pairs */
-type JacobianPoint_EP (a,b) = EP (JacobianPoint a, JacobianPoint b);
-
-/* JacobianPoint morphism constructor */
-JacobianPoint_mor : {a b} Mor (a,b) -> JacobianPoint_Mor (a,b);
-JacobianPoint_mor m pt =
-  { x = m ((pt:JacobianPoint a).x)
-  ; y = m (pt.y)
-  ; z = m (pt.z)
-  };
-
-JacobianPoint_p384_emb : JacobianPoint_Mor ([12][32],[384]);
-JacobianPoint_p384_emb = JacobianPoint_mor p384_emb;
-
-/* JacobianPoint EP-pair constructor */
-JacobianPoint_ep : {a b} EP (a,b) -> JacobianPoint_EP (a,b);
-JacobianPoint_ep p =
-  EP (JacobianPoint_mor (Emb p))
-     (JacobianPoint_mor (Prj p));
-
-type Curve fv = {
-    field : Field fv;
+/** Operations for ECDSA abstraction layer */
+type Curve (fv,gv) = {
+    point_ops : PointOps (fv,gv);
     base : AffinePoint fv;
-    order : fv;
+    affinify : JacobianPoint fv -> AffinePoint fv;
+    mul : (gv, AffinePoint fv) -> JacobianPoint fv;
+    twin_mul : (gv, AffinePoint fv, gv, AffinePoint fv) -> JacobianPoint fv;
   };
 
 /**
@@ -383,18 +375,16 @@ type Curve fv = {
  *  Integer e obtained after hashing message on step e)
  *  Ephemeral EC private key in range [1 .. c.curve)
  */
-ref_ecdsa_sign : {fv} (fin fv, fv >= 1) => (Curve [fv], [fv], [fv], [fv]) -> ([fv], [fv]);
-ref_ecdsa_sign(c,d,e,k) = if is_zero(r) | is_zero(s) then (0,0) else (r, s)
+ecdsa_sign : {fv} (fin fv, fv >= 1) => (Curve ([fv],[fv]), [fv], [fv], [fv]) -> ([fv], [fv]);
+ecdsa_sign(c,d,e,k) = if is_zero(r) | is_zero(s) then (0,0) else (r, s)
   where {
-    add(x,y) = ref_prime_add(c.order, x, y);
-    mul(x,y) = safe_mod(c.order, safe_product(x, y));
-    div(x,y) = ref_prime_div(c.order, x, y);
-    is_zero(x) = c.field.is_equal(x, c.field.field_zero);
+    g = c.point_ops.group_field;
+    is_zero(x) = g.is_equal(x, g.field_zero);
     /* Compute x coordinate of public key. */
-    j = (ec_affinify(c.field, ec_ref_mul(c.field, k, c.base))).x;
+    j = (c.affinify(c.mul(k, c.base))).x;
     /* c) Set r = j mod n */
-    r = safe_mod(c.order, j);
-    s = div(add(e, mul(d, r)), k);
+    r = g.norm(j);
+    s = g.div(g.add(g.norm(e), g.mul(d, r)), k);
   };
 
 /**
@@ -407,33 +397,193 @@ ref_ecdsa_sign(c,d,e,k) = if is_zero(r) | is_zero(s) then (0,0) else (r, s)
  * Result:
  *  Bit that is True if verification suceeds, and false otherwise.
  */
-ref_ecdsa_public_verify : {fv} (fin fv, fv >= 4) => (Curve [fv], [fv], ([fv], [fv]), AffinePoint [fv]) -> Bit;
-ref_ecdsa_public_verify(c, e, (r, s), q)
+ecdsa_public_verify : {fv} (fin fv, fv >= 1)
+   => (Curve ([fv],[fv]), [fv], ([fv], [fv]), AffinePoint [fv]) -> Bit;
+ecdsa_public_verify(c, e, (r, s), q)
     /* h) Compare v and r' if v = r', output "valid"; otherwise output "invalid". */
    = in_range(s) & (v == r)
   where {
-    mul(x,y) = safe_mod(c.order, safe_product(x, y));
-    div(x,y) = ref_prime_div(c.order, x, y);
-    in_range(x) = (0 < x) & (x < c.order);
+    f = c.point_ops.field;
+    g = c.point_ops.group_field;
+    mul(x,y) = g.mul(x, y);
+    div(x,y) = g.div(x, y);
+    is_zero(x) = g.is_equal(x, g.field_zero);
+    in_range(x) = ~is_zero(x) & g.is_val(x);
     s_inv = div(1, s);
     u1 = mul(e, s_inv);
     u2 = mul(r, s_inv);
-    r2 = ec_ref_twin_mul(c.field, c.order, u1, c.base, u2, q);
+    r2 = c.twin_mul(u1, c.base, u2, q);
     /* f) Convert the field element x_r to an integer j as described in A.5 */
-    f = c.field;
     j = f.mul(r2.x, f.sq(f.div(f.field_unit, r2.z)));
     /* g) v = j mod n */
-    v = safe_mod(c.order, j);
+    v = g.norm(j);
   };
 
 /* P384 reference definitions {{{1 */
+
+/* Utility functions {{{2 */ 
+
+type RsltWithCarry (a,b) = { carry : a ; rslt : b };
+
+p384_incFieldPrime : [384] -> RsltWithCarry ([32],[384]);
+p384_incFieldPrime x = {carry = [(bs ! 0)] # zero; rslt = take(384, bs)}
+  where bs = safe_add(x, p384_prime);
+
+p384_decFieldPrime : [384] -> RsltWithCarry ([32],[384]);
+p384_decFieldPrime x = { carry = if (bs ! 0) then -1 else 0; rslt = take(384, bs)}
+  where bs = safe_sub(x, p384_prime);
+
+/* P384 modular arithmetic definitions. {{{2 */
+
+p384_safe_product : ([384], [384]) -> [768];
+p384_safe_product (x, y) = safe_product(x, y);
+
+p384_mod_add : ([384],[384],[384]) -> [384];
+p384_mod_add = mod_add;
+
+p384_mod_sub : ([384],[384],[384]) -> [384];
+p384_mod_sub = mod_sub;
+
+p384_mod_mul : ([384],[384],[384]) -> [384];
+p384_mod_mul = mod_mul;
+
+p384_mod_half : ([384],[384]) -> [384];
+p384_mod_half = mod_half;
+
+p384_mod_div : ([384],[384],[384]) -> [384];
+p384_mod_div = mod_div;
+
+/* P384 field definitions. {{{2 */
 
 p384_prime : [384];
 p384_prime = - (2 ** 384 + 2 ** 128 + 2 ** 96 - 2 ** 32 + 1);
 
 // P384 field reference modulus.
-ref_p384_mod : [768] -> [384];
-ref_p384_mod(a)
+p384_field_mod : [768] -> [384];
+p384_field_mod(a)
+    = take(384,
+            if b1 then r0
+            else if b2 then r1
+            else if b3 then r2
+            else if b4 then r3
+            else r4)
+  where {
+    p       = p384_prime # (zero : [32]);
+    rwc     = p384_field_mod_aux(a);
+    z       = rwc.rslt;
+    d       = rwc.carry;
+    r       = z # d;
+    r0      = if (d!0) then r + p else r; // Fix potential underflow
+    // Fix potential overflow
+    (r1,b1) = sbb(r0, p);
+    (r2,b2) = sbb(r1, p);
+    (r3,b3) = sbb(r2, p);
+    (r4,b4) = sbb(r3, p);
+   };
+
+p384_field_mod_aux : [768] -> RsltWithCarry ([32],[384]);
+ p384_field_mod_aux(a) = 
+  { carry = d11; 
+    rslt  = z0 # z1 # z2 # z3 # z4 # z5 # z6 # z7 # z8 # z9 # z10 # z11 } 
+  where {
+    [ a0  a1  a2  a3  a4  a5  a6  a7  a8  a9 a10 a11
+     a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 ]
+              = [| uext x || x <- (split a : [24][32]) |] : [24][64];
+    chop x    = (take (32,x), drop(32, x));
+    zd0       =             a0 + a12  + a21 + a20 - a23; 
+    zd1       = iext(d0)  + a1 + a13 + a22 + a23 - a12 - a20;
+    zd2       = iext(d1)  + a2 + a14 + a23 - a13 - a21;
+    zd3       = iext(d2)  + a3 + a15 + a12 + a20 + a21 - a14 - a22 - a23;
+    zd4       = iext(d3)  + a4 + (a21 << 1) + a16 + a13 + a12 + a20 + a22 - a15 - (a23 << 1);
+    zd5       = iext(d4)  + a5 + (a22 << 1) + a17 + a14 + a13 + a21 + a23 - a16;
+    zd6       = iext(d5)  + a6 + (a23 << 1) + a18 + a15 + a14 + a22 - a17;
+    zd7       = iext(d6)  + a7 + a19 + a16 + a15 + a23 - a18;
+    zd8       = iext(d7)  + a8 + a20 + a17 + a16 - a19;
+    zd9       = iext(d8)  + a9 + a21 + a18 + a17 - a20;
+    zd10      = iext(d9)  + a10 + a22 + a19 + a18 - a21;
+    zd11      = iext(d10) + a11 + a23 + a20 + a19 - a22;
+    (z0,d0)   = chop zd0;
+    (z1,d1)   = chop zd1;
+    (z2,d2)   = chop zd2;
+    (z3,d3)   = chop zd3;
+    (z4,d4)   = chop zd4;
+    (z5,d5)   = chop zd5;
+    (z6,d6)   = chop zd6;
+    (z7,d7)   = chop zd7;
+    (z8,d8)   = chop zd8;
+    (z9,d9)   = chop zd9;
+    (z10,d10) = chop zd10;
+    (z11,d11) = chop zd11;
+  };
+
+/* ABC also discharges equivalence of Java's field_red against these two
+   candidate functions, and does so fairly quickly.  However, the operation
+   above is closer to the original specification, and ABC handles it within a
+   few minutes, so we'll keep it as our primary reference implementation for
+   field_red.  The original spec is found below as p384_field_mod_orig. */
+
+p384_field_mod_candidate1 : [768] -> [384];
+p384_field_mod_candidate1(a) = rslt
+  where {
+    p       = p384_prime # (zero : [32]);
+    rwc     = p384_field_mod_aux(a);
+    z       = rwc.rslt;
+    d       = rwc.carry;
+    r       = z # d;
+    rslt    = if (d!0) 
+                then t.rslt where { t = p384_incFieldPrime(z) }
+                else p384_field_add(r', iext(of) * (2 ** 128 + 2 ** 96 - 2 ** 32 + 1))
+              where {
+                (r',of) = (take(384, r), drop(384, r));
+              };
+  };
+
+p384_field_mod_candidate2 : [768] -> [384];
+p384_field_mod_candidate2(a) = rslt
+  where {
+    rwc     = p384_field_mod_aux(a);
+    z       = rwc.rslt;
+    d       = rwc.carry;
+    rslt    = if (d!0) 
+                then (t.rslt where { t = p384_incFieldPrime(z) }
+                     )
+                else (if (d11 > 0) | (p384_prime <= z') then (p384_decFieldPrime(z')).rslt else z'
+                     ) 
+              where {
+                of         = iext d;
+                zd0        =              z0 + of;
+                zd1        = iext (d0)  + z1 - of;
+                zd2        = iext (d1)  + z2;
+                zd3        = iext (d2)  + z3 + of;
+                zd4        = iext (d3)  + z4 + of;
+                zd5        = iext (d4)  + z5;
+                zd6        = iext (d5)  + z6;
+                zd7        = iext (d6)  + z7;
+                zd8        = iext (d7)  + z8;
+                zd9        = iext (d8)  + z9;
+                zd10       = iext (d9)  + z10;
+                zd11       = iext (d10) + z11;
+                (z0',d0)   = chop zd0;
+                (z1',d1)   = chop zd1;
+                (z2',d2)   = chop zd2;
+                (z3',d3)   = chop zd3;
+                (z4',d4)   = chop zd4;
+                (z5',d5)   = chop zd5;
+                (z6',d6)   = chop zd6;
+                (z7',d7)   = chop zd7;
+                (z8',d8)   = chop zd8;
+                (z9',d9)   = chop zd9;
+                (z10',d10) = chop zd10;
+                (z11',d11) = chop zd11;
+                [z0 z1 z2 z3 z4 z5 z6 z7 z8 z9 z10 z11] 
+                           = [| uext x || x <- split z |] : [12][64];
+                z'         = join [ z0' z1' z2' z3' z4' z5' z6' z7' z8' z9' z10' z11' ] : [384];
+              };
+    chop x = (take (32,x), drop(32, x));
+  };
+
+p384_field_mod_orig : [768] -> [384];
+p384_field_mod_orig(a)
     = take(384,
            if b1 then r 
            else if b2 then r1
@@ -459,60 +609,101 @@ ref_p384_mod(a)
     d3 =  (zero : [96])  # a23 # a23 #              (zero : [224])             # z32;
     d1' = p - d1;
     r = t + (s1 << 1) + s2 + s3 + s4 + s5 + s6 + d1' - d2 - d3;
-    (r1,b1) = ref_sbb(r, p);
-    (r2,b2) = ref_sbb(r1, p);
-    (r3,b3) = ref_sbb(r2, p);
-    (r4,b4) = ref_sbb(r3, p);
+    (r1,b1) = sbb(r, p);
+    (r2,b2) = sbb(r1, p);
+    (r3,b3) = sbb(r2, p);
+    (r4,b4) = sbb(r3, p);
    };
+
+p384_field_mod_aux_orig : [768] -> RsltWithCarry ([32],[384]);
+p384_field_mod_aux_orig(a) = {carry = drop(384, r); rslt = take(384, r)}
+  where {
+    [ a0  a1  a2  a3  a4  a5  a6  a7  a8  a9 a10 a11
+     a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23]
+        = split a;
+    z32 = zero : [32];
+    z64 = zero : [64];
+    p   = p384_prime # z32;
+    t   =  a0 #  a1 #  a2 #  a3 #  a4 #  a5 #  a6 #  a7 #  a8 #  a9 # a10 # a11 # z32;
+    s1  =     (zero : [128])    # a21 # a22 # a23 #      (zero : [160])         # z32;
+    s2  = a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # a21 # a22 # a23 # z32;
+    s3  = a21 # a22 # a23 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # z32; 
+    s4  = z32 # a23 # z32 # a20 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # z32;
+    s5  =     (zero : [128])    # a20 # a21 # a22 # a23 #    (zero : [128])     # z32;
+    s6  = a20 #    z64    # a21 # a22 # a23 #          (zero : [192])           # z32;
+    d1  = a23 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # a21 # a22 # z32;
+    d2  = z32 # a20 # a21 # a22 # a23 #              (zero : [224])             # z32;
+    d3  =  (zero : [96])  # a23 # a23 #              (zero : [224])             # z32;
+    r   = t + (s1 << 1) + s2 + s3 + s4 + s5 + s6 - d1 - d2 - d3;
+  };
+  
+theorem p384_field_mod_aux_same_as_orig : {x}. p384_field_mod_aux_orig(x) == p384_field_mod_aux(x);
+theorem p384_field_mod_with_aux_ok      : {x}. p384_field_mod_orig(x) == p384_field_mod(x);
 
 // Give explicit names to these finite field operators, so SBV
 //  can uninterpret them.
-ref_p384_is_val        = is_normal p384_prime;
-ref_p384_add(x,y)      = ref_prime_add(p384_prime, x, y);
-ref_p384_sub(x,y)      = ref_prime_sub(p384_prime, x, y);
-/* ref_p384_neg(x) returns -x mod p384_prime. */
-ref_p384_neg(x)        = if x == 0 then 0 else (p384_prime - x);
-ref_p384_mul(x,y)      = ref_p384_mod(safe_product(x, y));
-ref_p384_sq(x)         = ref_p384_mod(safe_product(x, x));
-ref_p384_cube(x)       = ref_p384_mul(x, ref_p384_sq(x));
-ref_p384_half(x)       = if even(x) then x >> 1
-                         else drop(1, safe_add(x, p384_prime))
-                         where { even x = take(1, x) == 0; };
-ref_p384_div(x,y)      = ref_prime_div(p384_prime, x, y);
-ref_p384_is_equal : ([384],[384]) -> Bit;
-ref_p384_is_equal(x,y) = x == y;
+p384_is_field_val  = is_normal p384_prime;
 
-type RsltWithCarry = { carry : [32]; rslt : [384] };
-ref_p384_incFieldPrime : [384] -> RsltWithCarry;
-ref_p384_incFieldPrime x = {carry = [(bs ! 0)] # zero; rslt = take(384, bs)}
-  where bs = safe_add(x, p384_prime);
-ref_p384_decFieldPrime : [384] -> RsltWithCarry;
-ref_p384_decFieldPrime x = { carry = if (bs ! 0) then -1 else 0; rslt = take(384, bs)}
-  where bs = safe_sub(x, p384_prime);
+p384_field_add(x,y) = p384_mod_add(p384_prime, x, y);
+p384_field_sub(x,y) = p384_mod_sub(p384_prime, x, y);
+/* p384_field_neg(x) returns -x mod p384_prime. */
+p384_field_neg(x)        = if x == 0 then 0 else (p384_prime - x);
 
-ref_p384_prime_div : ([384],[384],[384]) -> [384];
-ref_p384_prime_div (p,x,y) = ref_prime_div(p,x,y);
+p384_field_mul : ([384],[384]) -> [384];
+p384_field_mul(x,y)      = p384_field_mod(p384_safe_product(x, y));
+
+p384_field_sq(x)         = p384_field_mul(x, x);
+p384_field_cube(x)       = p384_field_mul(x, p384_field_sq(x));
+
 
 /* Defines a reference prime field that uses normalized numbers and
    large word bit operations. */
-ref_p384_field :  Field [384];
-ref_p384_field = {
-    is_val     = ref_p384_is_val;
-    add        = ref_p384_add;
-    sub        = ref_p384_sub;
-    neg        = ref_p384_neg;
-    mul        = ref_p384_mul;
-    sq         = ref_p384_sq;
-    half       = ref_p384_half;
-    div        = ref_p384_div;
-    field_unit = 1;
+p384_field :  Field [384];
+p384_field = {
+    is_val     = p384_is_field_val;
+    norm       = \x -> if x < p384_prime then x else x - p384_prime;
+    add        = p384_field_add;
+    sub        = p384_field_sub;
+    neg        = p384_field_neg;
+    mul        = p384_field_mul;
+    sq         = p384_field_sq;
+    half       = \x -> p384_mod_half(p384_prime, x);
+    div        = \(x,y) -> p384_mod_div(p384_prime, x, y);
     field_zero = 0;
-    is_equal   = ref_p384_is_equal;
+    field_unit = 1;
+    is_equal   = \(x,y) -> x == y;
     };
 
+/* P384 group field operations {{{2 */
 
-p384_ref_base : AffinePoint [384];
-p384_ref_base = nzAffinePoint(
+p384_group_size : [384];
+p384_group_size =
+  join(reverse 
+    [0xffffffff 0xffffffff 0xffffffff 0xffffffff 0xffffffff 0xffffffff
+     0xc7634d81 0xf4372ddf 0x581a0db2 0x48b0a77a 0xecec196a 0xccc52973]);
+
+/* Defines a reference prime field that uses normalized numbers and
+   large word bit operations. */
+p384_group_field :  Field [384];
+p384_group_field = {
+    is_val     = is_normal p384_group_size;
+    norm       = \x -> if x < p384_group_size then x else x - p384_group_size;
+    add        = \(x,y) -> p384_mod_add(p384_group_size, x, y);
+    sub        = \(x,y) -> p384_mod_sub(p384_group_size, x, y);
+    neg        = \x     -> mod_neg(p384_group_size, x);
+    mul        = \(x,y) -> p384_mod_mul(p384_group_size, x, y);
+    sq         = \x     -> mod_mul(p384_group_size, x, x);
+    half       = \x     -> mod_half(p384_group_size, x);
+    div        = \(x,y) -> p384_mod_div(p384_group_size, x, y);
+    field_zero = 0;
+    field_unit = 1;
+    is_equal   = \(x,y) -> x == y;
+    };
+
+/** P384 curve operations {{{2 */
+
+p384_base : AffinePoint [384];
+p384_base = nzAffinePoint(
   join(reverse
        [0xaa87ca22 0xbe8b0537 0x8eb1c71e 0xf320ad74 0x6e1d3b62 0x8ba79b98
         0x59f741e0 0x82542a38 0x5502f25d 0xbf55296c 0x3a545e38 0x72760ab7]),
@@ -520,81 +711,110 @@ p384_ref_base = nzAffinePoint(
        [0x3617de4a 0x96262c6f 0x5d9e98bf 0x9292dc29 0xf8f41dbd 0x289a147c
         0xe9da3113 0xb5f0b8c0 0x0a60b1ce 0x1d7e819d 0x7a431d7c 0x90ea0e5f]));
 
+p384_ec_zero_point : JacobianPoint [384];
+p384_ec_zero_point = ec_zero_point(p384_field);
 
-p384_ref_curve : Curve [384];
-p384_ref_curve = {
-    field = ref_p384_field;
-    base = p384_ref_base;
-    order = 
-      join(reverse 
-        [0xffffffff 0xffffffff 0xffffffff 0xffffffff 0xffffffff 0xffffffff
-         0xc7634d81 0xf4372ddf 0x581a0db2 0x48b0a77a 0xecec196a 0xccc52973]);
+p384_ec_double : JacobianPoint [384] -> JacobianPoint [384];
+p384_ec_double(p) = ec_double(p384_field, p);
+
+p384_ec_full_add : (JacobianPoint [384],AffinePoint [384]) -> JacobianPoint [384];
+
+p384_ec_full_sub : (JacobianPoint [384],AffinePoint [384]) -> JacobianPoint [384];
+
+p384_point_ops : PointOps ([384],[384]);
+p384_point_ops = {
+    field = p384_field;
+    double = p384_ec_double;
+    add = p384_ec_full_add;
+    sub = p384_ec_full_sub;
+    group_field = p384_group_field;
   };
 
-p384_ref_zero_point : JacobianPoint [384];
-p384_ref_zero_point = ec_zero_point(ref_p384_field);
+p384_ec_full_add(p,q) = ec_full_add(p384_point_ops, p, q);
+p384_ec_full_sub(p,q) = ec_full_sub(p384_point_ops, p, q);
 
-p384_ref_add : (JacobianPoint [384],AffinePoint [384]) -> JacobianPoint [384];
-p384_ref_add(p,q) = ec_add(ref_p384_field, p, q);
-
-p384_ref_double : JacobianPoint [384] -> JacobianPoint [384];
-p384_ref_double(p) = ec_double(ref_p384_field, p);
-
-p384_ref_full_add : (JacobianPoint [384],AffinePoint [384]) -> JacobianPoint [384];
-p384_ref_full_add(p,q) = ec_full_add(ref_p384_field, p, q);
-
-p384_ref_full_sub : (JacobianPoint [384],AffinePoint [384]) -> JacobianPoint [384];
-p384_ref_full_sub(p,q) = ec_full_sub(ref_p384_field, p, q);
-
-/* Manually inline
-p384_ref_mul : ([384], AffinePoint [384]) -> JacobianPoint [384];
-p384_ref_mul(x,p) = ec_ref_mul(ref_p384_field, x, p);
-*/
-/*
-p384_ref_mul : ([384], AffinePoint [384]) -> JacobianPoint [384];
-p384_ref_mul (d, s) = res@(384+1)
-  where {
-    k = d # [False False];
-    h = k + (k + k);
-    res : [inf](JacobianPoint [384]);
-    res = [p384_ref_zero_point]
-          #  [| if hi & ~ki then
-                  p384_ref_full_add(p384_ref_double(r), s)
-                else if ~hi  & ki then
-                  p384_ref_full_sub(p384_ref_double(r), s)
-                else
-                  p384_ref_double(r)
-             || hi <- reverse(h) # zero
-             || ki <- reverse(k) # zero
-             || r  <- res |];
-    };
-*/
+java_ishl : ([32],[32]) -> [32];
+java_ishl (x,s) = x << (s & 0x1f);
 
 /* Matches Java implementation */
-p384_ref_mul_aux : ( JacobianPoint [384]
+p384_ec_mul_aux : ( JacobianPoint [384]
+                   , AffinePoint [384]
+                   , [32], [32], [32], [32], [32] ) -> JacobianPoint [384];
+p384_ec_mul_aux (r, s, j, hi, i_lt_11, d_at_i, d_at_ip1) = r'
+  where {
+    m   = java_ishl(1, j);
+    ki  = d_at_i >> 1;
+    ki' = if i_lt_11 != 0 then ki | ((d_at_ip1 & 1) << 31) else ki;
+    r'' = p384_ec_double(r);
+    r'  = if ((hi & m) != zero) & ((ki' & m) == zero) then
+            p384_ec_full_add(r'', s)
+          else if ((hi & m) == zero) & ((ki' & m) != zero) then
+            p384_ec_full_sub(r'', s)
+          else r'';
+  };
+
+p384_ec_mul_init : ([384], AffinePoint [384]) ->
+                   { h: [384]; r: JacobianPoint [384]; };
+p384_ec_mul_init (d, s) = { h = join h0; r = r0 }
+  where {
+    d' : [12][32];
+    d' = split d;
+    (h0, c) = ripple_adc(d', ripple_shr(d', False));
+    r0 = if c then ec_projectify(p384_field, s)
+              else p384_ec_zero_point;
+  };
+
+/* Matches Java implementation */
+p384_ec_mul : ([384], AffinePoint [384]) -> JacobianPoint [384];
+p384_ec_mul (d, s) = (res @ 384)
+  where {
+    d' : [12][32];
+    d' = split d;
+    ini =  p384_ec_mul_init(d, s);
+    h : [12][32];
+    h = split (ini.h);
+    r0 = ini.r;
+    f (j, r) = p384_ec_mul_aux(r, s, j, h @ i, [c] # zero, d'@i, d_at_ip1)
+      where {
+        i        = j >> 5;
+        c        = i < 11;
+        d_at_ip1 = if c then d'@(i+1) else 0; 
+                   /* NB: We guard indexing here to avoid bounds VCs;
+                      p384_ec_mul_aux's use of d_at_ip1 is likewise
+                      guarded. */
+      };
+    res = [r0] #
+          [| f(j, r)
+          || j <- mk_strm (reverse [0..383])
+          || r <- res
+          |]
+  };
+
+/*
+p384_ec_mul_aux : ( JacobianPoint [384]
                    , AffinePoint [384]
                    , [32], [32], [32] ) -> JacobianPoint [384];
-p384_ref_mul_aux (r, s, m, hi, ki) = r'
+p384_ec_mul_aux (r, s, m, hi, ki) = r'
   where {
-    r'' = p384_ref_double(r);
+    r'' = p384_ec_double(r);
     r' = if ((hi & m) != zero) & ((ki & m) == zero) then
-           p384_ref_full_add(r'', s)
+           p384_ec_full_add(r'', s)
          else if ((hi & m) == zero) & ((ki & m) != zero) then
-           p384_ref_full_sub(r'', s)
+           p384_ec_full_sub(r'', s)
          else r'';
   };
+*/
 
-/* Matches Java implementation */
-p384_ref_mul : ([384], AffinePoint [384]) -> JacobianPoint [384];
-p384_ref_mul (d, s) = (res @ 384)
+/*
+p384_ec_mul (d, s) = (res @ 384)
   where {
     d' : [12][32];
     d' = split d;
     (h, c) = ripple_adc(d', ripple_shr(d', False));
     r0 = if c
-          then ec_projectify(ref_p384_field, s)
-          else p384_ref_zero_point;
-    f (j, r) = p384_ref_mul_aux(r, s, 1 << j, h @ i, ki')
+          then ec_projectify(p384_field, s)
+          else p384_ec_zero_point;
+    f (j, r) = p384_ec_mul_aux(r, s, 1 << j, h @ i, ki')
       where {
         i = j >> 5;
         ki = (d' @ i) >> 1;
@@ -606,9 +826,29 @@ p384_ref_mul (d, s) = (res @ 384)
           || r <- res
           |]
   };
+*/
 
-p384_ref_ecdsa_sign : ([384], [384], [384]) -> ([384],[384]);
-p384_ref_ecdsa_sign(d,e,k) = ref_ecdsa_sign(p384_ref_curve,d,e,k);
+p384_ec_twin_mul : ([384], AffinePoint [384], [384], AffinePoint [384]) -> (JacobianPoint [384]);
+p384_ec_twin_mul(x,p,y,q) = ec_twin_mul(p384_point_ops, x, p, y, q);
+
+p384_group_add : ([384],[384]) -> [384];
+p384_group_add = p384_group_field.add;
+
+p384_curve : Curve ([384],[384]);
+p384_curve = {
+    point_ops = p384_point_ops;
+    base = p384_base;
+    affinify = \x -> ec_affinify(p384_field, x);
+    mul = p384_ec_mul;
+    twin_mul = p384_ec_twin_mul;
+  };
+
+p384_ecdsa_sign : ([384], [384], [384]) -> { r:[384]; s:[384] };
+p384_ecdsa_sign(d,e,k) = { r = rr; s = ss }
+  where (rr, ss) = ecdsa_sign(p384_curve,d,e,k);
+
+p384_ecdsa_public_verify : ([384], [384], [384], AffinePoint [384]) -> Bit;
+p384_ecdsa_public_verify(e,pr,ps,q) = ecdsa_public_verify(p384_curve,e,(pr,ps),q);
 
 /* P384 test code {{{2 */
 
@@ -653,32 +893,33 @@ p384_e =
          0xbcfcae21 0x80b38d81 0xab8cf150 0x95301a18 0x2afbc689 0x3e75385d]);
 
 /* Convert a p384 Jacobian point to an affine point */
-p384Affinify : JacobianPoint [384] -> AffinePoint [384];
-p384Affinify p = ec_affinify(ref_p384_field,p);
+p384_affinify : JacobianPoint [384] -> AffinePoint [384];
+p384_affinify p = ec_affinify(p384_field, p);
 
 /* Convert a p384 affine point to a Jacobian point */
-p384Jacobify : AffinePoint [384] -> JacobianPoint [384];
-p384Jacobify p = { x = p.x; y = p.y; z = 1 };
+p384_jacobify : AffinePoint [384] -> JacobianPoint [384];
+p384_jacobify p = { x = p.x; y = p.y; z = 1 };
+
+p384_base4 : JacobianPoint [384];
+p384_base4 = p384_ec_double(p384_ec_double(p384_jacobify(p384_base)));
+
+p384_base3 : AffinePoint [384];
+p384_base3 = p384_affinify(p384_ec_full_sub(p384_base4, p384_base));
+
+p384_base5 : AffinePoint [384];
+p384_base5 = p384_affinify(p384_ec_full_add(p384_base4, p384_base));
+
 
 /* Does an affine point lie on the curve? */
-p384IsAffinePoint : AffinePoint [384] -> Bit;
-p384IsAffinePoint p =
-  ref_p384_sq(p.y) ==
-  ref_p384_add(ref_p384_cube(p.x),
-               ref_p384_add(ref_p384_mul(p384_a,p.x),
-                            p384_b));
+p384_is_affine_point : AffinePoint [384] -> Bit;
+p384_is_affine_point p =
+  p384_field_sq(p.y) ==
+  p384_field_add(p384_field_cube(p.x),
+                 p384_field_add(p384_field_mul(p384_a, p.x), p384_b));
 
 /* P384 implementation curve definition {{{1 */
 
 /* Chunked arithmetic routines {{{2 */
-
-/* Return second element of each pair */
-fst : {m n} (m,n) -> m;
-fst(x,y) = x;
-
-/* Return second element of each pair */
-snd : { m n } (m,n) -> n;
-snd(x,y) = y;
 
 /* Promote a finite sequence to an infinite sequence */
 mk_strm : {a b} fin a => [a][b] -> [inf][b];
@@ -700,225 +941,8 @@ ripple_adc(xx,yy) = (values, carry_strm @ (width xx))
     carry_strm  = [False] # [| c || (_,c) <- list_strm |];
   };
 
-/* Subtracts two n*m bit numbers split into m-bit segments and returns borrow. */
-ripple_sbb : {m  n} (m >= 1, fin m, fin n) => ([n][m],[n][m]) -> ([n][m],Bit);
-ripple_sbb(xx,yy) = (values, borrow!0)
-  where {
-    sbb(x,y,b) = (take(width x,d), ~ (d @ width x))
-      where d = (x # [True]) - (y # [False]) - uext([b]);
-    list = [| sbb(a,b,c)
-           || a <- xx
-           || b <- yy
-           || c <- borrow
-           |];
-    values = [| v || (v,_) <- list |];
-    borrow  = [False] # [| c || (_,c) <- list |];
-  };
-
-ripple_sub : {m n} (m >= 1, fin m, fin n) => ([n][m],[n][m]) -> [n][m];
-ripple_sub(x,y) = fst(ripple_sbb(x,y));
-
-/* ripple_lt(x,y) returns true if x is less than y. */
-ripple_lt : {m n} (fin m, fin n) => ([n][m],[n][m]) -> Bit;
-ripple_lt(xl,yl) = rl!0
-  where
-    rl = [ False ]
-       # [| (x < y) | ((x == y) & r)
-         || x <- xl
-         || y <- yl
-         || r <- rl
-         |];
-
-/* Add two numbers in normalized form. */
-imp_prime_add : {m n} (m >= 1,fin m,fin n) => ([n][m],[n][m],[n][m]) -> [n][m];
-imp_prime_add(p,x,y) = if c1 | ~c2 then r2 else r1
-  where {
-    (r1,c1) = ripple_adc(x, y);
-    (r2,c2) = ripple_sbb(r1, p);
-  };
-
-/* Subtract two numbers in normalized form. */
-imp_prime_sub : {m n} (m >= 1, fin m, fin n) => ([n][m], [n][m],[n][m]) -> [n][m];
-imp_prime_sub(p,x,y) = if b then r2 else r1
-  where {
-    (r1,b) = ripple_sbb( x, y);
-    (r2,_) = ripple_adc(r1, p);
-  };
-
-imp_p384_prime : [12][32];
-imp_p384_prime = split p384_prime;
-
-/* Multiply two chunked numbers and return product. */
-imp_product : {m n} (m >= 1, fin m, n >= 1, fin n) => ([n][m],[n][m]) -> [2*n][m];
-imp_product(xl,yl) = al!0
-  where {
-    scalar_mult : ([m],[n][m]) -> ([n+1][m]);
-    scalar_mult(x,yl) = vl # [final]
-      where {
-        rl : [n][2][m];
-        rl = [| split(uext(c) + safe_product(x,y))
-             || y <- yl
-             || [_ c] <- rl >> 1 
-             |];
-        vl = [| rv || [rv _] <- rl |];
-        [_ final] = rl!0;
-      };
-    al = [(zero)]
-       # [| fst(ripple_adc(a, (scalar_mult(x,yl) # zero) >> i))
-         || a <- al
-         || x <- xl
-         || i <- [0 .. ] |];
-  };
-
 /* Returns (xl # c) >> 1. */
 ripple_shr : {m n} (m >= 1, fin m, n >= 1, fin n) => ([n][m],Bit) -> ([n][m]);
 ripple_shr(xl,c) = [| (x' << (width(x) - 1)) | (x >> 1)
                    || x <- xl
                    || x' <- drop(1,xl) # [(uext([c]))] |];
-
-imp_prime_half : {m n} (m >= 1, fin m, n >= 1, fin n) => ([n][m],[n][m]) -> ([n][m]);
-imp_prime_half(x, p) = ripple_shr(if ~(x@0@0) then (x,False) else ripple_adc(x,p));
-
-/* Returns x/y in F_p using Euler's binary gcd algorithm. */
-/* Taken from [HMV] */
-imp_prime_div : {m n} (m >= 1, fin m, n >= 1, fin n) => ([n][m],[n][m],[n][m]) -> [n][m];
-imp_prime_div(p,x,y) = egcd(p,zero,y,x)
-  where {
-    even xl = ~(xl@0@0);
-    half x = ripple_shr(x,False);
-    /* In code below, a is always odd. */
-    egcd(a,ra,b,rb) =
-      if b == zero then
-        ra
-      else 
-        egcd(if even(b) then
-               (a, ra, half(b), imp_prime_half(rb, p))
-             else if ripple_lt(a, b) then
-               (a, ra, half(ripple_sub(b, a)), imp_prime_half(imp_prime_sub(p, rb, ra), p))
-             else 
-               (b, rb, half(ripple_sub(a, b)), imp_prime_half(imp_prime_sub(p, ra, rb), p)));
-  };
-
-/********************
-   REVISIT:
-     With the definition of imp_p384_mod below,
-     QuickCheck can find counterexamples to this theorem:
-
-     theorem imp_p384_mod_correct : {a1}.
-       imp_p384_mod a1 == split (safe_mod (p384_prime, join a1));
-
-     For now, we're just using the (appropriately coerced)
-     ref_p384_mod algorithm for the imp_p384_mod. We'll debug
-     the real algorithm when we start proving the correctness
-     of the other finite field operations.
-
-imp_p384_mod : [24][32] -> [12][32];
-imp_p384_mod(al)
-    = if of!0 then 
-        /* if of is negative */
-        fst(ripple_adc(r,imp_p384_prime))
-      else t
-  where {
-    [ a0  a1  a2  a3  a4  a5  a6  a7  a8  a9 a10 a11
-     a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23] 
-     = [| uext(a) : [64] || a <- al |];
-
-    [ r0  r0c] = split(              a0              + a12 + a21       + a20       - a23);
-    [ r1  r1c] = split(iext( r0c) +  a1              + a13 + a22 + a23             - a12 - a20);
-    [ r2  r2c] = split(iext( r1c) +  a2              + a14 + a23                   - a13 - a21);
-    [ r3  r3c] = split(iext( r2c) +  a3              + a15 + a12 + a20 + a21       - a14 - a22 - a23);
-    [ r4  r4c] = split(iext( r3c) +  a4 + (a21 << 1) + a16 + a13 + a12 + a20 + a22 - a15);
-    [ r5  r5c] = split(iext( r4c) +  a5 + (a22 << 1) + a17 + a14 + a13 + a21 + a23 - a16);
-    [ r6  r6c] = split(iext( r5c) +  a6 + (a23 << 1) + a18 + a15 + a14 + a22       - a17);
-    [ r7  r7c] = split(iext( r6c) +  a7              + a19 + a16 + a15 + a23       - a18);
-    [ r8  r8c] = split(iext( r7c) +  a8              + a20 + a17 + a16             - a19);
-    [ r9  r9c] = split(iext( r8c) +  a9              + a21 + a18 + a17             - a20);
-    [r10 r10c] = split(iext( r9c) + a10              + a22 + a19 + a18             - a21);
-    [r11 r11c] = split(iext(r10c) + a11              + a23 + a20 + a19             - a22);
-      r = [r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11];
-     /* Overflow value of previous sums */
-     of = uext(r11c) : [64];
-    [ s0  s0c] = split(             uext( r0) + of);
-    [ s1  s1c] = split(iext( s0c) + uext( r1) - of);
-    [ s2  s2c] = split(iext( s1c) + uext( r2));
-    [ s3  s3c] = split(iext( s2c) + uext( r3) + of);
-    [ s4  s4c] = split(iext( s3c) + uext( r4) + of);
-    [ s5  s5c] = split(iext( s4c) + uext( r5));
-    [ s6  s6c] = split(iext( s5c) + uext( r6)) : [2][32];
-    [ s7  s7c] = split(iext( s6c) + uext( r7));
-    [ s8  s8c] = split(iext( s7c) + uext( r8)) : [2][32];
-    [ s9  s9c] = split(iext( s8c) + uext( r9));
-    [s10 s10c] = split(iext( s9c) + uext(r10)) : [2][32];
-    [s11 s11c] = split(iext(s10c) + uext(r11));
-      s = if of == 0 then
-               r
-          else [s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11];
-      t = if (s11c != 0) | ripple_lt(imp_p384_prime,s) then
-            ripple_sub(s, imp_p384_prime)
-          else
-            s
-   };
-
-********************/
-
-// p384 bitvector embedding and projection.
-
-p384_emb : [12][32] -> [384];
-p384_emb = join;
-
-p384_prj : [384] -> [12][32];
-p384_prj = split;
-
-// EP-pair between p384 bitvector types.
-p384_ep : EP ([12][32], [384]);
-p384_ep = EP p384_emb p384_prj;
-
-p384_ep_op : EP_OP ([12][32], [384]);
-p384_ep_op = ep_op p384_ep;
-
-// REVISIT:
-//   Dummy version of imp_p384_mod. See "REVISIT" note
-//   in the commented-out definition of imp_p384_mod above.
-imp_p384_mod : [24][32] -> [12][32];
-imp_p384_mod = Hom_mor join split ref_p384_mod;
-
-// Give explicit names to these finite field operators, so SBV
-//  can uninterpret them.
-imp_p384_is_val(x)     = is_normal p384_prime (join x);
-imp_p384_add(x,y)      = imp_prime_add(imp_p384_prime, x, y);
-imp_p384_sub(x,y)      = imp_prime_sub(imp_p384_prime, x, y);
-/* imp_p384_neg(x) returns -x mod p384_prime. */
-imp_p384_neg(x)        = if x == zero then zero
-                         else ripple_sub(imp_p384_prime, x);
-imp_p384_mul(x,y)      = imp_p384_mod(imp_product(x, y));
-imp_p384_sq(x)         = imp_p384_mod(imp_product(x, x));
-imp_p384_half(x)       = imp_prime_half(x, imp_p384_prime);
-imp_p384_div(x,y)      = imp_prime_div(imp_p384_prime, x, y);
-imp_p384_is_equal(x,y) = x == y;
-
-/* Defines a reference prime field that uses normalized numbers and
-   large word bit operations. */
-imp_p384_field :  Field [12][32];
-imp_p384_field = {
-    is_val     = imp_p384_is_val;
-    add        = imp_p384_add;
-    sub        = imp_p384_sub;
-    neg        = imp_p384_neg;
-    mul        = imp_p384_mul;
-    sq         = imp_p384_sq;
-    half       = imp_p384_half;
-    div        = imp_p384_div;
-    field_unit = [1] # zero;
-    field_zero = zero;
-    is_equal   = imp_p384_is_equal;
-  };
-
-map_point : {a b} (a -> b, JacobianPoint a) -> JacobianPoint b;
-map_point(fn, p) = { x = fn(p.x); y = fn(p.y); z = fn(p.z) };
-
-test : JacobianPoint [12][32] -> Bit;
-test p 
-  = ec_double(ref_p384_field, map_point(join,p)) == map_point(join, ec_double(imp_p384_field, p));
-
-
-

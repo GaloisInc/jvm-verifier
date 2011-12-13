@@ -1,0 +1,4 @@
+import "common.saw";
+
+enable ref_safe_product;
+import "sq.qcspec";

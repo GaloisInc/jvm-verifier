@@ -65,8 +65,6 @@ library
     JarReader
     JavaParser
     JavaParser.Common
-    MethodSpec
-    ProofUtils
     SBVModel.SBV
     SBVParser
     Simulation
@@ -144,6 +142,7 @@ executable sawScript
     , deepseq >= 1.1.0.2
     , directory
     , executable-path
+    , fgl
     , filepath
     , fingertree
     , jvm-verifier
@@ -169,14 +168,17 @@ executable sawScript
   ghc-prof-options : -prof -auto-all
   other-modules    :
         SAWScript.CommandExec
+        SAWScript.CongruenceClosure
+        SAWScript.ErrorPlus
         SAWScript.Lexer
         SAWScript.MethodAST
         SAWScript.MethodSpec
         SAWScript.MethodSpecIR
         SAWScript.Parser
         SAWScript.ParserActions
-        SAWScript.SmtLib
-        SAWScript.SmtLib2
+        SAWScript.QuickCheck
+        SAWScript.SmtLibTrans
+        SAWScript.SmtLibTrans2
         SAWScript.Yices
         SAWScript.TIMonad
         SAWScript.Token

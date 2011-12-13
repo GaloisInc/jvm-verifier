@@ -1,0 +1,11 @@
+import "common.saw"; 
+import "rules.saw";
+
+set verification off;
+import "set_zero.saw";
+import "add.saw";
+import "leq.saw";
+import "group_red.spec";
+set verification on;
+
+import "group_mul.spec";

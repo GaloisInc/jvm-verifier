@@ -9,7 +9,7 @@ Point-of-contact : jhendrix, lerkok
 module SAWScript.Utils where
 
 import Control.Exception
-import Control.Monad(when)
+import Control.Monad.State
 import Control.DeepSeq(rnf, NFData(..))
 import Data.List(intercalate)
 import Data.Char(isSpace)
@@ -26,7 +26,6 @@ import Numeric(showFFloat)
 import Utils.Common (slashesToDots)
 
 import Verinf.Symbolic
-import Verinf.Utils.IOStateT
 
 import qualified Execution.Codebase as JSS
 import qualified JavaParser as JSS
@@ -35,6 +34,7 @@ data Pos = Pos !FilePath -- file
                !Int      -- line
                !Int      -- col
          | PosInternal String
+  deriving (Eq)
 
 endPos :: FilePath -> Pos
 endPos f = Pos f 0 0

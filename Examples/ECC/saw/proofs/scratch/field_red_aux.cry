@@ -1,0 +1,8 @@
+include "../../spec/ecc.cry";
+
+zzz = d
+  where { 
+    d   = rwc.carry;
+    rwc = p384_field_mod_aux(join ce);
+    ce  = (zero # [0x80000000]) : [24][32];
+  };

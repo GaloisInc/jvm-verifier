@@ -38,15 +38,15 @@ $idchar    = [$alpha $digit \' \_]
 $symchar   = [$symbol \:]
 $nl        = [\n\r]
 
-@reservedid  = import|extern|SBV|let|Bit
+@reservedid  = import|extern|SBV|let|Bit|pragma
              | set|verification|on|off|rule|enable|disable|forAll
-             | method|var|mayAlias|const|localSpec|choice|assume|ensures|modifies|returns
-             | verifyUsing|rewriter|skip|abc|quickcheck|smtlib|yices
+             | method|var|mayAlias|from|pc|assert|ensure|modify|return
+             |quickcheck|verify|rewrite|abc|smtlib|yices|expand
              |boolean|byte|char|double|float|int|long|short
-             |args|locals|this|True|False|if|then|else
-@reservedop  = "~"  | "-" | "*" | "+" | "/s" | "%s" | ">>" | "<<" | ">>u" | "|" | "&" | "^"
+             |args|locals|this|true|false|if|then|else
+@reservedop  = "~"  | "-" | "*" | "+" | "/s" | "%s" | ">>s" | "<<" | ">>u" | "|" | "&" | "^"
              | "#"  | "==" | "!=" | ">=s" | ">=u" | ">s" | ">u" | "<=s" | "<=u" | "<s" | "<u"
-             | "&&" | "||" | "not"
+             | "&&" | "||" | "not" | "==>"
 @punct       = "," | ";" | "(" | ")" | ":" | "::" | "[" | "]" | "->" | "=" | "{" | "}" | "." | ":=" | "<|" | "|>"
 @varid       = $alpha $idchar*
 @decimal     = $digit+

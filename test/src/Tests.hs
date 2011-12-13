@@ -18,7 +18,6 @@ import Tests.RC564
 import Tests.SBVParser
 import Tests.SHA384
 import Tests.JAPI
-import Tests.MethodSpec
 import Tests.PrettyPrint
 import Tests.RuleChecker
 
@@ -41,8 +40,7 @@ runTests chooseTest = do
     noOfSelected = length qcProps
     qcProps = filter chooseTest allTests
     allTests =
-      [ ("MethodSpecTests",                                     methodSpecTests)
-      , ("Error propagation in IO.Session: via IO exception",   exampleExceptionSessionTests)
+      [ ("Error propagation in IO.Session: via IO exception",   exampleExceptionSessionTests)
       , ("Error propagation in IO.Session: via ErrorT",         exampleErrorSessionTests)
       , ("Session",                                             sessionTests)
       , ("SBVParser",                                           sbvParserTests)

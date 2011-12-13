@@ -1,12 +1,6 @@
 method com.galois.ecc.P384ECC64.is_zero 
 {
-  let javaTrue  = 1:[32];
-  let javaFalse = 0:[32];
-  
   var args[0] :: int[12];
-  returns:
-    if join(valueOf(args[0])) == 0:[384]
-      then javaTrue
-      else javaFalse;
-  verifyUsing: abc;
+  return join(valueOf(args[0])) == 0:[384];
+  verify abc;
 };

@@ -1,5 +1,2 @@
-extern SBV ref_incFieldPrime("../spec/sbv/generated/ref_p384_incFieldPrime.sbv")
-  : [384] -> { carry : [32]; rslt : [384] };
-
 import "common.saw";
 import "incFieldPrime.spec";

@@ -84,13 +84,13 @@ parseSSPgm ssOpts = go [(entry, Nothing)] M.empty M.empty
              cdepsMap <- mapM canon deps
              let (cdeps, cmap) = unzip cdepsMap
              go (cdeps ++ fs) (M.insert f (map (route cmap) cmds) m) (M.insert f deps d)
-       route cmap (ImportCommand p fp)
-         | Just cfp <- fp `lookup` cmap = ImportCommand p cfp
+       route cmap (Input p (ImportCommand fp))
+         | Just cfp <- fp `lookup` cmap = Input p (ImportCommand cfp)
          | True                         = error $ "Cannot find import file " ++ show fp ++ " in import-map " ++ show cmap
-       route _ (ExternSBV p n fp t)     = ExternSBV p n (routePathThroughPos p fp) t
+       route _ (Input p (ExternSBV n fp t)) = Input p (ExternSBV n (routePathThroughPos p fp) t)
        route _ c = c
 
-parseJV :: SSOpts -> (FilePath, Maybe Pos) -> IO ([(FilePath, Pos)], [VerifierCommand])
+parseJV :: SSOpts -> (FilePath, Maybe Pos) -> IO ([(FilePath, Pos)], [Input SAWScriptCommand])
 parseJV ssOpts (f, mbP) = do
        notQuiet ssOpts $ do rf <- makeRelativeToCurrentDirectory f
                             case mbP of
@@ -105,8 +105,8 @@ parseJV ssOpts (f, mbP) = do
        case res of
          Left e  -> putStrLn e >> exitFailure
          Right r -> return (concatMap getImport r, r)
-  where getImport (ImportCommand p fp) = [(fp, p)]
-        getImport _                    = []
+  where getImport (Input p (ImportCommand fp)) = [(fp, p)]
+        getImport _                            = []
 
 -- load a file, performing unlit if necessary
 getProgram :: FilePath -> IO [Char]
