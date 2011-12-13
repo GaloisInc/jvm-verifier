@@ -1,4 +1,5 @@
 import "common.saw"; 
 import "rules.saw";
-enable ref_group_add;
+
+enable ref_mod_add;
 import "group_add.spec";
