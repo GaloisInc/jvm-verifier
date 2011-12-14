@@ -788,7 +788,7 @@ public abstract class ECCProvider {
   /**
    * Helper function used by twin multiplication.
    */
-  private static int f(int t) {
+  private static int ec_twin_mul_aux_f(int t) {
     if ((18 <= t) && (t < 22)) return 9;
     if ((14 <= t) && (t < 18)) return 10;
     if ((22 <= t) && (t < 24)) return 11;
@@ -871,8 +871,8 @@ public abstract class ECCProvider {
       int h1 = c1 & 0x1F;
       if ((c1 & 0x20) != 0) h1 = 31 - h1;
 
-      boolean h0Less = h0 < f(h1);
-      boolean h1Less = h1 < f(h0);
+      boolean h0Less = h0 < ec_twin_mul_aux_f(h1);
+      boolean h1Less = h1 < ec_twin_mul_aux_f(h0);
 
       int u0 = h0Less ? 0 : ((c0 & 0x20) != 0 ? -1 : 1);
       int u1 = h1Less ? 0 : ((c1 & 0x20) != 0 ? -1 : 1);
@@ -932,6 +932,14 @@ public abstract class ECCProvider {
       }
     }
     
+  private static int f_orig(int t) {
+    if ((18 <= t) && (t < 22)) return 9;
+    if ((14 <= t) && (t < 18)) return 10;
+    if ((22 <= t) && (t < 24)) return 11;
+    if ((4 <= t) && (t < 12))  return 14;
+    return 12;
+  }
+
   /**
    * Assigns r = d0 * s + d1 * t.  As a side effect, this function uses
    * <code>h</code>, <code>t1</code>, <code>t2</code>
@@ -1007,8 +1015,8 @@ public abstract class ECCProvider {
       int h1 = c1 & 0x1F;
       if ((c1 & 0x20) != 0) h1 = 31 - h1;
 
-      boolean h0Less = h0 < f(h1);
-      boolean h1Less = h1 < f(h0);
+      boolean h0Less = h0 < f_orig(h1);
+      boolean h1Less = h1 < f_orig(h0);
 
       int u0 = h0Less ? 0 : ((c0 & 0x20) != 0 ? -1 : 1);
       int u1 = h1Less ? 0 : ((c1 & 0x20) != 0 ? -1 : 1);
