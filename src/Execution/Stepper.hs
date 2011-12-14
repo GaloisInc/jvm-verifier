@@ -509,7 +509,8 @@ step (Invokespecial (ClassType methodClass) key) = {-# SCC "Invokespecial" #-}  
   reverseArgs      <- replicateM (length (methodKeyParameterTypes key)) popValue
   cb               <- getCodebase
   currentClass     <- liftIO $ lookupClass cb currentClassName
-  objectRef        <- flip coerceRef (ClassType (className currentClass)) =<< rPop
+  objectRef        <- rPop
+  objectRefAsCC    <- coerceRef objectRef $ ClassType (className currentClass)
   b                <- liftIO $ isStrictSuper cb methodClass currentClass
   let args          = reverse reverseArgs
       call cl       = do gotoNextInstruction
@@ -517,7 +518,7 @@ step (Invokespecial (ClassType methodClass) key) = {-# SCC "Invokespecial" #-}  
   if classHasSuperAttribute currentClass && b && methodKeyName key /= "<init>"
     then do
       dynBind' methodClass key objectRef $ \cl ->
-        objectRef `superHasType` cl |-> call cl
+        objectRefAsCC `superHasType` cl |-> call cl
     else
       forkM (isNull objectRef)
             (createAndThrow "java/lang/NullPointerException")
