@@ -1,4 +1,4 @@
-method com.galois.ecc.P384ECC64.ec_mul 
+method com.galois.ecc.P384ECC64.ec_mul
 {
   var args[0]                         :: com.galois.ecc.JacobianPoint;
   var args[1]                         :: int[12];
@@ -22,11 +22,6 @@ method com.galois.ecc.P384ECC64.ec_mul
   ensure valueOf(args[0].y) := split(res.y) : [12][32];
   ensure valueOf(args[0].z) := split(res.z) : [12][32];
   modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-  /*
-  modify valueOf(args[1]);
-  modify valueOf(args[2].x);
-  modify valueOf(args[2].y);
-  */
   //quickcheck 1;
   verify { rewrite; /*yices; smtlib;*/ };
 };
