@@ -392,9 +392,16 @@ p384_ec_twin_mul_candidate2(d0, s, d1, t) =
     else
       r!0
   
+/*
  , rf_cs == jj_cs
  , rf_us == jj_us
  , r!0   == jj_r where (jj_r, _, _, _, _, _, _) = jj!0
+*/
+//  , (rf_cs, jj_cs)
+//  , (rf_us, jj_us)
+  , rf_cs == jj_cs
+  , rf_us == jj_us
+  , r!0   == jj_r where (jj_r, _, _, _, _, _, _) = jj!0
   )
  where {
    m    = p384_point_ops;
@@ -406,7 +413,10 @@ p384_ec_twin_mul_candidate2(d0, s, d1, t) =
    sDiv = f.div(f.field_unit, f.mul(sPtP.z, sMtP.z));
    sPt  = { x = f.mul(g2, sPtP.x); y = f.mul(f.mul(g, g2), sPtP.y); } where { g = f.mul(sMtP.z, sDiv); g2 = f.sq(g) };
    sMt  = { x = f.mul(g2, sMtP.x); y = f.mul(f.mul(g, g2), sMtP.y); } where { g = f.mul(sPtP.z, sDiv); g2 = f.sq(g) };
-   F : [5] -> [5];
+
+   // F : [5] -> [5] via original impl
+   // F : [32] -> [32] via fused impl
+   F : {a} (fin a, a>=5) => [a] -> [a];
    F(t) = if (18 <= t) & (t < 22) then
             9
           else if (14 <= t) & (t < 18) then
@@ -450,27 +460,29 @@ p384_ec_twin_mul_candidate2(d0, s, d1, t) =
        || [u0 u1] <- u
        |];
 
-   // -- 
+   // -- vvv fused implementation vvv -- 
 
-   rf_cs = join c;
-   jj_cs = join([| [c0 c1] || (_, c0, c1, _, _, _, _) <- take(385,jj) |]);
-   rf_us = join u;
-   jj_us = join([| [u0 u1] || (_, _, _, u0, u1, _, _) <- take(385,jj) |]);
+   look_at = 385;
+   rf_cs = join (take (look_at, [| [(uext c0 : [32]) (uext c1 : [32])] || [c0 c1] <- c |]));
+   jj_cs = join (take (look_at, [| [c0 c1] || (_, c0, c1, _, _, _, _) <- take(385, jj) |]));
+   rf_us = join (take (look_at, [| [(iext u0 : [32]) (iext u1 : [32])] || [u0 u1] <- u |]));
+   jj_us = join (take (look_at, [| [u0 u1] || (_, _, _, u0, u1, _, _) <- take(385, jj) |]));
 
-   compute_us(c0,c1) = ( if h0 < F(h1) then 0:[2] else if c00 then -1 else 1
-                       , if h1 < F(h0) then 0:[2] else if c10 then -1 else 1
+   compute_us : ([32],[32]) -> ([32],[32]);
+   compute_us(c0,c1) = ( if h0 < F(h1) then zero else if c00 then -1 else 1
+                       , if h1 < F(h0) then zero else if c10 then -1 else 1
                        ) 
                        where {
                          h0' = [c05 c04 c03 c02 c01];
-                         h0  = if c00 then 31 - h0' else h0';
+                         h0  = uext (if c00 then 31 - h0' else h0') : [32];
                          h1' = [c15 c14 c13 c12 c11];
-                         h1  = if c10 then 31 - h1' else h1';
-                         [c00 c01 c02 c03 c04 c05] = c0;
-                         [c10 c11 c12 c13 c14 c15] = c1;
+                         h1  = uext (if c10 then 31 - h1' else h1') : [32];
+                         [c00 c01 c02 c03 c04 c05] = take(6, c0);
+                         [c10 c11 c12 c13 c14 c15] = take(6, c1);
                         };
 
-   c0_init            = (zero # take(4, reverse(d0))) : [6];
-   c1_init            = (zero # take(4, reverse(d1))) : [6];
+   c0_init            = uext ((zero # take(4, reverse(d0))) : [6]) : [32];
+   c1_init            = uext ((zero # take(4, reverse(d1))) : [6]) : [32];
    (u0_init, u1_init) = compute_us(c0_init, c1_init);
 
    jj = [ ( ec_zero_point f
@@ -482,7 +494,7 @@ p384_ec_twin_mul_candidate2(d0, s, d1, t) =
           , (drop(4, reverse(d1)) # (zero : [4]))
           )
         ]
-      # [| ( ec_twin_mul_aux1(m, r, u0, u1, sPt, s, sMt, t)
+      # [| ( ec_twin_mul_aux1(m, r, take(2, u0), take(2, u1), sPt, s, sMt, t)
            , c0'
            , c1'
            , u0'
@@ -492,17 +504,16 @@ p384_ec_twin_mul_candidate2(d0, s, d1, t) =
            )
            where { 
             (u0', u1') = compute_us(c0', c1');
-            c0'        = [(abs(u0) ^ c01) c02 c03 c04 c05 e0N]
+            c0'        = ((uext [(abs(u0) ^ c01) c02 c03 c04 c05 e0N]) : [32])
                          where { 
-                           [c00 c01 c02 c03 c04 c05] = c0;
+                           [c00 c01 c02 c03 c04 c05] = take(6, c0);
                            e0N = 1 == take(1, e0_bits);
                          };
-            c1'        = [(abs(u1) ^ c11) c12 c13 c14 c15 e1N] 
+            c1'        = ((uext [(abs(u1) ^ c11) c12 c13 c14 c15 e1N]) : [32])
                          where {
-                           [c10 c11 c12 c13 c14 c15] = c1;
+                           [c10 c11 c12 c13 c14 c15] = take(6, c1);
                            e1N = 1 == take(1, e1_bits);
                          };
-
             abs : {a} (fin a) => [a] -> Bit;
             abs(x) = x != zero;
            }
