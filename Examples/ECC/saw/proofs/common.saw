@@ -4,7 +4,7 @@
 
 let even(x:[384]) : Bit = (x & 1:[384]) == 0:[384];
 
-// Define constants for P384 curve (taken from NIST and NSA documents).
+// Define cosntants for P384 curve (taken from NIST and NSA documents).
 let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
 let group_order = 0xffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973 : [384];
 
@@ -94,14 +94,3 @@ pragma ref_mod_mul : SBV "p384_mod_mul"; // Declares that "ref_mul" is "mod_mul"
 
 extern SBV ref_ecdsa_sign("../spec/sbv/generated/p384_ecdsa_sign.sbv") :
   ([384], [384], [384]) -> { r:[384]; s:[384] };
-
-extern SBV ref_ec_twin_mul_aux1("../spec/sbv/generated/p384_ec_twin_mul_aux1.sbv") :
-  ( { x: [384]; y: [384]; z: [384] }
-  , [32]
-  , [32]
-  , { x: [384]; y:[384] }
-  , { x: [384]; y:[384] }
-  , { x: [384]; y:[384] }
-  , { x: [384]; y:[384] }
-  )
-  -> { x: [384]; y: [384]; z: [384] };
