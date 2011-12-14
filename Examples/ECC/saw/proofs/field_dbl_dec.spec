@@ -12,6 +12,6 @@ method com.galois.ecc.P384ECC64.field_dbl_dec
     valueOf(args[0]) :=
       split (ref_field_sub(ref_field_sub(vz, vx), vx)) : [12][32];
 
-  verify abc;
+  verify rewrite;
 };
 

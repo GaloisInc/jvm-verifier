@@ -47,6 +47,7 @@ method com.galois.ecc.P384ECC64.mod_div {
                        join(valueOf(b)),
                        join(valueOf(rb)));
     }
+    rewrite;
     yices;
   }
 };

@@ -11,5 +11,5 @@ method com.galois.ecc.P384ECC64.field_mul3
     valueOf(args[0]) := 
       split (ref_field_add(vx, ref_field_add(vx, vx))) : [12][32];
 
-  verify yices;
+  verify rewrite;
 };

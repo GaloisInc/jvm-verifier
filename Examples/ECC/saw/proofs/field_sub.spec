@@ -10,5 +10,5 @@ method com.galois.ecc.P384ECC64.field_sub
   ensure 
     valueOf(args[0]) := split(ref_field_sub(jargs1, jargs2)) : [12][32];
 
-  verify yices;
+  verify { rewrite; yices; };
 };

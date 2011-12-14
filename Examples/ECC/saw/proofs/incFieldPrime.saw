@@ -1,3 +1,4 @@
 import "common.saw";
+import "rules.saw";
 enable ref_incFieldPrime;
 import "incFieldPrime.spec";

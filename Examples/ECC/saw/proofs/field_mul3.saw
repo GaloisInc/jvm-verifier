@@ -1,4 +1,5 @@
 import "common.saw";
+import "rules.saw";
 
 set verification off;
 import "field_dbl.spec";
