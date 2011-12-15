@@ -306,9 +306,6 @@ p384_ec_twin_mul_aux1 :
 p384_ec_twin_mul_aux1(rP, u0_32, u1_32, sPt, s, sMt, t) =
   ec_twin_mul_aux1(p384_point_ops, rP, take(2, u0_32), take(2, u1_32), sPt, s, sMt, t);
 
-p384_ec_twin_mul : ([384], AffinePoint [384], [384], AffinePoint [384]) -> (JacobianPoint [384]);
-p384_ec_twin_mul(x,p,y,q) = ec_twin_mul(p384_point_ops, x, p, y, q);
-
 /* Return d0 * S + d1 * T. All points projective, 0 <= d0, d1 < p. */
 ec_twin_mul : {fv gv} (fin gv, gv >= 4) 
             => (PointOps (fv,[gv]), [gv], AffinePoint fv, [gv], AffinePoint fv)
@@ -383,6 +380,9 @@ test_params =
 theorem p384_ec_twin_mul_candidate2_ok: {x p y q}. ok1 & ok2 & ok3 where (_, ok1, ok2, ok3) = p384_ec_twin_mul_candidate2(x,p,y,q);
 // theorem p384_ec_twin_mul_candidate2_good: {x p y q}. p384_ec_twin_mul(x,p,y,q) == p384_ec_twin_mul_candidate2(x,p,y,q);
 
+p384_ec_twin_mul_aux_F32 : [32] -> [32];
+p384_ec_twin_mul_aux_F32 = p384_ec_twin_mul_aux_F;
+
 // F : [5] -> [5] via original impl
 // F : [32] -> [32] via fused impl
 p384_ec_twin_mul_aux_F : {a} (fin a, a>=5) => [a] -> [a];
@@ -450,18 +450,24 @@ p384_ec_twin_mul_aux2 (c0, c1, e0, e1, sh, d0i, d1i, dv1, dv2) =
     u1            = if h1Less then 0 else (if (c1 & 0x20) != 0 then (-1) else 1);
     h0            = if (c0 & 0x20) != 0 then 31 - h0' else h0' where h0' = c0 & 0x1F;
     h1            = if (c1 & 0x20) != 0 then 31 - h1' else h1' where h1' = c1 & 0x1F;
-    h0Less        = h0 < p384_ec_twin_mul_aux_F(h1);
-    h1Less        = h1 < p384_ec_twin_mul_aux_F(h0);
+    h0Less        = h0 < p384_ec_twin_mul_aux_F32(h1);
+    h1Less        = h1 < p384_ec_twin_mul_aux_F32(h0);
     (e0',e1',sh') = if dv1 != 0 then 
                       if dv2 != 0 then (d0i, d1i, 31) else (0, 0, 31)
                     else (e0, e1, sh-1);
   };
 
 theorem p384_ec_twin_mul_candidate3_ok : {x p y q}. 
-  p384_ec_twin_mul_candidate3(x,p,y,q) == p384_ec_twin_mul(x,p,y,q);
+  p384_ec_twin_mul(x,p,y,q) == ec_twin_mul(p384_point_ops,x,p,y,q);
+
+//theorem p384_ec_twin_mul_candidate3_ok : {x p y q}. 
+//  p384_ec_twin_mul_candidate3(x,p,y,q) == p384_ec_twin_mul(x,p,y,q);
+//p384_ec_twin_mul : ([384], AffinePoint [384], [384], AffinePoint [384]) -> (JacobianPoint [384]);
+//p384_ec_twin_mul(x,p,y,q) = ec_twin_mul(p384_point_ops, x, p, y, q);
 
 /* Matches Java implementation */
-p384_ec_twin_mul_candidate3(d0, s, d1, t) = 
+//p384_ec_twin_mul_candidate3(d0, s, d1, t) = 
+p384_ec_twin_mul(d0, s, d1, t) = 
   if i.special then i.r else (jj_r where (jj_r, _, _, _, _, _) = jj!0)
   where {
    m     = p384_point_ops;
@@ -482,7 +488,7 @@ p384_ec_twin_mul_candidate3(d0, s, d1, t) =
            ]
          # [| (r', c0', c1', e0', e1', sh')
               where {
-                r'         = ec_twin_mul_aux1(m, r, take(2,u0), take(2,u1), i.sPt, s, i.sMt, t);
+                r'         = p384_ec_twin_mul_aux1(r, u0, u1, i.sPt, s, i.sMt, t);
                 aux2       = p384_ec_twin_mul_aux2(c0, c1, e0, e1, sh, d0i, d1i, dv1, dv2);
                 (u0, u1)   = (aux2.tma2_u0, aux2.tma2_u1);
                 (c0', c1') = (aux2.tma2_c0', aux2.tma2_c1');
