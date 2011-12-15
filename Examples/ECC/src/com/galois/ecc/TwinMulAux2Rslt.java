@@ -5,4 +5,7 @@ class TwinMulAux2Rslt {
   public int u1;
   public int c0p;
   public int c1p;
+  public int e0p;
+  public int e1p;
+  public int shp;
 };
