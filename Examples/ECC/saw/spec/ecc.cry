@@ -426,9 +426,9 @@ p384_ec_twin_mul_init(d0, s, d1, t) = {
     sPtP = m.add(sP, t); /* 1: ec_full_add (SpT, S, T) */
     sMtP = m.sub(sP, t); /* 2: ec_full_sub (SmT, S, T) */
     sDiv = f.div(f.field_unit, f.mul(sPtP.z, sMtP.z));
-    sPt0 = { x = f.mul(g2, sPtP.x); y = f.mul(f.mul(g, g2), sPtP.y); }
+    sPt0 = { x = f.mul(sPtP.x, g2); y = f.mul(f.mul(sPtP.y, g), g2); }
            where { g = f.mul(sMtP.z, sDiv); g2 = f.sq(g) };
-    sMt0 = { x = f.mul(g2, sMtP.x); y = f.mul(f.mul(g, g2), sMtP.y); }
+    sMt0 = { x = f.mul(sMtP.x, g2); y = f.mul(f.mul(sMtP.y, g), g2); }
            where { g = f.mul(sPtP.z, sDiv); g2 = f.sq(g) };
   };
 

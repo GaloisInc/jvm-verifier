@@ -33,13 +33,14 @@ method com.galois.ecc.P384ECC64.ec_twin_mul_init
   ensure valueOf(r.y) := split(res.r.y) : [12][32];
   ensure valueOf(r.z) := split(res.r.z) : [12][32];
 
-  modify valueOf(d0);
-  modify valueOf(d1);
-
-  modify valueOf(sPt.x);
-  modify valueOf(sPt.y);
-  modify valueOf(sMt.x);
-  modify valueOf(sMt.y);
+  ensure valueOf(sPt.x) :=
+    if res.special then valueOf(sPt.x) else (split(res.sPt.x) : [12][32]);
+  ensure valueOf(sPt.y) :=
+    if res.special then valueOf(sPt.y) else (split(res.sPt.y) : [12][32]);
+  ensure valueOf(sMt.x) :=
+    if res.special then valueOf(sMt.x) else (split(res.sMt.x) : [12][32]);
+  ensure valueOf(sMt.y) :=
+    if res.special then valueOf(sMt.y) else (split(res.sMt.y) : [12][32]);
 
   modify valueOf(sPtP.x);
   modify valueOf(sPtP.y);
@@ -52,15 +53,6 @@ method com.galois.ecc.P384ECC64.ec_twin_mul_init
 
   modify valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   modify valueOf(this.h);
-  modify valueOf(this.field_prime);
-  modify valueOf(this.field_unit);
-  modify valueOf(this.group_order);
 
-  modify valueOf(s.x);
-  modify valueOf(s.y);
-  modify valueOf(t.x);
-  modify valueOf(t.y);
-  //quickcheck 1;
-  //quickcheck 15000;
-  verify { rewrite; yices; /* smtlib; */};
+  verify { rewrite; yices; };
 };
