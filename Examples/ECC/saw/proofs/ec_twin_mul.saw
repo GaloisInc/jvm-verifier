@@ -15,6 +15,7 @@ import "ec_mul.spec";
 import "ec_full_add.spec";
 import "ec_full_sub.spec";
 import "ec_twin_mul_aux1.spec";
+import "ec_twin_mul_aux2.spec";
 import "ec_twin_mul_aux_f.spec";
 import "ec_twin_mul_init.spec";
 set verification on;
