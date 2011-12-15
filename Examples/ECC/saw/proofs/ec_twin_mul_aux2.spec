@@ -1,4 +1,3 @@
-import "rules.saw";
 method com.galois.ecc.P384ECC64.ec_twin_mul_aux2
 {
   var c0, c1, e0, e1, shift, d0i, d1i           :: int;
