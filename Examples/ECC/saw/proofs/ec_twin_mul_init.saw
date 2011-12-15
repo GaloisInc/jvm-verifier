@@ -1,0 +1,30 @@
+import "common.saw";
+import "rules.saw";
+
+rule resR :
+  forAll { r0 : a, sMt0 : b, sPt0 : c, special0 : d }.
+      { r = r0 ; sMt = sMt0 ; sPt = sPt0 ; special = special0 }.r -> r0;
+
+rule resSpecial :
+  forAll { r0 : a, sMt0 : b, sPt0 : c, special0 : d }.
+      { r = r0 ; sMt = sMt0 ; sPt = sPt0 ; special = special0 }.special ->
+      special0;
+
+set verification off;
+import "assign.saw";
+import "is_equal.saw";
+import "set_unit.saw";
+import "set_zero.saw";
+import "group_add.spec";
+import "field_mul.spec";
+import "field_sq.spec";
+import "mod_sub.spec";
+import "mod_div.spec";
+import "ec_mul.spec";
+import "ec_double.spec";
+import "ec_full_add.spec";
+import "ec_full_sub.spec";
+set verification on;
+
+enable ref_ec_twin_mul_init;
+import "ec_twin_mul_init.spec";

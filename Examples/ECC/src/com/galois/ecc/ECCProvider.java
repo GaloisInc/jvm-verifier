@@ -788,12 +788,58 @@ public abstract class ECCProvider {
   /**
    * Helper function used by twin multiplication.
    */
-  private static int f(int t) {
+  private static int ec_twin_mul_aux_f(int t) {
     if ((18 <= t) && (t < 22)) return 9;
     if ((14 <= t) && (t < 18)) return 10;
     if ((22 <= t) && (t < 24)) return 11;
     if ((4 <= t) && (t < 12))  return 14;
     return 12;
+  }
+
+  private boolean ec_twin_mul_init(JacobianPoint r,
+                                   int[] d0, AffinePoint s,
+                                   int[] d1, AffinePoint t,
+                                   JacobianPoint sPtP,
+                                   JacobianPoint sMtP,
+                                   AffinePoint sPt,
+                                   AffinePoint sMt) {
+    // Special case for chance s == t or s == -t
+    if (is_equal(s.x, t.x)) {
+      int[] t0 = sPtP.x;
+      if (is_equal(s.y, t.y)) { // s == t
+        group_add(t0, d0, d1);
+        ec_mul(r, t0, s);
+      } else { // s == -t
+        mod_sub(t0, d0, d1, group_order);
+        ec_mul(r, t0, s);
+      }
+      return true;
+    }
+
+    ec_projectify(sPtP, s);
+    ec_full_add(sPtP, t);
+    ec_projectify(sMtP, s);
+    ec_full_sub(sMtP, t);
+
+    field_mul(sPt.y, sPtP.z, sMtP.z);
+    // Let h = 1 / (sPtP.z * sMtP.z)
+    mod_div(h, field_unit, sPt.y, field_prime);
+
+    // Let sPt = s + t
+    field_mul(sPt.x, sMtP.z, h);    // sPt.x = 1 / sPtP.z
+    field_mul(sPt.y, sPtP.y, sPt.x); // sPt.y = sPtP.y / sPtP.z
+    field_sq(sPt.x, sPt.x);          // sPt.x = 1 / sPtP.z^2
+    field_mul(sPt.y, sPt.y, sPt.x);  // sPt.y = sPtP.y / sPtP.z^3
+    field_mul(sPt.x, sPtP.x, sPt.x); // sPt.x = sPtP.x / sPtP.z^2
+
+    // Let sMt = s - t
+    field_mul(sMt.x, sPtP.z, h);    // sMt.x = 1 / sMtP.z
+    field_mul(sMt.y, sMtP.y, sMt.x); // sMt.y = sMtP.y / sMtP.z
+    field_sq(sMt.x, sMt.x);          // sMt.x = 1 / sMtP.z^2
+    field_mul(sMt.y, sMt.y, sMt.x);  // sMt.y = sMtP.y / sMtP.z^3
+    field_mul(sMt.x, sMtP.x, sMt.x); // sMt.x = sMtP.x / sMtP.z^2
+
+    return false;
   }
 
   /**
@@ -814,6 +860,118 @@ public abstract class ECCProvider {
                            JacobianPoint sMtP,
                            AffinePoint sPt,
                            AffinePoint sMt) {
+
+    if(ec_twin_mul_init(r, d0, s, d1, t, sPtP, sMtP, sPt, sMt))
+        return;
+
+    int d0_11 = d0[11];
+    int d1_11 = d1[11];
+
+    int c0 = d0_11 >>> 28;
+    int c1 = d1_11 >>> 28;
+
+    int shift = 27;
+    int e0 = d0_11;
+    int e1 = d1_11;
+
+    // ec_zero_point f
+    set_unit(r.x);
+    set_unit(r.y);
+    set_zero(r.z);
+
+    for (int k = 379; k != -6; --k) {
+      int h0 = c0 & 0x1F;
+      if ((c0 & 0x20) != 0) h0 = 31 - h0;
+      int h1 = c1 & 0x1F;
+      if ((c1 & 0x20) != 0) h1 = 31 - h1;
+
+      boolean h0Less = h0 < ec_twin_mul_aux_f(h1);
+      boolean h1Less = h1 < ec_twin_mul_aux_f(h0);
+
+      int u0 = h0Less ? 0 : ((c0 & 0x20) != 0 ? -1 : 1);
+      int u1 = h1Less ? 0 : ((c1 & 0x20) != 0 ? -1 : 1);
+
+      c0 = (h0Less ? 0 : 0x20) ^ (c0 << 1) | (e0 >>> shift) & 0x1;
+      c1 = (h1Less ? 0 : 0x20) ^ (c1 << 1) | (e1 >>> shift) & 0x1;
+  
+      ec_twin_mul_aux1(r, u0, u1, sPt, s, sMt, t);
+      
+      if ((k & 0x1F) == 0) {
+        // Get index of next element in d0 and d1.
+        int i = (k >>> 5) - 1;
+        shift = 31;
+        if (i >= 0) {
+          e0 = d0[i];
+          e1 = d1[i];
+        } else {
+          e0 = 0;
+          e1 = 0;
+        }
+      } else {
+        --shift;
+      }
+    }
+  }
+
+  private void ec_twin_mul_aux1(JacobianPoint r,
+                                int u0,
+                                int u1,
+                                AffinePoint sPt,
+                                AffinePoint s,
+                                AffinePoint sMt,
+                                AffinePoint t) {
+      ec_double(r);
+      if (u0 == -1) {
+        if (u1 == -1) {
+          ec_full_sub(r, sPt);
+        } else if (u1 == 0) {
+          ec_full_sub(r, s);
+        } else {
+          ec_full_sub(r, sMt);
+        }
+      } else if (u0 == 0) {
+        if (u1 == -1) {
+          ec_full_sub(r, t);
+        } else if (u1 == 1) {
+          ec_full_add(r, t);
+        }
+      } else { // u0 == 1
+        if (u1 == -1) {
+          ec_full_add(r, sMt);
+        } else if (u1 == 0) {
+          ec_full_add(r, s);
+        } else {
+          ec_full_add(r, sPt);
+        }
+      }
+    }
+    
+  private static int f_orig(int t) {
+    if ((18 <= t) && (t < 22)) return 9;
+    if ((14 <= t) && (t < 18)) return 10;
+    if ((22 <= t) && (t < 24)) return 11;
+    if ((4 <= t) && (t < 12))  return 14;
+    return 12;
+  }
+
+  /**
+   * Assigns r = d0 * s + d1 * t.  As a side effect, this function uses
+   * <code>h</code>, <code>t1</code>, <code>t2</code>
+   * and <code>t3</code> as temporary buffers that are overwritten.
+   *
+   * @param r Point to store result in.
+   * @param d0 First scalar multiplier.
+   * @param s First point to multiply.
+   * @param d1 Second scalar multiplier.
+   * @param t Second point to multiply.
+   */
+  private void ec_twin_mul_orig(JacobianPoint r,
+                                int[] d0, AffinePoint s,
+                                int[] d1, AffinePoint t,
+                                JacobianPoint sPtP,
+                                JacobianPoint sMtP,
+                                AffinePoint sPt,
+                                AffinePoint sMt) {
     // Special case for chance s == t or s == -t
     if (is_equal(s.x, t.x)) {
       int[] t0 = sPtP.x;
@@ -860,6 +1018,7 @@ public abstract class ECCProvider {
     int e0 = d0_11;
     int e1 = d1_11;
 
+    // ec_zero_point f
     set_unit(r.x);
     set_unit(r.y);
     set_zero(r.z);
@@ -870,8 +1029,8 @@ public abstract class ECCProvider {
       int h1 = c1 & 0x1F;
       if ((c1 & 0x20) != 0) h1 = 31 - h1;
 
-      boolean h0Less = h0 < f(h1);
-      boolean h1Less = h1 < f(h0);
+      boolean h0Less = h0 < f_orig(h1);
+      boolean h1Less = h1 < f_orig(h0);
 
       int u0 = h0Less ? 0 : ((c0 & 0x20) != 0 ? -1 : 1);
       int u1 = h1Less ? 0 : ((c1 & 0x20) != 0 ? -1 : 1);
