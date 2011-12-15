@@ -413,12 +413,13 @@ p384_ec_twin_mul_init(d0, s, d1, t) = {
   }
   where {
     (r0, special0) =
-      if ec_is_zero_point(f, sPtP) then /* s + t = 0 */
-        (p384_ec_mul(g.sub(d0, d1), s), True)
-      else if ec_is_zero_point(f, sMtP) then /* s = t */
-        (p384_ec_mul(g.add(d0, d1), s), True)
+      if s.x == t.x then
+        if s.y == t.y then
+          (p384_ec_mul(g.add(d0, d1), s), True)
+        else
+          (p384_ec_mul(g.sub(d0, d1), s), True)
       else
-        (zero, False);
+        (ec_zero_point f, False);
     m    = p384_point_ops;
     f    = m.field;
     g    = m.group_field;
@@ -479,7 +480,7 @@ p384_ec_twin_mul_candidate2(d0, s, d1, t) =
             }
        || [[c00 c01 c02 c03 c04 c05] [c10 c11 c12 c13 c14 c15]] <- c 
        |];
-   r = [(ec_zero_point f)]
+   r = [(i.r)]
      # [| ec_twin_mul_aux1(m, rP, u0, u1, i.sPt, s, i.sMt, t)
        || rP      <- r
        || [u0 u1] <- u

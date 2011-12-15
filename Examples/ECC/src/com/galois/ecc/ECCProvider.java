@@ -816,6 +816,11 @@ public abstract class ECCProvider {
       return true;
     }
 
+    // ec_zero_point f
+    set_unit(r.x);
+    set_unit(r.y);
+    set_zero(r.z);
+
     ec_projectify(sPtP, s);
     ec_full_add(sPtP, t);
     ec_projectify(sMtP, s);
@@ -873,11 +878,6 @@ public abstract class ECCProvider {
     int shift = 27;
     int e0 = d0_11;
     int e1 = d1_11;
-
-    // ec_zero_point f
-    set_unit(r.x);
-    set_unit(r.y);
-    set_zero(r.z);
 
     for (int k = 379; k != -6; --k) {
       int h0 = c0 & 0x1F;
