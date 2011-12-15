@@ -49,8 +49,7 @@ method com.galois.ecc.P384ECC64.ec_twin_mul
   ensure valueOf(args[0].x) := split(res.x) : [12][32];
   ensure valueOf(args[0].y) := split(res.y) : [12][32];
   ensure valueOf(args[0].z) := split(res.z) : [12][32];
-  modify valueOf(this.a), valueOf(this.h), 
-         valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  modify valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   modify this.aux2Rslt.u0, this.aux2Rslt.u1, this.aux2Rslt.c0p, this.aux2Rslt.c1p, 
          this.aux2Rslt.e0p, this.aux2Rslt.e1p, this.aux2Rslt.shp;
 

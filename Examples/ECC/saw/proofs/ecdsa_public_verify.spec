@@ -30,6 +30,14 @@ method com.galois.ecc.P384ECC64.verifySignature
   var this.sMt                        :: com.galois.ecc.AffinePoint;
   var this.sMt.x                      :: int[12];
   var this.sMt.y                      :: int[12];
+  var this.aux2Rslt                   :: com.galois.ecc.TwinMulAux2Rslt;
+  var this.aux2Rslt.u0                :: int;
+  var this.aux2Rslt.u1                :: int;
+  var this.aux2Rslt.c0p               :: int;
+  var this.aux2Rslt.c1p               :: int;
+  var this.aux2Rslt.e0p               :: int;
+  var this.aux2Rslt.e1p               :: int;
+  var this.aux2Rslt.shp               :: int;
   var this.basePoint                  :: com.galois.ecc.AffinePoint;
   var this.basePoint.x                :: int[12];
   var this.basePoint.y                :: int[12];
@@ -53,6 +61,8 @@ method com.galois.ecc.P384ECC64.verifySignature
 
   return ref_ecdsa_public_verify(e, r, s, {x = qx; y = qy});
 
+  modify this.aux2Rslt.u0, this.aux2Rslt.u1, this.aux2Rslt.c0p, this.aux2Rslt.c1p, 
+         this.aux2Rslt.e0p, this.aux2Rslt.e1p, this.aux2Rslt.shp;
   modify valueOf(this.a), valueOf(this.h);
   modify valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   modify valueOf(this.u1), valueOf(this.u2);
