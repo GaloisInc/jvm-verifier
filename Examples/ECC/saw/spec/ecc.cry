@@ -411,14 +411,42 @@ p384_ec_twin_mul_aux2 (c0,c1) = { tma2_h0 = h0; tma2_h1 = h1; tma2_c00 = c00; tm
     [c10 c11 c12 c13 c14 c15] = take(6, c1);
   };
 
+p384_ec_twin_mul_init :
+  ([384], {x : [384];  y : [384]}, [384], {x : [384];  y : [384]}) ->
+  { r : {x : [384]; y : [384]; z : [384]};
+    sMt : {x : [384];  y : [384]};
+    sPt : {x : [384];  y : [384]};
+    special : Bit };
+p384_ec_twin_mul_init(d0, s, d1, t) = {
+    r = r0;
+    special = special0;
+    sPt = sPt0;
+    sMt = sMt0;
+  }
+  where {
+    (r0, special0) =
+      if ec_is_zero_point(f, sPtP) then /* s + t = 0 */
+        (p384_ec_mul(g.sub(d0, d1), s), True)
+      else if ec_is_zero_point(f, sMtP) then /* s = t */
+        (p384_ec_mul(g.add(d0, d1), s), True)
+      else
+        (zero, False);
+    m    = p384_point_ops;
+    f    = m.field;
+    g    = m.group_field;
+    sP   = ec_projectify(f, s);
+    sPtP = m.add(sP, t); /* 1: ec_full_add (SpT, S, T) */
+    sMtP = m.sub(sP, t); /* 2: ec_full_sub (SmT, S, T) */
+    sDiv = f.div(f.field_unit, f.mul(sPtP.z, sMtP.z));
+    sPt0 = { x = f.mul(g2, sPtP.x); y = f.mul(f.mul(g, g2), sPtP.y); }
+           where { g = f.mul(sMtP.z, sDiv); g2 = f.sq(g) };
+    sMt0 = { x = f.mul(g2, sMtP.x); y = f.mul(f.mul(g, g2), sMtP.y); }
+           where { g = f.mul(sPtP.z, sDiv); g2 = f.sq(g) };
+  };
+
 p384_ec_twin_mul_candidate2(d0, s, d1, t) =
   (
-    if ec_is_zero_point(f, sPtP) then /* s + t = 0 */
-      ec_mul(m, g.sub(d0, d1), s)
-    else if ec_is_zero_point(f, sMtP) then /* s = t */
-      ec_mul(m, g.add(d0, d1), s)
-    else
-      r!0
+    if i.special then i.r else r!0
   
 /*
  , rf_cs == jj_cs
@@ -435,13 +463,7 @@ p384_ec_twin_mul_candidate2(d0, s, d1, t) =
    m    = p384_point_ops;
    f    = m.field;
    g    = m.group_field;
-   sP   = ec_projectify(f, s);
-   sPtP = m.add(sP, t); /* 1: ec_full_add (SpT, S, T) */
-   sMtP = m.sub(sP, t); /* 2: ec_full_sub (SmT, S, T) */
-   sDiv = f.div(f.field_unit, f.mul(sPtP.z, sMtP.z));
-   sPt  = { x = f.mul(g2, sPtP.x); y = f.mul(f.mul(g, g2), sPtP.y); } where { g = f.mul(sMtP.z, sDiv); g2 = f.sq(g) };
-   sMt  = { x = f.mul(g2, sMtP.x); y = f.mul(f.mul(g, g2), sMtP.y); } where { g = f.mul(sPtP.z, sDiv); g2 = f.sq(g) };
-
+   i    = p384_ec_twin_mul_init(d0, s, d1, t);
 
    c = [[(zero # take(4, reverse(d0)))
          (zero # take(4, reverse(d1)))]]
@@ -470,7 +492,7 @@ p384_ec_twin_mul_candidate2(d0, s, d1, t) =
        || [[c00 c01 c02 c03 c04 c05] [c10 c11 c12 c13 c14 c15]] <- c 
        |];
    r = [(ec_zero_point f)]
-     # [| ec_twin_mul_aux1(m, rP, u0, u1, sPt, s, sMt, t)
+     # [| ec_twin_mul_aux1(m, rP, u0, u1, i.sPt, s, i.sMt, t)
        || rP      <- r
        || [u0 u1] <- u
        |];
@@ -517,7 +539,7 @@ p384_ec_twin_mul_candidate2(d0, s, d1, t) =
           , (drop(4, reverse(d1)) # (zero : [4]))
           )
         ]
-      # [| ( ec_twin_mul_aux1(m, r, take(2, u0), take(2, u1), sPt, s, sMt, t)
+      # [| ( ec_twin_mul_aux1(m, r, take(2, u0), take(2, u1), i.sPt, s, i.sMt, t)
            , c0'
            , c1'
            , u0'
