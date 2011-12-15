@@ -63,6 +63,7 @@ public abstract class ECCProvider {
   private JacobianPoint sMtP;
   private AffinePoint sPt;
   private AffinePoint sMt;
+  private TwinMulAux2Rslt aux2Rslt;
 
   /**
    * Intermediate point for storing key.
@@ -93,6 +94,7 @@ public abstract class ECCProvider {
     sMtP = new JacobianPoint(width);
     sPt = new AffinePoint(width);
     sMt = new AffinePoint(width);
+    aux2Rslt = new TwinMulAux2Rslt();
     qPoint = new AffinePoint(width);
 
     basePoint3 = new AffinePoint(width);
@@ -796,6 +798,14 @@ public abstract class ECCProvider {
     return 12;
   }
 
+  private void ec_twin_mul_aux2(int c0, int c1)
+  {
+    aux2Rslt.h0 = c0 & 0x1F;
+    if ((c0 & 0x20) != 0) aux2Rslt.h0 = 31 - aux2Rslt.h0;
+    aux2Rslt.h1 = c1 & 0x1F;
+    if ((c1 & 0x20) != 0) aux2Rslt.h1 = 31 - aux2Rslt.h1;
+  }
+
   /**
    * Assigns r = d0 * s + d1 * t.  As a side effect, this function uses
    * <code>h</code>, <code>t1</code>, <code>t2</code>
@@ -866,10 +876,16 @@ public abstract class ECCProvider {
     set_zero(r.z);
 
     for (int k = 379; k != -6; --k) {
+      ec_twin_mul_aux2(c0, c1);
+      int h0 = aux2Rslt.h0;
+      int h1 = aux2Rslt.h1;
+      
+      /*
       int h0 = c0 & 0x1F;
       if ((c0 & 0x20) != 0) h0 = 31 - h0;
       int h1 = c1 & 0x1F;
       if ((c1 & 0x20) != 0) h1 = 31 - h1;
+      */
 
       boolean h0Less = h0 < ec_twin_mul_aux_f(h1);
       boolean h1Less = h1 < ec_twin_mul_aux_f(h0);

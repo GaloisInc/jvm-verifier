@@ -399,6 +399,18 @@ p384_ec_twin_mul_aux_F(t) =
   else
     12;
 
+type TwinMulAux2Rslt = { tma2_h0 : [32]; tma2_h1 : [32]; tma2_c00 : Bit; tma2_c10 : Bit };
+p384_ec_twin_mul_aux2 : ([32],[32]) -> TwinMulAux2Rslt;
+p384_ec_twin_mul_aux2 (c0,c1) = { tma2_h0 = h0; tma2_h1 = h1; tma2_c00 = c00; tma2_c10 = c10 }
+  where { 
+    h0' = [c05 c04 c03 c02 c01];
+    h0  = uext (if c00 then 31 - h0' else h0') : [32];
+    h1' = [c15 c14 c13 c12 c11];
+    h1  = uext (if c10 then 31 - h1' else h1') : [32];
+    [c00 c01 c02 c03 c04 c05] = take(6, c0);
+    [c10 c11 c12 c13 c14 c15] = take(6, c1);
+  };
+
 p384_ec_twin_mul_candidate2(d0, s, d1, t) =
   (
     if ec_is_zero_point(f, sPtP) then /* s + t = 0 */
@@ -476,12 +488,20 @@ p384_ec_twin_mul_candidate2(d0, s, d1, t) =
                        , if h1 < p384_ec_twin_mul_aux_F(h0) then zero else if c10 then -1 else 1
                        ) 
                        where {
+                         tma2r = p384_ec_twin_mul_aux2(c0, c1);
+                         h0    = tma2r.tma2_h0;
+                         h1    = tma2r.tma2_h1;
+                         c00   = tma2r.tma2_c00;
+                         c10   = tma2r.tma2_c10;
+
+/*
                          h0' = [c05 c04 c03 c02 c01];
                          h0  = uext (if c00 then 31 - h0' else h0') : [32];
                          h1' = [c15 c14 c13 c12 c11];
                          h1  = uext (if c10 then 31 - h1' else h1') : [32];
                          [c00 c01 c02 c03 c04 c05] = take(6, c0);
                          [c10 c11 c12 c13 c14 c15] = take(6, c1);
+*/
                         };
 
    c0_init            = uext ((zero # take(4, reverse(d0))) : [6]) : [32];
