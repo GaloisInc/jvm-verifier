@@ -1,71 +1,76 @@
 method com.galois.ecc.P384ECC64.ec_twin_mul
 {
-  var args[0]                         :: com.galois.ecc.JacobianPoint;
-  var args[1]                         :: int[12];
-  var args[2]                         :: com.galois.ecc.AffinePoint;
-  var args[3]                         :: int[12];
-  var args[4]                         :: com.galois.ecc.AffinePoint;
-  var args[5]                         :: com.galois.ecc.JacobianPoint;
-  var args[6]                         :: com.galois.ecc.JacobianPoint;
-  var args[7]                         :: com.galois.ecc.AffinePoint;
-  var args[8]                         :: com.galois.ecc.AffinePoint;
-  var this.a                          :: int[24];
-  var this.h                          :: int[12];
-  var this.t1, this.t2, this.t3       :: int[12];
-  var this.aux2Rslt                   :: com.galois.ecc.TwinMulAux2Rslt;
-  var this.aux2Rslt.u0                :: int;
-  var this.aux2Rslt.u1                :: int;
-  var this.aux2Rslt.c0p               :: int;
-  var this.aux2Rslt.c1p               :: int;
-  var this.aux2Rslt.e0p               :: int;
-  var this.aux2Rslt.e1p               :: int;
-  var this.aux2Rslt.shp               :: int;
+  var r                         :: com.galois.ecc.JacobianPoint;
+  var d0                        :: int[12];
+  var s                         :: com.galois.ecc.AffinePoint;
+  var d1                        :: int[12];
+  var t                         :: com.galois.ecc.AffinePoint;
+  var sPtP                      :: com.galois.ecc.JacobianPoint;
+  var sMtP                      :: com.galois.ecc.JacobianPoint;
+  var sPt                       :: com.galois.ecc.AffinePoint;
+  var sMt                       :: com.galois.ecc.AffinePoint;
+  var this.a                    :: int[24];
+  var this.h                    :: int[12];
+  var this.t1, this.t2, this.t3 :: int[12];
+  var this.aux2Rslt             :: com.galois.ecc.TwinMulAux2Rslt;
+  var this.aux2Rslt.u0          :: int;
+  var this.aux2Rslt.u1          :: int;
+  var this.aux2Rslt.c0p         :: int;
+  var this.aux2Rslt.c1p         :: int;
+  var this.aux2Rslt.e0p         :: int;
+  var this.aux2Rslt.e1p         :: int;
+  var this.aux2Rslt.shp         :: int;
+  var r.x, r.y, r.z             :: int[12];
+  var s.x, s.y                  :: int[12];
+  var t.x, t.y                  :: int[12];
+  var sPtP.x, sPtP.y, sPtP.z    :: int[12];
+  var sMtP.x, sMtP.y, sMtP.z    :: int[12];
+  var sPt.x, sPt.y              :: int[12];
+  var sMt.x, sMt.y              :: int[12];
+  var this.field_prime          :: int[12];
+  var this.group_order          :: int[12];
+  var this.field_unit           :: int[12];
 
-  var args[0].x, args[0].y, args[0].z :: int[12];
-  var args[2].x, args[2].y            :: int[12];
-  var args[4].x, args[4].y            :: int[12];
-  var args[5].x, args[5].y, args[5].z :: int[12];
-  var args[6].x, args[6].y, args[6].z :: int[12];
-  var args[7].x, args[7].y            :: int[12];
-  var args[8].x, args[8].y            :: int[12];
-
-  var this.field_prime :: int[12];
-  var this.group_order :: int[12];
-  var this.field_unit  :: int[12];
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   assert valueOf(this.group_order) := split(group_order) : [12][32];
   assert valueOf(this.field_unit)  := split(1 : [384]) : [12][32];
 
-  let d0  = join(valueOf(args[1]));
-  let sx = join(valueOf(args[2].x));
-  let sy = join(valueOf(args[2].y));
-  let d1  = join(valueOf(args[3]));
-  let tx = join(valueOf(args[4].x));
-  let ty = join(valueOf(args[4].y));
+  let d0' = join(valueOf(d0));
+  let sx  = join(valueOf(s.x));
+  let sy  = join(valueOf(s.y));
+  let d1' = join(valueOf(d1));
+  let tx  = join(valueOf(t.x));
+  let ty  = join(valueOf(t.y));
 
-  let res = ref_ec_twin_mul(d0, { x = sx; y = sy },
-                            d1, { x = tx; y = ty });
+  let res = ref_ec_twin_mul(d0', { x = sx; y = sy },
+                            d1', { x = tx; y = ty });
 
-  ensure valueOf(args[0].x) := split(res.x) : [12][32];
-  ensure valueOf(args[0].y) := split(res.y) : [12][32];
-  ensure valueOf(args[0].z) := split(res.z) : [12][32];
+  ensure valueOf(r.x) := split(res.x) : [12][32];
+  ensure valueOf(r.y) := split(res.y) : [12][32];
+  ensure valueOf(r.z) := split(res.z) : [12][32];
+
   modify valueOf(this.a), valueOf(this.h), 
          valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   modify this.aux2Rslt.u0, this.aux2Rslt.u1, this.aux2Rslt.c0p, this.aux2Rslt.c1p, 
          this.aux2Rslt.e0p, this.aux2Rslt.e1p, this.aux2Rslt.shp;
 
-  /*
-  modify valueOf(args[5].x);
-  modify valueOf(args[5].y);
-  modify valueOf(args[5].z);
-  modify valueOf(args[6].x);
-  modify valueOf(args[6].y);
-  modify valueOf(args[6].z);
-  modify valueOf(args[7].x);
-  modify valueOf(args[7].y);
-  modify valueOf(args[8].x);
-  modify valueOf(args[8].y);
-  */
+/*
+  modify valueOf(sPtP.x);
+  modify valueOf(sPtP.y);
+  modify valueOf(sPtP.z);
+  modify valueOf(sMtP.x);
+  modify valueOf(sMtP.y);
+  modify valueOf(sMtP.z);
+  modify valueOf(sPt.x);
+  modify valueOf(sPt.y);
+  modify valueOf(sMt.x);
+  modify valueOf(sMt.y);
+  modify valueOf(t.x);
+  modify valueOf(t.y);
+  modify valueOf(s.x);
+  modify valueOf(s.y);
+*/
+
   //quickcheck 1;
-  verify { rewrite; /*yices; smtlib;*/ };
+  verify { rewrite; };
 };
