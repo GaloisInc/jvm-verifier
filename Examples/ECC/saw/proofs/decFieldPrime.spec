@@ -10,5 +10,5 @@ method com.galois.ecc.P384ECC64.decFieldPrime
 
   ensure valueOf(args[0]) := split(r.rslt) : [12][32];
   return r.carry;
-  verify abc;
+  verify { rewrite; yices; };
 };

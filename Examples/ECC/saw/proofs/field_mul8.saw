@@ -1,3 +1,9 @@
 import "common.saw";
+import "rules.saw";
+
+set verification off;
+import "field_dbl.spec";
+set verification on;
+
 import "field_mul8.spec";
 

@@ -8,5 +8,5 @@ method com.galois.ecc.P384ECC64.mod_sub
   let jp = join(valueOf(p));
   ensure valueOf(z) := split(ref_mod_sub(jp, jx, jy)) : [12][32];
 
-  verify abc;
+  verify { rewrite; yices; };
 };

@@ -826,6 +826,11 @@ public abstract class ECCProvider {
       return true;
     }
 
+    // ec_zero_point f
+    set_unit(r.x);
+    set_unit(r.y);
+    set_zero(r.z);
+
     ec_projectify(sPtP, s);
     ec_full_add(sPtP, t);
     ec_projectify(sMtP, s);
@@ -883,11 +888,6 @@ public abstract class ECCProvider {
     int shift = 27;
     int e0 = d0_11;
     int e1 = d1_11;
-
-    // ec_zero_point f
-    set_unit(r.x);
-    set_unit(r.y);
-    set_zero(r.z);
 
     for (int k = 379; k != -6; --k) {
       ec_twin_mul_aux2(c0, c1);
@@ -1233,7 +1233,7 @@ public abstract class ECCProvider {
     if (hashValue == null) throw new NullPointerException("hashValue");
     if (hashValue.length != width)
        throw new IllegalArgumentException("hashValue has incorrect size.");
-    if (leq(group_order, hashValue)) sub(hashValue, hashValue, group_order); 
+    if (leq(group_order, hashValue)) sub(hashValue, hashValue, group_order);
 
     if (signature == null) throw new NullPointerException("signature");
     if (signature.r.length != width)
@@ -1243,8 +1243,8 @@ public abstract class ECCProvider {
     if (publicKey.x.length != width)
        throw new IllegalArgumentException("Unexpected public key size.");
 
-    if (is_zero(signature.r) || !leq(signature.r, group_order)) return false;
-    if (is_zero(signature.s) || !leq(signature.s, group_order)) return false;
+    if (is_zero(signature.r) || leq(group_order, signature.r)) return false;
+    if (is_zero(signature.s) || leq(group_order, signature.s)) return false;
 
     mod_div(h, field_unit, signature.s, group_order); // h = 1 / s
     group_mul(u1, hashValue, h); // u1 <- hashValue / s

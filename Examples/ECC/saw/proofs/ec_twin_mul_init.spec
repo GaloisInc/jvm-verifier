@@ -29,18 +29,12 @@ method com.galois.ecc.P384ECC64.ec_twin_mul_init
                         , { x = join(valueOf(t.x)) ; y = join(valueOf(t.y)) }
                         );
 
-  /*
   ensure valueOf(r.x) := split(res.r.x) : [12][32];
   ensure valueOf(r.y) := split(res.r.y) : [12][32];
   ensure valueOf(r.z) := split(res.r.z) : [12][32];
-  */
 
   modify valueOf(d0);
   modify valueOf(d1);
-
-  modify valueOf(r.x);
-  modify valueOf(r.y);
-  modify valueOf(r.z);
 
   modify valueOf(sPt.x);
   modify valueOf(sPt.y);
@@ -68,5 +62,5 @@ method com.galois.ecc.P384ECC64.ec_twin_mul_init
   modify valueOf(t.y);
   //quickcheck 1;
   //quickcheck 15000;
-  verify { rewrite; yices; /*smtlib; */};
+  verify { rewrite; yices; /* smtlib; */};
 };

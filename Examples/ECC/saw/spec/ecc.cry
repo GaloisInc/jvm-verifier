@@ -425,12 +425,13 @@ p384_ec_twin_mul_init(d0, s, d1, t) = {
   }
   where {
     (r0, special0) =
-      if ec_is_zero_point(f, sPtP) then /* s + t = 0 */
-        (p384_ec_mul(g.sub(d0, d1), s), True)
-      else if ec_is_zero_point(f, sMtP) then /* s = t */
-        (p384_ec_mul(g.add(d0, d1), s), True)
+      if s.x == t.x then
+        if s.y == t.y then
+          (p384_ec_mul(g.add(d0, d1), s), True)
+        else
+          (p384_ec_mul(g.sub(d0, d1), s), True)
       else
-        (zero, False);
+        (ec_zero_point f, False);
     m    = p384_point_ops;
     f    = m.field;
     g    = m.group_field;
@@ -491,7 +492,7 @@ p384_ec_twin_mul_candidate2(d0, s, d1, t) =
             }
        || [[c00 c01 c02 c03 c04 c05] [c10 c11 c12 c13 c14 c15]] <- c 
        |];
-   r = [(ec_zero_point f)]
+   r = [(i.r)]
      # [| ec_twin_mul_aux1(m, rP, u0, u1, i.sPt, s, i.sMt, t)
        || rP      <- r
        || [u0 u1] <- u
@@ -707,6 +708,35 @@ ecdsa_public_verify(c, e, (r, s), q)
     j = f.mul(r2.x, f.sq(f.div(f.field_unit, r2.z)));
     /* g) v = j mod n */
     v = g.norm(j);
+  };
+
+/* This version performs a cheaper sequence of operations, and matches
+ * the Java implementation. Correspondence between the reference and
+ * implementation versions of ecdsa_public_verify is probably best proved
+ * independent of the Java code.
+ */
+ecdsa_public_verify_imp :
+  (Curve ([384],[384]), [384], ([384], [384]), AffinePoint [384]) -> Bit;
+ecdsa_public_verify_imp(c, e, (r, s), q)
+   = in_range(r) & in_range(s) &
+     ~is_zero(r2.z) &
+     (g.is_equal(j, r2.x) | ((carry == False) & (g.is_equal(k, r2.x))))
+  where {
+    f = c.point_ops.field;
+    g = c.point_ops.group_field;
+    mul(x,y) = g.mul(x, y);
+    div(x,y) = g.div(x, y);
+    is_zero(x) = g.is_equal(x, g.field_zero);
+    in_range(x) = ~is_zero(x) & g.is_val(x);
+    s_inv = div(1, s);
+    u1 = mul(g.norm(e), s_inv);
+    u2 = mul(r, s_inv);
+    r2 = c.twin_mul(u1, c.base, u2, q);
+    r2zsq = f.sq(r2.z);
+    j = f.mul(r, r2zsq);
+    sum = r + p384_group_size;
+    carry = (sum < r) & (sum < p384_group_size);
+    k = f.mul(sum, r2zsq);
   };
 
 /* P384 reference definitions {{{1 */
@@ -1135,7 +1165,8 @@ p384_ecdsa_sign(d,e,k) = { r = rr; s = ss }
   where (rr, ss) = ecdsa_sign(p384_curve,d,e,k);
 
 p384_ecdsa_public_verify : ([384], [384], [384], AffinePoint [384]) -> Bit;
-p384_ecdsa_public_verify(e,pr,ps,q) = ecdsa_public_verify(p384_curve,e,(pr,ps),q);
+p384_ecdsa_public_verify(e,pr,ps,q) =
+  ecdsa_public_verify_imp(p384_curve,e,(pr,ps),q);
 
 /* P384 test code {{{2 */
 
