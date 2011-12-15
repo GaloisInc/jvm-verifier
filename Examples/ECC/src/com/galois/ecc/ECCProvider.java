@@ -796,24 +796,13 @@ public abstract class ECCProvider {
     return 12;
   }
 
-  /**
-   * Assigns r = d0 * s + d1 * t.  As a side effect, this function uses
-   * <code>h</code>, <code>t1</code>, <code>t2</code>
-   * and <code>t3</code> as temporary buffers that are overwritten.
-   *
-   * @param r Point to store result in.
-   * @param d0 First scalar multiplier.
-   * @param s First point to multiply.
-   * @param d1 Second scalar multiplier.
-   * @param t Second point to multiply.
-   */
-  private void ec_twin_mul(JacobianPoint r,
-                           int[] d0, AffinePoint s,
-                           int[] d1, AffinePoint t,
-                           JacobianPoint sPtP,
-                           JacobianPoint sMtP,
-                           AffinePoint sPt,
-                           AffinePoint sMt) {
+  private boolean ec_twin_mul_init(JacobianPoint r,
+                                   int[] d0, AffinePoint s,
+                                   int[] d1, AffinePoint t,
+                                   JacobianPoint sPtP,
+                                   JacobianPoint sMtP,
+                                   AffinePoint sPt,
+                                   AffinePoint sMt) {
     // Special case for chance s == t or s == -t
     if (is_equal(s.x, t.x)) {
       int[] t0 = sPtP.x;
@@ -824,7 +813,7 @@ public abstract class ECCProvider {
         mod_sub(t0, d0, d1, group_order);
         ec_mul(r, t0, s);
       }
-      return;
+      return true;
     }
 
     ec_projectify(sPtP, s);
@@ -849,6 +838,31 @@ public abstract class ECCProvider {
     field_sq(sMt.x, sMt.x);          // sMt.x = 1 / sMtP.z^2
     field_mul(sMt.y, sMt.y, sMt.x);  // sMt.y = sMtP.y / sMtP.z^3
     field_mul(sMt.x, sMtP.x, sMt.x); // sMt.x = sMtP.x / sMtP.z^2
+
+    return false;
+  }
+
+  /**
+   * Assigns r = d0 * s + d1 * t.  As a side effect, this function uses
+   * <code>h</code>, <code>t1</code>, <code>t2</code>
+   * and <code>t3</code> as temporary buffers that are overwritten.
+   *
+   * @param r Point to store result in.
+   * @param d0 First scalar multiplier.
+   * @param s First point to multiply.
+   * @param d1 Second scalar multiplier.
+   * @param t Second point to multiply.
+   */
+  private void ec_twin_mul(JacobianPoint r,
+                           int[] d0, AffinePoint s,
+                           int[] d1, AffinePoint t,
+                           JacobianPoint sPtP,
+                           JacobianPoint sMtP,
+                           AffinePoint sPt,
+                           AffinePoint sMt) {
+
+    if(ec_twin_mul_init(r, d0, s, d1, t, sPtP, sMtP, sPt, sMt))
+        return;
 
     int d0_11 = d0[11];
     int d1_11 = d1[11];

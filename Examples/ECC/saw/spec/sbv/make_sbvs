@@ -59,6 +59,7 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 :load sbv_uninterpret_ec_mul.cry
 :fm (\x -> p384_ec_twin_mul_aux_F(x) : [32]) "generated/p384_ec_twin_mul_aux_F.sbv"
 :fm p384_ec_twin_mul_aux1  "generated/p384_ec_twin_mul_aux1.sbv"
+:fm p384_ec_twin_mul_init  "generated/p384_ec_twin_mul_init.sbv"
 :fm p384_ec_twin_mul       "generated/p384_ec_twin_mul.sbv"
 
 :load sbv_uninterpret_ec_twin_mul.cry

@@ -1,4 +1,3 @@
-import "rules.saw";
 method com.galois.ecc.P384ECC64.ec_twin_mul_aux_f
 {
   var t :: int;
