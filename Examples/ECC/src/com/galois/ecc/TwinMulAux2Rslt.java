@@ -1,6 +1,8 @@
 package com.galois.ecc;
 
 class TwinMulAux2Rslt {
-  public int h0;
-  public int h1;
+  public int u0;
+  public int u1;
+  public int c0p;
+  public int c1p;
 };

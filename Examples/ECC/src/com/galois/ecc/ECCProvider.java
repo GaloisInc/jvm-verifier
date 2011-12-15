@@ -798,12 +798,18 @@ public abstract class ECCProvider {
     return 12;
   }
 
-  private void ec_twin_mul_aux2(int c0, int c1)
+  private void ec_twin_mul_aux2(int c0, int c1, int e0, int e1, int shift)
   {
-    aux2Rslt.h0 = c0 & 0x1F;
-    if ((c0 & 0x20) != 0) aux2Rslt.h0 = 31 - aux2Rslt.h0;
-    aux2Rslt.h1 = c1 & 0x1F;
-    if ((c1 & 0x20) != 0) aux2Rslt.h1 = 31 - aux2Rslt.h1;
+    int h0 = c0 & 0x1F;
+    if ((c0 & 0x20) != 0) h0 = 31 - h0;
+    int h1 = c1 & 0x1F;
+    if ((c1 & 0x20) != 0) h1 = 31 - h1;
+    boolean h0Less = h0 < ec_twin_mul_aux_f(h1);
+    boolean h1Less = h1 < ec_twin_mul_aux_f(h0);
+    aux2Rslt.u0  = h0Less ? 0 : ((c0 & 0x20) != 0 ? -1 : 1);
+    aux2Rslt.u1  = h1Less ? 0 : ((c1 & 0x20) != 0 ? -1 : 1);
+    aux2Rslt.c0p = (h0Less ? 0 : 0x20) ^ (c0 << 1) | (e0 >>> shift) & 0x1;
+    aux2Rslt.c1p = (h1Less ? 0 : 0x20) ^ (c1 << 1) | (e1 >>> shift) & 0x1;
   }
 
   private boolean ec_twin_mul_init(JacobianPoint r,
@@ -890,16 +896,17 @@ public abstract class ECCProvider {
     int e1 = d1_11;
 
     for (int k = 379; k != -6; --k) {
-      ec_twin_mul_aux2(c0, c1);
-      int h0 = aux2Rslt.h0;
-      int h1 = aux2Rslt.h1;
+      ec_twin_mul_aux2(c0, c1, e0, e1, shift);
+      int u0 = aux2Rslt.u0;
+      int u1 = aux2Rslt.u1;
+      c0     = aux2Rslt.c0p;
+      c1     = aux2Rslt.c1p;
       
-      /*
+        /*
       int h0 = c0 & 0x1F;
       if ((c0 & 0x20) != 0) h0 = 31 - h0;
       int h1 = c1 & 0x1F;
       if ((c1 & 0x20) != 0) h1 = 31 - h1;
-      */
 
       boolean h0Less = h0 < ec_twin_mul_aux_f(h1);
       boolean h1Less = h1 < ec_twin_mul_aux_f(h0);
@@ -909,7 +916,8 @@ public abstract class ECCProvider {
 
       c0 = (h0Less ? 0 : 0x20) ^ (c0 << 1) | (e0 >>> shift) & 0x1;
       c1 = (h1Less ? 0 : 0x20) ^ (c1 << 1) | (e1 >>> shift) & 0x1;
-  
+        */
+
       ec_twin_mul_aux1(r, u0, u1, sPt, s, sMt, t);
       
       if ((k & 0x1F) == 0) {
