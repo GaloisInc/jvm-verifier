@@ -25,8 +25,6 @@ PROOFS :=                 \
   add.saw                 \
   assign.saw              \
   decFieldPrime.saw       \
-  ecdsa_public_verify.saw \
-  ecdsa_sign.saw          \
   ec_double.saw           \
   ec_full_add.saw         \
   ec_full_sub.saw         \
@@ -38,6 +36,8 @@ PROOFS :=                 \
   ec_twin_mul_aux2.saw    \
   ec_twin_mul_aux_f.saw   \
   ec_twin_mul_init.saw    \
+  ecdsa_public_verify.saw \
+  ecdsa_sign.saw          \
   field_add.saw           \
   field_dbl.saw           \
   field_dbl_dec.saw       \
@@ -45,12 +45,13 @@ PROOFS :=                 \
   field_mul3.saw          \
   field_mul4.saw          \
   field_mul8.saw          \
-  field_red_aux.saw       \
   field_red.saw           \
+  field_red_aux.saw       \
   field_sq.saw            \
   field_sub.saw           \
   group_add.saw           \
   incFieldPrime.saw       \
+  is_equal.saw            \
   is_zero.saw             \
   leq.saw                 \
   mod_div.saw             \
