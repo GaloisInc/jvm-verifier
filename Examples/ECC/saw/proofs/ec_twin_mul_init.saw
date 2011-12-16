@@ -2,22 +2,17 @@ import "common.saw";
 import "rules.saw";
 
 rule resR :
-  forAll { r0 : a, sMt0 : b, sPt0 : c, special0 : d }.
-      { r = r0 ; sMt = sMt0 ; sPt = sPt0 ; special = special0 }.r -> r0;
-
-rule resSpecial :
-  forAll { r0 : a, sMt0 : b, sPt0 : c, special0 : d }.
-      { r = r0 ; sMt = sMt0 ; sPt = sPt0 ; special = special0 }.special ->
-      special0;
+  forAll { r0 : a, sMt0 : b, sPt0 : c }.
+      { r = r0 ; sMt = sMt0 ; sPt = sPt0 }.r -> r0;
 
 rule resSPt :
-  forAll { r0 : a, sMt0 : b, sPt0 : c, special0 : d }.
-      { r = r0 ; sMt = sMt0 ; sPt = sPt0 ; special = special0 }.sPt ->
+  forAll { r0 : a, sMt0 : b, sPt0 : c }.
+      { r = r0 ; sMt = sMt0 ; sPt = sPt0 }.sPt ->
       sPt0;
 
 rule resSMt :
-  forAll { r0 : a, sMt0 : b, sPt0 : c, special0 : d }.
-      { r = r0 ; sMt = sMt0 ; sPt = sPt0 ; special = special0 }.sMt ->
+  forAll { r0 : a, sMt0 : b, sPt0 : c }.
+      { r = r0 ; sMt = sMt0 ; sPt = sPt0 }.sMt ->
       sMt0;
 
 rule imp_true_elim1  : forAll {x:Bit}. x     ==> true  -> true;

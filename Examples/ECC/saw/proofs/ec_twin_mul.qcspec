@@ -35,6 +35,11 @@ method com.galois.ecc.P384ECC64.ec_twin_mul
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   assert valueOf(this.group_order) := split(group_order) : [12][32];
   assert valueOf(this.field_unit)  := split(1 : [384]) : [12][32];
+  let zero = split(0 : [384]) : [12][32];
+  assert valueOf(sPt.x) := zero;
+  assert valueOf(sPt.y) := zero;
+  assert valueOf(sMt.x) := zero;
+  assert valueOf(sMt.y) := zero;
 
   let d0  = join(valueOf(args[1]));
   let sx = join(valueOf(args[2].x));
@@ -49,11 +54,16 @@ method com.galois.ecc.P384ECC64.ec_twin_mul
   ensure valueOf(args[0].x) := split(res.x) : [12][32];
   ensure valueOf(args[0].y) := split(res.y) : [12][32];
   ensure valueOf(args[0].z) := split(res.z) : [12][32];
+  modify valueOf(this.a);
   modify valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-  modify this.aux2Rslt.u0, this.aux2Rslt.u1, this.aux2Rslt.c0p, this.aux2Rslt.c1p, 
+  modify this.aux2Rslt.u0, this.aux2Rslt.u1,
+         this.aux2Rslt.c0p, this.aux2Rslt.c1p,
          this.aux2Rslt.e0p, this.aux2Rslt.e1p, this.aux2Rslt.shp;
 
-  /*
+  modify valueOf(args[2].x);
+  modify valueOf(args[2].y);
+  modify valueOf(args[4].x);
+  modify valueOf(args[4].y);
   modify valueOf(args[5].x);
   modify valueOf(args[5].y);
   modify valueOf(args[5].z);
@@ -64,7 +74,6 @@ method com.galois.ecc.P384ECC64.ec_twin_mul
   modify valueOf(args[7].y);
   modify valueOf(args[8].x);
   modify valueOf(args[8].y);
-  */
   //quickcheck 1;
   verify { rewrite; /*yices; smtlib;*/ };
 };

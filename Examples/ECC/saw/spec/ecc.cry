@@ -282,29 +282,32 @@ ec_mul (m, d, s) = res@`(gv+1)
 
 
 ec_twin_mul_aux1 : {fv gv} (fin gv, gv >= 4) => 
-  (PointOps (fv,[gv]), JacobianPoint fv, [2], [2], 
+  (PointOps (fv,[gv]), JacobianPoint fv, [32], [32],
    AffinePoint fv, AffinePoint fv, AffinePoint fv, AffinePoint fv) 
   -> (JacobianPoint fv);
 ec_twin_mul_aux1(m,rP,u0,u1,sPt,s,sMt,t) = r
   where {
    f = m.field;
-   r = if      (u0 == -1) & (u1 == -1) then m.sub(r2, sPt)
-       else if (u0 == -1) & (u1 ==  0) then m.sub(r2, s)
-       else if (u0 == -1) & (u1 ==  1) then m.sub(r2, sMt)
-       else if (u0 ==  0) & (u1 == -1) then m.sub(r2, t)
-       else if (u0 ==  0) & (u1 ==  1) then m.add(r2, t)
-       else if (u0 ==  1) & (u1 == -1) then m.add(r2, sMt)
-       else if (u0 ==  1) & (u1 ==  0) then m.add(r2, s)
-       else if (u0 ==  1) & (u1 ==  1) then m.add(r2, sPt)
-       else r2
-         where r2 = m.double(rP);
+   r = if u0 == -1 then
+         (if      u1 == -1 then m.sub(r2, sPt)
+          else if u1 ==  0 then m.sub(r2, s)
+          else                  m.sub(r2, sMt))
+       else if u0 == 0 then
+         (if      u1 == -1 then m.sub(r2, t)
+          else if u1 ==  1 then m.add(r2, t)
+          else                  r2)
+       else
+         (if      u1 == -1 then m.add(r2, sMt)
+          else if u1 ==  0 then m.add(r2, s)
+          else                  m.add(r2, sPt));
+   r2 = m.double(rP);
   };
 
 p384_ec_twin_mul_aux1 : 
   (JacobianPoint [384], [32], [32], AffinePoint [384], AffinePoint [384], AffinePoint [384], AffinePoint [384])
   -> JacobianPoint [384];
 p384_ec_twin_mul_aux1(rP, u0_32, u1_32, sPt, s, sMt, t) =
-  ec_twin_mul_aux1(p384_point_ops, rP, take(2, u0_32), take(2, u1_32), sPt, s, sMt, t);
+  ec_twin_mul_aux1(p384_point_ops, rP, u0_32, u1_32, sPt, s, sMt, t);
 
 /* Return d0 * S + d1 * T. All points projective, 0 <= d0, d1 < p. */
 ec_twin_mul : {fv gv} (fin gv, gv >= 4) 
@@ -357,9 +360,9 @@ ec_twin_mul(m, d0, s, d1, t) =
               h0 = if c00 then 31 - h0' else h0';
               h1' = [c15 c14 c13 c12 c11];
               h1 = if c10 then 31 - h1' else h1';
-              u0 : [2];
+              u0 : [32];
               u0 = if h0 < F(h1) then 0 else if c00 then -1 else 1;
-              u1 : [2];
+              u1 : [32];
               u1 = if h1 < F(h0) then 0 else if c10 then -1 else 1;
             }
        || [[c00 c01 c02 c03 c04 c05] [c10 c11 c12 c13 c14 c15]] <- c 
@@ -402,23 +405,22 @@ p384_ec_twin_mul_init :
   ([384], {x : [384];  y : [384]}, [384], {x : [384];  y : [384]}) ->
   { r : {x : [384]; y : [384]; z : [384]};
     sMt : {x : [384];  y : [384]};
-    sPt : {x : [384];  y : [384]};
-    special : Bit };
+    sPt : {x : [384];  y : [384]} };
 p384_ec_twin_mul_init(d0, s, d1, t) = {
     r = r0;
-    special = special0;
-    sPt = sPt0;
-    sMt = sMt0;
+    sPt = if s.x == t.x then azero else sPt0;
+    sMt = if s.x == t.x then azero else sMt0;
   }
   where {
-    (r0, special0) =
+    azero = { x = 0:[384]; y = 0:[384] };
+    r0 =
       if s.x == t.x then
         if s.y == t.y then
-          (p384_ec_mul(g.add(d0, d1), s), True)
+          p384_ec_mul(g.add(d0, d1), s)
         else
-          (p384_ec_mul(g.sub(d0, d1), s), True)
+          p384_ec_mul(g.sub(d0, d1), s)
       else
-        (ec_zero_point f, False);
+        ec_zero_point f;
     m    = p384_point_ops;
     f    = m.field;
     g    = m.group_field;
@@ -468,7 +470,7 @@ theorem p384_ec_twin_mul_candidate3_ok : {x p y q}.
 /* Matches Java implementation */
 //p384_ec_twin_mul_candidate3(d0, s, d1, t) = 
 p384_ec_twin_mul(d0, s, d1, t) = 
-  if i.special then i.r else (jj_r where (jj_r, _, _, _, _, _) = jj!0)
+  if s.x == t.x then i.r else (jj_r where (jj_r, _, _, _, _, _) = jj!0)
   where {
    m     = p384_point_ops;
    f     = m.field;
@@ -514,7 +516,7 @@ p384_ec_twin_mul(d0, s, d1, t) =
 
 p384_ec_twin_mul_candidate2(d0, s, d1, t) =
   (
-    if i.special then i.r else r!0
+    if s.x == t.x then i.r else r!0
   
 /*
  , rf_cs == jj_cs
@@ -552,9 +554,9 @@ p384_ec_twin_mul_candidate2(d0, s, d1, t) =
               h0 = if c00 then 31 - h0' else h0';
               h1' = [c15 c14 c13 c12 c11];
               h1 = if c10 then 31 - h1' else h1';
-              u0 : [2];
+              u0 : [32];
               u0 = if h0 < p384_ec_twin_mul_aux_F(h1) then 0 else if c00 then -1 else 1;
-              u1 : [2];
+              u1 : [32];
               u1 = if h1 < p384_ec_twin_mul_aux_F(h0) then 0 else if c10 then -1 else 1;
             }
        || [[c00 c01 c02 c03 c04 c05] [c10 c11 c12 c13 c14 c15]] <- c 
@@ -599,7 +601,7 @@ p384_ec_twin_mul_candidate2(d0, s, d1, t) =
           , (drop(4, reverse(d1)) # (zero : [4]))
           )
         ]
-      # [| ( ec_twin_mul_aux1(m, r, take(2, u0), take(2, u1), i.sPt, s, i.sMt, t)
+      # [| ( ec_twin_mul_aux1(m, r, u0, u1, i.sPt, s, i.sMt, t)
            , c0'
            , c1'
            , u0'

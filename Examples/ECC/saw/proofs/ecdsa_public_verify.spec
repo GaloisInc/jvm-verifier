@@ -52,6 +52,11 @@ method com.galois.ecc.P384ECC64.verifySignature
 
   assert valueOf(this.basePoint.x)  := split(basePoint.x) : [12][32];
   assert valueOf(this.basePoint.y)  := split(basePoint.y) : [12][32];
+  let zero = split(0 : [384]) : [12][32];
+  assert valueOf(this.sPt.x) := zero;
+  assert valueOf(this.sPt.y) := zero;
+  assert valueOf(this.sMt.x) := zero;
+  assert valueOf(this.sMt.y) := zero;
 
   let e = join(valueOf(args[0]));
   let r = join(valueOf(args[1].r));

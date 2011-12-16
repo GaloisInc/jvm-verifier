@@ -33,6 +33,11 @@ PROOFS :=              \
   ec_mul.saw           \
   ec_mul_aux.saw       \
   ec_mul_init.saw      \
+  ec_twin_mul.saw           \
+  ec_twin_mul_aux1.saw       \
+  ec_twin_mul_aux2.saw       \
+  ec_twin_mul_aux_f.saw       \
+  ec_twin_mul_init.saw      \
   field_add.saw        \
   field_dbl.saw        \
   field_dbl_dec.saw    \

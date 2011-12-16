@@ -13,8 +13,6 @@ method com.galois.ecc.P384ECC64.ec_twin_mul_aux1
   var this.field_prime           :: int[12];
 
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
-  assert (u0 == (-(1:[32])) || u0 == 0x0:[32] || u0 == 0x1:[32]);
-  assert (u1 == (-(1:[32])) || u1 == 0x0:[32] || u1 == 0x1:[32]);
 
   let res = 
     ref_ec_twin_mul_aux1( { x = join(valueOf(r.x)); y = join(valueOf(r.y)); z = join(valueOf(r.z)) }

@@ -12,8 +12,6 @@ method com.galois.ecc.P384ECC64.ec_twin_mul_aux2
   var this.aux2Rslt.shp                         :: int;
 
   assert (shift >=s 0:[32]) && (shift <=s 31:[32]);
-  assert (dv1 >=u 0:[32]) && (dv1 <=u 1:[32]); // dv1 is a boolean
-  assert (dv2 >=u 0:[32]) && (dv2 <=u 1:[32]); // dv2 is a boolean
 
   let res = ref_ec_twin_mul_aux2(c0, c1, e0, e1, shift, d0i, d1i, dv1, dv2);
 

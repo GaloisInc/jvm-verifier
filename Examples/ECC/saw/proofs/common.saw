@@ -99,8 +99,7 @@ extern SBV ref_ec_twin_mul_init("../spec/sbv/generated/p384_ec_twin_mul_init.sbv
   ([384], {x : [384];  y : [384]}, [384], {x : [384];  y : [384]}) ->
   { r : {x : [384]; y : [384]; z : [384]};
     sMt : {x : [384];  y : [384]};
-    sPt : {x : [384];  y : [384]};
-    special : Bit };
+    sPt : {x : [384];  y : [384]} };
 
 extern SBV ref_ec_twin_mul_aux1("../spec/sbv/generated/p384_ec_twin_mul_aux1.sbv") :
   ( { x: [384]; y: [384]; z: [384] }

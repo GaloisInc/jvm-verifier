@@ -21,6 +21,12 @@ method com.galois.ecc.P384ECC64.ec_twin_mul_init
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   assert valueOf(this.field_unit)  := split(1 : [384])   : [12][32];
   assert valueOf(this.group_order) := split(group_order) : [12][32];
+  let zero = split(0 : [384]) : [12][32];
+  assert valueOf(sPt.x) := zero;
+  assert valueOf(sPt.y) := zero;
+  assert valueOf(sMt.x) := zero;
+  assert valueOf(sMt.y) := zero;
+  assert valueOf(this.group_order) := split(group_order) : [12][32];
 
   let res =
     ref_ec_twin_mul_init( join(valueOf(d0))
@@ -32,15 +38,18 @@ method com.galois.ecc.P384ECC64.ec_twin_mul_init
   ensure valueOf(r.x) := split(res.r.x) : [12][32];
   ensure valueOf(r.y) := split(res.r.y) : [12][32];
   ensure valueOf(r.z) := split(res.r.z) : [12][32];
+  let special = join(valueOf(s.x)) == join(valueOf(t.x));
 
-  ensure valueOf(sPt.x) :=
-    if res.special then valueOf(sPt.x) else (split(res.sPt.x) : [12][32]);
-  ensure valueOf(sPt.y) :=
-    if res.special then valueOf(sPt.y) else (split(res.sPt.y) : [12][32]);
-  ensure valueOf(sMt.x) :=
-    if res.special then valueOf(sMt.x) else (split(res.sMt.x) : [12][32]);
-  ensure valueOf(sMt.y) :=
-    if res.special then valueOf(sMt.y) else (split(res.sMt.y) : [12][32]);
+  ensure valueOf(sPt.x) := split(res.sPt.x) : [12][32];
+    //if special then zero else (split(res.sPt.x) : [12][32]);
+  ensure valueOf(sPt.y) := split(res.sPt.y) : [12][32];
+    //if special then zero else (split(res.sPt.y) : [12][32]);
+  ensure valueOf(sMt.x) := split(res.sMt.x) : [12][32];
+    //if special then zero else (split(res.sMt.x) : [12][32]);
+  ensure valueOf(sMt.y) := split(res.sMt.y) : [12][32];
+    //if special then zero else (split(res.sMt.y) : [12][32]);
+
+  return if special then 1 : [32] else 0 : [32];
 
   modify valueOf(sPtP.x);
   modify valueOf(sPtP.y);
@@ -48,8 +57,6 @@ method com.galois.ecc.P384ECC64.ec_twin_mul_init
   modify valueOf(sMtP.x);
   modify valueOf(sMtP.y);
   modify valueOf(sMtP.z);
-
-  return res.special;
 
   modify valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   modify valueOf(this.h);
