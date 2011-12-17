@@ -1284,8 +1284,14 @@ public abstract class ECCProvider {
     if (publicKey.x.length != width)
        throw new IllegalArgumentException("Unexpected public key size.");
 
-    if (is_zero(signature.r) || leq(group_order, signature.r)) return false;
-    if (is_zero(signature.s) || leq(group_order, signature.s)) return false;
+    if (is_zero(signature.r) || leq(group_order, signature.r)) {
+      cleanup();
+      return false;
+    }
+    if (is_zero(signature.s) || leq(group_order, signature.s)) {
+      cleanup();
+      return false;
+    }
 
     mod_div(h, field_unit, signature.s, group_order); // h = 1 / s
     group_mul(u1, hashValue, h); // u1 <- hashValue / s
@@ -1295,7 +1301,10 @@ public abstract class ECCProvider {
     assign(qPoint.y, publicKey.y);
     ec_twin_mul(rP, u1, basePoint, u2, qPoint, sPtP, sMtP, sPt, sMt);
 
-    if (is_zero(rP.z)) return false;
+    if (is_zero(rP.z)) {
+      cleanup();
+      return false;
+    }
 
     // rP.z = rP.z * 2
     field_sq(rP.z, rP.z);
