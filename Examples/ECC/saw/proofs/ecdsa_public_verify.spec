@@ -45,14 +45,14 @@ method com.galois.ecc.P384ECC64.verifySignature
   var this.group_order                :: int[12];
   var this.field_unit                 :: int[12];
 
+  let zero = split(0 : [384]) : [12][32];
+
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   assert valueOf(this.group_order) := split(group_order) : [12][32];
   assert valueOf(this.field_unit)  := split(1 : [384])   : [12][32];
   assert this.width := 12 : [32];
-
   assert valueOf(this.basePoint.x)  := split(basePoint.x) : [12][32];
   assert valueOf(this.basePoint.y)  := split(basePoint.y) : [12][32];
-  let zero = split(0 : [384]) : [12][32];
   assert valueOf(this.sPt.x) := zero;
   assert valueOf(this.sPt.y) := zero;
   assert valueOf(this.sMt.x) := zero;
@@ -68,32 +68,31 @@ method com.galois.ecc.P384ECC64.verifySignature
 
   modify this.aux2Rslt.u0, this.aux2Rslt.u1, this.aux2Rslt.c0p, this.aux2Rslt.c1p, 
          this.aux2Rslt.e0p, this.aux2Rslt.e1p, this.aux2Rslt.shp;
-  modify valueOf(this.a), valueOf(this.h);
-  modify valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-  modify valueOf(this.u1), valueOf(this.u2);
+  modify valueOf(this.a);
   modify valueOf(this.qPoint.y), valueOf(this.qPoint.x);
   modify valueOf(this.basePoint.y);
   modify valueOf(this.basePoint.x);
-  modify valueOf(args[2].x);
-  modify valueOf(args[2].y);
-  modify valueOf(args[1].r);
-  modify valueOf(args[1].s);
-  modify valueOf(this.group_order);
-  modify valueOf(this.field_prime);
-  modify valueOf(this.field_unit);
   modify valueOf(args[0]);
-  modify valueOf(this.rP.x);
-  modify valueOf(this.rP.y);
-  modify valueOf(this.rP.z);
-  modify valueOf(this.sPtP.x);
-  modify valueOf(this.sPtP.y);
-  modify valueOf(this.sPtP.z);
-  modify valueOf(this.sMtP.x);
-  modify valueOf(this.sMtP.y);
-  modify valueOf(this.sMtP.z);
-  modify valueOf(this.sPt.x);
-  modify valueOf(this.sPt.y);
-  modify valueOf(this.sMt.x);
-  modify valueOf(this.sMt.y);
+
+  ensure valueOf(this.h) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.t1) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.t2) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.t3) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.u1) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.u2) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.rP.x) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.rP.y) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.rP.z) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sPtP.x) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sPtP.y) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sPtP.z) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sMtP.x) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sMtP.y) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sMtP.z) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sPt.x) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sPt.y) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sMt.x) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.sMt.y) := split(0 : [384]) : [12][32];
+
   verify { rewrite; yices; };
 };
