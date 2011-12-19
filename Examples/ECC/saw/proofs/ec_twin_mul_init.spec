@@ -41,13 +41,9 @@ method com.galois.ecc.P384ECC64.ec_twin_mul_init
   let special = join(valueOf(s.x)) == join(valueOf(t.x));
 
   ensure valueOf(sPt.x) := split(res.sPt.x) : [12][32];
-    //if special then zero else (split(res.sPt.x) : [12][32]);
   ensure valueOf(sPt.y) := split(res.sPt.y) : [12][32];
-    //if special then zero else (split(res.sPt.y) : [12][32]);
   ensure valueOf(sMt.x) := split(res.sMt.x) : [12][32];
-    //if special then zero else (split(res.sMt.x) : [12][32]);
   ensure valueOf(sMt.y) := split(res.sMt.y) : [12][32];
-    //if special then zero else (split(res.sMt.y) : [12][32]);
 
   return if special then 1 : [32] else 0 : [32];
 

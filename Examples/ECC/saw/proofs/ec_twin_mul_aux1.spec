@@ -29,6 +29,5 @@ method com.galois.ecc.P384ECC64.ec_twin_mul_aux1
   ensure valueOf(r.z) := split(res.z) : [12][32];
 
   modify valueOf(this.a), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-  //quickcheck 15000;
-  verify { rewrite; yices; /*smtlib;*/ };
+  verify { rewrite; yices; };
 };
