@@ -7,10 +7,9 @@ import "shr.saw";
 import "set_zero.saw";
 import "set_unit.saw";
 import "assign.saw";
-// import "ec_mul_aux.spec";
+import "ec_mul_aux.spec";
 import "ec_mul_init.spec";
 set verification on;
 
 enable ref_ec_mul;
-enable ref_ec_mul_aux;
 import "ec_mul.spec";
