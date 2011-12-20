@@ -31,10 +31,10 @@ far on a typical developer system.
 | DONE   | Point Full Subtraction | ec_full_sub | p384_ec_full_sub | ec_full_add, sub    | ec_full_add |         100 | Yes, rw+yices |          |
 
 ** Level 3: Scalar multiplication operations
-| Status | Name                          | Java          | Cryptol          | Impl directly calls | Prereqs | Quickchecks | Verifies   | Comments                                     |
-| DONE   | SD Multiply                   | ec_mul        | p384_ec_mul      | [fn:10]             |         | 1           | Yes, yices |
-| TODO   | SD Multiply w/ sliding window | ec_mul_window |                  |                     |         | 0           | No         | Implementation uses, but more complex than ^ |
-| INPR   | Twin multiplication           | ec_twin_mul   | p384_ec_twin_mul |                     |         | 0           | No         | High risk                                    |
+| Status | Name                          | Java          | Cryptol          | Impl directly calls | Prereqs | Quickchecks | Verifies      | Comments                                     |
+| DONE   | SD Multiply                   | ec_mul        | p384_ec_mul      | [fn:10]             |         |           1 | Yes, yices    |                                              |
+| TODO   | SD Multiply w/ sliding window | ec_mul_window |                  |                     |         |           0 | No            | Implementation uses, but more complex than ^ |
+| DONE   | Twin multiplication           | ec_twin_mul   | p384_ec_twin_mul |                     |         |           0 | Yes, rewriter |                                              |
 
 ** Level 4: ECDSA
 | Status | Name           | Java                | Cryptol                  | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments  |
