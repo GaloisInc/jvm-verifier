@@ -598,7 +598,27 @@ public abstract class ECCProvider {
     for (int j = 32 * h.length - 1; j >= 0; --j) {
       int i     = j >>> 5;
       boolean c = i < 11;
-      ec_mul_aux(r, s, j, h[i], c, d[i], c ? d[i+1] : 0);
+
+      /* Begin ec_mul_aux */
+      int d_at_i      = d[i];
+      int d_at_ip1    = c ? d[i+1] : 0;
+      int hi          = h[i];
+      boolean i_lt_11 = c;
+      
+      // ec_mul_aux(r, s, j, h[i], c, d[i], c ? d[i+1] : 0);
+      // vvv
+      int m  = 1 << j;
+      int ki = d_at_i >>> 1;
+      if (i_lt_11) ki |= (d_at_ip1 & 1) << 31;    
+      ec_double(r);
+  
+      if ((hi & m) != 0 && (ki & m) == 0) {
+        ec_full_add(r, s);
+      } else if ((hi & m) == 0 && (ki & m) != 0) {
+        ec_full_sub(r, s);
+      }
+
+      /* End ec_mul_aux */
     }
   }
 
