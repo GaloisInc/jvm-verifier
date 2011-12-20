@@ -63,10 +63,13 @@ PROOFS :=                 \
   sq.saw                  \
   sub.saw                 \
 
-.PHONY: clean verify
+.PHONY: clean verify verify-individually
+
+verify:
+	@(cd proofs && $(RUNSAWSCRIPT) toplevel.saw)
 
 # Run SAWScript verification on each operation individually
-verify:
+verify-individually:
 	@echo ==================== Verification Started ==============================
 	@cd proofs; \
          for i in $(PROOFS);\
