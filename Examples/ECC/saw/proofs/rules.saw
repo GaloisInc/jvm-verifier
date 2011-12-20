@@ -41,7 +41,7 @@ rule or_redundant2  : forAll {x:Bit,y:Bit}. (x || y) || x -> x || y;
 rule and_redundant1 : forAll {x:Bit,y:Bit}. (x && y) && y -> x && y;
 rule and_redundant2 : forAll {x:Bit,y:Bit}. (x && y) && x -> x && y;
 
-//rule imp_true_elim1  : forAll {x:Bit}. x     ==> true  -> true;
+rule imp_true_elim1  : forAll {x:Bit}. x     ==> true  -> true;
 /*
 rule imp_true_elim2  : forAll {x:Bit}. true  ==> x     -> x;
 rule imp_false_elim1 : forAll {x:Bit}. x     ==> false -> not x;
@@ -149,6 +149,20 @@ rule sigR :
 rule sigS :
   forAll { r0 : a, s0 : a }.
     { r = r0 ; s = s0 }.s -> s0;
+
+rule resR :
+  forAll { r0 : a, sMt0 : b, sPt0 : c }.
+      { r = r0 ; sMt = sMt0 ; sPt = sPt0 }.r -> r0;
+
+rule resSPt :
+  forAll { r0 : a, sMt0 : b, sPt0 : c }.
+      { r = r0 ; sMt = sMt0 ; sPt = sPt0 }.sPt ->
+      sPt0;
+
+rule resSMt :
+  forAll { r0 : a, sMt0 : b, sPt0 : c }.
+      { r = r0 ; sMt = sMt0 ; sPt = sPt0 }.sMt ->
+      sMt0;
 
 ////
 

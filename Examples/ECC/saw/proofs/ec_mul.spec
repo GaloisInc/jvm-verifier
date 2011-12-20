@@ -22,6 +22,5 @@ method com.galois.ecc.P384ECC64.ec_mul
   ensure valueOf(args[0].y) := split(res.y) : [12][32];
   ensure valueOf(args[0].z) := split(res.z) : [12][32];
   modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
-  //quickcheck 1;
-  verify { rewrite; /*yices; smtlib;*/ };
+  verify { rewrite; };
 };

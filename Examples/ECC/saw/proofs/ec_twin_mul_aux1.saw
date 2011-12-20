@@ -1,8 +1,6 @@
 import "common.saw";
 import "rules.saw";
 
-rule imp_true_elim1  : forAll {x:Bit}. x     ==> true  -> true;
-
 set verification off;
 import "field_add.spec";
 import "field_sub.spec";

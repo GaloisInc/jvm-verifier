@@ -6,7 +6,7 @@ method com.galois.ecc.P384ECC64.group_mul
   let jx = join(valueOf(x));
   let jy = join(valueOf(y));
   ensure valueOf(r) := split(ref_mod_mul(group_order, jx, jy)) : [12][32];
-  quickcheck 1;
+  //quickcheck 1;
   //verify abc;
   //verify{ rewrite; yices; };
 };
