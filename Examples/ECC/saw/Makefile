@@ -46,7 +46,6 @@ PROOFS :=                 \
   field_mul4.saw          \
   field_mul8.saw          \
   field_red.saw           \
-  field_red_aux.saw       \
   field_sq.saw            \
   field_sub.saw           \
   group_add.saw           \

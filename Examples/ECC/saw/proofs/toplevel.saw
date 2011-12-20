@@ -42,8 +42,6 @@ enable ref_field_sub;
 import "field_sub.spec";
 import "field_dbl.spec";
 import "field_dbl_dec.spec";
-enable ref_field_mod_aux;
-import "field_red_aux.spec";
 enable ref_field_mod;
 import "field_red.spec";
 
@@ -57,7 +55,6 @@ enable ref_field_sq;
 import "field_sq.spec";
 disable ref_field_add;
 disable ref_field_sub;
-disable ref_field_mod_aux;
 disable ref_field_mod;
 disable ref_field_mul;
 disable ref_field_sq;
