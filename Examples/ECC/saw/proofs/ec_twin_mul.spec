@@ -50,9 +50,9 @@ method com.galois.ecc.P384ECC64.ec_twin_mul
   let res = ref_ec_twin_mul(d0', { x = sx; y = sy },
                             d1', { x = tx; y = ty });
 
-  ensure valueOf(args[0].x) := split(res.x) : [12][32];
-  ensure valueOf(args[0].y) := split(res.y) : [12][32];
-  ensure valueOf(args[0].z) := split(res.z) : [12][32];
+  ensure valueOf(r.x) := split(res.x) : [12][32];
+  ensure valueOf(r.y) := split(res.y) : [12][32];
+  ensure valueOf(r.z) := split(res.z) : [12][32];
   ensure valueOf(r.x) := split(res.x) : [12][32];
   ensure valueOf(r.y) := split(res.y) : [12][32];
   ensure valueOf(r.z) := split(res.z) : [12][32];
