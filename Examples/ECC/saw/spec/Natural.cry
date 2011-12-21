@@ -1,8 +1,165 @@
-mul : {a b} (fin a,fin b) => ([a],[b]) -> [a+b];
-mul(x,y) = (x # 0) * (y # 0);
+javaish_mul_truncations : {m_x m_y n} (fin m_x,fin m_y,fin n) => ([m_x][n],[m_y][n]) -> [m_x][m_x+m_y][n]; 
+javaish_mul_truncations(xs, ys) = [| [| take(`n, s) || s <- ss |] || ss <- sss |]
+ where {
+  // pss : [`m][`(m_x+m_y)][`(2*n)];
+  pss = [| ([| dw(x) * dw(y) || y <- ys |] # [| 0 || _ <- xs |]) >>> i 
+        || x <- xs 
+        || i <- [ 0 .. `(m_x - 1) ] 
+        |];
+  // sss : [`m][`(m_x+m_y)][`(2*n)];
+  sss = [| [| p + (s'' & mask) + (s' >> `n) || s' <- [0] # ss || p <- ps || s'' <- ss' |]
+        || ps <- pss
+        || ss <- sss
+        || ss' <- [zero] # sss
+        |];
+  // mask : [`(2*n)];
+  mask = take(`n, ~0) # take(`n, 0);
+ };
+
+dw : {a n} (fin n) => [n]a -> [2*n]a;
+dw(xs) = xs # zero;
+
+javaish_mul : {m_x m_y n} (fin m_x,fin m_y,fin n) => ([m_x][n],[m_y][n]) -> [m_x+m_y][n]; 
+javaish_mul(xs, ys) = javaish_mul_truncations(xs, ys) ! 0;
+
+truncated_0_javaish_mul : {m_x m_y n} (fin m_x,fin m_y,fin n) => ([m_x][n],[m_y][n]) -> [m_x+m_y][n];
+truncated_0_javaish_mul(xs, ys) = javaish_mul_truncations(xs, ys) @ 0;
+
+truncated_1_javaish_mul : {m_x m_y n} (fin m_x,fin m_y,fin n) => ([m_x][n],[m_y][n]) -> [m_x+m_y][n];
+truncated_1_javaish_mul(xs, ys) = javaish_mul_truncations(xs, ys) @ 1;
+
+truncated_2_javaish_mul : {m_x m_y n} (fin m_x,fin m_y,fin n) => ([m_x][n],[m_y][n]) -> [m_x+m_y][n];
+truncated_2_javaish_mul(xs, ys) = javaish_mul_truncations(xs, ys) @ 2;
+
+unrolled_0_mul : {n} (fin n) => ([1][n],[1][n]) -> [2][n];
+unrolled_0_mul(xs, ys) = [a0 a1]
+ where {
+  x0 = dw(xs @ 0);
+  d0 = 0;
+  m = x0 * dw(ys @ 0);
+  d1 = d0 + m;
+  a0 = take(`n, d1);
+  d2 = d1 >> `n;
+  a1 = take(`n, d2);
+ };
+
+unrolled_1_mul : {n} (fin n) => ([2][n],[2][n]) -> [4][n];
+unrolled_1_mul(xs, ys) = [a0 a1' a2' a3]
+ where {
+  x0 = dw(xs @ 0);
+  d0 = 0;
+// j = 0
+  m0 = x0 * dw(ys @ 0);
+  d1 = m0 + d0;
+  a0 = take(`n, d1);
+  d2 = d1 >> `n;
+// j = 1
+  m1 = x0 * dw(ys @ 1);
+  d3 = m1 + d2;
+  a1 = take(`n, d3);
+  d4 = d3 >> `n;
+//
+  a2 = take(`n, d4);
+// i = 1
+  x1 = dw(xs @ 1);
+  d5 = 0;
+// ij = 1
+// j = 0
+  m2 = x1 * dw(ys @ 0);
+  d6 = m2 + dw(a1) + d5;
+  a1' = take(`n, d6);
+  d7 = d6 >> `n;
+// j = 1, ij = 2
+  m3 = x1 * dw(ys @ 1);
+  d8 = m3 + dw(a2) + d7;
+  a2' = take(`n, d8);
+  d9 = d8 >> `n;
+//
+  a3 = take(`n, d9);
+ };
+
+nat_mul : {a b} (fin a,fin b) => ([a],[b]) -> [a+b];
+nat_mul(x, y) = (x # 0) * (y # 0);
+
+nat_mul_vs_javaish_mul : {m_x m_y n} (fin m_x,fin m_y,fin n,(m_x+m_y)*n == m_x*n+m_y*n) 
+  => ([m_x][n],[m_y][n]) -> Bit;
+nat_mul_vs_javaish_mul(xs, ys) = split(nat_mul(join(xs), join(ys))) == javaish_mul(xs, ys);
+
+nat_mul_vs_unrolled_0 : {n} (fin n) => ([1][n],[1][n]) -> Bit;
+nat_mul_vs_unrolled_0(xs, ys) = split(nat_mul(join(xs), join(ys))) == unrolled_0_mul(xs, ys);
+
+nat_mul_vs_unrolled_1 : {n} (fin n) => ([2][n],[2][n]) -> Bit;
+nat_mul_vs_unrolled_1(xs, ys) = split(nat_mul(join(xs), join(ys))) == unrolled_1_mul(xs, ys);
+
+mul_check : {m n} (fin m,fin n) => ([m][n],[m][n]) -> Bit;
+mul_check(xs, ys) = split(nat_mul(join(xs), join(ys))) == old_javaish_mul(xs, ys);
+
+old_javaish_mul : {m n} (fin m,fin n) => ([m][n],[m][n]) -> [2*m][n];
+old_javaish_mul(xs, ys) = [| hw(a) || a <- ass ! 0 |]
+ where {
+  zss = [| normalize(dw([| dw(x) * dw(y) || x <- xs |]) >>> i)
+        || i <- [ 0 .. `(m - 1) ]
+        || y <- ys 
+        |];
+  ass = [| normalize(as + zs) || as <- [zero] # ass || zs <- zss |];
+
+  normalize : {m n} (fin m,fin n) => [2*m][2*n] -> [2*m][2*n];
+  normalize as = [| b & mask || b <- bs |]
+   where {
+    bs = [| a + (b >> `n) || a <- as || b <- [0] # bs |];
+    mask = take(`n, ~0) # take(`n, 0);
+   };
+
+  dw : {a n} (fin n) => [n]a -> [2*n]a;
+  dw(x) = x # zero;
+
+  hw : {a n} (fin n) => [2*n]a -> [n]a;
+  hw(x) = take(`n, x);
+
+ };
+
+truncated_3_javaish_mul : {m_x m_y n} (fin m_x,fin m_y,fin n) => ([m_x][n],[m_y][n]) -> [m_x+m_y][n];
+truncated_3_javaish_mul(xs, ys) = javaish_mul_truncations(xs, ys) @ 3;
+
+truncated_4_javaish_mul : {m_x m_y n} (fin m_x,fin m_y,fin n) => ([m_x][n],[m_y][n]) -> [m_x+m_y][n];
+truncated_4_javaish_mul(xs, ys) = javaish_mul_truncations(xs, ys) @ 4;
+
+truncated_5_javaish_mul : {m_x m_y n} (fin m_x,fin m_y,fin n) => ([m_x][n],[m_y][n]) -> [m_x+m_y][n];
+truncated_5_javaish_mul(xs, ys) = javaish_mul_truncations(xs, ys) @ 5;
+
+truncated_6_javaish_mul : {m_x m_y n} (fin m_x,fin m_y,fin n) => ([m_x][n],[m_y][n]) -> [m_x+m_y][n];
+truncated_6_javaish_mul(xs, ys) = javaish_mul_truncations(xs, ys) @ 6;
+
+truncated_7_javaish_mul : {m_x m_y n} (fin m_x,fin m_y,fin n) => ([m_x][n],[m_y][n]) -> [m_x+m_y][n];
+truncated_7_javaish_mul(xs, ys) = javaish_mul_truncations(xs, ys) @ 7;
+
+truncated_8_javaish_mul : {m_x m_y n} (fin m_x,fin m_y,fin n) => ([m_x][n],[m_y][n]) -> [m_x+m_y][n];
+truncated_8_javaish_mul(xs, ys) = javaish_mul_truncations(xs, ys) @ 8;
+
+truncated_9_javaish_mul : {m_x m_y n} (fin m_x,fin m_y,fin n) => ([m_x][n],[m_y][n]) -> [m_x+m_y][n];
+truncated_9_javaish_mul(xs, ys) = javaish_mul_truncations(xs, ys) @ 9;
+
+truncated_10_javaish_mul : {m_x m_y n} (fin m_x,fin m_y,fin n) => ([m_x][n],[m_y][n]) -> [m_x+m_y][n];
+truncated_10_javaish_mul(xs, ys) = javaish_mul_truncations(xs, ys) @ 10;
+
+truncated_11_javaish_mul : {m_x m_y n} (fin m_x,fin m_y,fin n) => ([m_x][n],[m_y][n]) -> [m_x+m_y][n];
+truncated_11_javaish_mul(xs, ys) = javaish_mul_truncations(xs, ys) @ 11;
 
 add_with_carry : {a} (fin a) => ([a],[a]) -> (Bit,[a]);
 add_with_carry(x, y) = (z ! 0, take(`a, z))
  where {
   z = (x # [False]) + (y # [False]);
  };
+
+/*
+
+:set sbv
+:set sbv_strictWords=True
+
+:fm javaish_mul`{m_x=1,m_y=1,n=32} "~/Verifier/Java/Examples/ECC/saw/sbv/javaish_mul_1_1_32.sbv"
+:fm javaish_mul`{m_x=2,m_y=2,n=32} "~/Verifier/Java/Examples/ECC/saw/sbv/javaish_mul_2_2_32.sbv"
+:fm javaish_mul`{m_x=3,m_y=3,n=32} "~/Verifier/Java/Examples/ECC/saw/sbv/javaish_mul_3_3_32.sbv"
+
+:fm truncated_0_javaish_mul`{m_x=1,m_y=1,n=32} "~/Verifier/Java/Examples/ECC/saw/sbv/truncated_0_javaish_mul_1_1_32.sbv"
+
+*/
