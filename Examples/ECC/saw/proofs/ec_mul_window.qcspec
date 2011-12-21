@@ -41,7 +41,9 @@ method com.galois.ecc.P384ECC64.ec_mul_window
   ensure valueOf(args[0].x) := split(res.x) : [12][32];
   ensure valueOf(args[0].y) := split(res.y) : [12][32];
   ensure valueOf(args[0].z) := split(res.z) : [12][32];
-  modify valueOf(this.a), valueOf(this.h), valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
+  //modify valueOf(args[0].x), valueOf(args[0].y), valueOf(args[0].z);
+  modify valueOf(this.a), valueOf(this.h);
+  modify valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
   //quickcheck 1;
   //verify { rewrite; /*yices; smtlib;*/ };
 };

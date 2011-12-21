@@ -81,11 +81,34 @@ extern SBV ref_ec_mul_aux("../spec/sbv/generated/p384_ec_mul_aux.sbv") :
   , [32]
   , [32]
   , [32]
-  ) 
-  -> { x:[384]; y:[384]; z:[384] };
+  ) -> { x:[384]; y:[384]; z:[384] };
 
 extern SBV ref_ec_mul("../spec/sbv/generated/p384_ec_mul.sbv") :
   ([384], { x: [384]; y: [384] }) -> { x: [384]; y: [384]; z: [384] };
+
+extern SBV ref_ec_mul_window_aux("../spec/sbv/generated/p384_ec_mul_window_aux.sbv") :
+  ( { h : [384] ; j : [32] ; r : { x : [384] ; y : [384] ;  z : [384] } }
+  , [32], [32], [32], [32], [32], [32]
+  , { x : [384] ; y : [384] }
+  , { x : [384] ; y : [384] }
+  , { x : [384] ; y : [384] }
+  ) -> { h : [384] ; j : [32] ; r : { x : [384] ; y : [384] ;  z : [384] } };
+
+extern SBV ref_ec_mul_window_finish("../spec/sbv/generated/p384_ec_mul_window_finish.sbv") :
+  ( [32]
+  , { x: [384]; y: [384]; z: [384] }
+  , [32]
+  , [32]
+  , { x: [384]; y:[384] }
+  ) -> { x:[384]; y:[384]; z:[384] };
+
+/*
+extern SBV ref_ec_mul_window ("../spec/sbv/generated/p384_ec_mul_window.sbv") :
+  ([384],
+   {x : [384]; y : [384]},
+   {x : [384]; y : [384]},
+   {x : [384]; y : [384]}) -> {x : [384];  y : [384];  z : [384]};
+*/
 
 let ref_mod_mul(p:[384], x:[384], y:[384]) : [384] =
   trunc(((x # 0:[384]) * (y # 0:[384])) %s (p # 0:[384])) : [384];

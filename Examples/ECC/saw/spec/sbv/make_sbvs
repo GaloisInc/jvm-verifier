@@ -51,10 +51,13 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 :load sbv_uninterpret_ec_point_ops.cry
 :fm p384_ec_mul_init "generated/p384_ec_mul_init.sbv"
 :fm p384_ec_mul_aux "generated/p384_ec_mul_aux.sbv"
+:fm p384_ec_mul_window_aux "generated/p384_ec_mul_window_aux.sbv"
+:fm p384_ec_mul_window_finish "generated/p384_ec_mul_window_finish.sbv"
 
 :load sbv_uninterpret_ec_mul_aux.cry
 :set sbv_strictWords=True
 :fm p384_ec_mul "generated/p384_ec_mul.sbv"
+:fm p384_ec_mul_window "generated/p384_ec_mul_window.sbv"
 
 :load sbv_uninterpret_ec_mul.cry
 :fm p384_ec_twin_mul_aux_F32 "generated/p384_ec_twin_mul_aux_F.sbv"
