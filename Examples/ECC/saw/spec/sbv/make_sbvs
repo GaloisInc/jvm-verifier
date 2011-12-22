@@ -19,12 +19,12 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 
 :load ../ecc.cry
 :fm p384_safe_product  "generated/p384_safe_product.sbv"
+:fm mul_joel           "generated/mul_joel.sbv"
 :fm p384_mod_add       "generated/p384_mod_add.sbv"
 :fm p384_mod_sub       "generated/p384_mod_sub.sbv"
 :fm p384_mod_half      "generated/p384_mod_half.sbv"
 :fm p384_incFieldPrime "generated/p384_incFieldPrime.sbv"
 :fm p384_decFieldPrime "generated/p384_decFieldPrime.sbv"
-:fm p384_field_mod_aux "generated/p384_field_mod_aux.sbv"
 :fm p384_field_mod     "generated/p384_field_mod.sbv"
 :fm p384_group_add     "generated/p384_group_add.sbv"
 
@@ -57,6 +57,12 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 :fm p384_ec_mul "generated/p384_ec_mul.sbv"
 
 :load sbv_uninterpret_ec_mul.cry
+:fm p384_ec_twin_mul_aux_F32 "generated/p384_ec_twin_mul_aux_F.sbv"
+:fm p384_ec_twin_mul_aux1    "generated/p384_ec_twin_mul_aux1.sbv"
+:fm p384_ec_twin_mul_aux2    "generated/p384_ec_twin_mul_aux2.sbv"
+:fm p384_ec_twin_mul_init    "generated/p384_ec_twin_mul_init.sbv"
+
+:load sbv_uninterpret_ec_twin_mul_auxes.cry
 :fm p384_ec_twin_mul "generated/p384_ec_twin_mul.sbv"
 
 :load sbv_uninterpret_ec_twin_mul.cry

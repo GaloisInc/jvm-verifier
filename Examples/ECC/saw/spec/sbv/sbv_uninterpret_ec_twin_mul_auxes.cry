@@ -1,0 +1,6 @@
+include "sbv_uninterpret_ec_mul.cry";
+pragma p384_ec_twin_mul_aux_F32 : SBV uninterpret;
+pragma p384_ec_twin_mul_aux1    : SBV uninterpret;
+pragma p384_ec_twin_mul_aux2    : SBV uninterpret;
+pragma p384_ec_twin_mul_init    : SBV uninterpret;
+

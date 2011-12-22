@@ -25,6 +25,35 @@ is_normal p x = (x < p);
 safe_product : {a} (fin a) => ([a],[a]) -> [2*a];
 safe_product(x,y) = uext(x) * uext(y);
 
+/* Matches java implementation; computes safe_product. */
+mul_joel (x, y) = ad_first_final         
+  where {
+    l   = 2 : [32];
+    x'  = split x : [l][32];
+    y'  = split y : [l][32];
+    x0  = uext (x'@0) : [64];
+
+    /* First loop in Java implementation */
+    a_first = [ (zero : [64], zero : [2*l*32]) ]
+            # [| (d' >> 32, amsk | d'')
+                 where { 
+                   m    = x0 * (uext (y'@j) : [64]);
+                   d'   = d + m;
+                   d''  = (uext (take(32, d')) : [2*l*32]) << (j * 32);
+                   amsk = join [| if j == aj then zero else if aj >= l then zero else aw
+                             || aw <- (split a : [2*l][32]) 
+                             || aj <- [0..(2*l-1)] 
+                             |];
+                 }
+              || (d, a) <- a_first
+              || j      <- [0..(l-1)]
+              |];
+    (d_first_final, a_first_final) = a_first!0;
+    d_first_final' = (uext(take(32, d_first_final)) : [2*l*32]) << (l*32);
+    /* Value of Java 'a' after first loop and overflow inclusion */
+    ad_first_final = a_first_final | d_first_final';
+  };
+
 /* Returns module reduction on input. */
 safe_mod : {a b} (fin a, fin b) => ([b],[a]) -> [b];
 safe_mod(p,x) = take(width(p), (x # zero) % (p # zero));
@@ -281,11 +310,363 @@ ec_mul (m, d, s) = res@`(gv+1)
     };
 
 
+ec_twin_mul_aux1 : {fv gv} (fin gv, gv >= 4) => 
+  (PointOps (fv,[gv]), JacobianPoint fv, [32], [32],
+   AffinePoint fv, AffinePoint fv, AffinePoint fv, AffinePoint fv) 
+  -> (JacobianPoint fv);
+ec_twin_mul_aux1(m,rP,u0,u1,sPt,s,sMt,t) = r
+  where {
+   f = m.field;
+   r = if u0 == -1 then
+         (if      u1 == -1 then m.sub(r2, sPt)
+          else if u1 ==  0 then m.sub(r2, s)
+          else                  m.sub(r2, sMt))
+       else if u0 == 0 then
+         (if      u1 == -1 then m.sub(r2, t)
+          else if u1 ==  1 then m.add(r2, t)
+          else                  r2)
+       else
+         (if      u1 == -1 then m.add(r2, sMt)
+          else if u1 ==  0 then m.add(r2, s)
+          else                  m.add(r2, sPt));
+   r2 = m.double(rP);
+  };
+
+p384_ec_twin_mul_aux1 : 
+  (JacobianPoint [384], [32], [32], AffinePoint [384], AffinePoint [384], AffinePoint [384], AffinePoint [384])
+  -> JacobianPoint [384];
+p384_ec_twin_mul_aux1(rP, u0_32, u1_32, sPt, s, sMt, t) =
+  ec_twin_mul_aux1(p384_point_ops, rP, u0_32, u1_32, sPt, s, sMt, t);
+
 /* Return d0 * S + d1 * T. All points projective, 0 <= d0, d1 < p. */
 ec_twin_mul : {fv gv} (fin gv, gv >= 4) 
             => (PointOps (fv,[gv]), [gv], AffinePoint fv, [gv], AffinePoint fv)
             -> (JacobianPoint fv);
 ec_twin_mul(m, d0, s, d1, t) =
+  if ec_is_zero_point(f, sPtP) then /* s + t = 0 */
+    ec_mul(m, g.sub(d0, d1), s)
+  else if ec_is_zero_point(f, sMtP) then /* s = t */
+    ec_mul(m, g.add(d0, d1), s)
+  else
+    r!0
+
+ where {
+   f    = m.field;
+   g    = m.group_field;
+   sP   = ec_projectify(f, s);
+   sPtP = m.add(sP, t); /* 1: ec_full_add (SpT, S, T) */
+   sMtP = m.sub(sP, t); /* 2: ec_full_sub (SmT, S, T) */
+   sDiv = f.div(f.field_unit, f.mul(sPtP.z, sMtP.z));
+   sPt  = { x = f.mul(g2, sPtP.x); y = f.mul(f.mul(g, g2), sPtP.y); } where { g = f.mul(sMtP.z, sDiv); g2 = f.sq(g) };
+   sMt  = { x = f.mul(g2, sMtP.x); y = f.mul(f.mul(g, g2), sMtP.y); } where { g = f.mul(sPtP.z, sDiv); g2 = f.sq(g) };
+   F : [5] -> [5];
+   F(t) = if (18 <= t) & (t < 22) then
+            9
+          else if (14 <= t) & (t < 18) then
+            10
+          else if (22 <= t) & (t < 24) then
+            11
+          else if (4 <= t) & (t < 12) then
+            14
+          else
+            12;
+   c = [[(zero # take(4, reverse(d0)))
+         (zero # take(4, reverse(d1)))]]
+     # [| [[(abs(u0) ^ c01) c02 c03 c04 c05 e0N]
+           [(abs(u1) ^ c11) c12 c13 c14 c15 e1N]]
+          where {
+            abs : {a} (fin a) => [a] -> Bit;
+            abs(x) = x != zero;
+          }
+       || [[c00 c01 c02 c03 c04 c05] [c10 c11 c12 c13 c14 c15]] <- c 
+       || [u0 u1] <- u
+       || e0N <- drop(4, reverse(d0)) # (zero : [4])
+       || e1N <- drop(4, reverse(d1)) # (zero : [4])
+       |];
+   u = [| [u0 u1]
+            where {
+              h0' = [c05 c04 c03 c02 c01];
+              h0 = if c00 then 31 - h0' else h0';
+              h1' = [c15 c14 c13 c12 c11];
+              h1 = if c10 then 31 - h1' else h1';
+              u0 : [32];
+              u0 = if h0 < F(h1) then 0 else if c00 then -1 else 1;
+              u1 : [32];
+              u1 = if h1 < F(h0) then 0 else if c10 then -1 else 1;
+            }
+       || [[c00 c01 c02 c03 c04 c05] [c10 c11 c12 c13 c14 c15]] <- c 
+       |];
+   r = [(ec_zero_point f)]
+     # [| ec_twin_mul_aux1(m, rP, u0, u1, sPt, s, sMt, t)
+       || rP      <- r
+       || [u0 u1] <- u
+       |];
+ };
+
+test_params : ([384], AffinePoint [384], [384], AffinePoint [384]) ;
+test_params = 
+//  (0x7b52dc21312701d79a2465bb9fdf6fd30c4f76cf74787e44348f8217e6ffd5e02ee8c55a7c5d91b452825b1026d26893, {x=0xdf1c86a62d76090308a0d4c371704b36f3bfa41f0dbf8185d297b8a2c811756f0f4be19871cde079c5d43cfd0fab7fe8; y=0x70521fdd9165b0d33e948be941c590f2fbe7e2754ba110ae24089d41773acfdd34701acaafa669a884d3eefbf557d98b}, 0x211bb4730ad83e31aedbd66a5a750e800cf4de096495323ea94a73f25e9bcb5068a9dcc93e98efecb136eb057e6f41a4, {x=0x6bdf86d8f4cdf5b63a6a1e93a75457c0816fa2f3f69bc706ab69a7b5a63d4956d83cc4ca551f6aaf7653b8dd0991a6af; y=0xa8ce019e78abd658350e5885c8fddb172117a24bf157dfdbe8a1831e03758e630784470287c8e25908d931f22581bf97});
+//  (0x6250471849e0c0eb47e9cf2c8e04c9ad0745e358d1cf11fb53e178a3c5b301b5f9e7f62e61c8f2113615cc4ff9927f9b, {x=0x005255b811499293ea986c66b4698e0748284d391130afd3f9febbc71ef3b39fe13a3deaa1489d817b885edf270b1bf6; y=0xc9a1dcdb74a4ae432edea47750d754d918b2f1fd8d9ee612b4f0cf2bebcb0eeef43ef5d0ce90cb75362bd2cfe69bffad}, 0xd9e8d87abffb84c0c06fe47396aa84871f08420561a7d8cc64fef7796fc0ca9a5406a37a054cc8cd57e26a3a7249fdb3, {x=0x8da95367d9e731f86adda9bfae6ff170cf090be5223f3b33c0d7c6c585bfc1330137d237fdc16bd432797a1da1dfa331; y=0x114d8b24d75d0149603aa6eab6ccec1cd83f5baaca7898dd6edd7c2ca91176893102b9fe129a09f9fdb208e18be46d16});
+  (0xe74872524f90425d832a4f264e1f7b9209ec7456e9b4c467d8eac6c68f973ea7fea24f4d3fa8498bb1e26f933eaa261b, {x=0xbbab93c429707b2afe9ac285314d7b40c4ee31531b13291aa9058307cdd038b572fdf2f3a84dc912804fa426fe531a3c; y=0x4c2cffaa333bfd82b575918bb979bf51480c836082c097a03fed5454877b37d2f44f0401d212c16b05052bd383047b31}, 0xd4356773f2b311955542c5835696b9dca9d0e59197d5746bbf7dc079a666d955f74114662e38d31196bf94b060cc0c80, {x=0xd40c63c65b413d0741c56e884f0dca63b822a6f6879d36f9261d9b4a270d5d79a9be790fdfb871b5d6ae9204da692663; y=0x4d6b2b937c85b3c0c3cd2df85e9307cc89e0093f336af3b4531aa126bbdbec466562d8aa0dc1cf360fc1f1d0951e3ad1});
+
+//theorem p384_ec_twin_mul_candidate2_ok: {x p y q}. ok1 & ok2 & ok3 where (_, ok1, ok2, ok3) = p384_ec_twin_mul_candidate2(x,p,y,q);
+// theorem p384_ec_twin_mul_candidate2_good: {x p y q}. p384_ec_twin_mul(x,p,y,q) == p384_ec_twin_mul_candidate2(x,p,y,q);
+
+p384_ec_twin_mul_aux_F32 : [32] -> [32];
+p384_ec_twin_mul_aux_F32 = p384_ec_twin_mul_aux_F;
+
+// F : [5] -> [5] via original impl
+// F : [32] -> [32] via fused impl
+p384_ec_twin_mul_aux_F : {a} (fin a, a>=5) => [a] -> [a];
+p384_ec_twin_mul_aux_F(t) = 
+  if (18 <= t) & (t < 22) then
+    9
+  else if (14 <= t) & (t < 18) then
+    10
+  else if (22 <= t) & (t < 24) then
+    11
+  else if (4 <= t) & (t < 12) then
+    14
+  else
+    12;
+
+p384_ec_twin_mul_init :
+  ([384], {x : [384];  y : [384]}, [384], {x : [384];  y : [384]}) ->
+  { r : {x : [384]; y : [384]; z : [384]};
+    sMt : {x : [384];  y : [384]};
+    sPt : {x : [384];  y : [384]} };
+p384_ec_twin_mul_init(d0, s, d1, t) = {
+    r = r0;
+    sPt = if s.x == t.x then azero else sPt0;
+    sMt = if s.x == t.x then azero else sMt0;
+  }
+  where {
+    azero = { x = 0:[384]; y = 0:[384] };
+    r0 =
+      if s.x == t.x then
+        if s.y == t.y then
+          p384_ec_mul(g.add(d0, d1), s)
+        else
+          p384_ec_mul(g.sub(d0, d1), s)
+      else
+        ec_zero_point f;
+    m    = p384_point_ops;
+    f    = m.field;
+    g    = m.group_field;
+    sP   = ec_projectify(f, s);
+    sPtP = m.add(sP, t); /* 1: ec_full_add (SpT, S, T) */
+    sMtP = m.sub(sP, t); /* 2: ec_full_sub (SmT, S, T) */
+    sDiv = f.div(f.field_unit, f.mul(sPtP.z, sMtP.z));
+    sPt0 = { x = f.mul(sPtP.x, g2); y = f.mul(f.mul(sPtP.y, g), g2); }
+           where { g = f.mul(sMtP.z, sDiv); g2 = f.sq(g) };
+    sMt0 = { x = f.mul(sMtP.x, g2); y = f.mul(f.mul(sMtP.y, g), g2); }
+           where { g = f.mul(sPtP.z, sDiv); g2 = f.sq(g) };
+  };
+
+p384_ec_twin_mul_aux2 : ([32],[32],[32],[32],[32],[32],[32],[32],[32]) -> 
+  { tma2_u0:[32]; tma2_u1:[32]; tma2_c0':[32]; tma2_c1':[32]; tma2_e0':[32]; tma2_e1':[32]; tma2_sh':[32] };
+p384_ec_twin_mul_aux2 (c0, c1, e0, e1, sh, d0i, d1i, dv1, dv2) = 
+  { tma2_u0  = u0
+  ; tma2_u1  = u1
+  ; tma2_c0' = c0'
+  ; tma2_c1' = c1'
+  ; tma2_e0' = e0'
+  ; tma2_e1' = e1'
+  ; tma2_sh' = sh'
+  }
+  where { 
+    c0'           = ((if h0Less then 0 else 0x20) ^ (c0 << 1)) | ((e0 >> sh) & 0x1);
+    c1'           = ((if h1Less then 0 else 0x20) ^ (c1 << 1)) | ((e1 >> sh) & 0x1);
+    u0            = if h0Less then 0 else (if (c0 & 0x20) != 0 then (-1) else 1);
+    u1            = if h1Less then 0 else (if (c1 & 0x20) != 0 then (-1) else 1);
+    h0            = if (c0 & 0x20) != 0 then 31 - h0' else h0' where h0' = c0 & 0x1F;
+    h1            = if (c1 & 0x20) != 0 then 31 - h1' else h1' where h1' = c1 & 0x1F;
+    h0Less        = h0 < p384_ec_twin_mul_aux_F32(h1);
+    h1Less        = h1 < p384_ec_twin_mul_aux_F32(h0);
+    (e0',e1',sh') = if dv1 != 0 then 
+                      if dv2 != 0 then (d0i, d1i, 31) else (0, 0, 31)
+                    else (e0, e1, sh-1);
+  };
+
+//theorem p384_ec_twin_mul_candidate3_ok : {x p y q}. 
+//  p384_ec_twin_mul(x,p,y,q) == ec_twin_mul(p384_point_ops,x,p,y,q);
+
+//theorem p384_ec_twin_mul_candidate3_ok : {x p y q}. 
+//  p384_ec_twin_mul_candidate3(x,p,y,q) == p384_ec_twin_mul(x,p,y,q);
+//p384_ec_twin_mul : ([384], AffinePoint [384], [384], AffinePoint [384]) -> (JacobianPoint [384]);
+//p384_ec_twin_mul(x,p,y,q) = ec_twin_mul(p384_point_ops, x, p, y, q);
+
+/* Matches Java implementation */
+//p384_ec_twin_mul_candidate3(d0, s, d1, t) = 
+p384_ec_twin_mul(d0, s, d1, t) = 
+  if s.x == t.x then i.r else (jj_r where (jj_r, _, _, _, _, _) = jj!0)
+  where {
+   m     = p384_point_ops;
+   f     = m.field;
+   g     = m.group_field;
+   i     = p384_ec_twin_mul_init(d0, s, d1, t);
+   d0'   = split d0 : [12][32];
+   d1'   = split d1 : [12][32];
+   d0_11 = d0'@11;
+   d1_11 = d1'@11;
+   jj    = [ ( i.r             // initial point
+             , d0_11 >> 28     // c0 initial value
+             , d1_11 >> 28     // c1 initial value
+             , d0_11           // e0 initial value
+             , d1_11           // e1 initial value
+             , 27:[32]         // shift initial value
+             )
+           ]
+         # [| (r', c0', c1', e0', e1', sh')
+              where {
+                r'         = p384_ec_twin_mul_aux1(r, u0, u1, i.sPt, s, i.sMt, t);
+                aux2       = p384_ec_twin_mul_aux2(c0, c1, e0, e1, sh, d0i, d1i, dv1, dv2);
+                (u0, u1)   = (aux2.tma2_u0, aux2.tma2_u1);
+                (c0', c1') = (aux2.tma2_c0', aux2.tma2_c1');
+                (e0', e1') = (aux2.tma2_e0', aux2.tma2_e1');
+                sh'        = aux2.tma2_sh';
+                (d0i, d1i, 
+                 dv1, dv2) = if dv1 & dv2 then 
+                               (d0'@i, d1'@i, dv1', dv2') 
+                             else 
+                               (zero, zero, dv1', dv2')
+                             where { 
+                               i    = (k >> 5) - 1;
+                               dv1  = (k & 0x1F) == 0;
+                               dv2  = ~(i!0);
+                               dv1' = uext [dv1] : [32];
+                               dv2' = uext [dv2] : [32];
+                             };
+              }
+           || (r, c0, c1, e0, e1, sh) <- jj
+           || k <- reverse [(-5:[32]) .. 379]
+           |];
+  };
+
+p384_ec_twin_mul_candidate2(d0, s, d1, t) =
+  (
+    if s.x == t.x then i.r else r!0
+  
+/*
+ , rf_cs == jj_cs
+ , rf_us == jj_us
+ , r!0   == jj_r where (jj_r, _, _, _, _, _, _) = jj!0
+*/
+//  , (rf_cs, jj_cs)
+//  , (rf_us, jj_us)
+  , rf_cs == jj_cs
+  , rf_us == jj_us
+  , r!0   == jj_r where (jj_r, _, _, _, _, _, _) = jj!0
+  )
+ where {
+   m    = p384_point_ops;
+   f    = m.field;
+   g    = m.group_field;
+   i    = p384_ec_twin_mul_init(d0, s, d1, t);
+
+   c = [[(zero # take(4, reverse(d0)))
+         (zero # take(4, reverse(d1)))]]
+     # [| [[(abs(u0) ^ c01) c02 c03 c04 c05 e0N]
+           [(abs(u1) ^ c11) c12 c13 c14 c15 e1N]]
+          where {
+            abs : {a} (fin a) => [a] -> Bit;
+            abs(x) = x != zero;
+          }
+       || [[c00 c01 c02 c03 c04 c05] [c10 c11 c12 c13 c14 c15]] <- c 
+       || [u0 u1] <- u
+       || e0N <- drop(4, reverse(d0)) # (zero : [4])
+       || e1N <- drop(4, reverse(d1)) # (zero : [4])
+       |];
+   u = [| [u0 u1]
+            where {
+              h0' = [c05 c04 c03 c02 c01];
+              h0 = if c00 then 31 - h0' else h0';
+              h1' = [c15 c14 c13 c12 c11];
+              h1 = if c10 then 31 - h1' else h1';
+              u0 : [32];
+              u0 = if h0 < p384_ec_twin_mul_aux_F(h1) then 0 else if c00 then -1 else 1;
+              u1 : [32];
+              u1 = if h1 < p384_ec_twin_mul_aux_F(h0) then 0 else if c10 then -1 else 1;
+            }
+       || [[c00 c01 c02 c03 c04 c05] [c10 c11 c12 c13 c14 c15]] <- c 
+       |];
+   r = [(i.r)]
+     # [| ec_twin_mul_aux1(m, rP, u0, u1, i.sPt, s, i.sMt, t)
+       || rP      <- r
+       || [u0 u1] <- u
+       |];
+
+   // -- vvv fused implementation vvv -- 
+
+   look_at = 385;
+   rf_cs = join (take (look_at, [| [(uext c0 : [32]) (uext c1 : [32])] || [c0 c1] <- c |]));
+   jj_cs = join (take (look_at, [| [c0 c1] || (_, c0, c1, _, _, _, _) <- take(385, jj) |]));
+   rf_us = join (take (look_at, [| [(iext u0 : [32]) (iext u1 : [32])] || [u0 u1] <- u |]));
+   jj_us = join (take (look_at, [| [u0 u1] || (_, _, _, u0, u1, _, _) <- take(385, jj) |]));
+
+   compute_us : ([32],[32]) -> ([32],[32]);
+   compute_us(c0,c1) = ( if h0 < p384_ec_twin_mul_aux_F(h1) then zero else if c00 then -1 else 1
+                       , if h1 < p384_ec_twin_mul_aux_F(h0) then zero else if c10 then -1 else 1
+                       ) 
+                       where {
+                         h0' = [c05 c04 c03 c02 c01];
+                         h0  = uext (if c00 then 31 - h0' else h0') : [32];
+                         h1' = [c15 c14 c13 c12 c11];
+                         h1  = uext (if c10 then 31 - h1' else h1') : [32];
+                         [c00 c01 c02 c03 c04 c05] = take(6, c0);
+                         [c10 c11 c12 c13 c14 c15] = take(6, c1);
+                        };
+
+   c0_init            = uext ((zero # take(4, reverse(d0))) : [6]) : [32];
+   c1_init            = uext ((zero # take(4, reverse(d1))) : [6]) : [32];
+   (u0_init, u1_init) = compute_us(c0_init, c1_init);
+
+   jj = [ ( ec_zero_point f
+          , c0_init
+          , c1_init
+          , u0_init
+          , u1_init
+          , (drop(4, reverse(d0)) # (zero : [4]))
+          , (drop(4, reverse(d1)) # (zero : [4]))
+          )
+        ]
+      # [| ( ec_twin_mul_aux1(m, r, u0, u1, i.sPt, s, i.sMt, t)
+           , c0'
+           , c1'
+           , u0'
+           , u1'
+           , drop(1, e0_bits) # zero
+           , drop(1, e1_bits) # zero
+           )
+           where { 
+            (u0', u1') = compute_us(c0', c1');
+            c0'        = ((uext [(abs(u0) ^ c01) c02 c03 c04 c05 e0N]) : [32])
+                         where { 
+                           [c00 c01 c02 c03 c04 c05] = take(6, c0);
+                           e0N = 1 == take(1, e0_bits);
+                         };
+            c1'        = ((uext [(abs(u1) ^ c11) c12 c13 c14 c15 e1N]) : [32])
+                         where {
+                           [c10 c11 c12 c13 c14 c15] = take(6, c1);
+                           e1N = 1 == take(1, e1_bits);
+                         };
+            abs : {a} (fin a) => [a] -> Bit;
+            abs(x) = x != zero;
+           }
+        || (r, c0, c1, u0, u1, e0_bits, e1_bits) <- jj
+        || k <- reverse [(-5:[32]) .. 379]
+        |];
+
+ };
+
+//theorem ec_twin_mul_with_aux1_ok : {x p y q}. 
+//  ec_twin_mul_orig(p384_point_ops, x, p, y, q) == p384_ec_twin_mul(x, p, y, q);
+
+/* Return d0 * S + d1 * T. All points projective, 0 <= d0, d1 < p. */
+ec_twin_mul_orig : {fv gv} (fin gv, gv >= 4) 
+                  => (PointOps (fv,[gv]), [gv], AffinePoint fv, [gv], AffinePoint fv)
+                  -> (JacobianPoint fv);
+ec_twin_mul_orig(m, d0, s, d1, t) =
   if ec_is_zero_point(f, sPtP) then /* s + t = 0 */
     ec_mul(m, g.sub(d0, d1), s)
   else if ec_is_zero_point(f, sMtP) then /* s = t */
@@ -419,6 +800,35 @@ ecdsa_public_verify(c, e, (r, s), q)
     v = g.norm(j);
   };
 
+/* This version performs a cheaper sequence of operations, and matches
+ * the Java implementation. Correspondence between the reference and
+ * implementation versions of ecdsa_public_verify is probably best proved
+ * independent of the Java code.
+ */
+ecdsa_public_verify_imp :
+  (Curve ([384],[384]), [384], ([384], [384]), AffinePoint [384]) -> Bit;
+ecdsa_public_verify_imp(c, e, (r, s), q)
+   = in_range(r) & in_range(s) &
+     ~is_zero(r2.z) &
+     (g.is_equal(j, r2.x) | ((carry == False) & (g.is_equal(k, r2.x))))
+  where {
+    f = c.point_ops.field;
+    g = c.point_ops.group_field;
+    mul(x,y) = g.mul(x, y);
+    div(x,y) = g.div(x, y);
+    is_zero(x) = g.is_equal(x, g.field_zero);
+    in_range(x) = ~is_zero(x) & g.is_val(x);
+    s_inv = div(1, s);
+    u1 = mul(g.norm(e), s_inv);
+    u2 = mul(r, s_inv);
+    r2 = c.twin_mul(u1, c.base, u2, q);
+    r2zsq = f.sq(r2.z);
+    j = f.mul(r, r2zsq);
+    sum = r + p384_group_size;
+    carry = (sum < r) & (sum < p384_group_size);
+    k = f.mul(sum, r2zsq);
+  };
+
 /* P384 reference definitions {{{1 */
 
 /* Utility functions {{{2 */ 
@@ -468,24 +878,9 @@ p384_field_mod(a)
             else if b4 then r3
             else r4)
   where {
-    p       = p384_prime # (zero : [32]);
-    rwc     = p384_field_mod_aux(a);
-    z       = rwc.rslt;
-    d       = rwc.carry;
-    r       = z # d;
-    r0      = if (d!0) then r + p else r; // Fix potential underflow
-    // Fix potential overflow
-    (r1,b1) = sbb(r0, p);
-    (r2,b2) = sbb(r1, p);
-    (r3,b3) = sbb(r2, p);
-    (r4,b4) = sbb(r3, p);
-   };
-
-p384_field_mod_aux : [768] -> RsltWithCarry ([32],[384]);
- p384_field_mod_aux(a) = 
-  { carry = d11; 
-    rslt  = z0 # z1 # z2 # z3 # z4 # z5 # z6 # z7 # z8 # z9 # z10 # z11 } 
-  where {
+    p         = p384_prime # (zero : [32]);
+    z         = z0 # z1 # z2 # z3 # z4 # z5 # z6 # z7 # z8 # z9 # z10 # z11;
+    d         = d11;
     [ a0  a1  a2  a3  a4  a5  a6  a7  a8  a9 a10 a11
      a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 ]
               = [| uext x || x <- (split a : [24][32]) |] : [24][64];
@@ -514,73 +909,15 @@ p384_field_mod_aux : [768] -> RsltWithCarry ([32],[384]);
     (z9,d9)   = chop zd9;
     (z10,d10) = chop zd10;
     (z11,d11) = chop zd11;
-  };
-
-/* ABC also discharges equivalence of Java's field_red against these two
-   candidate functions, and does so fairly quickly.  However, the operation
-   above is closer to the original specification, and ABC handles it within a
-   few minutes, so we'll keep it as our primary reference implementation for
-   field_red.  The original spec is found below as p384_field_mod_orig. */
-
-p384_field_mod_candidate1 : [768] -> [384];
-p384_field_mod_candidate1(a) = rslt
-  where {
-    p       = p384_prime # (zero : [32]);
-    rwc     = p384_field_mod_aux(a);
-    z       = rwc.rslt;
-    d       = rwc.carry;
-    r       = z # d;
-    rslt    = if (d!0) 
-                then t.rslt where { t = p384_incFieldPrime(z) }
-                else p384_field_add(r', iext(of) * (2 ** 128 + 2 ** 96 - 2 ** 32 + 1))
-              where {
-                (r',of) = (take(384, r), drop(384, r));
-              };
-  };
-
-p384_field_mod_candidate2 : [768] -> [384];
-p384_field_mod_candidate2(a) = rslt
-  where {
-    rwc     = p384_field_mod_aux(a);
-    z       = rwc.rslt;
-    d       = rwc.carry;
-    rslt    = if (d!0) 
-                then (t.rslt where { t = p384_incFieldPrime(z) }
-                     )
-                else (if (d11 > 0) | (p384_prime <= z') then (p384_decFieldPrime(z')).rslt else z'
-                     ) 
-              where {
-                of         = iext d;
-                zd0        =              z0 + of;
-                zd1        = iext (d0)  + z1 - of;
-                zd2        = iext (d1)  + z2;
-                zd3        = iext (d2)  + z3 + of;
-                zd4        = iext (d3)  + z4 + of;
-                zd5        = iext (d4)  + z5;
-                zd6        = iext (d5)  + z6;
-                zd7        = iext (d6)  + z7;
-                zd8        = iext (d7)  + z8;
-                zd9        = iext (d8)  + z9;
-                zd10       = iext (d9)  + z10;
-                zd11       = iext (d10) + z11;
-                (z0',d0)   = chop zd0;
-                (z1',d1)   = chop zd1;
-                (z2',d2)   = chop zd2;
-                (z3',d3)   = chop zd3;
-                (z4',d4)   = chop zd4;
-                (z5',d5)   = chop zd5;
-                (z6',d6)   = chop zd6;
-                (z7',d7)   = chop zd7;
-                (z8',d8)   = chop zd8;
-                (z9',d9)   = chop zd9;
-                (z10',d10) = chop zd10;
-                (z11',d11) = chop zd11;
-                [z0 z1 z2 z3 z4 z5 z6 z7 z8 z9 z10 z11] 
-                           = [| uext x || x <- split z |] : [12][64];
-                z'         = join [ z0' z1' z2' z3' z4' z5' z6' z7' z8' z9' z10' z11' ] : [384];
-              };
-    chop x = (take (32,x), drop(32, x));
-  };
+    r         = z # d;
+    // Fix potential underflow
+    r0        = if (d!0) then r + p else r; 
+    // Fix potential overflow
+    (r1,b1)   = sbb(r0, p);
+    (r2,b2)   = sbb(r1, p);
+    (r3,b3)   = sbb(r2, p);
+    (r4,b4)   = sbb(r3, p);
+   };
 
 p384_field_mod_orig : [768] -> [384];
 p384_field_mod_orig(a)
@@ -614,31 +951,6 @@ p384_field_mod_orig(a)
     (r3,b3) = sbb(r2, p);
     (r4,b4) = sbb(r3, p);
    };
-
-p384_field_mod_aux_orig : [768] -> RsltWithCarry ([32],[384]);
-p384_field_mod_aux_orig(a) = {carry = drop(384, r); rslt = take(384, r)}
-  where {
-    [ a0  a1  a2  a3  a4  a5  a6  a7  a8  a9 a10 a11
-     a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23]
-        = split a;
-    z32 = zero : [32];
-    z64 = zero : [64];
-    p   = p384_prime # z32;
-    t   =  a0 #  a1 #  a2 #  a3 #  a4 #  a5 #  a6 #  a7 #  a8 #  a9 # a10 # a11 # z32;
-    s1  =     (zero : [128])    # a21 # a22 # a23 #      (zero : [160])         # z32;
-    s2  = a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # a21 # a22 # a23 # z32;
-    s3  = a21 # a22 # a23 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # z32; 
-    s4  = z32 # a23 # z32 # a20 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # z32;
-    s5  =     (zero : [128])    # a20 # a21 # a22 # a23 #    (zero : [128])     # z32;
-    s6  = a20 #    z64    # a21 # a22 # a23 #          (zero : [192])           # z32;
-    d1  = a23 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # a21 # a22 # z32;
-    d2  = z32 # a20 # a21 # a22 # a23 #              (zero : [224])             # z32;
-    d3  =  (zero : [96])  # a23 # a23 #              (zero : [224])             # z32;
-    r   = t + (s1 << 1) + s2 + s3 + s4 + s5 + s6 - d1 - d2 - d3;
-  };
-  
-theorem p384_field_mod_aux_same_as_orig : {x}. p384_field_mod_aux_orig(x) == p384_field_mod_aux(x);
-theorem p384_field_mod_with_aux_ok      : {x}. p384_field_mod_orig(x) == p384_field_mod(x);
 
 // Give explicit names to these finite field operators, so SBV
 //  can uninterpret them.
@@ -828,9 +1140,6 @@ p384_ec_mul (d, s) = (res @ 384)
   };
 */
 
-p384_ec_twin_mul : ([384], AffinePoint [384], [384], AffinePoint [384]) -> (JacobianPoint [384]);
-p384_ec_twin_mul(x,p,y,q) = ec_twin_mul(p384_point_ops, x, p, y, q);
-
 p384_group_add : ([384],[384]) -> [384];
 p384_group_add = p384_group_field.add;
 
@@ -848,7 +1157,8 @@ p384_ecdsa_sign(d,e,k) = { r = rr; s = ss }
   where (rr, ss) = ecdsa_sign(p384_curve,d,e,k);
 
 p384_ecdsa_public_verify : ([384], [384], [384], AffinePoint [384]) -> Bit;
-p384_ecdsa_public_verify(e,pr,ps,q) = ecdsa_public_verify(p384_curve,e,(pr,ps),q);
+p384_ecdsa_public_verify(e,pr,ps,q) =
+  ecdsa_public_verify_imp(p384_curve,e,(pr,ps),q);
 
 /* P384 test code {{{2 */
 
