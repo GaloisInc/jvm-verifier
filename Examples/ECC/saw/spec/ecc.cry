@@ -25,8 +25,8 @@ is_normal p x = (x < p);
 safe_product : {a} (fin a) => ([a],[a]) -> [2*a];
 safe_product(x,y) = uext(x) * uext(y);
 
-/* Matches java implementation, but just computes safe_product. */
-mul_joel (x, y) = ad_init_final         
+/* Matches java implementation; computes safe_product. */
+mul_joel (x, y) = ad_first_final         
   where {
     l   = 12;
     x'  = split x : [l][32];
@@ -34,25 +34,29 @@ mul_joel (x, y) = ad_init_final
     x0  = uext (x'@0) : [64];
 
     /* First loop in Java implementation */
-    a_init = [ (zero : [64], zero : [2*l*32]) ]
-           # [| ( d' >> 32, a' | d'')
-                where { 
-                  m   = x0 * (uext (y'@j) : [64]);
-                  d'  = d + m;
-                  d'' = (uext (take(32, d')) : [2*l*32]) << (j * 32);
-                  a'  = join [| if j == aj then zero else aw
-                             || aw <- (split a : [2*l][32]) 
-                             || aj <- [0..(l-1)] 
-                             |]
-                        # zero;
-                }
-             || (d, a) <- a_init
-             || j      <- [0..(l-1)]
-             |];
-    (d_init_final, a_init_final) = a_init!0;
-    d_init_final' = (uext(take(32, d_init_final)) : [2*l*32]) << (l*32);
+    a_first = [ (zero : [64], zero : [2*l*32]) ]
+            # [| ( d' >> 32, a' | d'')
+                 where { 
+                   m   = x0 * (uext (y'@j) : [64]);
+                   d'  = d + m;
+                   d'' = (uext (take(32, d')) : [2*l*32]) << (j * 32);
+                   a'  = join [| if j == aj then zero else aw
+                              || aw <- (split a : [2*l][32]) 
+                              || aj <- [0..(l-1)] 
+                              |]
+                         # zero;
+                 }
+              || (d, a) <- a_first
+              || j      <- [0..(l-1)]
+              |];
+    (d_first_final, a_first_final) = a_first!0;
+    d_first_final' = (uext(take(32, d_first_final)) : [2*l*32]) << (l*32);
     /* Value of Java 'a' after first loop & overflow inclusion */
-    ad_init_final = a_init_final | d_init_final';
+    ad_first_final = a_first_final | d_first_final';
+
+    /* Second loop in Java implementation */
+//    a_final = 
+
   };
 
 /* Returns module reduction on input. */
