@@ -26,11 +26,12 @@ safe_product : {a} (fin a) => ([a],[a]) -> [2*a];
 safe_product(x,y) = uext(x) * uext(y);
 
 /* Matches java implementation, but just computes safe_product. */
-mul_joel (x, y) = a_init_final | ((uext(take(32, d_init_final)) : [2*l*32]) << (l*32))  
+mul_joel (x, y) = 
+  a_init_final | ((uext(take(32, d_init_final)) : [2*l*32]) << (l*32))  
   where {
     (d_init_final, a_init_final) = a_init!0;
 
-    l   = 10;
+    l   = 12;
     x'  = split x : [l][32];
     y'  = split y : [l][32];
     x0  = uext (x'@0) : [64];
