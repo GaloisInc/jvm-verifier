@@ -458,6 +458,47 @@ abstract class NIST64 extends ECCProvider {
    * @param x The multiplier (contains at least one element).
    * @param y The multiplicand (contains same number of elements as x).
    */
+  protected void mul_joel(int[] a, int[] x, int[] y) {
+    int l = x.length;
+
+    set_zero(a);
+
+    long x0 = x[0] & LONG_MASK;
+    long d = 0;
+    for (int j = 0; j != l; ++j) {
+      long m = x0 * (y[j] & LONG_MASK);
+      d += m;
+      a[j] = (int) d;
+      d = d >>> 32;
+    }
+    // Add final overflow bit.
+    a[l] = (int) d;
+
+    /*
+    // Compute multiplication sum in a.
+    for (int i = 1; i != l; ++i) {
+      long xi = x[i] & LONG_MASK;
+      d = 0;
+      int ij = i;
+      for (int j = 0; j != l; ++j, ++ij) {
+        long m = xi * (y[j] & LONG_MASK);
+        d += m + (a[ij] & LONG_MASK);
+        a[ij] = (int) d;
+        d = d >>> 32;
+      }
+      // Add final overflow bit.
+      a[ij] = (int) d;
+    }
+    */
+  }
+
+  /**
+   * Computes x * y and stores result before reduction in a.
+   * 
+   * @param a Array with at least <code>2 * x.length</code> elements for storing result.
+   * @param x The multiplier (contains at least one element).
+   * @param y The multiplicand (contains same number of elements as x).
+   */
   protected void mul(int[] a, int[] x, int[] y) {
     int l = x.length;
 

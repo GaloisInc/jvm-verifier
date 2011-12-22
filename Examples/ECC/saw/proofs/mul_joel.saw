@@ -1,0 +1,7 @@
+import "common.saw";
+import "rules.saw";
+extern SBV ref_mul_joel("../spec/sbv/generated/mul_joel.sbv") : ([320],[320]) -> [640];
+enable ref_mul_joel;
+import "mul_joel.spec";
+
+
