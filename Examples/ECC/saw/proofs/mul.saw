@@ -1,29 +1,4 @@
-extern SBV javaish_mul_1_32("../sbv/javaish_mul_1_32.sbv") 
-  : ([1][32],[1][32]) -> [2][32];
-
-extern SBV javaish_mul_2_32("../sbv/javaish_mul_2_32.sbv") 
-  : ([2][32],[2][32]) -> [4][32];
-
-extern SBV javaish_mul_3_32("../sbv/javaish_mul_3_32.sbv") 
-  : ([3][32],[3][32]) -> [6][32];
-
-// extern SBV javaish_mul_12_32("../sbv/javaish_mul_12_32.sbv") 
-//   : ([12][32],[12][32]) -> [24][32];
-
-extern SBV specialized1_32("../sbv/specialized1_32.sbv") 
-  : ([1][32],[1][32]) -> [2][32];
-
-extern SBV unrolled_mul_2("../sbv/unrolled_mul_2.sbv") 
-  : ([2][32],[2][32]) -> [4][32];
-
-extern SBV truncated_javaish_mul_0("../sbv/truncated_javaish_mul_0_2_32.sbv") : ([2][32],[2][32]) -> [4][32];
-
-extern SBV truncated_javaish_mul_1("../sbv/truncated_javaish_mul_1_2_32.sbv") : ([2][32],[2][32]) -> [4][32];
-
-set verification off;
 import "common.saw";
-import "rules.saw";
-set verification on;
 
-import "mul.spec";
-
+enable ref_safe_product;
+import "mul.qcspec";
