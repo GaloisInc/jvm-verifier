@@ -552,6 +552,14 @@ abstract class NIST64 extends ECCProvider {
     }
   }
 
+  public long mul_joel_inner(int[] a, int j, int ij, long xi, long yj, long d, long aij)
+  {
+    long m = xi * yj;
+    d = d + m + aij;
+    a[ij] = (int) d;
+    return d >>> 32;
+  }
+
   /**
    * Computes x * y and stores result before reduction in a.
    * 
@@ -561,8 +569,6 @@ abstract class NIST64 extends ECCProvider {
    */
   protected void mul_joel(int[] a, int[] x, int[] y) {
     int l = x.length;
-
-    set_zero(a);
 
     long x0 = x[0] & LONG_MASK;
     long d = 0;
@@ -575,7 +581,6 @@ abstract class NIST64 extends ECCProvider {
     // Add final overflow bit.
     a[l] = (int) d;
 
-    /*
     // Compute multiplication sum in a.
     for (int i = 1; i != l; ++i) {
       long xi = x[i] & LONG_MASK;
@@ -583,14 +588,13 @@ abstract class NIST64 extends ECCProvider {
       int ij = i;
       for (int j = 0; j != l; ++j, ++ij) {
         long m = xi * (y[j] & LONG_MASK);
-        d += m + (a[ij] & LONG_MASK);
+        d = d + m + (a[ij] & LONG_MASK);
         a[ij] = (int) d;
         d = d >>> 32;
       }
       // Add final overflow bit.
       a[ij] = (int) d;
     }
-    */
   }
 
   /**

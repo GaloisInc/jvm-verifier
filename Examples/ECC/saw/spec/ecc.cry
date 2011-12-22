@@ -25,8 +25,20 @@ is_normal p x = (x < p);
 safe_product : {a} (fin a) => ([a],[a]) -> [2*a];
 safe_product(x,y) = uext(x) * uext(y);
 
+mul_joel_inner : ([768], [32], [32], [64], [64], [64], [64]) -> { mji_a : [768]; mji_d : [64]};
+mul_joel_inner (a, j, ij, xi, yj, d, aij) = { mji_a = a'; mji_d = d' >> 32 }
+  where {
+    m        = xi * yj;
+    d'       = d + m + aij;
+    dext     = uext (take(32, d')) : [768];
+    a'       = a_masked | (dext << (ij*32));
+    a_masked = a & (~((uext (~0:[32]) : [768]) << (ij*32)));
+  };
+
+theorem q: {x y}. mul_joel(x,y) == safe_product(x,y);
+
 /* Matches java implementation; computes safe_product. */
-mul_joel (x, y) = ad_first_final         
+mul_joel (x, y) = a_final!0
   where {
     l   = 2 : [32];
     x'  = split x : [l][32];
@@ -52,6 +64,36 @@ mul_joel (x, y) = ad_first_final
     d_first_final' = (uext(take(32, d_first_final)) : [2*l*32]) << (l*32);
     /* Value of Java 'a' after first loop and overflow inclusion */
     ad_first_final = a_first_final | d_first_final';
+
+    /* Second loop in Java implementation */
+    a_final = [ ad_first_final ]
+            # [| ad_inner_final
+                 where {
+                   xi = uext (x'@i) : [64];
+                   /* Inner loop in Java implementation */
+                   a_inner = [ ( zero : [64] /* d */, a, i) ]
+                           # [| (d' >> 32, amsk | d'', ij+1)
+                                where {
+                                  m        = xi * (uext (y'@j) : [64]);
+                                  d'       = d + m + a_ij;
+                                  d''      = (uext (take(32, d')) : [2*l*32]) << (ij * 32);
+                                  amsk     = a & (~a_ij_msk);
+                                  /* a_ij === a[ij] & LONG_MASK */
+                                  a_ij     = uext (take(32, (a & a_ij_msk) >> (ij*32))) : [64];
+                                  a_ij_msk = (uext (~0:[32]) : [2*l*32]) << (ij*32)
+                                }
+                             || (d, a, ij) <- a_inner
+                             || j          <- [0..(l-1)]
+                             |];
+
+                   (d_inner_final, a_inner_final, ij_final) = a_inner!0;
+                   d_inner_final' = (uext(take(32, d_inner_final)) : [2*l*32]) << (ij_final*32);
+                   /* Value of Java 'a' after second inner loop */
+                   ad_inner_final = a_inner_final | d_inner_final';
+                 }
+              || a <- a_final
+              || i <- [1..(l-1)]
+              |];
   };
 
 /* Returns module reduction on input. */

@@ -6,7 +6,7 @@ method com.galois.ecc.P384ECC64.mul_joel
   let x' = join(valueOf(x)) : [64];
   let y' = join(valueOf(y)) : [64];
   ensure valueOf(a) := split(ref_mul_joel(x', y')) : [4][32];
-//  quickcheck 100;
+//  quickcheck 10000;
 //  modify valueOf(y);
 //  modify valueOf(x);
 //  verify { rewrite; yices; };
