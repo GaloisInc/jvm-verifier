@@ -1,0 +1,9 @@
+extern SBV nat_mul("../spec/sbv/generated/nat_mul.sbv") 
+  : ([64],[64]) -> [128];
+
+set verification off;
+import "common.saw";
+set verification on;
+
+import "mul.spec";
+
