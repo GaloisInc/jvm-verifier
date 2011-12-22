@@ -1,11 +1,11 @@
 method com.galois.ecc.P384ECC64.mul_joel
 {
-  var a   :: int[24];
-  var x,y :: int[12];
+  var a   :: int[4];
+  var x,y :: int[2];
   mayAlias { x, y };
-  let x' = join(valueOf(x)) : [384];
-  let y' = join(valueOf(y)) : [384];
-  ensure valueOf(a) := split(ref_mul_joel(x', y')) : [24][32];
+  let x' = join(valueOf(x)) : [64];
+  let y' = join(valueOf(y)) : [64];
+  ensure valueOf(a) := split(ref_mul_joel(x', y')) : [4][32];
 //  quickcheck 100;
 //  modify valueOf(y);
 //  modify valueOf(x);

@@ -28,35 +28,30 @@ safe_product(x,y) = uext(x) * uext(y);
 /* Matches java implementation; computes safe_product. */
 mul_joel (x, y) = ad_first_final         
   where {
-    l   = 12;
+    l   = 2 : [32];
     x'  = split x : [l][32];
     y'  = split y : [l][32];
     x0  = uext (x'@0) : [64];
 
     /* First loop in Java implementation */
     a_first = [ (zero : [64], zero : [2*l*32]) ]
-            # [| ( d' >> 32, a' | d'')
+            # [| (d' >> 32, amsk | d'')
                  where { 
-                   m   = x0 * (uext (y'@j) : [64]);
-                   d'  = d + m;
-                   d'' = (uext (take(32, d')) : [2*l*32]) << (j * 32);
-                   a'  = join [| if j == aj then zero else aw
-                              || aw <- (split a : [2*l][32]) 
-                              || aj <- [0..(l-1)] 
-                              |]
-                         # zero;
+                   m    = x0 * (uext (y'@j) : [64]);
+                   d'   = d + m;
+                   d''  = (uext (take(32, d')) : [2*l*32]) << (j * 32);
+                   amsk = join [| if j == aj then zero else if aj >= l then zero else aw
+                             || aw <- (split a : [2*l][32]) 
+                             || aj <- [0..(2*l-1)] 
+                             |];
                  }
               || (d, a) <- a_first
               || j      <- [0..(l-1)]
               |];
     (d_first_final, a_first_final) = a_first!0;
     d_first_final' = (uext(take(32, d_first_final)) : [2*l*32]) << (l*32);
-    /* Value of Java 'a' after first loop & overflow inclusion */
+    /* Value of Java 'a' after first loop and overflow inclusion */
     ad_first_final = a_first_final | d_first_final';
-
-    /* Second loop in Java implementation */
-//    a_final = 
-
   };
 
 /* Returns module reduction on input. */
@@ -414,7 +409,7 @@ test_params =
 //  (0x6250471849e0c0eb47e9cf2c8e04c9ad0745e358d1cf11fb53e178a3c5b301b5f9e7f62e61c8f2113615cc4ff9927f9b, {x=0x005255b811499293ea986c66b4698e0748284d391130afd3f9febbc71ef3b39fe13a3deaa1489d817b885edf270b1bf6; y=0xc9a1dcdb74a4ae432edea47750d754d918b2f1fd8d9ee612b4f0cf2bebcb0eeef43ef5d0ce90cb75362bd2cfe69bffad}, 0xd9e8d87abffb84c0c06fe47396aa84871f08420561a7d8cc64fef7796fc0ca9a5406a37a054cc8cd57e26a3a7249fdb3, {x=0x8da95367d9e731f86adda9bfae6ff170cf090be5223f3b33c0d7c6c585bfc1330137d237fdc16bd432797a1da1dfa331; y=0x114d8b24d75d0149603aa6eab6ccec1cd83f5baaca7898dd6edd7c2ca91176893102b9fe129a09f9fdb208e18be46d16});
   (0xe74872524f90425d832a4f264e1f7b9209ec7456e9b4c467d8eac6c68f973ea7fea24f4d3fa8498bb1e26f933eaa261b, {x=0xbbab93c429707b2afe9ac285314d7b40c4ee31531b13291aa9058307cdd038b572fdf2f3a84dc912804fa426fe531a3c; y=0x4c2cffaa333bfd82b575918bb979bf51480c836082c097a03fed5454877b37d2f44f0401d212c16b05052bd383047b31}, 0xd4356773f2b311955542c5835696b9dca9d0e59197d5746bbf7dc079a666d955f74114662e38d31196bf94b060cc0c80, {x=0xd40c63c65b413d0741c56e884f0dca63b822a6f6879d36f9261d9b4a270d5d79a9be790fdfb871b5d6ae9204da692663; y=0x4d6b2b937c85b3c0c3cd2df85e9307cc89e0093f336af3b4531aa126bbdbec466562d8aa0dc1cf360fc1f1d0951e3ad1});
 
-theorem p384_ec_twin_mul_candidate2_ok: {x p y q}. ok1 & ok2 & ok3 where (_, ok1, ok2, ok3) = p384_ec_twin_mul_candidate2(x,p,y,q);
+//theorem p384_ec_twin_mul_candidate2_ok: {x p y q}. ok1 & ok2 & ok3 where (_, ok1, ok2, ok3) = p384_ec_twin_mul_candidate2(x,p,y,q);
 // theorem p384_ec_twin_mul_candidate2_good: {x p y q}. p384_ec_twin_mul(x,p,y,q) == p384_ec_twin_mul_candidate2(x,p,y,q);
 
 p384_ec_twin_mul_aux_F32 : [32] -> [32];
@@ -493,8 +488,8 @@ p384_ec_twin_mul_aux2 (c0, c1, e0, e1, sh, d0i, d1i, dv1, dv2) =
                     else (e0, e1, sh-1);
   };
 
-theorem p384_ec_twin_mul_candidate3_ok : {x p y q}. 
-  p384_ec_twin_mul(x,p,y,q) == ec_twin_mul(p384_point_ops,x,p,y,q);
+//theorem p384_ec_twin_mul_candidate3_ok : {x p y q}. 
+//  p384_ec_twin_mul(x,p,y,q) == ec_twin_mul(p384_point_ops,x,p,y,q);
 
 //theorem p384_ec_twin_mul_candidate3_ok : {x p y q}. 
 //  p384_ec_twin_mul_candidate3(x,p,y,q) == p384_ec_twin_mul(x,p,y,q);
@@ -664,8 +659,8 @@ p384_ec_twin_mul_candidate2(d0, s, d1, t) =
 
  };
 
-theorem ec_twin_mul_with_aux1_ok : {x p y q}. 
-  ec_twin_mul_orig(p384_point_ops, x, p, y, q) == p384_ec_twin_mul(x, p, y, q);
+//theorem ec_twin_mul_with_aux1_ok : {x p y q}. 
+//  ec_twin_mul_orig(p384_point_ops, x, p, y, q) == p384_ec_twin_mul(x, p, y, q);
 
 /* Return d0 * S + d1 * T. All points projective, 0 <= d0, d1 < p. */
 ec_twin_mul_orig : {fv gv} (fin gv, gv >= 4) 
