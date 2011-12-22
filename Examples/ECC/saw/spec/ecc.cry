@@ -40,7 +40,7 @@ theorem q: {x y}. mul_joel(x,y) == safe_product(x,y);
 /* Matches java implementation; computes safe_product. */
 mul_joel (x, y) = a_final!0
   where {
-    l   = 2 : [32];
+    l   = 12 : [32];
     x'  = split x : [l][32];
     y'  = split y : [l][32];
     x0  = uext (x'@0) : [64];

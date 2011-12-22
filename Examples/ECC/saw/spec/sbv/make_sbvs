@@ -20,6 +20,7 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 :load ../ecc.cry
 :fm p384_safe_product  "generated/p384_safe_product.sbv"
 :fm mul_joel           "generated/mul_joel.sbv"
+:fm mul_joel_inner     "generated/mul_joel_inner.sbv"
 :fm p384_mod_add       "generated/p384_mod_add.sbv"
 :fm p384_mod_sub       "generated/p384_mod_sub.sbv"
 :fm p384_mod_half      "generated/p384_mod_half.sbv"
