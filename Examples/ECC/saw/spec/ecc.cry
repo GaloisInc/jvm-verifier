@@ -47,15 +47,9 @@ mul_joel (x, y) = a_final!0
 
     /* First loop in Java implementation */
     a_first = [ (zero : [64], zero : [2*l*32]) ]
-            # [| (d' >> 32, amsk | d'')
-                 where { 
-                   m    = x0 * (uext (y'@j) : [64]);
-                   d'   = d + m;
-                   d''  = (uext (take(32, d')) : [2*l*32]) << (j * 32);
-                   amsk = join [| if j == aj then zero else if aj >= l then zero else aw
-                             || aw <- (split a : [2*l][32]) 
-                             || aj <- [0..(2*l-1)] 
-                             |];
+            # [| (res.mji_d, res.mji_a)
+                 where {
+                   res = mul_joel_inner(a, j, j, x0, uext (y'@j) : [64], d, 0)
                  }
               || (d, a) <- a_first
               || j      <- [0..(l-1)]
@@ -72,15 +66,12 @@ mul_joel (x, y) = a_final!0
                    xi = uext (x'@i) : [64];
                    /* Inner loop in Java implementation */
                    a_inner = [ ( zero : [64] /* d */, a, i) ]
-                           # [| (d' >> 32, amsk | d'', ij+1)
+                           # [| (res.mji_d, res.mji_a, ij+1)
                                 where {
-                                  m        = xi * (uext (y'@j) : [64]);
-                                  d'       = d + m + a_ij;
-                                  d''      = (uext (take(32, d')) : [2*l*32]) << (ij * 32);
-                                  amsk     = a & (~a_ij_msk);
-                                  /* a_ij === a[ij] & LONG_MASK */
+                                  a_ij_msk = (uext (~0:[32]) : [2*l*32]) << (ij*32);
                                   a_ij     = uext (take(32, (a & a_ij_msk) >> (ij*32))) : [64];
-                                  a_ij_msk = (uext (~0:[32]) : [2*l*32]) << (ij*32)
+                                  yj       = uext (y'@j) : [64];
+                                  res = mul_joel_inner(a, j, ij, xi, yj, d, a_ij);
                                 }
                              || (d, a, ij) <- a_inner
                              || j          <- [0..(l-1)]

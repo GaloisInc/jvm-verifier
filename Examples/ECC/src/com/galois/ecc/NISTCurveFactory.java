@@ -573,10 +573,7 @@ abstract class NIST64 extends ECCProvider {
     long x0 = x[0] & LONG_MASK;
     long d = 0;
     for (int j = 0; j != l; ++j) {
-      long m = x0 * (y[j] & LONG_MASK);
-      d += m;
-      a[j] = (int) d;
-      d = d >>> 32;
+      d = mul_joel_inner(a, j, j, x0, y[j] & LONG_MASK, d, 0);
     }
     // Add final overflow bit.
     a[l] = (int) d;
@@ -587,10 +584,7 @@ abstract class NIST64 extends ECCProvider {
       d = 0;
       int ij = i;
       for (int j = 0; j != l; ++j, ++ij) {
-        long m = xi * (y[j] & LONG_MASK);
-        d = d + m + (a[ij] & LONG_MASK);
-        a[ij] = (int) d;
-        d = d >>> 32;
+        d = mul_joel_inner(a, j, ij, xi, y[j] & LONG_MASK, d, a[ij] & LONG_MASK);
       }
       // Add final overflow bit.
       a[ij] = (int) d;
