@@ -1,5 +1,16 @@
 import "common.saw";
 import "rules.saw";
-extern SBV ref_mul_joel("../spec/sbv/generated/mul_joel.sbv") : ([384],[384]) -> [768];
+
+extern SBV ref_mul_joel_inner("../spec/sbv/generated/mul_joel_inner.sbv") :
+  ([768], [32], [32], [64], [64], [64], [64]) ->
+  { mji_a : [768]; mji_d : [64]};
+
+extern SBV ref_mul_joel("../spec/sbv/generated/mul_joel.sbv") :
+  ([384],[384]) -> [768];
+
+set verification off;
+import "mul_joel_inner.spec";
+set verification on;
+
 enable ref_mul_joel;
 import "mul_joel.spec";
