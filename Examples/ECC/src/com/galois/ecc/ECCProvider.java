@@ -670,95 +670,8 @@ public abstract class ECCProvider {
   }
   */
 
-  /**
-   * Assigns r = d * s using a 2bit lookahead window.
-   * As a side effect, this function uses <code>h</code>, <code>t1</code>, <code>t2</code>
-   * and <code>t3</code> as temporary buffers that are overwritten.
-   *
-   * @param r Point to store result in.
-   * @param d Scalar multiplier.
-   * @param s Point to multiply.
-   * @param s3 3 * Point to multiply.
-   * @param s5 5 * Point to multiply.
-   */
-  private void ec_mul_window(JacobianPoint r, int[] d, AffinePoint s, AffinePoint s3, AffinePoint s5) {
-    shr(h, 0, d);
-    // If h <- d + d >> 1 overflows
-    if (add(h, d, h) != 0) {
-      // Start with r = s.
-      assign(r.x, s.x);
-      assign(r.y, s.y);
-      set_unit(r.z);
-    } else {
-      // Otherwise start with r = 0.
-      set_unit(r.x);
-      set_unit(r.y);
-      set_zero(r.z);
-    }
-
-    int j = 32 * h.length - 1;
-    while (j >= 2) {
-      int i = j >>> 5;
-      int hi = h[i];
-      int ki = d[i] >>> 1;
-      if (i != h.length - 1) ki |= (d[i+1] & 1) << 31;
-      int m = 1 << j;
-
-      ec_double(r);
-      if ((hi & m) != 0 && (ki & m) == 0) {
-        j -= 2;
-        i = j >>> 5;
-        hi = h[i];
-        ki = d[i] >>> 1;
-        if (i != h.length - 1) ki |= (d[i+1] & 1) << 31;
-        m = 1 << j;
-        --j;
-
-        if ((hi & m) != 0 && (ki & m) == 0) {
-          ec_double(r);
-          ec_double(r);
-          ec_full_add(r, s5);
-        } else if ((hi & m) == 0 && (ki & m) != 0) {
-          ec_double(r);
-          ec_double(r);
-          ec_full_add(r, s3);
-        } else {
-          ec_full_add(r, s);
-          ec_double(r);
-          ec_double(r);
-        }
-      } else if ((hi & m) == 0 && (ki & m) != 0) {
-        j -= 2;
-        i = j >>> 5;
-        hi = h[i];
-        ki = d[i] >>> 1;
-        if (i != h.length - 1) ki |= (d[i+1] & 1) << 31;
-        m = 1 << j;
-        --j;
-
-        if ((hi & m) != 0 && (ki & m) == 0) {
-          ec_double(r);
-          ec_double(r);
-          ec_full_sub(r, s3);
-        } else if ((hi & m) == 0 && (ki & m) != 0) {
-          ec_double(r);
-          ec_double(r);
-          ec_full_sub(r, s5);
-        } else {
-          ec_full_sub(r, s);
-          ec_double(r);
-          ec_double(r);
-        }
-
-      } else {
-        --j;
-      }
-    }
-
+    private void ec_mul_window_finish(JacobianPoint r, int j, int hi, int ki, AffinePoint s) {
     if (j == 1) {
-      int hi = h[0];
-      int ki = d[0];
-
       ec_double(r);
       if ((hi & 2) != 0 && (ki & 3) == 0) {
         ec_full_add(r, s);
@@ -776,8 +689,6 @@ public abstract class ECCProvider {
       }
 
     } else if (j == 0) {
-      int hi = h[0];
-      int ki = d[0];
       ec_double(r);
       if ((hi & 1) != 0 && (ki & 2) == 0) {
         ec_full_add(r, s);
@@ -785,6 +696,89 @@ public abstract class ECCProvider {
         ec_full_sub(r, s);
       }
     }
+  }
+
+  private int ec_mul_window_aux(JacobianPoint r, int j,
+                                int hi, int kai, int kip1,
+                                int hi2, int kai2, int ki2p1,
+                                AffinePoint s, AffinePoint s3, AffinePoint s5) {
+      int ki = (kai >>> 1) | (kip1 & 1) << 31;
+      int m = 1 << j;
+
+      ec_double(r);
+      if ((hi & m) != 0 && (ki & m) == 0) {
+        j -= 2;
+        int ki2 = (kai2 >>> 1) | (ki2p1 & 1) << 31;
+        int m2 = 1 << j;
+        --j;
+
+        if ((hi2 & m2) != 0 && (ki2 & m2) == 0) {
+          ec_double(r);
+          ec_double(r);
+          ec_full_add(r, s5);
+        } else if ((hi2 & m2) == 0 && (ki2 & m2) != 0) {
+          ec_double(r);
+          ec_double(r);
+          ec_full_add(r, s3);
+        } else {
+          ec_full_add(r, s);
+          ec_double(r);
+          ec_double(r);
+        }
+      } else if ((hi & m) == 0 && (ki & m) != 0) {
+        j -= 2;
+        int ki2 = (kai2 >>> 1) | (ki2p1 & 1) << 31;
+        int m2 = 1 << j;
+        --j;
+
+        if ((hi2 & m2) != 0 && (ki2 & m2) == 0) {
+          ec_double(r);
+          ec_double(r);
+          ec_full_sub(r, s3);
+        } else if ((hi2 & m2) == 0 && (ki2 & m2) != 0) {
+          ec_double(r);
+          ec_double(r);
+          ec_full_sub(r, s5);
+        } else {
+          ec_full_sub(r, s);
+          ec_double(r);
+          ec_double(r);
+        }
+
+      } else {
+        --j;
+      }
+      return j;
+  }
+
+  /**
+   * Assigns r = d * s using a 2bit lookahead window.
+   * As a side effect, this function uses <code>h</code>, <code>t1</code>, <code>t2</code>
+   * and <code>t3</code> as temporary buffers that are overwritten.
+   *
+   * @param r Point to store result in.
+   * @param d Scalar multiplier.
+   * @param s Point to multiply.
+   * @param s3 3 * Point to multiply.
+   * @param s5 5 * Point to multiply.
+   */
+  private void ec_mul_window(JacobianPoint r, int[] d, AffinePoint s, AffinePoint s3, AffinePoint s5) {
+    ec_mul_init(r, d, s);
+
+    int j = 32 * h.length - 1;
+    int c = j;
+    while (j >= 2 && c > 0) {
+      int i = j >>> 5;
+      int i2 = (j - 2) >>> 5;
+
+      j = ec_mul_window_aux(r, j,
+                            h[i], d[i], i < 11 ? d[i+1] : 0,
+                            h[i2], d[i2], i2 < 11 ? d[i2+1] : 0,
+                            s, s3, s5);
+      c--;
+    }
+
+    ec_mul_window_finish(r, j, h[0], d[0], s);
   }
 
   /**

@@ -1,0 +1,11 @@
+import "common.saw";
+import "rules.saw";
+
+set verification off;
+import "ec_double.spec";
+import "ec_full_add.spec";
+import "ec_full_sub.spec";
+set verification on;
+
+enable ref_ec_mul_window_aux;
+import "ec_mul_window_aux.spec";

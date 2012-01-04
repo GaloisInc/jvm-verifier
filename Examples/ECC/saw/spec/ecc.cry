@@ -1173,6 +1173,126 @@ p384_ec_mul (d, s) = (res @ 384)
   };
 */
 
+p384_ec_mul_window_body : ({ h : [384] ; j : [32] ; r : JacobianPoint [384] },
+                           [32],
+                           [384],
+                           AffinePoint [384],
+                           AffinePoint [384],
+                           AffinePoint [384]) ->
+                          { h : [384] ; j : [32] ; r : JacobianPoint [384] };
+p384_ec_mul_window_body (ini, c, d, s, s3, s5) =
+  if (ini.j >= 2) & (c > 0) then
+    p384_ec_mul_window_body(next, c - 1, d, s, s3, s5)
+  else
+    ini
+  where {
+    next = p384_ec_mul_window_aux(ini,
+                                  h'@i, d'@i, kaip1,
+                                  h'@i2, d'@i2, kai2p1,
+                                  s, s3, s5);
+    d' = split(d) : [12][32];
+    h' = split(ini.h) : [12][32];
+    i = ini.j >> 5;
+    i2 = (ini.j - 2) >> 5;
+    kaip1 = if i < 11 then d'@(i + 1) else 0;
+    kai2p1 = if i2 < 11 then d'@(i2 + 1) else 0;
+  };
+
+p384_ec_mul_window_finish : ([32],
+                             JacobianPoint [384],
+                             [32],
+                             [32],
+                             AffinePoint [384]) -> JacobianPoint [384];
+p384_ec_mul_window_finish(j, r, hi, ki, s) =
+  if(j == 1) then r1
+  else if(j == 0) then r0
+  else r
+    where {
+      r2 = p384_ec_double(r);
+      r4 = p384_ec_double(r2);
+      r1 = if      ((hi & 2) != 0) & ((ki & 3) == 0) then
+             p384_ec_double(p384_ec_full_add(r2, s))
+           else if ((hi & 2) == 0) & ((ki & 3) != 0) then
+             p384_ec_double(p384_ec_full_sub(r2, s))
+           else if ((hi & 1) != 0) & ((ki & 2) == 0) then
+             p384_ec_full_add(r4, s)
+           else if ((hi & 1) == 0) & ((ki & 2) != 0) then
+             p384_ec_full_sub(r4, s)
+           else r4;
+      r0 = if      ((hi & 1) != 0) & ((ki & 2) == 0) then
+             p384_ec_full_add(r2, s)
+           else if ((hi & 1) == 0) & ((ki & 2) != 0) then
+             p384_ec_full_sub(r2, s)
+           else r2;
+    };
+
+p384_ec_mul_window_aux : ({ h : [384] ; j : [32] ; r : JacobianPoint [384] },
+                          [32], [32], [32], [32], [32], [32],
+                          AffinePoint [384],
+                          AffinePoint [384],
+                          AffinePoint [384]) ->
+                         { h : [384] ; j : [32] ; r : JacobianPoint [384] };
+p384_ec_mul_window_aux (ini, hi, kai, kaip1, hi2, kai2, kai2p1, s, s3, s5) = next
+  where {
+    next = {
+      h = ini.h;
+      j = (if bigstep then j2 else ini.j) - 1;
+      r = if (him != 0) & (kim == 0) then
+            (if      (him2 != 0) & (kim2 == 0) then p384_ec_full_add(r8, s5)
+             else if (him2 == 0) & (kim2 != 0) then p384_ec_full_add(r8, s3)
+             else p384_ec_double(p384_ec_double(p384_ec_full_add(r2, s))))
+          else if (him == 0) & (kim != 0) then
+            (if      (him2 != 0) & (kim2 == 0) then p384_ec_full_sub(r8, s3)
+             else if (him2 == 0) & (kim2 != 0) then p384_ec_full_sub(r8, s5)
+             else p384_ec_double(p384_ec_double(p384_ec_full_sub(r2, s))))
+          else r2;
+    };
+    bigstep = ((him != 0) & (kim == 0)) | ((him == 0) & (kim != 0));
+    r2 = p384_ec_double(ini.r);
+    r4 = p384_ec_double(r2);
+    r8 = p384_ec_double(r4);
+
+    i    = ini.j >> 5;
+    m    = java_ishl(1, ini.j);
+    him  = hi & m;
+    ki   = (kai >>> 1) | ((kaip1 & 1) << 31);
+    kim  = ki & m;
+
+    j2   = ini.j - 2;
+    i2   = j2 >> 5;
+    m2   = java_ishl(1, j2);
+    him2 = hi2 & m2;
+    ki2  = (kai2 >>> 1) | ((kai2p1 & 1) << 31);
+    kim2 = ki2 & m2;
+  };
+
+p384_ec_mul_window : ([384],
+                      AffinePoint [384],
+                      AffinePoint [384],
+                      AffinePoint [384]) -> JacobianPoint [384];
+p384_ec_mul_window (d, s, s3, s5) = res
+  where {
+    d' = split(d) : [12][32];
+    ini = p384_ec_mul_init(d, s);
+    ini' = { h = ini.h ; j = 383 : [32] ; r = ini.r };
+    mid = p384_ec_mul_window_body(ini', 383 : [32], d, s, s3, s5);
+    h' = split(mid.h) : [12][32];
+    res = p384_ec_mul_window_finish(mid.j, mid.r, h'@0, d'@0, s);
+  };
+
+p384_ec_mul_window_top (d, s) = p384_ec_mul_window (d, s, s3, s5)
+  where {
+    sj = p384_jacobify(s);
+    s4 = p384_ec_double(p384_ec_double(sj));
+    s3j = p384_ec_full_sub(s4, s);
+    s5j = p384_ec_full_add(s4, s);
+    s3 = p384_affinify(s3j);
+    s5 = p384_affinify(s5j);
+  };
+
+theorem p384_ec_mul_window_ok: {d s}.
+  p384_ec_mul_window_top (d, s) == p384_ec_mul(d, s);
+
 p384_group_add : ([384],[384]) -> [384];
 p384_group_add = p384_group_field.add;
 
