@@ -44,6 +44,11 @@ let ref_egcd(p:[384], a:[384], ra:[384], b:[384], rb:[384]) : [384] =
   else 
     ref_egcd(p, b, rb, (a - b) >>u 1:[384], ref_mod_half(p, ref_mod_sub(p, ra, rb)));
 
+let ref_aset(a:[128], i:[32], x:[32]) : [128] =
+ join(aset(split(a):[4][32], i ,x)) : [128];
+
+pragma ref_aset : SBV "aset";
+
 let ref_mod_div(p:[384], x:[384], y:[384]) : [384] = ref_egcd(p, p, 0:[384], y, x);
 pragma ref_mod_div : SBV "p384_mod_div"; // Declares that "ref_div" is "mod_div" in Cryptol.
 

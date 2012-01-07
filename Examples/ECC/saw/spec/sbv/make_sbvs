@@ -19,6 +19,7 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 
 :load ../ecc.cry
 :fm mul_joel_inner     "generated/mul_joel_inner.sbv"
+:fm aset               "generated/aset.sbv"
 
 :load sbv_uninterpret_mul_inner.cry
 :fm p384_safe_product  "generated/p384_safe_product.sbv"

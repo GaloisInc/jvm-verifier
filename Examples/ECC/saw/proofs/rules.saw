@@ -18,7 +18,10 @@ rule not_not    : forAll {x:Bit}. not(not(x)) -> x;
 rule split_join : forAll {x:[12][32]}. split(join(x) : [384]) : [12][32] -> x;
 
 rule join_split2 : forAll {x:[768]}. join(split(x) : [24][32]) -> x;
-rule split_join1 : forAll {x:[24][32]}. split(join(x) : [768]) : [24][32] -> x;
+rule split_join2 : forAll {x:[24][32]}. split(join(x) : [768]) : [24][32] -> x;
+
+rule join_split3 : forAll {x:[128]}. join(split(x) : [4][32]) -> x;
+rule split_join3 : forAll {x:[4][32]}. split(join(x) : [128]) : [4][32] -> x;
 
 // Boolean elimination rules 
 
@@ -169,6 +172,8 @@ rule resSMt :
 rule trunc_shift_get : forAll {x:[384], s:[9]}.
   trunc (x >>u s) : [32] ->
   aget (split(x) : [12][32], (s >>u 5:[9]) # 0:[23]);
+
+rule shift_zero : forAll {x:[a]}.  x >>u 0:[6] -> x;
 
 // Field-specific elimination rules
 
