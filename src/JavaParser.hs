@@ -88,8 +88,9 @@ module JavaParser (
   -- * Debugging information
   , hasDebugInfo
   , classSourceFile
-  , sourceLineNumber
+  , sourceLineNumberInfo
   , sourceLineNumberOrPrev
+  , lookupLineStartPC
   , localVariableEntries
   , lookupLocalVariableByIdx
   , lookupLocalVariableByName
@@ -820,19 +821,18 @@ module JavaParser (
                    lineNumber <- getWord16be
                    return (startPc', lineNumber))
 
-  type LineNumberTable = Map PC Word16
 
-  parseLineNumberTable :: [PC] -> [L.ByteString] -> Map PC Word16
-  parseLineNumberTable pcs buffers =
-    let initialMap = Map.fromList $ concat $ map (runGet getLineNumberTableEntries) buffers
-     in Map.fromList $ snd
-                     $ foldr (\pc (prev,rest) ->
-                               case (Map.lookup pc initialMap, prev) of
-                                 (Just v, _) -> (Just v, (pc,v) : rest)
-                                 (_, Just v) -> (prev, (pc,v) : rest)
-                                 (_,_)       -> (prev, rest))
-                             (Nothing, [])
-                             pcs
+  data LineNumberTable = LNT {
+           pcLineMap :: Map PC Word16
+         , linePCMap :: Map Word16 PC
+         } deriving (Eq,Show)
+
+  parseLineNumberTable :: [L.ByteString] -> LineNumberTable
+  parseLineNumberTable buffers =
+    let l = concatMap (runGet getLineNumberTableEntries) buffers
+     in LNT { pcLineMap = Map.fromList l
+            , linePCMap = Map.fromListWith min [ (ln,pc) | (pc,ln) <- l ]
+            }
 
   -- LocalVariableTableEntry {{{2
   data LocalVariableTableEntry
@@ -894,7 +894,7 @@ module JavaParser (
                   maxLocals
                   (buildCFG exceptionTable instructions)
                   exceptionTable
-                  (parseLineNumberTable (getValidPcs instructions) lineNumberTables)
+                  (parseLineNumberTable lineNumberTables)
                   (parseLocalVariableTable cp localVariableTables)
                   userAttrs
 
@@ -1079,16 +1079,18 @@ module JavaParser (
   hasDebugInfo :: Method -> Bool
   hasDebugInfo method =
     case methodBody method of
-      Code _ _ _ _ lns lvars _ -> not (Map.null lns && null lvars)
+      Code _ _ _ _ lns lvars _ -> not (Map.null (pcLineMap lns) && null lvars)
       _ -> False
 
-  -- | Returns source line number of instruction in method at given PC or
-  -- Nothing if no line number is known.
-  sourceLineNumber :: Method -> PC -> Maybe Word16
-  sourceLineNumber method pc =
-    case methodBody method of
-      Code _ _ _ _ lns _ _ -> Map.lookup pc lns
-      _ -> error "internal: unexpected method body form"
+  methodLineNumberTable :: Method -> Maybe LineNumberTable
+  methodLineNumberTable me = do
+    case methodBody me of
+      Code _ _ _ _ lns _ _ -> Just lns
+      _ -> Nothing
+
+  sourceLineNumberInfo :: Method -> [(Word16,PC)]
+  sourceLineNumberInfo me =
+    maybe [] (Map.toList . pcLineMap) $ methodLineNumberTable me
 
   -- | Returns source line number of an instruction in a method at a given PC,
   -- or the line number of the nearest predecessor instruction, or Nothing if
@@ -1097,12 +1099,18 @@ module JavaParser (
   sourceLineNumberOrPrev me pc =
     case methodBody me of
       Code _ _ _ _ lns _ _ ->
-        case Map.splitLookup pc lns of
+        case Map.splitLookup pc (pcLineMap lns) of
           (prs, Nothing, _)
             | not $ Map.null prs -> Just $ snd $ Map.findMax prs
             | otherwise          -> Nothing
           (_, ln, _)             -> ln
       _ -> error "internal: unexpected method body form"
+
+  -- | Returns the starting PC for the source at the given line number.
+  lookupLineStartPC :: Method -> Word16 -> Maybe PC
+  lookupLineStartPC me ln = do
+    m <- methodLineNumberTable me
+    Map.lookup ln (linePCMap m)
 
   localVariableEntries :: Method -> PC -> [LocalVariableTableEntry]
   localVariableEntries method pc =

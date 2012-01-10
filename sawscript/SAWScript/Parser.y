@@ -38,11 +38,13 @@ import {-# SOURCE #-} SAWScript.ParserActions
    'rule'         { TReserved _ "rule"         }
    'from'         { TReserved _ "from"         }
    'pc'           { TReserved _ "pc"           }
+   'line'         { TReserved _ "line"         }
    'mayAlias'     { TReserved _ "mayAlias"     }
    'assert'       { TReserved _ "assert"       }
    'ensure'       { TReserved _ "ensure"       }
    'modify'       { TReserved _ "modify"       }
    'return'       { TReserved _ "return"       }
+   'blif'         { TReserved _ "blif"         }
    'quickcheck'   { TReserved _ "quickcheck"   }
    'verify'       { TReserved _ "verify"       }
    'enable'       { TReserved _ "enable"       }
@@ -263,20 +265,29 @@ RecordFlds :: { [(Pos, String, Expr)] }
 RecordFlds : sepBy(connected(var, '=', Expr), ';')
                                { map ((\(v, e) -> (tokPos v, tokStr v, e))) $1 }
 
+MethodLocation :: { MethodLocation }
+MethodLocation
+  : 'pc' num       { PC (tokNum $2) }
+  | 'line' '+' num { LineOffset (tokNum $3) }
+  | 'line' '=' num { LineExact (tokNum $3) }
+
 MethodSpecDecl :: { MethodSpecDecl }
 MethodSpecDecl
   : LSpecDecl            { Behavior $1 }
-  | 'from' 'pc' num LSpecDecl
-                         { SpecAt (tokPos $1) (tokNum $3) $4 }
-  | 'quickcheck' num opt(num) ';' { QuickCheck (tokPos $1) (tokNum $2) (fmap tokNum $3) }
+  | 'from' MethodLocation LSpecDecl
+                         { SpecAt (tokPos $1) $2 $3 }
+  | 'quickcheck' num opt(num) ';'
+                         { SpecPlan (tokPos $1)
+                                    (QuickCheck (tokNum $2) (fmap tokNum $3)) }
+  | 'blif' opt(str) ';'  { SpecPlan (tokPos $1) (Blif $2) }
   | 'verify' VerifyCommand
-                         { Verify (tokPos $1) $2 }
+                         { SpecPlan (tokPos $1) (Verify $2) }
 
 LSpecDecl :: { BehaviorDecl }
 LSpecDecl 
   : '{' seplist(LSpecDecl, ';') '}' { Block $2 }
   | LSpecStatement ';' { $1 }
-  | 'if' '(' Expr ')' LSpecDecl %prec MIN { MethodIf     (tokPos $1) $3 $5          }
+  | 'if' '(' Expr ')' LSpecDecl %prec MIN { MethodIf (tokPos $1) $3 $5    }
   | 'if' '(' Expr ')' LSpecDecl
                'else' LSpecDecl { MethodIfElse (tokPos $1) $3 $5 $7       }
 
@@ -305,9 +316,9 @@ JavaType : 'boolean'            { BoolType (tokPos $1)      }
 
 VerifyCommand :: { VerifyCommand }
 VerifyCommand
-  : 'from' 'pc' num VerifyCommand      { VerifyAt (tokPos $1) (tokNum $3) $4 }
-  | '{' list(VerifyCommand) '}'        { VerifyBlock $2 }
-  | VerifyStatement ';'                { $1 }
+  : 'from' MethodLocation VerifyCommand { VerifyAt (tokPos $1) $2 $3 }
+  | '{' list(VerifyCommand) '}'         { VerifyBlock $2 }
+  | VerifyStatement ';'                 { $1 }
 
 VerifyStatement :: { VerifyCommand }
   : 'rewrite'                          { Rewrite }

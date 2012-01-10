@@ -4,8 +4,8 @@ RUNSAWSCRIPT=$(SAWSCRIPT) -c build -j$(CLASSES_JAR)
 
 build :
 	mkdir -p build
-	javac -g:vars -cp src:../../support src/com/galois/ecc/*.java -d build
-	javac -g:vars -cp build:tests tests/com/galois/ecc/*.java -d build
+	javac -g -cp src:../../support src/com/galois/ecc/*.java -d build
+	javac -g -cp build:tests tests/com/galois/ecc/*.java -d build
 
 # Build java doc documentation.
 doc :
