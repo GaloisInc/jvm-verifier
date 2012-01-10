@@ -821,7 +821,7 @@ module JavaParser (
                    lineNumber <- getWord16be
                    return (startPc', lineNumber))
 
-  
+
   data LineNumberTable = LNT {
            pcLineMap :: Map PC Word16
          , linePCMap :: Map Word16 PC
@@ -1079,7 +1079,7 @@ module JavaParser (
   hasDebugInfo :: Method -> Bool
   hasDebugInfo method =
     case methodBody method of
-      Code _ _ _ _ lns lvars _ -> not (Map.null (pcLineMap lns) && null lvars) 
+      Code _ _ _ _ lns lvars _ -> not (Map.null (pcLineMap lns) && null lvars)
       _ -> False
 
   methodLineNumberTable :: Method -> Maybe LineNumberTable
@@ -1106,7 +1106,7 @@ module JavaParser (
           (_, ln, _)             -> ln
       _ -> error "internal: unexpected method body form"
 
-  -- | Returns the starting PC for the source at the given line number. 
+  -- | Returns the starting PC for the source at the given line number.
   lookupLineStartPC :: Method -> Word16 -> Maybe PC
   lookupLineStartPC me ln = do
     m <- methodLineNumberTable me
