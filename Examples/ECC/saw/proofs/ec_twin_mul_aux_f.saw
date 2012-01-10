@@ -1,0 +1,4 @@
+import "common.saw";
+import "rules.saw";
+enable ref_ec_twin_mul_aux_f;
+import "ec_twin_mul_aux_f.spec";

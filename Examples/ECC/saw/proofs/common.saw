@@ -4,7 +4,7 @@
 
 let even(x:[384]) : Bit = (x & 1:[384]) == 0:[384];
 
-// Define cosntants for P384 curve (taken from NIST and NSA documents).
+// Define constants for P384 curve (taken from NIST and NSA documents).
 let field_prime = <| 2^384 - 2^128 - 2^96 + 2^32 - 1 |> : [384];
 let group_order = 0xffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973 : [384];
 
@@ -25,9 +25,6 @@ extern SBV ref_incFieldPrime("../spec/sbv/generated/p384_incFieldPrime.sbv")
   : [384] -> { carry : [32]; rslt : [384] };
 extern SBV ref_decFieldPrime("../spec/sbv/generated/p384_decFieldPrime.sbv") 
   : [384] -> { carry : [32]; rslt : [384] };
-extern SBV ref_field_mod_aux("../spec/sbv/generated/p384_field_mod_aux.sbv") 
-  : [768] -> { carry : [32]; rslt : [384] };
-
 extern SBV ref_field_mod("../spec/sbv/generated/p384_field_mod.sbv") : [768] -> [384];
 
 extern SBV ref_group_add("../spec/sbv/generated/p384_group_add.sbv")    : ([384],[384]) -> [384];
@@ -46,6 +43,11 @@ let ref_egcd(p:[384], a:[384], ra:[384], b:[384], rb:[384]) : [384] =
     ref_egcd(p, a, ra, (b - a) >>u 1:[384], ref_mod_half(p, ref_mod_sub(p, rb, ra)))
   else 
     ref_egcd(p, b, rb, (a - b) >>u 1:[384], ref_mod_half(p, ref_mod_sub(p, ra, rb)));
+
+let ref_aset(a:[128], i:[32], x:[32]) : [128] =
+ join(aset(split(a):[4][32], i ,x)) : [128];
+
+pragma ref_aset : SBV "aset";
 
 let ref_mod_div(p:[384], x:[384], y:[384]) : [384] = ref_egcd(p, p, 0:[384], y, x);
 pragma ref_mod_div : SBV "p384_mod_div"; // Declares that "ref_div" is "mod_div" in Cryptol.
@@ -81,11 +83,34 @@ extern SBV ref_ec_mul_aux("../spec/sbv/generated/p384_ec_mul_aux.sbv") :
   , [32]
   , [32]
   , [32]
-  ) 
-  -> { x:[384]; y:[384]; z:[384] };
+  ) -> { x:[384]; y:[384]; z:[384] };
 
 extern SBV ref_ec_mul("../spec/sbv/generated/p384_ec_mul.sbv") :
   ([384], { x: [384]; y: [384] }) -> { x: [384]; y: [384]; z: [384] };
+
+extern SBV ref_ec_mul_window_aux("../spec/sbv/generated/p384_ec_mul_window_aux.sbv") :
+  ( { h : [384] ; j : [32] ; r : { x : [384] ; y : [384] ;  z : [384] } }
+  , [32], [32], [32], [32], [32], [32]
+  , { x : [384] ; y : [384] }
+  , { x : [384] ; y : [384] }
+  , { x : [384] ; y : [384] }
+  ) -> { h : [384] ; j : [32] ; r : { x : [384] ; y : [384] ;  z : [384] } };
+
+extern SBV ref_ec_mul_window_finish("../spec/sbv/generated/p384_ec_mul_window_finish.sbv") :
+  ( [32]
+  , { x: [384]; y: [384]; z: [384] }
+  , [32]
+  , [32]
+  , { x: [384]; y:[384] }
+  ) -> { x:[384]; y:[384]; z:[384] };
+
+/*
+extern SBV ref_ec_mul_window ("../spec/sbv/generated/p384_ec_mul_window.sbv") :
+  ([384],
+   {x : [384]; y : [384]},
+   {x : [384]; y : [384]},
+   {x : [384]; y : [384]}) -> {x : [384];  y : [384];  z : [384]};
+*/
 
 let ref_mod_mul(p:[384], x:[384], y:[384]) : [384] =
   trunc(((x # 0:[384]) * (y # 0:[384])) %s (p # 0:[384])) : [384];
@@ -94,3 +119,26 @@ pragma ref_mod_mul : SBV "p384_mod_mul"; // Declares that "ref_mul" is "mod_mul"
 
 extern SBV ref_ecdsa_sign("../spec/sbv/generated/p384_ecdsa_sign.sbv") :
   ([384], [384], [384]) -> { r:[384]; s:[384] };
+
+extern SBV ref_ec_twin_mul_init("../spec/sbv/generated/p384_ec_twin_mul_init.sbv") :
+  ([384], {x : [384];  y : [384]}, [384], {x : [384];  y : [384]}) ->
+  { r : {x : [384]; y : [384]; z : [384]};
+    sMt : {x : [384];  y : [384]};
+    sPt : {x : [384];  y : [384]} };
+
+extern SBV ref_ec_twin_mul_aux1("../spec/sbv/generated/p384_ec_twin_mul_aux1.sbv") :
+  ( { x: [384]; y: [384]; z: [384] }
+  , [32]
+  , [32]
+  , { x: [384]; y:[384] }
+  , { x: [384]; y:[384] }
+  , { x: [384]; y:[384] }
+  , { x: [384]; y:[384] }
+  )
+  -> { x: [384]; y: [384]; z: [384] };
+
+extern SBV ref_ec_twin_mul_aux2("../spec/sbv/generated/p384_ec_twin_mul_aux2.sbv") : 
+  ([32],[32],[32],[32],[32],[32],[32],[32],[32]) -> 
+    { tma2_u0:[32]; tma2_u1:[32]; tma2_c0':[32]; tma2_c1':[32]; tma2_e0':[32]; tma2_e1':[32]; tma2_sh':[32] };
+
+extern SBV ref_ec_twin_mul_aux_f("../spec/sbv/generated/p384_ec_twin_mul_aux_F.sbv") : [32] -> [32];

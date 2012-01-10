@@ -1,0 +1,15 @@
+extern SBV javaish_mul_1_32("../spec/sbv/generated/javaish_mul_1_32.sbv") 
+  : ([1][32],[1][32]) -> [2][32];
+
+extern SBV javaish_mul_2_32("../spec/sbv/generated/javaish_mul_2_32.sbv") 
+  : ([2][32],[2][32]) -> [4][32];
+
+extern SBV javaish_mul_12_32("../spec/sbv/generated/javaish_mul_12_32.sbv") 
+  : ([2][32],[2][32]) -> [24][32];
+
+set verification off;
+import "common.saw";
+set verification on;
+
+import "mul.spec";
+

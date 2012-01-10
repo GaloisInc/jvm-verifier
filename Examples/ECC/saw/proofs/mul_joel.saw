@@ -1,0 +1,24 @@
+import "common.saw";
+import "rules.saw";
+
+rule mji_a :
+  forAll { a0 : a, d0 : b }.
+      { mji_a = a0 ; mji_d = d0 }.mji_a -> a0;
+
+rule mji_d :
+  forAll { a0 : a, d0 : b }.
+      { mji_a = a0 ; mji_d = d0 }.mji_d -> d0;
+
+extern SBV ref_mul_joel_inner("../spec/sbv/generated/mul_joel_inner.sbv") :
+  ([128], [32], [32], [32], [64]) -> { mji_a : [128]; mji_d : [64]};
+
+extern SBV ref_mul_joel("../spec/sbv/generated/mul_joel.sbv") :
+  ([64],[64]) -> [128];
+
+set verification off;
+import "mul_joel_inner.spec";
+set verification on;
+
+enable ref_mul_joel;
+enable ref_aset;
+import "mul_joel.spec";

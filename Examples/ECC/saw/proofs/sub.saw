@@ -6,5 +6,5 @@ method com.galois.ecc.P384ECC64.sub
   let jy = join(valueOf(y));
   ensure valueOf(z) := split(jx - jy) : [12][32]; 
   return if jx >=u jy then 0:[32] else -(1:[32]);
-  verify abc;
+  verify yices;
 };

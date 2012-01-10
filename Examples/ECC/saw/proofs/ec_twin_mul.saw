@@ -2,7 +2,22 @@ import "common.saw";
 import "rules.saw";
 
 set verification off;
+import "assign.saw";
+import "is_equal.saw";
+import "set_unit.saw";
+import "set_zero.saw";
+import "group_add.spec";
+import "field_mul.spec";
+import "field_sq.spec";
+import "mod_sub.spec";
+import "mod_div.spec";
 import "ec_mul.spec";
+import "ec_full_add.spec";
+import "ec_full_sub.spec";
+import "ec_twin_mul_aux1.spec";
+import "ec_twin_mul_aux2.spec";
+import "ec_twin_mul_aux_f.spec";
+import "ec_twin_mul_init.spec";
 set verification on;
 
 extern SBV ref_ec_twin_mul("../spec/sbv/generated/p384_ec_twin_mul.sbv") :
@@ -10,4 +25,4 @@ extern SBV ref_ec_twin_mul("../spec/sbv/generated/p384_ec_twin_mul.sbv") :
   { x: [384]; y: [384]; z: [384] };
 
 enable ref_ec_twin_mul;
-import "ec_twin_mul.qcspec";
+import "ec_twin_mul.spec";

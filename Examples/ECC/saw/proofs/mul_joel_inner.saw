@@ -1,0 +1,6 @@
+import "common.saw";
+import "rules.saw";
+extern SBV ref_mul_joel_inner("../spec/sbv/generated/mul_joel_inner.sbv") 
+  : ([64], [32], [32], [32], [64]) -> { mji_a : [64]; mji_d : [64]};
+enable ref_mul_joel_inner;
+import "mul_joel_inner.spec";

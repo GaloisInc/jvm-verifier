@@ -18,7 +18,10 @@ rule not_not    : forAll {x:Bit}. not(not(x)) -> x;
 rule split_join : forAll {x:[12][32]}. split(join(x) : [384]) : [12][32] -> x;
 
 rule join_split2 : forAll {x:[768]}. join(split(x) : [24][32]) -> x;
-rule split_join1 : forAll {x:[24][32]}. split(join(x) : [768]) : [24][32] -> x;
+rule split_join2 : forAll {x:[24][32]}. split(join(x) : [768]) : [24][32] -> x;
+
+rule join_split3 : forAll {x:[128]}. join(split(x) : [4][32]) -> x;
+rule split_join3 : forAll {x:[4][32]}. split(join(x) : [128]) : [4][32] -> x;
 
 // Boolean elimination rules 
 
@@ -41,7 +44,7 @@ rule or_redundant2  : forAll {x:Bit,y:Bit}. (x || y) || x -> x || y;
 rule and_redundant1 : forAll {x:Bit,y:Bit}. (x && y) && y -> x && y;
 rule and_redundant2 : forAll {x:Bit,y:Bit}. (x && y) && x -> x && y;
 
-//rule imp_true_elim1  : forAll {x:Bit}. x     ==> true  -> true;
+rule imp_true_elim1  : forAll {x:Bit}. x     ==> true  -> true;
 /*
 rule imp_true_elim2  : forAll {x:Bit}. true  ==> x     -> x;
 rule imp_false_elim1 : forAll {x:Bit}. x     ==> false -> not x;
@@ -150,11 +153,27 @@ rule sigS :
   forAll { r0 : a, s0 : a }.
     { r = r0 ; s = s0 }.s -> s0;
 
+rule resR :
+  forAll { r0 : a, sMt0 : b, sPt0 : c }.
+      { r = r0 ; sMt = sMt0 ; sPt = sPt0 }.r -> r0;
+
+rule resSPt :
+  forAll { r0 : a, sMt0 : b, sPt0 : c }.
+      { r = r0 ; sMt = sMt0 ; sPt = sPt0 }.sPt ->
+      sPt0;
+
+rule resSMt :
+  forAll { r0 : a, sMt0 : b, sPt0 : c }.
+      { r = r0 ; sMt = sMt0 ; sPt = sPt0 }.sMt ->
+      sMt0;
+
 ////
 
 rule trunc_shift_get : forAll {x:[384], s:[9]}.
   trunc (x >>u s) : [32] ->
   aget (split(x) : [12][32], (s >>u 5:[9]) # 0:[23]);
+
+rule shift_zero : forAll {x:[a]}.  x >>u 0:[6] -> x;
 
 // Field-specific elimination rules
 

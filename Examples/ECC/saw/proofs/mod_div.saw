@@ -1,5 +1,5 @@
-
 import "common.saw";
+import "rules.saw";
 
 // Definition of ref_div and egcd (should be moved to common.saw).
 

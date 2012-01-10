@@ -1,3 +1,0 @@
-import "common.saw";
-enable ref_field_mod_aux;
-import "field_red_aux.spec";

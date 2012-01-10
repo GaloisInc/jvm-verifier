@@ -451,6 +451,146 @@ abstract class NIST64 extends ECCProvider {
     return (int) b;
   }
 
+  protected void knarFmul(int[] a, int[] x, int[] y) {
+    int l = x.length;
+    long x0 = x[0] & LONG_MASK;
+    long d = 0;
+    for (int j = 0; j != l; ++j) {
+      long m = x0 * (y[j] & LONG_MASK);
+      d += m;
+      a[j] = (int) d;
+      d = d >>> 32;
+    }
+    // Add final overflow bit.
+    a[l] = (int) d;
+    // Compute multiplication sum in a.
+    for (int i = 1; i != l; ++i) {
+      long xi = x[i] & LONG_MASK;
+      d = 0;
+      int ij = i;
+      for (int j = 0; j != l; ++j, ++ij) {
+	  long m = 0;
+	  if (0 == j)
+	      m = (y[j] & LONG_MASK) * xi;
+	  else if (1 == j)
+		m = xi * (y[j] & LONG_MASK);
+	  else if (2 == j)
+		m = xi * (y[j] & LONG_MASK);
+        d += m + (a[ij] & LONG_MASK);
+        a[ij] = (int) d;
+        d = d >>> 32;
+	// if (1 == j) {a[3] = 0; return;}
+      }
+      // Add final overflow bit.
+      a[ij] = (int) d;
+    }
+  }
+
+  protected void truncated_mul_0(int[] a, int[] x, int[] y) {
+    final int CAP = 0;
+    int l = x.length;
+    long x0 = x[0] & LONG_MASK;
+    long d = 0;
+    for (int j = 0; j != l; ++j) {
+      long m = x0 * (y[j] & LONG_MASK);
+      d += m;
+      a[j] = (int) d;
+      d = d >>> 32;
+    }
+    // Add final overflow bit.
+    a[l] = (int) d;
+    // Compute multiplication sum in a.
+    for (int i = 1; i != l && i <= CAP; ++i) {
+      long xi = x[i] & LONG_MASK;
+      d = 0;
+      int ij = i;
+      for (int j = 0; j != l; ++j, ++ij) {
+        long m = xi * (y[j] & LONG_MASK);
+        d += m + (a[ij] & LONG_MASK);
+        a[ij] = (int) d;
+        d = d >>> 32;
+      }
+      // Add final overflow bit.
+      a[ij] = (int) d;
+    }
+    // zero out any untouched entries
+    for (int i = CAP + l + 1; i < a.length; ++i) {
+      a[i] = 0;
+    }
+  }
+
+  protected void truncated_mul_1(int[] a, int[] x, int[] y) {
+    final int CAP = 1;
+    int l = x.length;
+    long x0 = x[0] & LONG_MASK;
+    long d = 0;
+    for (int j = 0; j != l; ++j) {
+      long m = x0 * (y[j] & LONG_MASK);
+      d += m;
+      a[j] = (int) d;
+      d = d >>> 32;
+    }
+    // Add final overflow bit.
+    a[l] = (int) d;
+    // Compute multiplication sum in a.
+    for (int i = 1; i != l && i <= CAP; ++i) {
+      long xi = x[i] & LONG_MASK;
+      d = 0;
+      int ij = i;
+      for (int j = 0; j != l; ++j, ++ij) {
+        long m = xi * (y[j] & LONG_MASK);
+        d += m + (a[ij] & LONG_MASK);
+        a[ij] = (int) d;
+        d = d >>> 32;
+      }
+      // Add final overflow bit.
+      a[ij] = (int) d;
+    }
+    // zero out any untouched entries
+    for (int i = CAP + l + 1; i < a.length; ++i) {
+      a[i] = 0;
+    }
+  }
+
+  public long mul_joel_inner(int[] a, int ij, int xi, int yj, long d)
+  {
+    long m = (((long) xi) & LONG_MASK) * (((long) yj) & LONG_MASK);
+    long aij = a[ij] & LONG_MASK;
+    d = d + m + aij;
+    a[ij] = (int) d;
+    return d >>> 32;
+  }
+
+  /**
+   * Computes x * y and stores result before reduction in a.
+   * 
+   * @param a Array with at least <code>2 * x.length</code> elements for storing result.
+   * @param x The multiplier (contains at least one element).
+   * @param y The multiplicand (contains same number of elements as x).
+   */
+  protected void mul_joel(int[] a, int[] x, int[] y) {
+    int l = x.length;
+
+    long d = 0;
+    for (int j = 0; j != l; ++j) {
+      a[j] = 0;
+      d = mul_joel_inner(a, j, x[0], y[j], d);
+    }
+    // Add final overflow bit.
+    a[l] = (int) d;
+
+    // Compute multiplication sum in a.
+    for (int i = 1; i != l; ++i) {
+      d = 0;
+      int ij = i;
+      for (int j = 0; j != l; ++j, ++ij) {
+        d = mul_joel_inner(a, ij, x[i], y[j], d);
+      }
+      // Add final overflow bit.
+      a[ij] = (int) d;
+    }
+  }
+
   /**
    * Computes x * y and stores result before reduction in a.
    * 
@@ -1040,7 +1180,35 @@ class P384ECC64 extends NIST64 {
   }
 
  public void field_red(int[] z, int[] a) {
-    long d = field_red_aux(z,a);
+    long a0  = a[ 0] & LONG_MASK; long a12 = a[12] & LONG_MASK;
+    long a1  = a[ 1] & LONG_MASK; long a13 = a[13] & LONG_MASK;
+    long a2  = a[ 2] & LONG_MASK; long a14 = a[14] & LONG_MASK;
+    long a3  = a[ 3] & LONG_MASK; long a15 = a[15] & LONG_MASK;
+    long a4  = a[ 4] & LONG_MASK; long a16 = a[16] & LONG_MASK;
+    long a5  = a[ 5] & LONG_MASK; long a17 = a[17] & LONG_MASK;
+    long a6  = a[ 6] & LONG_MASK; long a18 = a[18] & LONG_MASK;
+    long a7  = a[ 7] & LONG_MASK; long a19 = a[19] & LONG_MASK;
+    long a8  = a[ 8] & LONG_MASK; long a20 = a[20] & LONG_MASK;
+    long a9  = a[ 9] & LONG_MASK; long a21 = a[21] & LONG_MASK;
+    long a10 = a[10] & LONG_MASK; long a22 = a[22] & LONG_MASK;
+    long a11 = a[11] & LONG_MASK; long a23 = a[23] & LONG_MASK;
+    long d;
+
+    d =     a0 + a12 + a21 + a20 - a23;                                       z[ 0] = (int) d; d >>= 32;
+    d = d + a1 + a13 + a22 + a23 - a12 - a20;                                 z[ 1] = (int) d; d >>= 32;
+    d = d + a2 + a14 + a23 - a13 - a21;                                       z[ 2] = (int) d; d >>= 32;
+    d = d + a3 + a15 + a12 + a20 + a21 - a14 - a22 - a23;                     z[ 3] = (int) d; d >>= 32;
+    d = d + a4 + (a21 << 1) + a16 + a13 + a12 + a20 + a22 - a15 - (a23 << 1); z[ 4] = (int) d; d >>= 32;
+    d = d + a5 + (a22 << 1) + a17 + a14 + a13 + a21 + a23 - a16;              z[ 5] = (int) d; d >>= 32;
+    d = d + a6 + (a23 << 1) + a18 + a15 + a14 + a22       - a17;              z[ 6] = (int) d; d >>= 32;
+    d = d + a7 + a19 + a16 + a15 + a23 - a18;                                 z[ 7] = (int) d; d >>= 32;
+    d = d + a8 + a20 + a17 + a16 - a19;                                       z[ 8] = (int) d; d >>= 32;
+    d = d + a9 + a21 + a18 + a17 - a20;                                       z[ 9] = (int) d; d >>= 32;
+    d = d + a10 + a22 + a19 + a18 - a21;                                      z[10] = (int) d; d >>= 32;
+    d = d + a11 + a23 + a20 + a19 - a22;                                      z[11] = (int) d; d >>= 32;
+
+    d = (int) d;
+
     if (d < 0) {
       incFieldPrime(z);
       return;

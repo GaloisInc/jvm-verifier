@@ -1,0 +1,5 @@
+include "../ecc.cry";
+
+/* Uninterpret ops used for underlying field. */
+pragma mul_joel_inner : SBV uninterpret;
+pragma aset : SBV uninterpret;

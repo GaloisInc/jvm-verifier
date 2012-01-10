@@ -1,0 +1,119 @@
+import "common.saw";
+import "rules.saw";
+
+disable imp_true_elim1;
+
+import "assign.saw";
+import "is_equal.saw";
+import "is_zero.saw";
+import "set_unit.saw";
+import "set_zero.saw";
+
+import "add.saw";
+import "leq.saw";
+import "shr.saw";
+import "sub.saw";
+
+import "mul.qcspec";
+import "sq.qcspec";
+
+enable ref_decFieldPrime;
+import "decFieldPrime.spec";
+enable ref_incFieldPrime;
+import "incFieldPrime.spec";
+
+enable ref_mod_half;
+import "mod_half.spec";
+enable ref_mod_add;
+import "group_add.spec";
+enable ref_mod_sub;
+import "mod_sub.spec";
+enable ref_mod_mul;
+import "group_mul.spec";
+disable ref_mod_half;
+disable ref_mod_sub;
+enable even;
+enable ref_mod_div;
+import "mod_div.spec";
+
+enable ref_field_add;
+import "field_add.spec";
+enable ref_field_sub;
+import "field_sub.spec";
+import "field_dbl.spec";
+import "field_dbl_dec.spec";
+enable ref_field_mod;
+import "field_red.spec";
+
+enable ref_field_mul;
+import "field_mul.spec";
+disable ref_field_mul;
+import "field_mul3.spec";
+import "field_mul4.spec";
+import "field_mul8.spec";
+enable ref_field_sq;
+import "field_sq.spec";
+disable ref_field_add;
+disable ref_field_sub;
+disable ref_field_mod;
+disable ref_field_mul;
+disable ref_field_sq;
+
+enable ref_ec_double;
+import "ec_double.spec";
+enable ref_ec_full_add;
+import "ec_full_add.spec";
+disable ref_ec_full_add;
+enable ref_ec_full_sub;
+import "ec_full_sub.spec";
+
+disable ref_mod_add;
+disable ref_field_mul;
+disable ref_field_sq;
+disable ref_mod_add;
+disable ref_mod_sub;
+disable ref_mod_mul;
+disable ref_mod_div;
+disable ref_ec_double;
+disable ref_ec_full_add;
+disable ref_ec_full_sub;
+
+enable ref_ec_mul_init;
+import "ec_mul_init.spec";
+enable ref_ec_mul_aux;
+import "ec_mul_aux.spec";
+enable ref_ec_mul;
+import "ec_mul.spec";
+import "ec_mul_window.qcspec";
+
+disable ref_ec_mul;
+
+enable imp_true_elim1;
+
+extern SBV ref_ec_twin_mul("../spec/sbv/generated/p384_ec_twin_mul.sbv") :
+  ([384], { x: [384]; y: [384] }, [384], { x: [384]; y: [384] }) ->
+  { x: [384]; y: [384]; z: [384] };
+
+enable ref_ec_twin_mul_init;
+import "ec_twin_mul_init.spec";
+enable ref_ec_twin_mul_aux_f;
+import "ec_twin_mul_aux_f.spec";
+
+enable ref_ec_twin_mul_aux1;
+import "ec_twin_mul_aux1.spec";
+enable ref_ec_twin_mul_aux2;
+import "ec_twin_mul_aux2.spec";
+enable ref_ec_twin_mul;
+import "ec_twin_mul.spec";
+
+disable ref_ec_twin_mul;
+
+enable ref_ecdsa_sign;
+import "ecdsa_sign.spec";
+
+extern SBV ref_ecdsa_public_verify(
+    "../spec/sbv/generated/p384_ecdsa_public_verify.sbv"
+  ) : ([384], [384], [384], { x:[384]; y:[384] }) -> Bit;
+
+enable ref_ecdsa_public_verify;
+import "ecdsa_public_verify.spec";

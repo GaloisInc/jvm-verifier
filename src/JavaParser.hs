@@ -1037,7 +1037,9 @@ module JavaParser (
           slotWidth DoubleType = 2
           slotWidth LongType = 2
           slotWidth _ = 1
-          offsets = scanl (+) 0 $ map slotWidth params
+          offsets = (0:) . snd $ foldl f (0,[]) (map slotWidth params)
+            where
+              f (n,acc) x = (n+x, acc ++ [n+1])
 
   -- | Return parameter types for method.
   methodReturnType :: Method -> Maybe Type
@@ -1075,7 +1077,7 @@ module JavaParser (
 
   -- | Returns true if method has debug informaiton available.
   hasDebugInfo :: Method -> Bool
-  hasDebugInfo method = 
+  hasDebugInfo method =
     case methodBody method of
       Code _ _ _ _ lns lvars _ -> not (Map.null (pcLineMap lns) && null lvars) 
       _ -> False

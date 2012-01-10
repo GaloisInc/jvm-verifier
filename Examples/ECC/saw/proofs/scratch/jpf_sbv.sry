@@ -1,6 +1,0 @@
-:load "jpf.cry";
-:set +v
-:set sbv
-:set sbv_strictWords=True
-:fm jpf "jpf.sbv"
-

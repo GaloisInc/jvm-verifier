@@ -1099,18 +1099,24 @@ validateMethodSpec
            forM_ (pvcChecks pvc) $ \vc -> do
              let vs = mkVState (vcName vc) (vcCounterexample vc)
              g <- deImplies de (pvcAssumptions pvc) =<< vcGoal de vc
+             when (verb >= 4) $ do
+               putStrLn $ "Checking " ++ vcName vc
              runVerify vs g cmds
           else do
-            let vs = mkVState ("an invalid path "
-                                  ++ (case pvcStartPC pvc of
-                                        0 -> ""
-                                        pc -> " from pc " ++ show pc)
-                                  ++ maybe "" (\pc -> " to pc " ++ show pc) 
-                                           (pvcEndPC pvc))
+            let vsName = ("an invalid path " ++
+                          (case pvcStartPC pvc of
+                             0 -> ""
+                             pc -> " from pc " ++ show pc) ++
+                          maybe ""
+                                (\pc -> " to pc " ++ show pc)
+                                (pvcEndPC pvc))
+            let vs = mkVState vsName
                               (\_ -> return $ vcat (pvcStaticErrors pvc))
             g <- deImplies de (pvcAssumptions pvc) (mkCBool False)
-            when (verb >= 3) $ do
-              putStrLn $ "Calling runVerify with " ++ prettyTerm (pvcAssumptions pvc)
+            when (verb >= 4) $ do
+              putStrLn $ "Checking " ++ vsName
+              print $ pvcStaticErrors pvc
+              putStrLn $ "Calling runVerify to disprove " ++ prettyTerm (pvcAssumptions pvc)
             runVerify vs g cmds
 
 data VerifyState = VState {
