@@ -398,7 +398,7 @@ tcJE astExpr = do
   case r of
     JE e -> return e
     LE _ -> 
-     let msg = ftext $ "\'" ++ show astExpr ++ "\' is not a valid Java expression."
+     let msg = ftext $ "Encountered a logical expression where a Java expression was expected."
       in typeErr (AST.exprPos astExpr) msg
 
 checkedGetIntType :: Pos -> JSS.Type -> SawTI DagType

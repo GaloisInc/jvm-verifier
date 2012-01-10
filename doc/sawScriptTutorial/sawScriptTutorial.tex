@@ -114,16 +114,10 @@ Given the {\tt is\_zero} Java method above, here is how we would express the pro
 its argument is properly set to all {\tt 0}s in \sawScript:
 
 \begin{code}[numbers=left]
-  let javaTrue  = 1:[32];
-  let javaFalse = 0:[32];
-  
   method com.galois.ecc.P384ECC64.is_zero {
-    var args[0] : int[12];
-    returns: 
-        if join(fromJava(args[0])) == 0:[384]
-        then javaTrue
-        else javaFalse;
-    verifyUsing: abc;
+    var args[0] :: int[12];
+    return join(valueOf(args[0])) == 0:[384];
+    verify abc;
   };
 \end{code}
 Let us walk through this proof script in detail to explain the basic concepts behind \sawScript:
@@ -172,17 +166,17 @@ the {\tt then} and {\tt else} branches (lines 8 and 9) merely encode that specif
 To understand how the specification is given, let us consider the test-expression (line 7) in more detail:
 
 \begin{verbatim}
-        join(fromJava(args[0])) == 0:[384]
+        join(valueOf(args[0])) == 0:[384]
 \end{verbatim}
 
 Here are the constituents:
 \begin{itemize}
 \item {\tt args[0]}: This is the first argument to the {\tt is\_zero} method, that we declared to have type {\tt int[12]} on line 5. Most importantly,
 this is a Java value, and not a \sawScript value.
-\item {\tt fromJava}: This function lifts values from the Java world into \sawScript. 
+\item {\tt valueOf}: This function lifts values from the Java world into \sawScript. 
 Whenever we refer to a Java value (such as {\tt args[0]}), we have to
-explicitly bring it to the \sawScript level using {\tt fromJava}. This two-level type-system is crucial in keeping the two worlds separate: The object level at which
-Java operates, and the proof level at which \sawScript works. The {\tt fromJava} call basically tells \sawScript to take the Java value and bring it to the
+explicitly bring it to the \sawScript level using {\tt valueOf}. This two-level type-system is crucial in keeping the two worlds separate: The object level at which
+Java operates, and the proof level at which \sawScript works. The {\tt valueOf} call basically tells \sawScript to take the Java value and bring it to the
 level where we write the specifications.
 \item {\tt join}: The function {\tt join} is a primitive in \sawScript, similar to Cryptol's {\tt join}. It takes a sequence of words and joins them
 together to make one big word out of them. In this case, its argument is a 12 element array containing 32-bit values, and hence it returns a $12\times32 = 384$
@@ -233,9 +227,9 @@ Unlike {\tt is\_zero}, {\tt set\_zero} does not return any values, but rather si
 like to state that it indeed zeros out the given array as a property, and prove it correct using \sawScript. Here is the corresponding functional specification:
 \begin{code}[numbers=left]
   method com.galois.ecc.P384ECC64.set_zero {
-    var args[0] : int[12];
-    ensures args[0] := split(0:[384]) : [12][32];
-    verifyUsing: abc;
+    var args[0] :: int[12];
+    ensure valueOf(args[0]) := split(0:[384]) : [12][32];
+    verify abc;
   };
 \end{code}
 What is new in this specification is the use of the {\tt ensures} clause (line 3). What {\tt ensures} allows us is to state precisely
@@ -375,7 +369,7 @@ For instance, we can write the prime for the P384 curve like this~\cite[Section 
 \begin{tabular}{llllll}
 {\tt abc         } & {\tt arbitrary   } & {\tt args        } & {\tt assume      } & {\tt auto        } & {\tt Bit         } \\
 {\tt boolean     } & {\tt const       } & {\tt disable     } & {\tt else        } & {\tt enable      } & {\tt ensures     } \\
-{\tt extern      } & {\tt False       } & {\tt forAll      } & {\tt fromJava    } & {\tt if          } & {\tt import      } \\
+{\tt extern      } & {\tt False       } & {\tt forAll      } & {\tt valueOf     } & {\tt if          } & {\tt import      } \\
 {\tt int         } & {\tt let         } & {\tt long        } & {\tt mayAlias    } & {\tt method      } & {\tt off         } \\
 {\tt on          } & {\tt returns     } & {\tt rewriter    } & {\tt rule        } & {\tt SBV         } & {\tt set         } \\
 {\tt skip        } & {\tt then        } & {\tt this        } & {\tt True        } & {\tt type        } & {\tt var         } \\
@@ -477,17 +471,18 @@ documentation.
 Here is the \sawScript method specification for {\tt field\_add}:
 \begin{code}[numbers=left]
   method com.galois.ecc.P384ECC64.field_add {
-    var args[0], args[1], args[2] : int[12];
+    var args[0], args[1], args[2] :: int[12];
+    var this.field_prime :: int[12];
   
     mayAlias { args[0], args[1], args[2] };
   
-    const this.field_prime := split(field_prime) : [12][32];
+    assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   
-    ensures args[0] := 
-        split(cry_fadd( join(fromJava(args[1]))
-                      , join(fromJava(args[2])))) : [12][32];
+    ensure valueOf(args[0]) := 
+        split(cry_fadd( join(valueOf(args[1]))
+                      , join(valueOf(args[2])))) : [12][32];
   
-    verifyUsing: abc;
+    verify abc;
   };
 \end{code}
 Let us go over this spec line by line, explaining how we constructed it:
@@ -526,7 +521,7 @@ specification is simply:
    // type incorrect, but illustrates the idea!
    ensures args[0] := cry_fadd(args[1], args[2]);
 \end{Verbatim}
-We simply have to insert calls to {\tt fromJava} to get values from Java into \sawScript, and split/join appropriately
+We simply have to insert calls to {\tt valueOf} to get values from Java into \sawScript, and split/join appropriately
 to make sure the treatment of arrays and 384-bit words do match their intended usage. 
 
 Note that the values of {\tt args[0]} and {\tt args[1]}
@@ -544,13 +539,14 @@ Similar to field addition, the correctness proof of field subtraction proceeds i
   extern SBV cry_fsub("sbv/ref_p384_sub.sbv") : ([384],[384]) -> [384];
 
   method com.galois.ecc.P384ECC64.field_sub {
-    var args[0], args[1], args[2] : int[12];
+    var args[0], args[1], args[2] :: int[12];
+    var this.field_prime :: int[12];
     mayAlias { args[0], args[1], args[2] };
-    const this.field_prime := split(field_prime) : [12][32];
-    ensures args[0] :=
-         split(cry_fsub( join(fromJava(args[1]))
-                       , join(fromJava(args[2])))) : [12][32];
-    verifyUsing: abc;
+    assert valueOf(this.field_prime) := split(field_prime) : [12][32];
+    ensure valueOf(args[0]) :=
+         split(cry_fsub( join(valueOf(args[1]))
+                       , join(valueOf(args[2])))) : [12][32];
+    verify abc;
   };
 \end{code}
 
@@ -563,7 +559,7 @@ Again, the proof for {\tt field\_sub} takes around 2 minutes to complete on a co
 The {\tt assume} directive tells \sawScript that a particular boolean expression can be assumed to hold when a proof is being attempted. This directive is
 useful for stating invariants on the data. For instance, we can state:
 \begin{Verbatim}
-   assume is_field(join(fromJava(args[0]))); 
+   assume is_field(join(valueOf(args[0]))); 
 \end{Verbatim}
 to state that the Java value of {\tt args[0]} satisfies the predicate {\tt is\_field}, which we might have
 imported from an SBV file earlier:
@@ -607,11 +603,11 @@ SAT based technologies~\cite[Section 6.3.1]{DecisionProcedures2008}.
 As an alternative proof technology, \sawScript comes with a rule-based rewrite engine to perform
 traditional equational rewriting style proofs. This mode is selected using the directive:
 \begin{Verbatim}
-  verifyUsing: rewriter;
+  verify rewrite;
 \end{Verbatim}
 Alternatively, the user can also tell \sawScript to first try rewriting, and then send the remaining unsolved goals to ABC, using the directive:
 \begin{Verbatim}
-  verifyUsing: auto;
+  verify { rewrite; abc };
 \end{Verbatim}
 Note that the {\tt verifyUsing} directive is per method specification: Different specifications in the same \sawScript file can use different tactics.
 
@@ -635,10 +631,10 @@ We can write the method specification for {\tt field\_dbl\_dec} as follows (note
 \begin{Verbatim}[numbers=left]
   method com.galois.ecc.P384ECC64.field_dbl_dec {
     var args[0], args[1] : int[12];
-    const this.field_prime := split(field_prime) : [12][32];
+    const valueOf(this.field_prime) := split(field_prime) : [12][32];
   
-    let jarg0 = join(fromJava(args[0]));
-    let jarg1 = join(fromJava(args[1]));
+    let jarg0 = join(valueOf(args[0]));
+    let jarg1 = join(valueOf(args[1]));
     ensures args[0] :=
          split(cry_fsub(cry_fsub(jarg0, jarg1), jarg1)) : [12][32];
 
@@ -657,20 +653,20 @@ Let us try the double decrement proof again, this time using the rewriter. To do
 \begin{code}
   rule join_split: forAll {x:[384]}.  join(split(x) : [12][32]) -> x;
 
-  rule eq_elim: forAll {x:a}. x == x -> True;
+  rule eq_elim: forAll {x:a}. x == x -> true;
 
   method com.galois.ecc.P384ECC64.field_dbl_dec {
-    var args[0], args[1] : int[12];
-    const this.field_prime := split(field_prime) : [12][32];
+    var args[0], args[1] :: int[12];
+    var this.field_prime :: int[12];
+    assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   
-    let jarg0 = join(fromJava(args[0]));
-    let jarg1 = join(fromJava(args[1]));
-    ensures args[0] :=
-         split(cry_fsub(cry_fsub(jarg0, jarg1), jarg1)) : [12][32];
+    let jarg0 = join(valueOf(args[0]));
+    let jarg1 = join(valueOf(args[1]));
+    ensure valueOf(args[0]) := split(cry_fsub(cry_fsub(jarg0, jarg1), jarg1)) : [12][32];
 \end{code}
 \end{comment}
 \begin{code}
-   verifyUsing: rewriter;
+   verify rewrite;
 \end{code}
 \begin{comment}
 \begin{code}
@@ -687,16 +683,16 @@ Here is the error message from \sawScript:
 \begin{Verbatim}
   The rewriter failed to reduce the verification condition generated
   from "args[0]" in the Java method
-  com.galois.ecc.P384ECC64.field_dbl_dec to 'True'.
+  com.galois.ecc.P384ECC64.field_dbl_dec to 'true'.
   The remaining goal is:
-    (implies True
+    (implies true
      (==
       (split
        (cry_fsub (join (split (cry_fsub{2} (join ?1) (join{1} ?0)))) n1))
       (split (cry_fsub n2 n1))))
 
   Please add new rewrite rules or modify existing ones to reduce the
-  goal to True.
+  goal to true.
 \end{Verbatim}
 
 It will take a while for users to get familiar with \sawScript's internal term language, but the following is the essence of this message: When
@@ -712,7 +708,7 @@ together, then we would get $x$ back. (See Section~\ref{sec:ruleanatomy} for mor
 
 If you now try this proof, you will see that it fails again, with a slightly simpler unresolved term. Luckily, the rule we need in this case is trivial:
 \begin{Verbatim}
-  rule eq_elim: forAll {x:a}. x == x -> True;
+  rule eq_elim: forAll {x:a}. x == x -> true;
 \end{Verbatim}
 
 After the addition of this rule (again before the method specification),
@@ -799,10 +795,10 @@ rule about the {\tt cry\_fadd} function that we have imported from Cryptol in Se
 no hard-coded rules, hence the following rules come in handy in simplifying {\tt if-then-else} expressions:
 
 \begin{code}
-  rule ifTrue : forAll {x:a, y:a}.     if True  then x else y -> x;
-  rule ifFalse: forAll {x:a, y:a}.     if False then x else y -> y;
-  rule ifNot  : forAll {c:Bit, d:Bit}. if c then d else True  -> not c || d;
-  rule ifId   : forAll {c:Bit, d:Bit}. if c then True else d  -> c || d;
+  rule ifTrue : forAll {x:a, y:a}.     if true  then x else y -> x;
+  rule ifFalse: forAll {x:a, y:a}.     if false then x else y -> y;
+  rule ifNot  : forAll {c:Bit, d:Bit}. if c then d else true  -> not c || d;
+  rule ifId   : forAll {c:Bit, d:Bit}. if c then true else d  -> c || d;
   rule ifEq   : forAll {c:Bit, x:a}.   if c then x else x     -> x;
 \end{code}
 
@@ -821,10 +817,10 @@ rule iteJoin: forAll {b:Bit, x:[12][32], y:[12][32]}.
 
 \paragraph{Boolean operations} Several rules relating how boolean connectives work:
 \begin{code}
-  rule and_true_elim1 : forAll {x:Bit}. True && x  -> x;
-  rule and_true_elim2 : forAll {x:Bit}. x && True  -> x;
-  rule and_false_elim1: forAll {x:Bit}. False && x -> False;
-  rule and_false_elim2: forAll {x:Bit}. x && False -> False;
+  rule and_true_elim1 : forAll {x:Bit}. true && x  -> x;
+  rule and_true_elim2 : forAll {x:Bit}. x && true  -> x;
+  rule and_false_elim1: forAll {x:Bit}. false && x -> false;
+  rule and_false_elim2: forAll {x:Bit}. x && false -> false;
 \end{code}
 
 \paragraph{Record extraction} \sawScript supports structural records, similar to those found in Cryptol.
