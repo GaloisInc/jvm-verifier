@@ -214,14 +214,20 @@ data RewriteVar = RewriteVar Pos String
 
 type SpecName = String
 
+data MethodLocation
+   = PC Integer
+   | LineOffset Integer
+   | LineExact Integer
+  deriving (Show)
+
 data VerifyCommand
    = Rewrite
    | ABC
    | SmtLib (Maybe Int) (Maybe String) -- version, file
    | Yices (Maybe Int)
    | Expand Expr
-   | VerifyAt Pos Integer VerifyCommand
-    -- | Enable use of a rule or extern definition.
+   | VerifyAt Pos MethodLocation VerifyCommand
+     -- | Enable use of a rule or extern definition.
    | VerifyEnable Pos String
      -- | Disable use of a rule or extern definition.
    | VerifyDisable Pos String
@@ -253,7 +259,7 @@ data ValidationPlan
 -- | Commands in a method spec.
 data MethodSpecDecl
   -- | List of Java expressions that may alias.
-  = SpecAt Pos Integer BehaviorDecl
+  = SpecAt Pos MethodLocation BehaviorDecl
   | SpecPlan Pos ValidationPlan
   | Behavior BehaviorDecl
  deriving (Show)
