@@ -1,4 +1,7 @@
 import "common.saw";
 
-enable ref_safe_product;
+rule mul_java_elim: forAll {a:[768], x:[384], y:[384]}.
+  ref_mul_java(a, x, y) -> ref_safe_product(x, y);
+
+enable ref_mul_java;
 import "sq.qcspec";

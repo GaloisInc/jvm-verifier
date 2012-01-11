@@ -20,7 +20,21 @@ let basePointY = join(
   ]);
 let basePoint = { x = basePointX ; y = basePointY };
 
-extern SBV ref_safe_product("../spec/sbv/generated/p384_safe_product.sbv") : ([384], [384]) -> [768];
+let ref_aset(a:[768], i:[32], x:[32]) : [768] =
+  join(aset(split(a):[24][32], i ,x)) : [768];
+
+pragma ref_aset : SBV "aset";
+
+extern SBV ref_mul_java_inner("../spec/sbv/generated/mul_java_inner.sbv") :
+  ([32], [768], [32], [32], [32], [64]) -> { mji_a : [768]; mji_d : [64]};
+
+extern SBV ref_mul_java("../spec/sbv/generated/mul_java.sbv") :
+  ([768], [384], [384]) -> [768];
+
+let ref_safe_product(x:[384], y:[384]) : [768] = ref_mul_java(0 : [768], x, y);
+
+pragma ref_safe_product : SBV "p384_safe_product";
+
 extern SBV ref_incFieldPrime("../spec/sbv/generated/p384_incFieldPrime.sbv") 
   : [384] -> { carry : [32]; rslt : [384] };
 extern SBV ref_decFieldPrime("../spec/sbv/generated/p384_decFieldPrime.sbv") 
@@ -43,11 +57,6 @@ let ref_egcd(p:[384], a:[384], ra:[384], b:[384], rb:[384]) : [384] =
     ref_egcd(p, a, ra, (b - a) >>u 1:[384], ref_mod_half(p, ref_mod_sub(p, rb, ra)))
   else 
     ref_egcd(p, b, rb, (a - b) >>u 1:[384], ref_mod_half(p, ref_mod_sub(p, ra, rb)));
-
-let ref_aset(a:[768], i:[32], x:[32]) : [768] =
- join(aset(split(a):[24][32], i ,x)) : [768];
-
-pragma ref_aset : SBV "aset";
 
 let ref_mod_div(p:[384], x:[384], y:[384]) : [384] = ref_egcd(p, p, 0:[384], y, x);
 pragma ref_mod_div : SBV "p384_mod_div"; // Declares that "ref_div" is "mod_div" in Cryptol.

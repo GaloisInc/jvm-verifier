@@ -6,5 +6,8 @@ import "sq.qcspec";
 import "field_red.spec";
 set verification on;
 
+rule mul_java_elim: forAll {a:[768], x:[384], y:[384]}.
+  ref_mul_java(a, x, y) -> ref_safe_product(x, y);
+
 enable ref_field_sq;
 import "field_sq.spec";
