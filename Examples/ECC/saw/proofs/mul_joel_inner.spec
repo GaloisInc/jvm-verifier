@@ -1,4 +1,4 @@
-method com.galois.ecc.P384ECC64.mul_joel_inner
+method com.galois.ecc.P384ECC64.mul_inner
 {
   var azero   :: boolean;
   var a       :: int[24];
@@ -9,7 +9,7 @@ method com.galois.ecc.P384ECC64.mul_joel_inner
   assert (ij >=s 0 :[32]) && (ij <=s 23:[32]);
 
   let ja  = join(valueOf(a)) : [768];
-  let res = ref_mul_joel_inner(azero, ja, ij, xi, yj, d);
+  let res = ref_mul_java_inner(azero, ja, ij, xi, yj, d);
 
   ensure valueOf(a) := split(res.mji_a) : [24][32];
   return res.mji_d;

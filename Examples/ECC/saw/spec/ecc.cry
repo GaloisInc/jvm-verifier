@@ -25,8 +25,8 @@ is_normal p x = (x < p);
 safe_product : {a} (fin a) => ([a],[a]) -> [2*a];
 safe_product(x,y) = uext(x) * uext(y);
 
-mul_joel_inner : ([32], [2*12*32], [32], [32], [32], [64]) -> { mji_a : [2*12*32]; mji_d : [64]};
-mul_joel_inner (azero, a, ij, xi, yj, d) = { mji_a = a'; mji_d = d' >> 32 }
+mul_java_inner : ([32], [2*12*32], [32], [32], [32], [64]) -> { mji_a : [2*12*32]; mji_d : [64]};
+mul_java_inner (azero, a, ij, xi, yj, d) = { mji_a = a'; mji_d = d' >> 32 }
   where {
     m        = uext(xi) * uext(yj);
     d'       = d + m + uext(aij);
@@ -36,7 +36,7 @@ mul_joel_inner (azero, a, ij, xi, yj, d) = { mji_a = a'; mji_d = d' >> 32 }
     aij      = if azero == 0 then take(32, a >> (ij * 32)) else 0;
   };
 
-theorem q: {a x y}. mul_joel(a, x,y) == safe_product(x,y);
+theorem q: {a x y}. mul_java(a, x,y) == safe_product(x,y);
 
 aset : ([2*12*32], [32], [32]) -> [2*12*32];
 aset (a, i, x) = (a & imask) | x'
@@ -46,7 +46,7 @@ aset (a, i, x) = (a & imask) | x'
   };
 
 /* Matches java implementation; computes safe_product. */
-mul_joel (a0, x, y) = a_final!0
+mul_java (a0, x, y) = a_final!0
   where {
     l   = 12 : [32];
     x'  = split x : [l][32];
@@ -56,7 +56,7 @@ mul_joel (a0, x, y) = a_final!0
     a_first = [ (zero : [64], a0 : [2*l*32]) ]
             # [| (res.mji_d, res.mji_a)
                  where {
-                   res = mul_joel_inner(1, a, j, x'@0, y'@j, d)
+                   res = mul_java_inner(1, a, j, x'@0, y'@j, d)
                  }
               || (d, a) <- a_first
               || j      <- [0..(l-1)]
@@ -72,7 +72,7 @@ mul_joel (a0, x, y) = a_final!0
                    a_inner = [ ( zero : [64] /* d */, a, i) ]
                            # [| (res.mji_d, res.mji_a, ij+1)
                                 where {
-                                  res = mul_joel_inner(0, a, ij, x'@i, y'@j, d);
+                                  res = mul_java_inner(0, a, ij, x'@i, y'@j, d);
                                 }
                              || (d, a, ij) <- a_inner
                              || j          <- [0..(l-1)]

@@ -552,7 +552,7 @@ abstract class NIST64 extends ECCProvider {
     }
   }
 
-    public long mul_joel_inner(boolean azero, int[] a, int ij, int xi, int yj, long d)
+    public long mul_inner(boolean azero, int[] a, int ij, int xi, int yj, long d)
   {
     long m = (((long) xi) & LONG_MASK) * (((long) yj) & LONG_MASK);
     long aij;
@@ -574,12 +574,12 @@ abstract class NIST64 extends ECCProvider {
    * @param y The multiplicand (contains same number of elements as x).
    */
   // Note: this code is actually faster than the original!
-  protected void mul_joel(int[] a, int[] x, int[] y) {
+  protected void mul(int[] a, int[] x, int[] y) {
     int l = x.length;
 
     long d = 0;
     for (int j = 0; j != l; ++j) {
-      d = mul_joel_inner(true, a, j, x[0], y[j], d);
+      d = mul_inner(true, a, j, x[0], y[j], d);
     }
     // Add final overflow bit.
     a[l] = (int) d;
@@ -589,7 +589,7 @@ abstract class NIST64 extends ECCProvider {
       d = 0;
       int ij = i;
       for (int j = 0; j != l; ++j, ++ij) {
-        d = mul_joel_inner(false, a, ij, x[i], y[j], d);
+        d = mul_inner(false, a, ij, x[i], y[j], d);
       }
       // Add final overflow bit.
       a[ij] = (int) d;
@@ -603,7 +603,7 @@ abstract class NIST64 extends ECCProvider {
    * @param x The multiplier (contains at least one element).
    * @param y The multiplicand (contains same number of elements as x).
    */
-  protected void mul(int[] a, int[] x, int[] y) {
+  protected void mul_old(int[] a, int[] x, int[] y) {
     int l = x.length;
 
     long x0 = x[0] & LONG_MASK;

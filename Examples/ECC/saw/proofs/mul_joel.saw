@@ -9,16 +9,16 @@ rule mji_d :
   forAll { a0 : a, d0 : b }.
       { mji_a = a0 ; mji_d = d0 }.mji_d -> d0;
 
-extern SBV ref_mul_joel_inner("../spec/sbv/generated/mul_joel_inner.sbv") :
+extern SBV ref_mul_java_inner("../spec/sbv/generated/mul_java_inner.sbv") :
   ([32], [768], [32], [32], [32], [64]) -> { mji_a : [768]; mji_d : [64]};
 
-extern SBV ref_mul_joel("../spec/sbv/generated/mul_joel.sbv") :
+extern SBV ref_mul_java("../spec/sbv/generated/mul_java.sbv") :
   ([768], [384], [384]) -> [768];
 
 set verification off;
 import "mul_joel_inner.spec";
 set verification on;
 
-enable ref_mul_joel;
+enable ref_mul_java;
 enable ref_aset;
 import "mul_joel.spec";
