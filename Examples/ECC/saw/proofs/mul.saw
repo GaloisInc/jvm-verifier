@@ -16,9 +16,9 @@ extern SBV ref_mul_java("../spec/sbv/generated/mul_java.sbv") :
   ([768], [384], [384]) -> [768];
 
 set verification off;
-import "mul_joel_inner.spec";
+import "mul_inner.spec";
 set verification on;
 
 enable ref_mul_java;
 enable ref_aset;
-import "mul_joel.spec";
+import "mul.spec";
