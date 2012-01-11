@@ -25,38 +25,38 @@ is_normal p x = (x < p);
 safe_product : {a} (fin a) => ([a],[a]) -> [2*a];
 safe_product(x,y) = uext(x) * uext(y);
 
-mul_joel_inner : ([2*2*32], [32], [32], [32], [64]) -> { mji_a : [2*2*32]; mji_d : [64]};
-mul_joel_inner (a, ij, xi, yj, d) = { mji_a = a'; mji_d = d' >> 32 }
+mul_joel_inner : ([32], [2*12*32], [32], [32], [32], [64]) -> { mji_a : [2*12*32]; mji_d : [64]};
+mul_joel_inner (azero, a, ij, xi, yj, d) = { mji_a = a'; mji_d = d' >> 32 }
   where {
     m        = uext(xi) * uext(yj);
     d'       = d + m + uext(aij);
-    dext     = uext (take(32, d')) : [2*2*32];
+    dext     = uext (take(32, d')) : [2*12*32];
     a'       = a_masked | (dext << (ij*32));
-    a_masked = a & (~((uext (~0:[32]) : [2*2*32]) << (ij*32)));
-    aij      = take(32, a >> (ij * 32));
+    a_masked = a & (~((uext (~0:[32]) : [2*12*32]) << (ij*32)));
+    aij      = if azero == 0 then take(32, a >> (ij * 32)) else 0;
   };
 
-theorem q: {x y}. mul_joel(x,y) == safe_product(x,y);
+theorem q: {a x y}. mul_joel(a, x,y) == safe_product(x,y);
 
-aset : ([2*2*32], [32], [32]) -> [2*2*32];
+aset : ([2*12*32], [32], [32]) -> [2*12*32];
 aset (a, i, x) = (a & imask) | x'
   where {
-    imask = ~((uext(0xFFFFFFFF : [32]) : [2 * 2 * 32]) << (i*32));
-    x' = (uext(x) : [2*2*32]) << (i*32);
+    imask = ~((uext(0xFFFFFFFF : [32]) : [2 * 12 * 32]) << (i*32));
+    x' = (uext(x) : [2*12*32]) << (i*32);
   };
 
 /* Matches java implementation; computes safe_product. */
-mul_joel (x, y) = a_final!0
+mul_joel (a0, x, y) = a_final!0
   where {
-    l   = 2 : [32];
+    l   = 12 : [32];
     x'  = split x : [l][32];
     y'  = split y : [l][32];
 
     /* First loop in Java implementation */
-    a_first = [ (zero : [64], zero : [2*l*32]) ]
+    a_first = [ (zero : [64], a0 : [2*l*32]) ]
             # [| (res.mji_d, res.mji_a)
                  where {
-                   res = mul_joel_inner(a, j, x'@0, y'@j, d)
+                   res = mul_joel_inner(1, a, j, x'@0, y'@j, d)
                  }
               || (d, a) <- a_first
               || j      <- [0..(l-1)]
@@ -72,7 +72,7 @@ mul_joel (x, y) = a_final!0
                    a_inner = [ ( zero : [64] /* d */, a, i) ]
                            # [| (res.mji_d, res.mji_a, ij+1)
                                 where {
-                                  res = mul_joel_inner(a, ij, x'@i, y'@j, d);
+                                  res = mul_joel_inner(0, a, ij, x'@i, y'@j, d);
                                 }
                              || (d, a, ij) <- a_inner
                              || j          <- [0..(l-1)]

@@ -23,6 +23,9 @@ rule split_join2 : forAll {x:[24][32]}. split(join(x) : [768]) : [24][32] -> x;
 rule join_split3 : forAll {x:[128]}. join(split(x) : [4][32]) -> x;
 rule split_join3 : forAll {x:[4][32]}. split(join(x) : [128]) : [4][32] -> x;
 
+rule join_split4 : forAll {x:[64]}. join(split(x) : [2][32]) -> x;
+rule split_join4 : forAll {x:[2][32]}. split(join(x) : [64]) : [2][32] -> x;
+
 // Boolean elimination rules 
 
 rule and_true_elim1  : forAll {x:Bit}. true && x -> x;
@@ -172,6 +175,14 @@ rule resSMt :
 rule trunc_shift_get : forAll {x:[384], s:[9]}.
   trunc (x >>u s) : [32] ->
   aget (split(x) : [12][32], (s >>u 5:[9]) # 0:[23]);
+
+rule trunc_shift_get2 : forAll {x:[64], s:[6]}.
+  trunc (x >>u s) : [32] ->
+  aget (split(x) : [2][32], (s >>u 5:[6]) # 0:[26]);
+
+rule trunc_shift_get3 : forAll {x:[64]}.
+  trunc (x) : [32] ->
+  aget (split(x) : [2][32], 0:[32]);
 
 rule shift_zero : forAll {x:[a]}.  x >>u 0:[6] -> x;
 

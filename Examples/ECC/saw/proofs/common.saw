@@ -44,8 +44,8 @@ let ref_egcd(p:[384], a:[384], ra:[384], b:[384], rb:[384]) : [384] =
   else 
     ref_egcd(p, b, rb, (a - b) >>u 1:[384], ref_mod_half(p, ref_mod_sub(p, ra, rb)));
 
-let ref_aset(a:[128], i:[32], x:[32]) : [128] =
- join(aset(split(a):[4][32], i ,x)) : [128];
+let ref_aset(a:[768], i:[32], x:[32]) : [768] =
+ join(aset(split(a):[24][32], i ,x)) : [768];
 
 pragma ref_aset : SBV "aset";
 

@@ -10,10 +10,10 @@ rule mji_d :
       { mji_a = a0 ; mji_d = d0 }.mji_d -> d0;
 
 extern SBV ref_mul_joel_inner("../spec/sbv/generated/mul_joel_inner.sbv") :
-  ([128], [32], [32], [32], [64]) -> { mji_a : [128]; mji_d : [64]};
+  ([32], [768], [32], [32], [32], [64]) -> { mji_a : [768]; mji_d : [64]};
 
 extern SBV ref_mul_joel("../spec/sbv/generated/mul_joel.sbv") :
-  ([64],[64]) -> [128];
+  ([768], [384], [384]) -> [768];
 
 set verification off;
 import "mul_joel_inner.spec";
