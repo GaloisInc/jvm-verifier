@@ -31,6 +31,18 @@ extern SBV ref_mul_java_inner("../spec/sbv/generated/mul_java_inner.sbv") :
 extern SBV ref_mul_java("../spec/sbv/generated/mul_java.sbv") :
   ([768], [384], [384]) -> [768];
 
+extern SBV ref_sq_java_loop("../spec/sbv/generated/sq_java_loop.sbv") :
+  ([768], [384]) -> [768];
+
+extern SBV ref_sq_java_inner1("../spec/sbv/generated/sq_java_inner1.sbv") :
+  ([768], [32], [64]) -> { mji_a : [768]; mji_d : [64]};
+
+extern SBV ref_sq_java_inner2("../spec/sbv/generated/sq_java_inner2.sbv") :
+  ([768], [32], [32], [64]) -> { mji_a : [768]; mji_d : [64]};
+
+extern SBV ref_sq_java("../spec/sbv/generated/sq_java.sbv") :
+  ([768], [384]) -> [768];
+
 let ref_safe_product(x:[384], y:[384]) : [768] = ref_mul_java(0 : [768], x, y);
 
 pragma ref_safe_product : SBV "p384_safe_product";

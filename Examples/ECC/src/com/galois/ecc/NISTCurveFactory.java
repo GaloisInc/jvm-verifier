@@ -633,6 +633,41 @@ abstract class NIST64 extends ECCProvider {
     }
   }
 
+  private long sq_inner1(int[] a, int ij, long c) {
+    c += ((a[ij] & LONG_MASK) << 1);
+    a[ij] = (int) c;
+    c >>>= 32;
+    return c;
+  }
+
+  private long sq_inner2(int[] a, int ij, int xati, long c) {
+    long xi = xati & LONG_MASK;
+    long m = xi * xi;
+
+    c += (m & LONG_MASK) + ((a[ij] & LONG_MASK) << 1);
+    a[ij] = (int) c;
+    c = (c >>> 32) + (m >>> 32);
+    return c;
+  }
+
+  private void sq_loop(int[] a, int[] x) {
+    int l = x.length;
+    for (int i = 1; i != l - 1; ++i) {
+      //long xi = x[i] & LONG_MASK;
+      long c = 0;
+      int ij = i + i + 1;
+      for (int j = i + 1; j != l; ++j, ++ij) {
+        c = mul_inner(false, a, ij, x[i], x[j], c);
+        /*
+        c += xi * (x[j] & LONG_MASK) + (a[ij] & LONG_MASK);
+        a[ij] = (int) c;
+        c >>>= 32;
+        */
+      }
+      a[ij] = (int) c;
+    }
+  }
+
   /**
    * Assigns <code>a = x * x</code>
    *
@@ -644,46 +679,62 @@ abstract class NIST64 extends ECCProvider {
     int l = x.length;
 
     // Add entries outside of diagonal.
-    long x0 = x[0] & LONG_MASK;
+    //long x0 = x[0] & LONG_MASK;
     c = 0;
     for (int j = 1; j != l; ++j) {
+      c = mul_inner(true, a, j, x[0], x[j], c);
+      /*
       c += x0 * (x[j] & LONG_MASK);
       a[j] = (int) c;
       c >>>= 32;
+      */
     }
     // Add final overflow bit.
     a[l] = (int) c;
 
+    sq_loop(a, x);
+    /*
     for (int i = 1; i != l - 1; ++i) {
-      long xi = x[i] & LONG_MASK;
+      //long xi = x[i] & LONG_MASK;
       c = 0;
       int ij = i + i + 1;
       for (int j = i + 1; j != l; ++j, ++ij) {
-        c += xi * (x[j] & LONG_MASK) + (a[ij] & LONG_MASK);
-        a[ij] = (int) c;
-        c >>>= 32;
+        c = mul_inner(false, a, ij, x[i], x[j], c);
+        //c += xi * (x[j] & LONG_MASK) + (a[ij] & LONG_MASK);
+        //a[ij] = (int) c;
+        //c >>>= 32;
       }
       a[ij] = (int) c;
     }
+    */
 
     // Double current entries and add diagonal.
+    c = mul_inner(true, a, 0, x[0], x[0], 0);
+    /*
     c = x0 * x0;
     a[0] = (int) c;
     c >>>= 32;
+    */
 
     int ij = 1;
     for (int i = 1; i != l; ++i) {
+      c = sq_inner1(a, ij, c);
+      /*
       c += ((a[ij] & LONG_MASK) << 1);
       a[ij] = (int) c;
       c >>>= 32;
+      */
       ++ij;
 
+      c = sq_inner2(a, ij, x[i], c);
+      /*
       long xi = x[i] & LONG_MASK;
       long m = xi * xi;
 
       c += (m & LONG_MASK) + ((a[ij] & LONG_MASK) << 1);
       a[ij] = (int) c;
       c = (c >>> 32) + (m >>> 32);
+      */
       ++ij;
     }
 

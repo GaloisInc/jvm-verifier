@@ -36,7 +36,7 @@ mul_java_inner (azero, a, ij, xi, yj, d) = { mji_a = a'; mji_d = d' >> 32 }
     aij      = if azero == 0 then take(32, a >> (ij * 32)) else 0;
   };
 
-theorem q: {a x y}. mul_java(a, x,y) == safe_product(x,y);
+theorem mul_good: {a x y}. mul_java(a, x,y) == safe_product(x,y);
 
 aset : ([2*12*32], [32], [32]) -> [2*12*32];
 aset (a, i, x) = (a & imask) | x'
@@ -85,6 +85,91 @@ mul_java (a0, x, y) = a_final!0
               || i <- [1..(l-1)]
               |];
   };
+
+sq_java_inner1 : ([2*12*32], [32], [64]) -> { mji_a : [2*12*32]; mji_d : [64]};
+sq_java_inner1 (a, ij, c) = { mji_a = a' ; mji_d = c'' }
+  where {
+    aij = take(32, a >> (ij * 32));
+    c' = c + (uext(aij) : [64]) << 1;
+    a' = aset(a, ij, take(32, c'));
+    c'' = c' >> 32;
+  };
+
+sq_java_inner2 : ([2*12*32], [32], [32], [64]) ->
+                 { mji_a : [2*12*32]; mji_d : [64]};
+sq_java_inner2 (a, ij, xati, c) = { mji_a = a' ; mji_d = c'' }
+  where {
+    aij = take(32, a >> (ij * 32));
+    xi = uext(xati) : [64];
+    m = xi * xi;
+    c' = c + (m & 0x00000000FFFFFFFF) + ((uext(aij) : [64]) << 1);
+    a' = aset(a, ij, take(32, c'));
+    c'' = (c' >> 32) + (m >> 32);
+  };
+
+sq_java_loop(a, x) = a_mid!0
+  where {
+    /* Second loop in Java implementation */
+    l = 12 : [32];
+    x'  = split x : [l][32];
+    a_mid   = [ a ]
+            # [| ad_inner_final
+                 where {
+                   /* Inner loop in Java implementation */
+                   a_inner = [ ( zero : [64] /* d */, a, i+i+1) ]
+                           # [| (res.mji_d, res.mji_a, ij+1)
+                                where {
+                                  res = if j+i < l then
+                                          mul_java_inner(0, a, ij, x'@i, x'@(j+i), d)
+                                        else zero;
+                                }
+                             || (d, a, ij) <- a_inner
+                             || j          <- [1..(l-1)]
+                             |];
+
+                   (d_inner_final, a_inner_final, ij_final) = a_inner!i;
+                   ad_inner_final = aset(a_inner_final, ij_final, take(32, d_inner_final));
+                 }
+              || a <- a_mid
+              || i <- [1..(l-2)]
+              |];
+  };
+
+sq_java (a0, x) = ad_final_final
+  where {
+    l   = 12 : [32];
+    x'  = split x : [l][32];
+    x0 = x'@0;
+
+    /* First loop in Java implementation */
+    a_first = [ (zero : [64], a0 : [2*l*32]) ]
+            # [| (res.mji_d, res.mji_a)
+                 where {
+                   res = mul_java_inner(1, a, j, x0, x'@j, d)
+                 }
+              || (d, a) <- a_first
+              || j      <- [1..(l-1)]
+              |];
+    (d_first_final, a_first_final) = a_first!0;
+    ad_first_final = aset(a_first_final, l, take(32, d_first_final));
+
+    mid_res = mul_java_inner(1, sq_java_loop(ad_first_final, x), 0, x0, x0, 0);
+
+    /* Third loop in Java implementation */
+    a_final = [ (mid_res.mji_d, mid_res.mji_a, 1) ]
+            # [| (res'.mji_d, res'.mji_a, ij+2)
+                 where {
+                   res = sq_java_inner1(a, ij, c);
+                   res' = sq_java_inner2(res.mji_a, ij+1, x'@i, res.mji_d);
+                 }
+              || (c, a, ij) <- a_final
+              || i      <- [1..(l-1)]
+              |];
+    (d_final_final, a_final_final, ij_final) = a_final!0;
+    ad_final_final = aset(a_final_final, (l << 1) - 1, take(32, d_final_final));
+  };
+
+theorem sq_good: {a x}. sq_java(a, x) == safe_product(x,x);
 
 /* Returns module reduction on input. */
 safe_mod : {a b} (fin a, fin b) => ([b],[a]) -> [b];

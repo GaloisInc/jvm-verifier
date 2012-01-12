@@ -19,11 +19,17 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 
 :load ../ecc.cry
 :fm mul_java_inner     "generated/mul_java_inner.sbv"
+:fm sq_java_inner1     "generated/sq_java_inner1.sbv"
+:fm sq_java_inner2     "generated/sq_java_inner2.sbv"
 :fm aset               "generated/aset.sbv"
 
 :load sbv_uninterpret_mul_inner.cry
+:fm sq_java_loop       "generated/sq_java_loop.sbv"
+
+:load sbv_uninterpret_sq_loop.cry
 :fm p384_safe_product  "generated/p384_safe_product.sbv"
 :fm mul_java           "generated/mul_java.sbv"
+:fm sq_java            "generated/sq_java.sbv"
 :fm p384_mod_add       "generated/p384_mod_add.sbv"
 :fm p384_mod_sub       "generated/p384_mod_sub.sbv"
 :fm p384_mod_half      "generated/p384_mod_half.sbv"
