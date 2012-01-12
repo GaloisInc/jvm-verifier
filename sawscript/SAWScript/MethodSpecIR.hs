@@ -81,8 +81,34 @@ int32DagType = SymInt (constantWidth 32)
 int64DagType :: DagType
 int64DagType = SymInt (constantWidth 64)
 
-typecheckPC :: MonadIO m => Pos -> Integer -> m JSS.PC
-typecheckPC pos pc = do
+checkLineNumberInfoAvailable :: MonadIO m => Pos -> JSS.Method -> m ()
+checkLineNumberInfoAvailable pos m = do
+  when (null (JSS.sourceLineNumberInfo m)) $
+    let msg = ftext $ "Source does not contain line number infomation."
+     in throwIOExecException pos msg ""
+
+typecheckPC :: MonadIO m => Pos -> JSS.Method -> AST.MethodLocation -> m JSS.PC
+typecheckPC pos m (AST.LineOffset off) = do
+  checkLineNumberInfoAvailable pos m
+  case JSS.sourceLineNumberOrPrev m 0 of
+    Nothing -> 
+      let msg = ftext $ "Could not find line number of start of method."
+       in throwIOExecException pos msg ""
+    Just base -> do
+      let ln = toInteger base + off
+      case JSS.lookupLineStartPC m (fromInteger ln) of
+        Just pc -> return pc
+        Nothing -> do
+          let msg = ftext $ "Could not find line " ++ show ln ++ "."
+           in throwIOExecException pos msg ""
+typecheckPC pos m (AST.LineExact ln) = do
+  checkLineNumberInfoAvailable pos m
+  case JSS.lookupLineStartPC m (fromInteger ln) of
+    Just pc -> return pc
+    Nothing -> do
+      let msg = ftext $ "Could not find line " ++ show ln ++ "."
+       in throwIOExecException pos msg ""
+typecheckPC pos _ (AST.PC pc) = do
   -- TODO: Check valid instruction locations to ensure pc is valid.
   when (pc <= 0) $ do
     let msg = ftext $ "Invalid program counter."
@@ -809,14 +835,9 @@ data VerifyCommand
 data ValidationPlan
   = Skip
   | QuickCheck Integer (Maybe Integer)
+  | Blif (Maybe FilePath)
   | Verify [VerifyCommand]
   deriving (Show)
-
--- | Returns true if this is a validation plan declaration.
-isValidationPlanDecl :: AST.MethodSpecDecl -> Bool
-isValidationPlanDecl AST.Verify{} = True
-isValidationPlanDecl AST.QuickCheck{} = True
-isValidationPlanDecl _ = False
 
 checkRuleIsDefined :: MonadIO m => Pos -> String -> Set String -> m ()
 checkRuleIsDefined pos nm ruleNames = do
@@ -870,7 +891,8 @@ resolveVerifyCommand cmd =
       checkRuleIsDefined pos nm ruleNames
       return [VerifyDisable nm]
     AST.VerifyAt pos astPC astCmd -> do
-      pc <- typecheckPC pos astPC
+      m <- gets (mtcMethod . vtsMTC)
+      pc <- typecheckPC pos m astPC
       mOldPC <- gets vtsPC
       case mOldPC of
         Just (oldPC,_) | oldPC /= pc -> do
@@ -890,29 +912,25 @@ resolveVerifyCommand cmd =
     AST.VerifyBlock cmds ->
       concat <$> mapM resolveVerifyCommand cmds
 
-throwMultipleValidationPlans :: Pos -> IO a
-throwMultipleValidationPlans pos =
-  let msg = "Multiple validation approaches set in method specification."
-   in throwIOExecException pos (ftext msg) ""
-
 resolveValidationPlan :: Set String -- ^ Names of rules in spec.
                       -> MethodTypecheckContext
                       -> Map JSS.PC BehaviorTypecheckState
                       -> [AST.MethodSpecDecl] -> IO ValidationPlan
 resolveValidationPlan ruleNames mtc allBehaviors decls = 
-  case filter isValidationPlanDecl decls of
+  case [ (p,d) | AST.SpecPlan p d <- decls ] of
     [] -> return $ Skip
-    [AST.QuickCheck _ n mlimit] -> return $ QuickCheck n mlimit
-    [AST.Verify _ cmds] ->
+    [(_,AST.Blif mpath)] -> return $ Blif mpath
+    [(_,AST.QuickCheck n mlimit)] -> return $ QuickCheck n mlimit
+    [(_,AST.Verify cmds)] ->
        let initVTS = VTS { vtsMTC = mtc
                          , vtsBehaviors = allBehaviors
                          , vtsRuleNames = ruleNames
                          , vtsPC = Nothing
                          }
         in Verify <$> evalStateT (resolveVerifyCommand cmds) initVTS
-    _:AST.QuickCheck p _ _:_ -> throwMultipleValidationPlans p
-    _:AST.Verify p _:_       -> throwMultipleValidationPlans p
-    _ -> error "internal: resolveValidationPlan reached illegal state."
+    _:(pos,_):_ ->
+      let msg = "Multiple validation approaches set in method specification."
+       in throwIOExecException pos (ftext msg) ""
 
 -- MethodSpecIR {{{1
 
@@ -967,7 +985,7 @@ resolveMethodSpecIR gb ruleNames pos thisClass mName cmds = do
   --  Resolve behavior specs at other PCs.
   let specAtCmds = [ (specPos, pc, bcmds) | AST.SpecAt specPos pc bcmds <- cmds ]
   localBehaviors <- forM specAtCmds $ \(specPos,astPC,bcmds) -> do
-      pc <- typecheckPC specPos astPC
+      pc <- typecheckPC specPos method astPC
       bs <- resolveBehaviorSpecs mtc pc bcmds
       return (pc, bs)
   -- TODO: Check that no duplicates appear in local behavior specifications.
