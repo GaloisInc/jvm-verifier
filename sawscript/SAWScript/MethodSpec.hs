@@ -3,7 +3,6 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE PatternGuards #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 module SAWScript.MethodSpec
   ( VerifyCommand
@@ -23,7 +22,7 @@ import Control.Applicative hiding (empty)
 import Control.Exception (finally)
 import Control.Monad
 import Control.Monad.Cont
-import Control.Monad.Error (Error(..), ErrorT, runErrorT, throwError)
+import Control.Monad.Error (ErrorT, runErrorT, throwError)
 import Control.Monad.State
 import Data.Int
 import Data.List (foldl', intercalate, intersperse)
@@ -55,15 +54,12 @@ import Utils.Common
 
 import Verinf.Symbolic
 import qualified Verinf.Symbolic.BLIF as Blif
-import Verinf.Symbolic.Lit.Functional
 import Verinf.Utils.LogMonad
 
 import qualified SMTLib1 as SmtLib
 import qualified SMTLib2 as SmtLib2
 
 -- Utilities {{{1
-
-nyi msg = error $ "Not yet implemented: " ++ msg
 
 -- | Return first value satisfying predicate if any.
 findM :: Monad m => (a -> m Bool) -> [a] -> m (Maybe a)
@@ -154,9 +150,6 @@ evalContextFromPathState de ps =
         }
 
 type ExprEvaluator a = ErrorT TC.JavaExpr IO a
-
-instance Error TC.JavaExpr where
-  noMsg = error "noMsg called with TC.JavaExpr"
 
 runEval :: MonadIO m => ExprEvaluator b -> m (Either TC.JavaExpr b)
 runEval v = liftIO (runErrorT v)
@@ -448,10 +441,10 @@ execOverride pos ir mbThis args = do
           --TODO: Investigate if this is right.
           JSS.putPathState $
             case (mval, JSS.frames ps) of
-              (Just val, [])  -> ps { JSS.finalResult = JSS.ReturnVal val }
-              (Just val, f:r) -> ps { JSS.frames = f { JSS.frmOpds = val : JSS.frmOpds f } : r }
-              (Nothing,  [])  -> ps { JSS.finalResult = JSS.Terminated }
-              (Nothing,  _:_) -> ps
+              (Just val, [])   -> ps { JSS.finalResult = JSS.ReturnVal val }
+              (Just val, f:fr) -> ps { JSS.frames = f { JSS.frmOpds = val : JSS.frmOpds f } : fr }
+              (Nothing,  [])   -> ps { JSS.finalResult = JSS.Terminated }
+              (Nothing,  _:_)  -> ps
           return $ JSS.NextInst
   -- Split execution paths.
   let (firstRes:restRes) = res
@@ -933,11 +926,9 @@ generateVC ir esd (ps, endPC, res) = do
 -- verifyMethodSpec and friends {{{2
 
 mkSpecVC :: VerifyParams
-         -> BehaviorSpec
-         -> RefEquivConfiguration
          -> ExpectedStateDef
          -> JSS.Simulator SymbolicMonad [PathVC]
-mkSpecVC params bs refConfig esd = do
+mkSpecVC params esd = do
   let ir = vpSpec params
   -- Log execution.
   setVerbosity (simverbose (vpOpts params))
@@ -985,8 +976,8 @@ writeToNewFile :: FilePath -- ^ Base file name
 -- writing.
 writeToNewFile path defaultExt m =
   case splitExtension path of
-    (base,"") -> impl base 0 defaultExt
-    (base,ext) -> impl base 0 ext
+    (base,"") -> impl base (0::Integer) defaultExt
+    (base,ext) -> impl base (0::Integer) ext
  where impl base cnt ext = do
           let nm = addExtension (base ++ ('.' : show cnt)) ext
           b <- doesFileExist nm
@@ -1006,7 +997,7 @@ writeBlif de results path = do
             Blif.mkConjunction
               =<< mapM (\m -> Blif.mkSubckt m inputs SymBool) ml
       models <-
-        forM ([0..] `zip` results) $ \(i,pvc) -> do
+        forM ([(0::Integer)..] `zip` results) $ \(i,pvc) -> do
           let pathname = "path_" ++ show i ++ "_"
           --TOOD: Get path check name.
           condModel <-
@@ -1066,7 +1057,7 @@ validateMethodSpec
         JSS.runSimulator cb $ do
           -- Create initial Java state and expected state definition.
           esd <- initializeVerification ir bs cl
-          res <- mkSpecVC params bs cl esd
+          res <- mkSpecVC params esd
           return (esd,res)
     case specValidationPlan ir of
       Skip -> error "internal: Unexpected call to validateMethodSpec with Skip"
@@ -1099,18 +1090,22 @@ validateMethodSpec
            forM_ (pvcChecks pvc) $ \vc -> do
              let vs = mkVState (vcName vc) (vcCounterexample vc)
              g <- deImplies de (pvcAssumptions pvc) =<< vcGoal de vc
+             when (verb >= 4) $ do
+               putStrLn $ "Checking " ++ vcName vc
              runVerify vs g cmds
           else do
-            let vs = mkVState ("an invalid path "
-                                  ++ (case pvcStartPC pvc of
-                                        0 -> ""
-                                        pc -> " from pc " ++ show pc)
-                                  ++ maybe "" (\pc -> " to pc " ++ show pc)
-                                           (pvcEndPC pvc))
-                              (\_ -> return $ vcat (pvcStaticErrors pvc))
+            let vsName = "an invalid path "
+                           ++ (case pvcStartPC pvc of
+                                 0 -> ""
+                                 pc -> " from pc " ++ show pc)
+                           ++ maybe "" (\pc -> " to pc " ++ show pc)
+                                    (pvcEndPC pvc)
+            let vs = mkVState vsName (\_ -> return $ vcat (pvcStaticErrors pvc))
             g <- deImplies de (pvcAssumptions pvc) (mkCBool False)
-            when (verb >= 3) $ do
-              putStrLn $ "Calling runVerify with " ++ prettyTerm (pvcAssumptions pvc)
+            when (verb >= 4) $ do
+              putStrLn $ "Checking " ++ vsName
+              print $ pvcStaticErrors pvc
+              putStrLn $ "Calling runVerify to disprove " ++ prettyTerm (pvcAssumptions pvc)
             runVerify vs g cmds
 
 data VerifyState = VState {
@@ -1235,7 +1230,7 @@ testRandom de v ir test_num lim pvc =
                 do bad_goal <- isInvalid eval goal
                    when (v >= 4) $ dbugM "End concrete DAG eval for one VC check."
                    when bad_goal $ do
-                     (vs1,goal1) <- QuickCheck.minimizeCounterExample
+                     (_vs1,goal1) <- QuickCheck.minimizeCounterExample
                                             isCounterExample (V.toList vs) goal
                      txt <- msg eval goal1
                      throwIOExecException (specPos ir) txt ""
@@ -1400,7 +1395,7 @@ useYices mbTime g = do
                    , nest 2 xs
                    ]
 
-  ppIn expr val = Yices.ppVal (TC.ppJavaExpr expr, val)
+  _ppIn expr val = Yices.ppVal (TC.ppJavaExpr expr, val)
 
   ppUninterp _ [] = empty
   ppUninterp m us =
@@ -1446,8 +1441,8 @@ applyTactics (Rewrite:r) g = do
   rules <- gets vsRules
   enRules <- gets vsEnabledRules
   let pgm = foldl' addRule' emptyProgram rules
-      addRule' p r | ruleName r `Set.member` enRules = addRule p r
-                   | otherwise = p
+      addRule' p rl | ruleName rl `Set.member` enRules = addRule p rl
+                    | otherwise = p
   g' <- liftIO $ do
           rew <- mkRewriter pgm de
           reduce rew g

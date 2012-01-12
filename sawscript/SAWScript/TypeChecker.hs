@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE PatternGuards  #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE ViewPatterns   #-}
 module SAWScript.TypeChecker
   ( -- * Typechecking configuration.
@@ -48,6 +49,7 @@ module SAWScript.TypeChecker
 
 import Control.Applicative ((<$>))
 import Control.Monad
+import Control.Monad.Error (Error(..))
 import Control.Monad.Trans
 import Data.Int
 import Data.List (intercalate)
@@ -151,6 +153,9 @@ instance CC.ShowFoldable JavaExprF where
 
 -- | Typechecked JavaExpr
 type JavaExpr = CC.Term JavaExprF
+
+instance Error JavaExpr where
+  noMsg = error "noMsg called with TC.JavaExpr"
 
 thisJavaExpr :: JSS.Class -> JavaExpr
 thisJavaExpr cl = CC.Term (Local "this" 0 (JSS.ClassType (JSS.className cl)))
@@ -398,7 +403,7 @@ tcJE astExpr = do
   case r of
     JE e -> return e
     LE _ -> 
-     let msg = ftext $ "\'" ++ show astExpr ++ "\' is not a valid Java expression."
+     let msg = ftext $ "Encountered a logical expression where a Java expression was expected."
       in typeErr (AST.exprPos astExpr) msg
 
 checkedGetIntType :: Pos -> JSS.Type -> SawTI DagType
