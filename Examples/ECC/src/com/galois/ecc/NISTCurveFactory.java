@@ -451,109 +451,7 @@ abstract class NIST64 extends ECCProvider {
     return (int) b;
   }
 
-  protected void knarFmul(int[] a, int[] x, int[] y) {
-    int l = x.length;
-    long x0 = x[0] & LONG_MASK;
-    long d = 0;
-    for (int j = 0; j != l; ++j) {
-      long m = x0 * (y[j] & LONG_MASK);
-      d += m;
-      a[j] = (int) d;
-      d = d >>> 32;
-    }
-    // Add final overflow bit.
-    a[l] = (int) d;
-    // Compute multiplication sum in a.
-    for (int i = 1; i != l; ++i) {
-      long xi = x[i] & LONG_MASK;
-      d = 0;
-      int ij = i;
-      for (int j = 0; j != l; ++j, ++ij) {
-	  long m = 0;
-	  if (0 == j)
-	      m = (y[j] & LONG_MASK) * xi;
-	  else if (1 == j)
-		m = xi * (y[j] & LONG_MASK);
-	  else if (2 == j)
-		m = xi * (y[j] & LONG_MASK);
-        d += m + (a[ij] & LONG_MASK);
-        a[ij] = (int) d;
-        d = d >>> 32;
-	// if (1 == j) {a[3] = 0; return;}
-      }
-      // Add final overflow bit.
-      a[ij] = (int) d;
-    }
-  }
-
-  protected void truncated_mul_0(int[] a, int[] x, int[] y) {
-    final int CAP = 0;
-    int l = x.length;
-    long x0 = x[0] & LONG_MASK;
-    long d = 0;
-    for (int j = 0; j != l; ++j) {
-      long m = x0 * (y[j] & LONG_MASK);
-      d += m;
-      a[j] = (int) d;
-      d = d >>> 32;
-    }
-    // Add final overflow bit.
-    a[l] = (int) d;
-    // Compute multiplication sum in a.
-    for (int i = 1; i != l && i <= CAP; ++i) {
-      long xi = x[i] & LONG_MASK;
-      d = 0;
-      int ij = i;
-      for (int j = 0; j != l; ++j, ++ij) {
-        long m = xi * (y[j] & LONG_MASK);
-        d += m + (a[ij] & LONG_MASK);
-        a[ij] = (int) d;
-        d = d >>> 32;
-      }
-      // Add final overflow bit.
-      a[ij] = (int) d;
-    }
-    // zero out any untouched entries
-    for (int i = CAP + l + 1; i < a.length; ++i) {
-      a[i] = 0;
-    }
-  }
-
-  protected void truncated_mul_1(int[] a, int[] x, int[] y) {
-    final int CAP = 1;
-    int l = x.length;
-    long x0 = x[0] & LONG_MASK;
-    long d = 0;
-    for (int j = 0; j != l; ++j) {
-      long m = x0 * (y[j] & LONG_MASK);
-      d += m;
-      a[j] = (int) d;
-      d = d >>> 32;
-    }
-    // Add final overflow bit.
-    a[l] = (int) d;
-    // Compute multiplication sum in a.
-    for (int i = 1; i != l && i <= CAP; ++i) {
-      long xi = x[i] & LONG_MASK;
-      d = 0;
-      int ij = i;
-      for (int j = 0; j != l; ++j, ++ij) {
-        long m = xi * (y[j] & LONG_MASK);
-        d += m + (a[ij] & LONG_MASK);
-        a[ij] = (int) d;
-        d = d >>> 32;
-      }
-      // Add final overflow bit.
-      a[ij] = (int) d;
-    }
-    // zero out any untouched entries
-    for (int i = CAP + l + 1; i < a.length; ++i) {
-      a[i] = 0;
-    }
-  }
-
-    public long mul_inner(boolean azero, int[] a, int ij, int xi, int yj, long d)
-  {
+  private long mul_inner(boolean azero, int[] a, int ij, int xi, int yj, long d) {
     long m = (((long) xi) & LONG_MASK) * (((long) yj) & LONG_MASK);
     long aij;
     if(azero) {
@@ -568,7 +466,7 @@ abstract class NIST64 extends ECCProvider {
 
   /**
    * Computes x * y and stores result before reduction in a.
-   * 
+   *
    * @param a Array with at least <code>2 * x.length</code> elements for storing result.
    * @param x The multiplier (contains at least one element).
    * @param y The multiplicand (contains same number of elements as x).
@@ -596,43 +494,6 @@ abstract class NIST64 extends ECCProvider {
     }
   }
 
-  /**
-   * Computes x * y and stores result before reduction in a.
-   * 
-   * @param a Array with at least <code>2 * x.length</code> elements for storing result.
-   * @param x The multiplier (contains at least one element).
-   * @param y The multiplicand (contains same number of elements as x).
-   */
-  protected void mul_old(int[] a, int[] x, int[] y) {
-    int l = x.length;
-
-    long x0 = x[0] & LONG_MASK;
-    long d = 0;
-    for (int j = 0; j != l; ++j) {
-      long m = x0 * (y[j] & LONG_MASK);
-      d += m;
-      a[j] = (int) d;
-      d = d >>> 32;
-    }
-    // Add final overflow bit.
-    a[l] = (int) d;
-
-    // Compute multiplication sum in a.
-    for (int i = 1; i != l; ++i) {
-      long xi = x[i] & LONG_MASK;
-      d = 0;
-      int ij = i;
-      for (int j = 0; j != l; ++j, ++ij) {
-        long m = xi * (y[j] & LONG_MASK);
-        d += m + (a[ij] & LONG_MASK);
-        a[ij] = (int) d;
-        d = d >>> 32;
-      }
-      // Add final overflow bit.
-      a[ij] = (int) d;
-    }
-  }
-
   private long sq_inner1(int[] a, int ij, long c) {
     c += ((a[ij] & LONG_MASK) << 1);
     a[ij] = (int) c;
@@ -653,16 +514,10 @@ abstract class NIST64 extends ECCProvider {
   private void sq_loop(int[] a, int[] x) {
     int l = x.length;
     for (int i = 1; i != l - 1; ++i) {
-      //long xi = x[i] & LONG_MASK;
       long c = 0;
       int ij = i + i + 1;
       for (int j = i + 1; j != l; ++j, ++ij) {
         c = mul_inner(false, a, ij, x[i], x[j], c);
-        /*
-        c += xi * (x[j] & LONG_MASK) + (a[ij] & LONG_MASK);
-        a[ij] = (int) c;
-        c >>>= 32;
-        */
       }
       a[ij] = (int) c;
     }
@@ -679,62 +534,24 @@ abstract class NIST64 extends ECCProvider {
     int l = x.length;
 
     // Add entries outside of diagonal.
-    //long x0 = x[0] & LONG_MASK;
     c = 0;
     for (int j = 1; j != l; ++j) {
       c = mul_inner(true, a, j, x[0], x[j], c);
-      /*
-      c += x0 * (x[j] & LONG_MASK);
-      a[j] = (int) c;
-      c >>>= 32;
-      */
     }
     // Add final overflow bit.
     a[l] = (int) c;
 
     sq_loop(a, x);
-    /*
-    for (int i = 1; i != l - 1; ++i) {
-      //long xi = x[i] & LONG_MASK;
-      c = 0;
-      int ij = i + i + 1;
-      for (int j = i + 1; j != l; ++j, ++ij) {
-        c = mul_inner(false, a, ij, x[i], x[j], c);
-        //c += xi * (x[j] & LONG_MASK) + (a[ij] & LONG_MASK);
-        //a[ij] = (int) c;
-        //c >>>= 32;
-      }
-      a[ij] = (int) c;
-    }
-    */
 
     // Double current entries and add diagonal.
     c = mul_inner(true, a, 0, x[0], x[0], 0);
-    /*
-    c = x0 * x0;
-    a[0] = (int) c;
-    c >>>= 32;
-    */
 
     int ij = 1;
     for (int i = 1; i != l; ++i) {
       c = sq_inner1(a, ij, c);
-      /*
-      c += ((a[ij] & LONG_MASK) << 1);
-      a[ij] = (int) c;
-      c >>>= 32;
-      */
       ++ij;
 
       c = sq_inner2(a, ij, x[i], c);
-      /*
-      long xi = x[i] & LONG_MASK;
-      long m = xi * xi;
-
-      c += (m & LONG_MASK) + ((a[ij] & LONG_MASK) << 1);
-      a[ij] = (int) c;
-      c = (c >>> 32) + (m >>> 32);
-      */
       ++ij;
     }
 
@@ -755,7 +572,7 @@ abstract class NIST64 extends ECCProvider {
   }
 
   // Underlying field operations {{{2
-  
+
   protected void field_mul(int[] z, int[] x, int[] y) {
     mul(a, x, y);
     field_red(z, a);
@@ -822,7 +639,7 @@ abstract class NIST64 extends ECCProvider {
 
 // P384 specific constants {{{1
 
-/** 
+/**
  * Defines constants for P384 curve used by both 32 and 64-bit implementations.
  */
 class P384Constants {
@@ -1053,7 +870,7 @@ class P384ECC32 extends NIST32 {
     }
 
     // Perform one addition or subtraction if neccessary.
-    while (c > 0) c += decFieldPrime(z); 
+    while (c > 0) c += decFieldPrime(z);
     while (c < 0) c += incFieldPrime(z);
     if (leq(field_prime, z)) decFieldPrime(z);
   }
@@ -1069,7 +886,7 @@ class P384ECC64 extends NIST64 {
           P384Constants.basePoint);
     init();
   }
-    
+
   protected int decFieldPrime(int[] x) {
     long c = 0;
 
@@ -1155,7 +972,7 @@ class P384ECC64 extends NIST64 {
     // t   =  a0 #  a1 #  a2 #  a3 #  a4 #  a5 #  a6 #  a7 #  a8 #  a9 # a10 # a11 # z32;
     // s1  = z32 # z32 # z32 # z32 # a21 # a22 # a23 # z32 # z32 # z32 # z32 # z32 # z32;
     // s2  = a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # a21 # a22 # a23 # z32;
-    // s3  = a21 # a22 # a23 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # z32; 
+    // s3  = a21 # a22 # a23 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # a20 # z32;
     // s4  = z32 # a23 # z32 # a20 # a12 # a13 # a14 # a15 # a16 # a17 # a18 # a19 # z32;
     // s5  = z32 # z32 # z32 # z32 # a20 # a21 # a22 # a23 # z32 # z32 # z32 # z32 # z32;
     // s6  = a20 # z32 # z32 # a21 # a22 # a23 # z32 # z32 # z32 # z32 # z32 # z32 # z32;
@@ -1170,10 +987,10 @@ class P384ECC64 extends NIST64 {
     // each element from one "column" of bitvector slices in the above Cryptol
     // code, added/subtracted/left-shifted according to the definition of 'r' in
     // Cryptol.
-    // 
+    //
     // The Cryptol implementation adds/subs 10 numbers (t, s1..s6, d1..d3) in
     // computing 'r'; call these 'components of r'.
-    // 
+    //
     // The Java implementation below is essentially a RCA that:
     //   - add/sub lowest-order 32 bits of each component of 'r', storing the
     //       result in z[0] and leaving the carry in d for the next step
@@ -1181,7 +998,7 @@ class P384ECC64 extends NIST64 {
     //       lowest-order 32 bits of each component of 'r', storing the result
     //       in z[1] and leaving the carry in d for the next step
     //   - ... and so on
-    // 
+    //
 
     d =  (a[ 0] & LONG_MASK)              + a12 + a21       + a20       - a23;
     z[ 0] = (int) d; d >>= 32;
@@ -1232,7 +1049,7 @@ class P384ECC64 extends NIST64 {
       }
     }
     // Perform final subtraction if neccary.
-    if (d > 0 || leq(field_prime, z)) decFieldPrime(z); 
+    if (d > 0 || leq(field_prime, z)) decFieldPrime(z);
   }
 
  public void field_red(int[] z, int[] a) {
@@ -1278,15 +1095,15 @@ class P384ECC64 extends NIST64 {
       d = d + (z[ 3] & LONG_MASK) + of; z[ 3] = (int) d; d >>= 32;
       d = d + (z[ 4] & LONG_MASK) + of; z[ 4] = (int) d; d >>= 32;
       d = d + (z[ 5] & LONG_MASK)     ; z[ 5] = (int) d; d >>= 32;
-      d = d + (z[ 6] & LONG_MASK)     ; z[ 6] = (int) d; d >>= 32;       
-      d = d + (z[ 7] & LONG_MASK)     ; z[ 7] = (int) d; d >>= 32;       
-      d = d + (z[ 8] & LONG_MASK)     ; z[ 8] = (int) d; d >>= 32;       
-      d = d + (z[ 9] & LONG_MASK)     ; z[ 9] = (int) d; d >>= 32;       
-      d = d + (z[10] & LONG_MASK)     ; z[10] = (int) d; d >>= 32;       
-      d = d + (z[11] & LONG_MASK)     ; z[11] = (int) d; d >>= 32;       
+      d = d + (z[ 6] & LONG_MASK)     ; z[ 6] = (int) d; d >>= 32;
+      d = d + (z[ 7] & LONG_MASK)     ; z[ 7] = (int) d; d >>= 32;
+      d = d + (z[ 8] & LONG_MASK)     ; z[ 8] = (int) d; d >>= 32;
+      d = d + (z[ 9] & LONG_MASK)     ; z[ 9] = (int) d; d >>= 32;
+      d = d + (z[10] & LONG_MASK)     ; z[10] = (int) d; d >>= 32;
+      d = d + (z[11] & LONG_MASK)     ; z[11] = (int) d; d >>= 32;
     }
     // Perform final subtraction if neccary.
-    if (d > 0 || leq(field_prime, z)) decFieldPrime(z); 
+    if (d > 0 || leq(field_prime, z)) decFieldPrime(z);
   }
 
   public int field_red_aux(int[] z, int[] a) {
