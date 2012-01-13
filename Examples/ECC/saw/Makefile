@@ -57,10 +57,14 @@ PROOFS :=                 \
   mod_half.saw            \
   mod_sub.saw             \
   mul.saw                 \
+  mul_inner.saw           \
   set_unit.saw            \
   set_zero.saw            \
   shr.saw                 \
   sq.saw                  \
+  sq_inner1.saw           \
+  sq_inner2.saw           \
+  sq_loop.saw             \
   sub.saw                 \
 
 .PHONY: clean verify verify-individually

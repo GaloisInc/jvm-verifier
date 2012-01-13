@@ -1,7 +1,5 @@
 import "common.saw";
 import "rules.saw";
-extern SBV ref_sq_java_loop("../spec/sbv/generated/sq_java_loop.sbv")
-  : ([768], [384]) -> [768];
 
 set verification off;
 import "mul_inner.spec";

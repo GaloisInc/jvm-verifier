@@ -1,6 +1,4 @@
 import "common.saw";
 import "rules.saw";
-extern SBV ref_sq_java_inner2("../spec/sbv/generated/sq_java_inner2.sbv")
-  : ([768], [32], [32], [64]) -> { mji_a : [768]; mji_d : [64]};
 enable ref_sq_java_inner2;
 import "sq_inner2.spec";
