@@ -5,6 +5,6 @@ set verification off;
 import "mul_inner.spec";
 set verification on;
 
-enable ref_aset;
+enable ref_aset_768;
 enable ref_sq_java_loop;
 import "sq_loop.spec";

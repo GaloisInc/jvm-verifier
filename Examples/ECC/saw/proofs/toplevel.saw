@@ -17,7 +17,7 @@ import "sub.saw";
 import "mul_inner.spec";
 
 enable ref_mul_java;
-enable ref_aset;
+enable ref_aset_768;
 import "mul.spec";
 disable ref_mul_java;
 
