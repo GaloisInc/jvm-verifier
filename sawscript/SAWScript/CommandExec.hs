@@ -11,7 +11,6 @@ module SAWScript.CommandExec(runProofs) where
 import Control.Applicative
 import Control.Exception (handle)
 import Control.Monad
-import Data.Int
 import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -27,6 +26,7 @@ import System.IO (hFlush, stdout)
 import Text.PrettyPrint.HughesPJ
 
 import qualified Execution.Codebase as JSS
+import qualified JavaParser as JSS
 import Simulation (SimulatorExc, ppSimulatorExc)
 import SAWScript.ErrorPlus
 import SAWScript.Utils
@@ -188,8 +188,9 @@ mkSBVParseError pos absolutePath e = do
 -- Verifier command execution {{{1
 
 -- | Run method spec validation command.
-runMethodSpecValidate :: Int -> Bool -> TC.VerifyParams -> IO ()
-runMethodSpecValidate verb v vp = do
+runMethodSpecValidate :: SSOpts -> Bool -> TC.VerifyParams -> IO ()
+runMethodSpecValidate ssOpts v vp = do
+  let verb = verbose ssOpts
   let ir = TC.vpSpec vp
   let specName = show (TC.specName ir)
   let putPrefixTS msg = do
@@ -201,31 +202,40 @@ runMethodSpecValidate verb v vp = do
         putStrLn $ "[" ++ ts ++ "] " ++ msg
   let writeAssumeCorrect = 
         putPrefixTSLn $ "Assuming " ++ specName ++ " is correct."
-  let runValidate = do
-        ((), elapsedTime) <- timeIt $ TC.validateMethodSpec vp
+  let runValidate fn = do
+        ((), elapsedTime) <- timeIt $ TC.validateMethodSpec vp fn
         let timeMsg = " [Time: " ++ elapsedTime ++ "]"
         when (verb == 1 ) $ 
           putStrLn $ "Done." ++ timeMsg
         when (verb > 1) $
           putStrLn $ "Finished " ++ specName ++ "." ++ timeMsg
+  let genBlif mpath compressed = do
+        if compressed then
+          putPrefixTSLn $ "Generating compressed blif for " ++ specName ++ "... "
+        else
+          putPrefixTSLn $ "Generating blif for " ++ specName ++ "... "
+        let path = case mpath of
+                     Just p -> p
+                     Nothing -> JSS.methodName (TC.specMethod ir)
+        runValidate (TC.writeBlif path compressed)
   case TC.specValidationPlan ir of
     _ | not v -> writeAssumeCorrect
+    _ | ssMode ssOpts == Blif -> genBlif Nothing False
+    _ | ssMode ssOpts == CBlif -> genBlif Nothing True
     TC.Skip -> writeAssumeCorrect
     TC.QuickCheck n _ -> do
       when (verb == 1) $ let t 1 = " test"; t _ = " tests" in
         putPrefixTS $ "Testing " ++ specName ++ " (" ++ show n ++ t n ++ ")... "
       when (verb > 1) $
         putPrefixTSLn $ "Start testing " ++ specName ++ "."
-      runValidate
-    TC.Blif _ -> do
-      putPrefixTSLn $ "Generating blif for " ++ specName ++ "... "
-      runValidate
-    TC.Verify{} -> do
+      runValidate (TC.runValidation vp)
+    TC.GenBlif mpath -> genBlif mpath False
+    TC.RunVerify{} -> do
       when (verb == 1) $
         putPrefixTS $ "Verifying  " ++ specName ++ "... "
       when (verb > 1) $
         putPrefixTSLn $ "Start verifying " ++ specName ++ "."
-      runValidate
+      runValidate (TC.runValidation vp)
 
 recordSBVOp :: Pos -> String -> OpDef -> Executor ()
 recordSBVOp pos sbvOpName op = do
@@ -511,7 +521,7 @@ runProofs cb ssOpts files = do
       (errList, ml) <- evalStateT (runErrorCollectorT action) initState
       case (errList,ml) of
         ([],Just l) -> do
-          mapM_ (uncurry (runMethodSpecValidate (verbose ssOpts))) l
+          mapM_ (uncurry (runMethodSpecValidate ssOpts)) l
           return ([], null errList)
         _ -> return (errList, False)
   if res then do

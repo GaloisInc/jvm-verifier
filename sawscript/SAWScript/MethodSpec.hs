@@ -8,10 +8,14 @@ module SAWScript.MethodSpec
   ( VerifyCommand
   , ValidationPlan(..)
   , MethodSpecIR
+  , specMethod
   , specName
   , specMethodClass
   , specValidationPlan
   , resolveMethodSpecIR
+  , SymbolicRunHandler
+  , writeBlif
+  , runValidation
   , validateMethodSpec
   , VerifyParams(..)
   ) where
@@ -986,61 +990,116 @@ writeToNewFile path defaultExt m =
           else
             withFile nm WriteMode m >> return nm
 
+type SymbolicRunHandler = DagEngine -> ExpectedStateDef -> [PathVC] -> IO ()
 
-writeBlif :: DagEngine -> [PathVC] -> FilePath -> IO FilePath
-writeBlif de results path = do
+
+writeBlif :: FilePath -> Bool -> SymbolicRunHandler
+writeBlif path compressed de _ results = do
   iTypes <- deInputTypes de
+  let ext = if compressed then ".cblif" else ".blif"
   -- 1. Generate BLIF for each verification path.
-  writeToNewFile path ".blif" $ \h -> do
-    Blif.writeBLIF h $ do
-      let joinModels ml inputs = do
-            Blif.mkConjunction
-              =<< mapM (\m -> Blif.mkSubckt m inputs SymBool) ml
-      models <-
-        forM ([(0::Integer)..] `zip` results) $ \(i,pvc) -> do
-          let pathname = "path_" ++ show i ++ "_"
-          --TOOD: Get path check name.
-          condModel <-
-            Blif.addModel (pathname ++ "cond") iTypes SymBool $
-              Blif.mkTermCircuit (pvcAssumptions pvc)
-          if null (pvcStaticErrors pvc) then do
-            let addCheck (AssertionCheck nm t) = do
-                  Blif.addModel (pathname ++ nm) iTypes SymBool $ \il -> do
-                    condVal <- Blif.mkSubckt condModel il SymBool
-                    predVal <- Blif.mkTermCircuit t il
-                    Blif.mkImplication condVal predVal
-                addCheck (EqualityCheck nm simTerm expTerm) = do
-                  let tp = termType simTerm
-                  simModel <-
-                    Blif.addModel (pathname ++ nm ++ "_lhs") iTypes tp $ \il ->
-                      Blif.mkTermCircuit simTerm il
-                  expModel <-
-                    Blif.addModel (pathname ++ nm ++ "_rhs") iTypes tp $ \il ->
-                      Blif.mkTermCircuit expTerm il
-                  let goalName = pathname ++ nm ++ "_goal"
-                  Blif.addModel goalName iTypes SymBool $ \il -> do
-                    condVal <- Blif.mkSubckt condModel il SymBool
-                    simVal <- Blif.mkSubckt simModel il tp
-                    expVal <- Blif.mkSubckt expModel il tp
-                    Blif.mkImplication condVal
-                      =<< Blif.mkEquality tp simVal expVal
-            checks <- mapM addCheck (pvcChecks pvc)
-            Blif.addModel (pathname ++ "goal") iTypes SymBool $
-              joinModels checks
-          else do
-            let goalName = pathname ++ "goal"
-            Blif.addModel goalName iTypes SymBool $ \inputs -> do
-              Blif.mkNegation <$> Blif.mkSubckt condModel inputs SymBool
-      void $ Blif.addModel "all" iTypes SymBool $ \inputs ->
-        Blif.mkNegation <$> joinModels models inputs
+  nm <-
+    writeToNewFile path ext $ \h -> do
+      Blif.writeBLIF h compressed $ do
+        let joinModels ml inputs = do
+              Blif.mkConjunction
+                =<< mapM (\m -> Blif.mkSubckt m inputs) ml
+        models <-
+          forM ([(0::Integer)..] `zip` results) $ \(i,pvc) -> do
+            let pathname = "path_" ++ show i ++ "_"
+            --TOOD: Get path check name.
+            condModel <-
+              Blif.addModel (pathname ++ "cond") iTypes SymBool $
+                Blif.mkTermCircuit (pvcAssumptions pvc)
+            if null (pvcStaticErrors pvc) then do
+              let addCheck (AssertionCheck nm t) = do
+                    Blif.addModel (pathname ++ nm) iTypes SymBool $ \il -> do
+                      condVal <- Blif.mkSubckt condModel il
+                      predVal <- Blif.mkTermCircuit t il
+                      Blif.mkImplication condVal predVal
+                  addCheck (EqualityCheck nm simTerm expTerm) = do
+                    let tp = termType simTerm
+                    simModel <-
+                      Blif.addModel (pathname ++ nm ++ "_lhs") iTypes tp $ \il ->
+                        Blif.mkTermCircuit simTerm il
+                    expModel <-
+                      Blif.addModel (pathname ++ nm ++ "_rhs") iTypes tp $ \il ->
+                        Blif.mkTermCircuit expTerm il
+                    let goalName = pathname ++ nm ++ "_goal"
+                    Blif.addModel goalName iTypes SymBool $ \il -> do
+                      condVal <- Blif.mkSubckt condModel il
+                      simVal <- Blif.mkSubckt simModel il
+                      expVal <- Blif.mkSubckt expModel il
+                      Blif.mkImplication condVal
+                        =<< Blif.mkEquality tp simVal expVal
+              checks <- mapM addCheck (pvcChecks pvc)
+              Blif.addModel (pathname ++ "goal") iTypes SymBool $
+                joinModels checks
+            else do
+              let goalName = pathname ++ "goal"
+              Blif.addModel goalName iTypes SymBool $ \inputs -> do
+                Blif.mkNegation <$> Blif.mkSubckt condModel inputs
+        void $ Blif.addModel "all" iTypes SymBool $ \inputs ->
+          Blif.mkNegation <$> joinModels models inputs
+  putStrLn $ "Written to " ++ show nm ++ "."
+
+runValidation :: VerifyParams -> SymbolicRunHandler
+runValidation params de esd results = do
+  let ir = vpSpec params
+  let verb = verbose (vpOpts params)
+  let ps = esdInitialPathState esd
+  case specValidationPlan ir of
+    Skip -> error "internal: Unexpected call to runValidation with Skip"
+    GenBlif _ -> error "internal: Unexpected call to runValidation with GenBlif"
+    QuickCheck n lim -> do
+      forM_ results $ \pvc -> do
+        testRandom de verb ir (fromInteger n) (fromInteger <$> lim) pvc
+    RunVerify cmds -> do
+      forM_ results $ \pvc -> do
+        let mkVState nm cfn =
+              VState { vsVCName = nm
+                     , vsMethodSpec = ir
+                     , vsVerbosity = verb
+                     , vsRules = vpRules params
+                     , vsEnabledRules = vpEnabledRules params
+                     , vsEnabledOps = vpEnabledOps params
+                     , vsFromPC = esdStartPC esd
+                     , vsEvalContext = evalContextFromPathState de ps
+                     , vsInitialAssignments = pvcInitialAssignments pvc
+                     , vsCounterexampleFn = cfn
+                     , vsStaticErrors = pvcStaticErrors pvc
+                     }
+        if null (pvcStaticErrors pvc) then
+         forM_ (pvcChecks pvc) $ \vc -> do
+           let vs = mkVState (vcName vc) (vcCounterexample vc)
+           g <- deImplies de (pvcAssumptions pvc) =<< vcGoal de vc
+           when (verb >= 4) $ do
+             putStrLn $ "Checking " ++ vcName vc
+           runVerify vs g cmds
+        else do
+          let vsName = "an invalid path "
+                         ++ (case esdStartPC esd of
+                               0 -> ""
+                               pc -> " from pc " ++ show pc)
+                         ++ maybe "" (\pc -> " to pc " ++ show pc)
+                                  (pvcEndPC pvc)
+          let vs = mkVState vsName (\_ -> return $ vcat (pvcStaticErrors pvc))
+          g <- deImplies de (pvcAssumptions pvc) (mkCBool False)
+          when (verb >= 4) $ do
+            putStrLn $ "Checking " ++ vsName
+            print $ pvcStaticErrors pvc
+            putStrLn $ "Calling runVerify to disprove " ++ prettyTerm (pvcAssumptions pvc)
+          runVerify vs g cmds
+
 
 -- | Attempt to verify method spec using verification method specified.
-validateMethodSpec :: VerifyParams -> IO ()
+validateMethodSpec :: VerifyParams -> SymbolicRunHandler -> IO ()
 validateMethodSpec
     params@VerifyParams { vpCode = cb
                         , vpOpCache = oc
                         , vpSpec = ir
-                        } = do
+                        } 
+    handler = do
   let verb = verbose (vpOpts params)
   when (verb >= 2) $ putStrLn $ "Starting verification of " ++ specName ir
   let configs = [ (bs, cl)
@@ -1059,54 +1118,7 @@ validateMethodSpec
           esd <- initializeVerification ir bs cl
           res <- mkSpecVC params esd
           return (esd,res)
-    case specValidationPlan ir of
-      Skip -> error "internal: Unexpected call to validateMethodSpec with Skip"
-      QuickCheck n lim -> do
-        forM_ results $ \pvc -> do
-          testRandom de verb ir (fromInteger n) (fromInteger <$> lim) pvc
-      Blif mpath -> do
-        let path = case mpath of
-                     Just p -> p
-                     Nothing -> JSS.methodName (specMethod ir)
-        nm <- writeBlif de results path
-        putStrLn $ "Written to " ++ show nm ++ "."
-      Verify cmds -> do
-        forM_ results $ \pvc -> do
-          let ps = esdInitialPathState esd
-          let mkVState nm cfn =
-                VState { vsVCName = nm
-                       , vsMethodSpec = ir
-                       , vsVerbosity = verb
-                       , vsRules = vpRules params
-                       , vsEnabledRules = vpEnabledRules params
-                       , vsEnabledOps = vpEnabledOps params
-                       , vsFromPC = bsPC bs
-                       , vsEvalContext = evalContextFromPathState de ps
-                       , vsInitialAssignments = pvcInitialAssignments pvc
-                       , vsCounterexampleFn = cfn
-                       , vsStaticErrors = pvcStaticErrors pvc
-                       }
-          if null (pvcStaticErrors pvc) then
-           forM_ (pvcChecks pvc) $ \vc -> do
-             let vs = mkVState (vcName vc) (vcCounterexample vc)
-             g <- deImplies de (pvcAssumptions pvc) =<< vcGoal de vc
-             when (verb >= 4) $ do
-               putStrLn $ "Checking " ++ vcName vc
-             runVerify vs g cmds
-          else do
-            let vsName = "an invalid path "
-                           ++ (case pvcStartPC pvc of
-                                 0 -> ""
-                                 pc -> " from pc " ++ show pc)
-                           ++ maybe "" (\pc -> " to pc " ++ show pc)
-                                    (pvcEndPC pvc)
-            let vs = mkVState vsName (\_ -> return $ vcat (pvcStaticErrors pvc))
-            g <- deImplies de (pvcAssumptions pvc) (mkCBool False)
-            when (verb >= 4) $ do
-              putStrLn $ "Checking " ++ vsName
-              print $ pvcStaticErrors pvc
-              putStrLn $ "Calling runVerify to disprove " ++ prettyTerm (pvcAssumptions pvc)
-            runVerify vs g cmds
+    handler de esd results
 
 data VerifyState = VState {
          vsVCName :: String

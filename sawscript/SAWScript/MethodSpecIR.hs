@@ -835,8 +835,8 @@ data VerifyCommand
 data ValidationPlan
   = Skip
   | QuickCheck Integer (Maybe Integer)
-  | Blif (Maybe FilePath)
-  | Verify [VerifyCommand]
+  | GenBlif (Maybe FilePath)
+  | RunVerify [VerifyCommand]
   deriving (Show)
 
 checkRuleIsDefined :: MonadIO m => Pos -> String -> Set String -> m ()
@@ -919,7 +919,7 @@ resolveValidationPlan :: Set String -- ^ Names of rules in spec.
 resolveValidationPlan ruleNames mtc allBehaviors decls = 
   case [ (p,d) | AST.SpecPlan p d <- decls ] of
     [] -> return $ Skip
-    [(_,AST.Blif mpath)] -> return $ Blif mpath
+    [(_,AST.Blif mpath)] -> return $ GenBlif mpath
     [(_,AST.QuickCheck n mlimit)] -> return $ QuickCheck n mlimit
     [(_,AST.Verify cmds)] ->
        let initVTS = VTS { vtsMTC = mtc
@@ -927,7 +927,7 @@ resolveValidationPlan ruleNames mtc allBehaviors decls =
                          , vtsRuleNames = ruleNames
                          , vtsPC = Nothing
                          }
-        in Verify <$> evalStateT (resolveVerifyCommand cmds) initVTS
+        in RunVerify <$> evalStateT (resolveVerifyCommand cmds) initVTS
     _:(pos,_):_ ->
       let msg = "Multiple validation approaches set in method specification."
        in throwIOExecException pos (ftext msg) ""

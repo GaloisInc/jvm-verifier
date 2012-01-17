@@ -16,7 +16,7 @@ module SAWScript.Parser(parseSAW) where
 
 import SAWScript.MethodAST
 import SAWScript.Token
-import SAWScript.Utils
+import SAWScript.Utils hiding (Blif, Verify)
 import {-# SOURCE #-} SAWScript.ParserActions
 }
 

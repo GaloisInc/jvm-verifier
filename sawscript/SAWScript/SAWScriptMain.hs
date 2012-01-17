@@ -79,6 +79,12 @@ parseArgs = do popts <- CA.process m <$> getArgs
             , simverbose = 1     &= help "Simulator verbosity level, 0 is ultra quiet"
             , dump       = False &= help "Dump files after parsing, and stop"
             , entryPoint = def   &= typFile &= argPos 0
+            , ssMode       = enum [ Verify &= help "Run verification (default)"
+                                  , Blif &= explicit &= name "blif"
+                                         &= help "Generate BLIF files (bypass verification)"
+                                  , CBlif &= explicit &= name "cblif" 
+                                          &= help "Generate compressed BLIF files (bypass verification)"
+                                  ]
             }
             &= program "sawScript"
             &= summary ("sawScript v" ++ showVersion version ++ ". Copyright 2011 Galois, Inc. All rights reserved.")

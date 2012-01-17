@@ -67,6 +67,8 @@ instance Show Pos where
   show (Pos f l c)     = show f ++ ":" ++ show l ++ ":" ++ show c
   show (PosInternal s) = "[internal:" ++ s ++ "]"
 
+data SSMode = Verify | Blif | CBlif deriving (Eq, Show, Data, Typeable)
+
 data SSOpts = SSOpts {
          classpath  :: String
        , jars       :: String
@@ -74,6 +76,7 @@ data SSOpts = SSOpts {
        , simverbose :: Int
        , dump       :: Bool
        , entryPoint :: FilePath
+       , ssMode       :: SSMode
        } deriving (Show, Data, Typeable)
 
 verboseAtLeast :: Int -> SSOpts -> IO () -> IO ()
