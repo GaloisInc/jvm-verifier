@@ -585,22 +585,48 @@ abstract class NIST64 extends ECCProvider {
 
   // Underlying group scalar operations {{{3
 
+  private long group_red_aux(int[] r, int aj, int j, long c, long b) {
+    long m = c * (aj & LONG_MASK);
+    b += (r[j] & LONG_MASK) - (m & LONG_MASK);
+    r[j] = (int) b;
+    b = (b >> 32) - (m >>> 32);
+    return b;
+  }
+
   /**
    * Reduces bit vector (r + c * (2 ** 384)) modulo group_order
    */
   private void group_red(int[] r, long c) {
       long b = 0;
       for (int j = 0; j != r.length; ++j) {
-        long m = c * (group_order[j] & LONG_MASK);
-        b += (r[j] & LONG_MASK) - (m & LONG_MASK);
-        r[j] = (int) b;
-        b = (b >> 32) - (m >>> 32);
+        b = group_red_aux(r, group_order[j], j, c, b);
       }
 
       c += b;
-      while (c > 0) {
+      if (c != 0) {
         c += sub(r, r, group_order);
       }
+      if (c != 0) {
+        c += sub(r, r, group_order);
+      }
+  }
+
+  private long array_shift(int[] r) {
+    int l = r.length;
+    long c = r[l - 1] & LONG_MASK;
+    for (int j = l-1; j != 0; --j) {
+      r[j] = r[j-1];
+    }
+    r[0] = 0;
+    return c;
+  }
+
+  private long group_mul_aux(int[] r, int yj, int j, int xi, long c) {
+    long m = (xi & LONG_MASK) * (yj & LONG_MASK);
+    c += (r[j] & LONG_MASK) + (m & LONG_MASK);
+    r[j] = (int) c;
+    c = (c >>> 32) + (m >>> 32);
+    return c;
   }
 
   /**
@@ -611,29 +637,20 @@ abstract class NIST64 extends ECCProvider {
 
     set_zero(r);
     for (int i = l - 1; i != -1; --i) {
-      long xi = x[i] & LONG_MASK;
+      group_red(r, array_shift(r));
 
-      //System.out.print("r1: "); print(r);
-      long c = r[l - 1] & LONG_MASK;
-      for (int j = l-1; j != 0; --j) {
-        r[j] = r[j-1];
-      }
-      r[0] = 0;
-      group_red(r, c);
-
-      c = 0;
+      long c = 0;
       for (int j = 0; j != l; ++j) {
-        long m = xi * (y[j] & LONG_MASK);
-        c += (m & LONG_MASK) + (r[j] & LONG_MASK);
-        r[j] = (int) c;
-        c = (c >>> 32) + (m >>> 32);
+        c = group_mul_aux(r, y[j], j, x[i], c);
       }
 
       group_red(r, c);
     }
+    /*
     if (leq(group_order, r)) {
       sub(r, r, group_order);
     }
+    */
   }
 }
 

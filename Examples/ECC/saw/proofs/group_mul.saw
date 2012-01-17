@@ -3,9 +3,12 @@ import "rules.saw";
 
 set verification off;
 import "set_zero.saw";
-import "add.saw";
-import "leq.saw";
 import "group_red.spec";
+import "array_shift.saw";
+import "group_mul_aux.spec";
+import "leq.saw";
+import "sub.saw";
 set verification on;
 
+enable ref_group_mul;
 import "group_mul.spec";

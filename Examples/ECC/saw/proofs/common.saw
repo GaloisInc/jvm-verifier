@@ -20,10 +20,14 @@ let basePointY = join(
   ]);
 let basePoint = { x = basePointX ; y = basePointY };
 
-let ref_aset(a:[768], i:[32], x:[32]) : [768] =
+let ref_aset_384(a:[384], i:[32], x:[32]) : [384] =
+  join(aset(split(a):[12][32], i ,x)) : [384];
+
+let ref_aset_768(a:[768], i:[32], x:[32]) : [768] =
   join(aset(split(a):[24][32], i ,x)) : [768];
 
-pragma ref_aset : SBV "aset";
+pragma ref_aset_384 : SBV "aset_384";
+pragma ref_aset_768 : SBV "aset_768";
 
 extern SBV ref_mul_java_inner("../spec/sbv/generated/mul_java_inner.sbv") :
   ([32], [768], [32], [32], [32], [64]) -> { mji_a : [768]; mji_d : [64]};
@@ -52,6 +56,18 @@ extern SBV ref_incFieldPrime("../spec/sbv/generated/p384_incFieldPrime.sbv")
 extern SBV ref_decFieldPrime("../spec/sbv/generated/p384_decFieldPrime.sbv") 
   : [384] -> { carry : [32]; rslt : [384] };
 extern SBV ref_field_mod("../spec/sbv/generated/p384_field_mod.sbv") : [768] -> [384];
+
+extern SBV ref_group_red_aux("../spec/sbv/generated/group_red_aux_java.sbv")
+  : ([384], [32], [32], [64], [64]) -> { gra_r : [384] ; gra_b : [64] };
+
+extern SBV ref_group_red("../spec/sbv/generated/p384_group_red.sbv")
+  : ([384], [384], [64]) -> [384];
+
+extern SBV ref_group_mul_aux("../spec/sbv/generated/group_mul_aux_java.sbv")
+  : ([384], [32], [32], [32], [64]) -> { gra_r : [384] ; gra_b : [64] };
+
+extern SBV ref_group_mul("../spec/sbv/generated/p384_group_mul.sbv")
+  : ([384], [384], [384]) -> [384];
 
 extern SBV ref_group_add("../spec/sbv/generated/p384_group_add.sbv")    : ([384],[384]) -> [384];
 extern SBV ref_mod_half("../spec/sbv/generated/p384_mod_half.sbv") : ([384], [384]) -> [384];

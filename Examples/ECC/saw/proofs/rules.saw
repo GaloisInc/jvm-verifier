@@ -172,6 +172,16 @@ rule mji_d :
   forAll { a0 : a, d0 : b }.
       { mji_a = a0 ; mji_d = d0 }.mji_d -> d0;
 
+/*
+rule gra_r :
+  forAll { r0 : a, b0 : b }.
+      { gra_r = r0 ; gra_b = b0 }.gra_r -> r0;
+
+rule gra_b :
+  forAll { r0 : a, b0 : b }.
+      { gra_r = r0 ; gra_b = b0 }.gra_b -> b0;
+*/
+
 ////
 
 rule trunc_shift_get : forAll {x:[384], s:[9]}.
