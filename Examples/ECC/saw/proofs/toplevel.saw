@@ -109,7 +109,6 @@ disable ref_field_mul;
 disable ref_field_sq;
 disable ref_mod_add;
 disable ref_mod_sub;
-disable ref_mod_mul;
 disable ref_mod_div;
 disable ref_ec_double;
 disable ref_ec_full_add;

@@ -11,7 +11,6 @@ pragma p384_field_sq   : SBV uninterpret;
 /* Uninterpret ops used by group field. */
 pragma p384_mod_add  : SBV uninterpret;
 pragma p384_mod_sub  : SBV uninterpret;
-pragma p384_mod_mul  : SBV uninterpret;
 pragma p384_mod_half : SBV uninterpret;
 pragma p384_group_mul : SBV uninterpret;
 
