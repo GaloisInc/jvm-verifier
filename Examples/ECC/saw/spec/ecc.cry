@@ -233,7 +233,7 @@ p384_group_mul(order, x, y) = r'
                where {
                  r0 : [384];
                  r0 = p384_group_red(order,
-                                     ro << 32,
+                                     ro << (32 : [9]),
                                      uext(drop(384 - 32, ro)));
                  inner = [ (r0, 0) ] #
                          [| (res.gra_r, res.gra_b)
@@ -245,15 +245,15 @@ p384_group_mul(order, x, y) = r'
                          |];
                  (rn, cn) = inner!0;
                }
-            || i <- [11..0]
+            || i <- reverse [0..11]
             || ro <- outer
             |];
     r = outer!0;
-    r' = r; //if order <= r then r - order else r;
+    r' = if order <= r then r - order else r;
   };
 
-theorem group_mul_good: {o x y}.
-  p384_group_mul(o, x, y) == mod_mul(o, x, y);
+theorem group_mul_good: {x y}.
+  p384_group_mul(p384_group_size, x, y) == mod_mul(p384_group_size, x, y);
 
 /* Returns module reduction on input. */
 safe_mod : {a b} (fin a, fin b) => ([b],[a]) -> [b];

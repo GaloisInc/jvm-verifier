@@ -41,7 +41,10 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 :fm p384_field_mod     "generated/p384_field_mod.sbv"
 :fm p384_group_add     "generated/p384_group_add.sbv"
 :fm p384_group_red     "generated/p384_group_red.sbv"
+:load sbv_uninterpret_group_red.cry
+:set sbv_strictWords=True
 :fm p384_group_mul     "generated/p384_group_mul.sbv"
+:set sbv_strictWords=False
 
 :load sbv_uninterpret_field_mod.cry
 :fm p384_is_field_val "generated/p384_is_field_val.sbv"
