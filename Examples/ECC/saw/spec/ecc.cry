@@ -36,8 +36,6 @@ mul_java_inner (azero, a, ij, xi, yj, d) = { mji_a = a'; mji_d = d' >> 32 }
     aij      = if azero == 0 then take(32, a >> (ij * 32)) else 0;
   };
 
-theorem mul_good: {a x y}. mul_java(a, x,y) == safe_product(x,y);
-
 aset : {n is} (fin n,fin is,n >= is, is >= lg2 n, n >= 32, is >= max(lg2 n, 6)) =>
               ([n], [is], [is]) -> [n];
 aset (a, i, x) = (a & imask) | x'
@@ -176,8 +174,6 @@ sq_java (a0, x) = ad_final_final
     ad_final_final = aset_768(a_final_final, (l << 1) - 1, take(32, d_final_final));
   };
 
-theorem sq_good: {a x}. sq_java(a, x) == safe_product(x,x);
-
 java_lashr32 : [64] -> [64];
 java_lashr32 x = drop(32, x # (if x!0 then ~(zero : [32]) else (zero : [32])));
 
@@ -233,7 +229,7 @@ p384_group_mul(order, x, y) = r'
                where {
                  r0 : [384];
                  r0 = p384_group_red(order,
-                                     ro << 32,
+                                     ro << (32 : [9]),
                                      uext(drop(384 - 32, ro)));
                  inner = [ (r0, 0) ] #
                          [| (res.gra_r, res.gra_b)
@@ -245,15 +241,12 @@ p384_group_mul(order, x, y) = r'
                          |];
                  (rn, cn) = inner!0;
                }
-            || i <- [11..0]
+            || i <- reverse [0..11]
             || ro <- outer
             |];
     r = outer!0;
-    r' = r; //if order <= r then r - order else r;
+    r' = if order <= r then r - order else r;
   };
-
-theorem group_mul_good: {o x y}.
-  p384_group_mul(o, x, y) == mod_mul(o, x, y);
 
 /* Returns module reduction on input. */
 safe_mod : {a b} (fin a, fin b) => ([b],[a]) -> [b];
@@ -610,9 +603,6 @@ test_params =
 //  (0x6250471849e0c0eb47e9cf2c8e04c9ad0745e358d1cf11fb53e178a3c5b301b5f9e7f62e61c8f2113615cc4ff9927f9b, {x=0x005255b811499293ea986c66b4698e0748284d391130afd3f9febbc71ef3b39fe13a3deaa1489d817b885edf270b1bf6; y=0xc9a1dcdb74a4ae432edea47750d754d918b2f1fd8d9ee612b4f0cf2bebcb0eeef43ef5d0ce90cb75362bd2cfe69bffad}, 0xd9e8d87abffb84c0c06fe47396aa84871f08420561a7d8cc64fef7796fc0ca9a5406a37a054cc8cd57e26a3a7249fdb3, {x=0x8da95367d9e731f86adda9bfae6ff170cf090be5223f3b33c0d7c6c585bfc1330137d237fdc16bd432797a1da1dfa331; y=0x114d8b24d75d0149603aa6eab6ccec1cd83f5baaca7898dd6edd7c2ca91176893102b9fe129a09f9fdb208e18be46d16});
   (0xe74872524f90425d832a4f264e1f7b9209ec7456e9b4c467d8eac6c68f973ea7fea24f4d3fa8498bb1e26f933eaa261b, {x=0xbbab93c429707b2afe9ac285314d7b40c4ee31531b13291aa9058307cdd038b572fdf2f3a84dc912804fa426fe531a3c; y=0x4c2cffaa333bfd82b575918bb979bf51480c836082c097a03fed5454877b37d2f44f0401d212c16b05052bd383047b31}, 0xd4356773f2b311955542c5835696b9dca9d0e59197d5746bbf7dc079a666d955f74114662e38d31196bf94b060cc0c80, {x=0xd40c63c65b413d0741c56e884f0dca63b822a6f6879d36f9261d9b4a270d5d79a9be790fdfb871b5d6ae9204da692663; y=0x4d6b2b937c85b3c0c3cd2df85e9307cc89e0093f336af3b4531aa126bbdbec466562d8aa0dc1cf360fc1f1d0951e3ad1});
 
-//theorem p384_ec_twin_mul_candidate2_ok: {x p y q}. ok1 & ok2 & ok3 where (_, ok1, ok2, ok3) = p384_ec_twin_mul_candidate2(x,p,y,q);
-// theorem p384_ec_twin_mul_candidate2_good: {x p y q}. p384_ec_twin_mul(x,p,y,q) == p384_ec_twin_mul_candidate2(x,p,y,q);
-
 p384_ec_twin_mul_aux_F32 : [32] -> [32];
 p384_ec_twin_mul_aux_F32 = p384_ec_twin_mul_aux_F;
 
@@ -689,16 +679,7 @@ p384_ec_twin_mul_aux2 (c0, c1, e0, e1, sh, d0i, d1i, dv1, dv2) =
                     else (e0, e1, sh-1);
   };
 
-//theorem p384_ec_twin_mul_candidate3_ok : {x p y q}. 
-//  p384_ec_twin_mul(x,p,y,q) == ec_twin_mul(p384_point_ops,x,p,y,q);
-
-//theorem p384_ec_twin_mul_candidate3_ok : {x p y q}. 
-//  p384_ec_twin_mul_candidate3(x,p,y,q) == p384_ec_twin_mul(x,p,y,q);
-//p384_ec_twin_mul : ([384], AffinePoint [384], [384], AffinePoint [384]) -> (JacobianPoint [384]);
-//p384_ec_twin_mul(x,p,y,q) = ec_twin_mul(p384_point_ops, x, p, y, q);
-
 /* Matches Java implementation */
-//p384_ec_twin_mul_candidate3(d0, s, d1, t) = 
 p384_ec_twin_mul(d0, s, d1, t) = 
   if s.x == t.x then i.r else (jj_r where (jj_r, _, _, _, _, _) = jj!0)
   where {
@@ -859,9 +840,6 @@ p384_ec_twin_mul_candidate2(d0, s, d1, t) =
         |];
 
  };
-
-//theorem ec_twin_mul_with_aux1_ok : {x p y q}. 
-//  ec_twin_mul_orig(p384_point_ops, x, p, y, q) == p384_ec_twin_mul(x, p, y, q);
 
 /* Return d0 * S + d1 * T. All points projective, 0 <= d0, d1 < p. */
 ec_twin_mul_orig : {fv gv} (fin gv, gv >= 4) 
@@ -1204,7 +1182,7 @@ p384_group_field = {
     add        = \(x,y) -> p384_mod_add(p384_group_size, x, y);
     sub        = \(x,y) -> p384_mod_sub(p384_group_size, x, y);
     neg        = \x     -> mod_neg(p384_group_size, x);
-    mul        = \(x,y) -> p384_mod_mul(p384_group_size, x, y);
+    mul        = \(x,y) -> p384_group_mul(p384_group_size, x, y);
     sq         = \x     -> mod_mul(p384_group_size, x, x);
     half       = \x     -> mod_half(p384_group_size, x);
     div        = \(x,y) -> p384_mod_div(p384_group_size, x, y);
@@ -1457,9 +1435,6 @@ p384_ec_mul_window_top (d, s) = p384_ec_mul_window (d, s, s3, s5)
     s3 = p384_affinify(s3j);
     s5 = p384_affinify(s5j);
   };
-
-theorem p384_ec_mul_window_ok: {d s}.
-  p384_ec_mul_window_top (d, s) == p384_ec_mul(d, s);
 
 p384_group_add : ([384],[384]) -> [384];
 p384_group_add = p384_group_field.add;

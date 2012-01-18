@@ -13,6 +13,7 @@ pragma p384_mod_add  : SBV uninterpret;
 pragma p384_mod_sub  : SBV uninterpret;
 pragma p384_mod_mul  : SBV uninterpret;
 pragma p384_mod_half : SBV uninterpret;
+pragma p384_group_mul : SBV uninterpret;
 
 /* Uninterpret modular division. */
 pragma p384_mod_div  : SBV uninterpret;

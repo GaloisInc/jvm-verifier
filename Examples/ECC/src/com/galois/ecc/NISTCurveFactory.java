@@ -646,11 +646,9 @@ abstract class NIST64 extends ECCProvider {
 
       group_red(r, c);
     }
-    /*
     if (leq(group_order, r)) {
       sub(r, r, group_order);
     }
-    */
   }
 }
 
