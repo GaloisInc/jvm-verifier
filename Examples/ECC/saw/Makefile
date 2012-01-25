@@ -23,6 +23,7 @@ make_sbvs:
 
 PROOFS :=                 \
   add.saw                 \
+  array_shift.saw         \
   assign.saw              \
   decFieldPrime.saw       \
   ec_double.saw           \
@@ -49,6 +50,10 @@ PROOFS :=                 \
   field_sq.saw            \
   field_sub.saw           \
   group_add.saw           \
+  group_mul.saw           \
+  group_mul_aux.saw       \
+  group_red.saw           \
+  group_red_aux.saw       \
   incFieldPrime.saw       \
   is_equal.saw            \
   is_zero.saw             \

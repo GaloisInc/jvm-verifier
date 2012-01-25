@@ -149,11 +149,6 @@ extern SBV ref_ec_mul_window ("../spec/sbv/generated/p384_ec_mul_window.sbv") :
    {x : [384]; y : [384]}) -> {x : [384];  y : [384];  z : [384]};
 */
 
-let ref_mod_mul(p:[384], x:[384], y:[384]) : [384] =
-  trunc(((x # 0:[384]) * (y # 0:[384])) %s (p # 0:[384])) : [384];
-
-pragma ref_mod_mul : SBV "p384_mod_mul"; // Declares that "ref_mul" is "mod_mul" in Cryptol.
-
 extern SBV ref_ecdsa_sign("../spec/sbv/generated/p384_ecdsa_sign.sbv") :
   ([384], [384], [384]) -> { r:[384]; s:[384] };
 

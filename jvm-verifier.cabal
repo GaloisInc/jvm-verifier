@@ -51,7 +51,7 @@ library
     , mtl == 2.0.*
     , pretty
     , vector >= 0.7
-    , zlib
+    , zlib == 0.5.3.1
     , Verinf >= 0.2
     , random
 
@@ -102,7 +102,7 @@ executable jss
     , parsec >= 2.1.0.1
     , pretty
     , vector >= 0.7
-    , zlib
+    , zlib == 0.5.3.1
     , Verinf
     
   hs-source-dirs   : src
@@ -156,7 +156,7 @@ executable sawScript
     , random
     , smtLib
     , vector >= 0.7
-    , zlib
+    , zlib == 0.5.3.1
     , Verinf
 
   build-tools:
@@ -207,7 +207,7 @@ executable Tests
     , process
     , random >= 1.0.1.0
     , vector >= 0.7
-    , zlib
+    , zlib == 0.5.3.1
     , QuickCheck >= 2.1.2
     , Verinf
 
@@ -237,7 +237,7 @@ executable ExampleAIG
     , pretty
     , random >= 1.0.1.0
     , vector >= 0.7
-    , zlib
+    , zlib == 0.5.3.1
     , QuickCheck >= 2.1.2
     , Verinf
 
