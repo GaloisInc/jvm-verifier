@@ -673,10 +673,10 @@ public abstract class ECCProvider {
     private void ec_mul_window_finish(JacobianPoint r, int j, int hi, int ki, AffinePoint s) {
     if (j == 1) {
       ec_double(r);
-      if ((hi & 2) != 0 && (ki & 3) == 0) {
+      if ((hi & 2) != 0 && (ki & 4) == 0) {
         ec_full_add(r, s);
         ec_double(r);
-      } else if ((hi & 2) == 0 && (ki & 3) != 0) {
+      } else if ((hi & 2) == 0 && (ki & 4) != 0) {
         ec_full_sub(r, s);
         ec_double(r);
       } else {
