@@ -1,0 +1,6 @@
+import "common.saw"; 
+import "rules.saw";
+
+enable ref_aset_384;
+enable ref_group_mul_aux;
+import "group_mul_aux.spec";

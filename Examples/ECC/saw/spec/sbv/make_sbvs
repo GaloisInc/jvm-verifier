@@ -21,9 +21,12 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 :fm mul_java_inner     "generated/mul_java_inner.sbv"
 :fm sq_java_inner1     "generated/sq_java_inner1.sbv"
 :fm sq_java_inner2     "generated/sq_java_inner2.sbv"
-:fm aset               "generated/aset.sbv"
+:fm aset_384           "generated/aset_384.sbv"
+:fm aset_768           "generated/aset_768.sbv"
 
 :load sbv_uninterpret_mul_inner.cry
+:fm group_red_aux_java "generated/group_red_aux_java.sbv"
+:fm group_mul_aux_java "generated/group_mul_aux_java.sbv"
 :fm sq_java_loop       "generated/sq_java_loop.sbv"
 
 :load sbv_uninterpret_sq_loop.cry
@@ -37,6 +40,11 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 :fm p384_decFieldPrime "generated/p384_decFieldPrime.sbv"
 :fm p384_field_mod     "generated/p384_field_mod.sbv"
 :fm p384_group_add     "generated/p384_group_add.sbv"
+:fm p384_group_red     "generated/p384_group_red.sbv"
+:load sbv_uninterpret_group_red.cry
+:set sbv_strictWords=True
+:fm p384_group_mul     "generated/p384_group_mul.sbv"
+:set sbv_strictWords=False
 
 :load sbv_uninterpret_field_mod.cry
 :fm p384_is_field_val "generated/p384_is_field_val.sbv"
@@ -45,7 +53,6 @@ cryptol +RTS -H128m -K64m -RTS << EndScript
 :fm p384_field_neg    "generated/p384_field_neg.sbv"
 :fm p384_field_mul    "generated/p384_field_mul.sbv"
 :fm p384_field_sq     "generated/p384_field_sq.sbv"
-:fm p384_mod_mul      "generated/p384_mod_mul.sbv"
 
 :load sbv_uninterpret_field_ops.cry
 :fm p384_jacobify    "generated/p384_ec_jacobify.sbv"

@@ -8,6 +8,6 @@ import "sq_inner1.spec";
 import "sq_inner2.spec";
 set verification on;
 
-enable ref_aset;
+enable ref_aset_768;
 enable ref_sq_java;
 import "sq.qcspec";

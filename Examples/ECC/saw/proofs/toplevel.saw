@@ -17,7 +17,7 @@ import "sub.saw";
 import "mul_inner.spec";
 
 enable ref_mul_java;
-enable ref_aset;
+enable ref_aset_768;
 import "mul.spec";
 disable ref_mul_java;
 
@@ -43,14 +43,32 @@ import "incFieldPrime.spec";
 
 enable ref_mod_half;
 import "mod_half.spec";
+disable ref_mod_half;
+
 enable ref_mod_add;
 import "group_add.spec";
 enable ref_mod_sub;
 import "mod_sub.spec";
-enable ref_mod_mul;
-import "group_mul.spec";
-disable ref_mod_half;
 disable ref_mod_sub;
+
+enable ref_aset_384;
+enable ref_group_red_aux;
+import "group_red_aux.spec";
+disable ref_group_red_aux;
+
+enable ref_group_red;
+import "group_red.spec";
+disable ref_group_red;
+
+enable ref_group_mul_aux;
+import "group_mul_aux.spec";
+disable ref_group_mul_aux;
+
+enable ref_group_mul;
+import "array_shift.saw";
+import "group_mul.spec";
+disable ref_group_mul;
+
 enable even;
 enable ref_mod_div;
 import "mod_div.spec";
@@ -91,7 +109,6 @@ disable ref_field_mul;
 disable ref_field_sq;
 disable ref_mod_add;
 disable ref_mod_sub;
-disable ref_mod_mul;
 disable ref_mod_div;
 disable ref_ec_double;
 disable ref_ec_full_add;

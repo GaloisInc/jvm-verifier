@@ -4,4 +4,5 @@ include "../ecc.cry";
 pragma mul_java_inner : SBV uninterpret;
 pragma sq_java_inner1 : SBV uninterpret;
 pragma sq_java_inner2 : SBV uninterpret;
-pragma aset : SBV uninterpret;
+pragma aset_384 : SBV uninterpret;
+pragma aset_768 : SBV uninterpret;
