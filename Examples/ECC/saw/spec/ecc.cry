@@ -927,6 +927,10 @@ type Curve (fv,gv) = {
     twin_mul : (gv, AffinePoint fv, gv, AffinePoint fv) -> JacobianPoint fv;
   };
 
+/* Create a public key from a private key */
+initialize_public_key : {fv} (Curve ([fv], [fv]), [fv]) -> AffinePoint [fv];
+initialize_public_key(c, k) = c.affinify(c.mul(k, c.base));
+
 /**
  * Reference ECDSA signature algorithm as formalized from [ANSI X9.62-2005, pg 8]
  * Parameters:
