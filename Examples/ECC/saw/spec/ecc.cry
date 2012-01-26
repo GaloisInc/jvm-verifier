@@ -1360,9 +1360,9 @@ p384_ec_mul_window_finish(j, r, hi, ki, s) =
     where {
       r2 = p384_ec_double(r);
       r4 = p384_ec_double(r2);
-      r1 = if      ((hi & 2) != 0) & ((ki & 3) == 0) then
+      r1 = if      ((hi & 2) != 0) & ((ki & 4) == 0) then
              p384_ec_double(p384_ec_full_add(r2, s))
-           else if ((hi & 2) == 0) & ((ki & 3) != 0) then
+           else if ((hi & 2) == 0) & ((ki & 4) != 0) then
              p384_ec_double(p384_ec_full_sub(r2, s))
            else if ((hi & 1) != 0) & ((ki & 2) == 0) then
              p384_ec_full_add(r4, s)
