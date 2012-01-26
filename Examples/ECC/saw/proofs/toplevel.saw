@@ -120,7 +120,7 @@ enable ref_ec_mul_aux;
 import "ec_mul_aux.spec";
 enable ref_ec_mul;
 import "ec_mul.spec";
-import "ec_mul_window.qcspec";
+//import "ec_mul_window.qcspec";
 
 disable ref_ec_mul;
 

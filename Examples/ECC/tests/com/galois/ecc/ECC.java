@@ -6,6 +6,7 @@ Point-of-contact : jhendrix
 */
 
 package com.galois.ecc;
+import java.util.Random;
 
 /**
  * Code for testing ECC Implementation.
@@ -19,6 +20,12 @@ public final class ECC {
     }
 
     System.out.println();
+  }
+
+  static void randomIntArray(Random r, int[] x) {
+    for (int i = 0; i != x.length; ++i) {
+      x[i] = r.nextInt(); 
+    }
   }
 
   public static void main(String [] args) {
@@ -35,21 +42,37 @@ public final class ECC {
          0x1e73cb0e, 0x62b1332d, 0x459da98e, 0xebab4167, 0x68ada415, 0x85dda827,
          0x9cb6f923, 0xae4d89e6, 0xc23997e1, 0xb3be971c, 0x1bbd23f2, 0xfba203b8 };
 
+    Random r = new Random(42);
+    
     // Create object for storing signature.
     Signature sig = new Signature(12);
 
     // Create public key
     PublicKey pubKey = new PublicKey(12);
-    ecc.initializePublicKey(pubKey, d);
+
+    int totalRuns = 1000;
 
     long start = System.currentTimeMillis();
-    for (int i = 0; i != 1000; ++i) {
-      ecc.signHash(sig, d, e, k);
-      boolean b = ecc.verifySignature(e, sig, pubKey);
-      if (!b) System.out.println("Failed!");
+    for (int i = 0; i != totalRuns; ++i) {
+      randomIntArray(r,d);
+      randomIntArray(r,e);
+      randomIntArray(r,k);
+      ecc.initializePublicKey(pubKey, d);
+            
+      boolean b = ecc.signHash(sig, d, e, k);
+      if (!b) {
+        System.out.println("signHash failed (this has very low probability)");
+        continue;
+      }
+
+      b = ecc.verifySignature(e, sig, pubKey);
+      if (!b) {
+        System.out.println("verifySignature failed (this is a bug)");
+        break;
+      }
     }
 
     long end = System.currentTimeMillis();
-    System.out.println(String.format("Total time (1000 sign/verify pairs): %dmsec", end - start));
+    System.out.println(String.format("Total time (%d sign/verify pairs): %dmsec", totalRuns, end - start));
   }
 }

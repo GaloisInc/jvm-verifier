@@ -2,7 +2,7 @@ import "common.saw";
 import "rules.saw";
 
 set verification off;
-import "ec_mul_window.qcspec";
+import "ec_mul.spec";
 import "mod_div.spec";
 import "field_sq.spec";
 import "field_mul.spec";

@@ -1175,8 +1175,8 @@ public abstract class ECCProvider {
     if (leq(group_order, ephemeralKey))
       throw new IllegalArgumentException("ephemeralKey must be less than group order.");
 
-    //ec_mul(rP, ephemeralKey, basePoint);
-    ec_mul_window(rP, ephemeralKey, basePoint, basePoint3, basePoint5);
+    ec_mul(rP, ephemeralKey, basePoint);
+    //ec_mul_window(rP, ephemeralKey, basePoint, basePoint3, basePoint5);
 
     int[] r = signature.r;
 
@@ -1242,7 +1242,8 @@ public abstract class ECCProvider {
     if (leq(group_order, privateKey))
       throw new IllegalArgumentException("privateKey must be less than group order.");
 
-    ec_mul_window(rP, privateKey, basePoint, basePoint3, basePoint5);
+    ec_mul(rP, privateKey, basePoint);
+    //ec_mul_window(rP, privateKey, basePoint, basePoint3, basePoint5);
 
     mod_div(publicKey.x, field_unit, rP.z, field_prime); // publicKey.x = 1 / rP.z
     field_mul(publicKey.y, rP.y, publicKey.x); // publicKey.y = rP.y / rP.z
