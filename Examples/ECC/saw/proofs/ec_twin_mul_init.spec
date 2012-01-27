@@ -21,12 +21,6 @@ method com.galois.ecc.P384ECC64.ec_twin_mul_init
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   assert valueOf(this.field_unit)  := split(1 : [384])   : [12][32];
   assert valueOf(this.group_order) := split(group_order) : [12][32];
-  let zero = split(0 : [384]) : [12][32];
-  assert valueOf(sPt.x) := zero;
-  assert valueOf(sPt.y) := zero;
-  assert valueOf(sMt.x) := zero;
-  assert valueOf(sMt.y) := zero;
-  assert valueOf(this.group_order) := split(group_order) : [12][32];
 
   let res =
     ref_ec_twin_mul_init( join(valueOf(d0))
@@ -45,7 +39,7 @@ method com.galois.ecc.P384ECC64.ec_twin_mul_init
   ensure valueOf(sMt.x) := split(res.sMt.x) : [12][32];
   ensure valueOf(sMt.y) := split(res.sMt.y) : [12][32];
 
-  return if special then 1 : [32] else 0 : [32];
+  return special;
 
   modify valueOf(sPtP.x);
   modify valueOf(sPtP.y);

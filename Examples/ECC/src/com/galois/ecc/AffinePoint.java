@@ -1,8 +1,10 @@
 /*
 Module           : AffinePoint.java
-Description      : 
+Description      : Provides an internal representation of affine points.
 Stability        : provisional
 Point-of-contact : jhendrix
+
+Copyright 2012 Galois, Inc.  All rights reserved.
 */
 package com.galois.ecc;
 

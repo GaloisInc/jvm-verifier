@@ -1,3 +1,11 @@
+/*
+Module           : Signature.java
+Description      :
+Stability        : provisional
+Point-of-contact : atomb
+
+Copyright 2012 Galois, Inc.  All rights reserved.
+*/
 package com.galois.ecc;
 
 class TwinMulAux2Rslt {

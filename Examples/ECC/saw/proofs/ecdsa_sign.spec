@@ -40,6 +40,17 @@ method com.galois.ecc.P384ECC64.signHash
   var this.basePoint5           :: com.galois.ecc.AffinePoint;
   var this.basePoint5.x         :: int[12];
   var this.basePoint5.y         :: int[12];
+  var this.aux2Rslt             :: com.galois.ecc.TwinMulAux2Rslt;
+  var this.aux2Rslt.u0          :: int;
+  var this.aux2Rslt.u1          :: int;
+  var this.aux2Rslt.c0p         :: int;
+  var this.aux2Rslt.c1p         :: int;
+  var this.aux2Rslt.e0p         :: int;
+  var this.aux2Rslt.e1p         :: int;
+  var this.aux2Rslt.shp         :: int;
+  var this.qPoint               :: com.galois.ecc.AffinePoint;
+  var this.qPoint.x             :: int[12];
+  var this.qPoint.y             :: int[12];
 
   let b3 = {
     x = 0x077a41d4606ffa1464793c7e5fdc7d98cb9d3910202dcd06bea4f240d3566da6b408bbae5026580d02d7e5c70500c831 : [384];
@@ -95,6 +106,15 @@ method com.galois.ecc.P384ECC64.signHash
   ensure valueOf(this.sPt.y)  := split(0 : [384]) : [12][32];
   ensure valueOf(this.sMt.x)  := split(0 : [384]) : [12][32];
   ensure valueOf(this.sMt.y)  := split(0 : [384]) : [12][32];
+  ensure this.aux2Rslt.u0  := 0:[32];
+  ensure this.aux2Rslt.u1  := 0:[32];
+  ensure this.aux2Rslt.c0p := 0:[32];
+  ensure this.aux2Rslt.c1p := 0:[32];
+  ensure this.aux2Rslt.e0p := 0:[32];
+  ensure this.aux2Rslt.e1p := 0:[32];
+  ensure this.aux2Rslt.shp := 0:[32];
+  ensure valueOf(this.qPoint.x) := split(0 : [384]) : [12][32];
+  ensure valueOf(this.qPoint.y) := split(0 : [384]) : [12][32];
 
   modify valueOf(this.a);
   modify valueOf(hashValue);

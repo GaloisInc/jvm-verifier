@@ -3,6 +3,8 @@ Module           : ECCProvider.java
 Description      :
 Stability        : provisional
 Point-of-contact : jhendrix
+
+Copyright 2012 Galois, Inc.  All rights reserved.
 */
 
 package com.galois.ecc;
@@ -139,6 +141,14 @@ public abstract class ECCProvider {
     sMtP.clear();
     sPt.clear();
     sMt.clear();
+    aux2Rslt.u0 = 0;
+    aux2Rslt.u1 = 0;
+    aux2Rslt.c0p = 0;
+    aux2Rslt.c1p = 0;
+    aux2Rslt.e0p = 0;
+    aux2Rslt.e1p = 0;
+    aux2Rslt.shp = 0;
+    qPoint.clear();
   }
 
   // Static large word operations {{{2
@@ -826,6 +836,11 @@ public abstract class ECCProvider {
     }
   }
 
+  /*
+   * Performs initialization step of twin multiplication.  As a side effect, this function uses
+   * the fields of <code>sPtP</code>, <code>sMtP/code>, <code>sPt</code>, and <code>sMt</code>
+   * as temporary buffers that are overwritten.
+   */
   private boolean ec_twin_mul_init(JacobianPoint r,
                                    int[] d0, AffinePoint s,
                                    int[] d1, AffinePoint t,
@@ -843,6 +858,11 @@ public abstract class ECCProvider {
         mod_sub(t0, d0, d1, group_order);
         ec_mul(r, t0, s);
       }
+      // Verification workaround to ensure sPt and sMt coordinates are always defined.
+      set_zero(sPt.x);
+      set_zero(sPt.y);
+      set_zero(sMt.x);
+      set_zero(sMt.y);
       return true;
     }
 
@@ -880,7 +900,9 @@ public abstract class ECCProvider {
   /**
    * Assigns r = d0 * s + d1 * t.  As a side effect, this function uses
    * <code>h</code>, <code>t1</code>, <code>t2</code>
-   * and <code>t3</code> as temporary buffers that are overwritten.
+   * <code>t3</code> and the fields of <code>sPtP</code>
+   * <code>sMtP</code>, <code>sPt</code>, and <code>sMt</code>
+   * as temporary buffers that are overwritten.
    *
    * @param r Point to store result in.
    * @param d0 First scalar multiplier.
@@ -1269,7 +1291,6 @@ public abstract class ECCProvider {
     if (hashValue == null) throw new NullPointerException("hashValue");
     if (hashValue.length != width)
        throw new IllegalArgumentException("hashValue has incorrect size.");
-    if (leq(group_order, hashValue)) sub(hashValue, hashValue, group_order);
 
     if (signature == null) throw new NullPointerException("signature");
     if (signature.r.length != width)
@@ -1288,8 +1309,12 @@ public abstract class ECCProvider {
       return false;
     }
 
+    // Store normalized hash value in u2.
+    assign(u2,hashValue);
+    if (leq(group_order, u2)) sub(u2, u2, group_order);
+
     mod_div(h, field_unit, signature.s, group_order); // h = 1 / s
-    group_mul(u1, hashValue, h); // u1 <- hashValue / s
+    group_mul(u1, u2, h); // u1 <- hashValue / s
     group_mul(u2, signature.r, h);         // u2 <- signature.r / s
 
     assign(qPoint.x, publicKey.x);

@@ -34,11 +34,6 @@ method com.galois.ecc.P384ECC64.ec_twin_mul
   assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   assert valueOf(this.group_order) := split(group_order) : [12][32];
   assert valueOf(this.field_unit)  := split(1 : [384]) : [12][32];
-  let zero = split(0 : [384]) : [12][32];
-  assert valueOf(sPt.x) := zero;
-  assert valueOf(sPt.y) := zero;
-  assert valueOf(sMt.x) := zero;
-  assert valueOf(sMt.y) := zero;
 
   let d0' = join(valueOf(d0));
   let sx  = join(valueOf(s.x));
@@ -72,10 +67,6 @@ method com.galois.ecc.P384ECC64.ec_twin_mul
   modify valueOf(sPt.y);
   modify valueOf(sMt.x);
   modify valueOf(sMt.y);
-  modify valueOf(t.x);
-  modify valueOf(t.y);
-  modify valueOf(s.x);
-  modify valueOf(s.y);
 
   verify { rewrite; };
 };

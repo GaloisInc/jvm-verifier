@@ -3,6 +3,8 @@ Module           : Signature.java
 Description      :
 Stability        : provisional
 Point-of-contact : jhendrix
+
+Copyright 2012 Galois, Inc.  All rights reserved.
 */
 
 package com.galois.ecc;

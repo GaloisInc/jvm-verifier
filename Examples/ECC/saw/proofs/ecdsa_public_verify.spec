@@ -53,10 +53,6 @@ method com.galois.ecc.P384ECC64.verifySignature
   assert this.width := 12 : [32];
   assert valueOf(this.basePoint.x)  := split(basePoint.x) : [12][32];
   assert valueOf(this.basePoint.y)  := split(basePoint.y) : [12][32];
-  assert valueOf(this.sPt.x) := zero;
-  assert valueOf(this.sPt.y) := zero;
-  assert valueOf(this.sMt.x) := zero;
-  assert valueOf(this.sMt.y) := zero;
 
   let e  = join(valueOf(hashValue));
   let r  = join(valueOf(signature.r));
@@ -66,33 +62,37 @@ method com.galois.ecc.P384ECC64.verifySignature
 
   return ref_ecdsa_public_verify(e, r, s, {x = qx; y = qy});
 
-  modify this.aux2Rslt.u0, this.aux2Rslt.u1, this.aux2Rslt.c0p, this.aux2Rslt.c1p, 
-         this.aux2Rslt.e0p, this.aux2Rslt.e1p, this.aux2Rslt.shp;
-  modify valueOf(this.a);
-  modify valueOf(this.qPoint.y), valueOf(this.qPoint.x);
-  modify valueOf(this.basePoint.y);
-  modify valueOf(this.basePoint.x);
-  modify valueOf(hashValue);
+  ensure valueOf(this.a)      := split(0 : [768]) : [24][32];
+  ensure valueOf(this.h)      := zero;
+  ensure valueOf(this.t1)     := zero;
+  ensure valueOf(this.t2)     := zero;
+  ensure valueOf(this.t3)     := zero;
+  ensure valueOf(this.u1)     := zero;
+  ensure valueOf(this.u2)     := zero;
+  ensure valueOf(this.rP.x)   := zero;
+  ensure valueOf(this.rP.y)   := zero;
+  ensure valueOf(this.rP.z)   := zero;
+  ensure valueOf(this.sPtP.x) := zero;
+  ensure valueOf(this.sPtP.y) := zero;
+  ensure valueOf(this.sPtP.z) := zero;
+  ensure valueOf(this.sMtP.x) := zero;
+  ensure valueOf(this.sMtP.y) := zero;
+  ensure valueOf(this.sMtP.z) := zero;
+  ensure valueOf(this.sPt.x)  := zero;
+  ensure valueOf(this.sPt.y)  := zero;
+  ensure valueOf(this.sMt.x)  := zero;
+  ensure valueOf(this.sMt.y)  := zero;
 
-  ensure valueOf(this.h)      := split(0 : [384]) : [12][32];
-  ensure valueOf(this.t1)     := split(0 : [384]) : [12][32];
-  ensure valueOf(this.t2)     := split(0 : [384]) : [12][32];
-  ensure valueOf(this.t3)     := split(0 : [384]) : [12][32];
-  ensure valueOf(this.u1)     := split(0 : [384]) : [12][32];
-  ensure valueOf(this.u2)     := split(0 : [384]) : [12][32];
-  ensure valueOf(this.rP.x)   := split(0 : [384]) : [12][32];
-  ensure valueOf(this.rP.y)   := split(0 : [384]) : [12][32];
-  ensure valueOf(this.rP.z)   := split(0 : [384]) : [12][32];
-  ensure valueOf(this.sPtP.x) := split(0 : [384]) : [12][32];
-  ensure valueOf(this.sPtP.y) := split(0 : [384]) : [12][32];
-  ensure valueOf(this.sPtP.z) := split(0 : [384]) : [12][32];
-  ensure valueOf(this.sMtP.x) := split(0 : [384]) : [12][32];
-  ensure valueOf(this.sMtP.y) := split(0 : [384]) : [12][32];
-  ensure valueOf(this.sMtP.z) := split(0 : [384]) : [12][32];
-  ensure valueOf(this.sPt.x)  := split(0 : [384]) : [12][32];
-  ensure valueOf(this.sPt.y)  := split(0 : [384]) : [12][32];
-  ensure valueOf(this.sMt.x)  := split(0 : [384]) : [12][32];
-  ensure valueOf(this.sMt.y)  := split(0 : [384]) : [12][32];
+  ensure this.aux2Rslt.u0  := 0:[32];
+  ensure this.aux2Rslt.u1  := 0:[32];
+  ensure this.aux2Rslt.c0p := 0:[32];
+  ensure this.aux2Rslt.c1p := 0:[32];
+  ensure this.aux2Rslt.e0p := 0:[32];
+  ensure this.aux2Rslt.e1p := 0:[32];
+  ensure this.aux2Rslt.shp := 0:[32];
+
+  ensure valueOf(this.qPoint.x) := zero;
+  ensure valueOf(this.qPoint.y) := zero;
 
   verify { rewrite; yices; };
 };
