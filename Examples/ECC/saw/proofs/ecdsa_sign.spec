@@ -87,6 +87,9 @@ method com.galois.ecc.P384ECC64.signHash
   ensure valueOf(signature.s) := split(res.s) : [12][32];
   return res.r != 0:[384] && res.s != 0:[384];
 
+  //ensure valueOf(this.a)      := split(0 : [768]) : [24][32];
+  modify valueOf(this.a);
+
   ensure valueOf(this.h)      := split(0 : [384]) : [12][32];
   ensure valueOf(this.t1)     := split(0 : [384]) : [12][32];
   ensure valueOf(this.t2)     := split(0 : [384]) : [12][32];
@@ -116,7 +119,5 @@ method com.galois.ecc.P384ECC64.signHash
   ensure valueOf(this.qPoint.x) := split(0 : [384]) : [12][32];
   ensure valueOf(this.qPoint.y) := split(0 : [384]) : [12][32];
 
-  modify valueOf(this.a);
-  modify valueOf(hashValue);
   verify { rewrite; yices; };
 };

@@ -2,6 +2,7 @@ import "common.saw";
 import "rules.saw";
 
 set verification off;
+import "assign.saw";
 import "ec_mul.spec";
 import "mod_div.spec";
 import "field_sq.spec";

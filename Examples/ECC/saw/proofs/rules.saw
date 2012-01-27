@@ -52,6 +52,10 @@ rule imp_false_elim2 : forAll {x:Bit}. false ==> x     -> true;
 rule not_or  : forAll {x:Bit, y:Bit}. not (x || y) -> not x && not y;
 rule not_and : forAll {x:Bit, y:Bit}. not (x && y) -> not x || not y;
 
+rule and_idem : forAll {x:Bit}. x && x -> x;
+rule and_idem_not1 : forAll {x:Bit}. not x && x -> false;
+rule and_idem_not2 : forAll {x:Bit}. x && not x -> false;
+
 // Generic ite rules 
 
 rule ite_not :
