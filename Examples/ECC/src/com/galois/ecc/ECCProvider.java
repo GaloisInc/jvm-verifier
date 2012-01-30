@@ -1187,7 +1187,6 @@ public abstract class ECCProvider {
     if (hashValue == null) throw new NullPointerException("hashValue");
     if (hashValue.length != width)
        throw new IllegalArgumentException("hashValue has incorrect size.");
-    if (leq(group_order, hashValue)) sub(hashValue, hashValue, group_order);
     // Check emphemeral key
     if (ephemeralKey == null) throw new NullPointerException("ephemeralKey");
     if (ephemeralKey.length != width)
@@ -1196,6 +1195,10 @@ public abstract class ECCProvider {
       throw new IllegalArgumentException("ephemeralKey is zero.");
     if (leq(group_order, ephemeralKey))
       throw new IllegalArgumentException("ephemeralKey must be less than group order.");
+
+    // Store normalized hash value in u2.
+    assign(u2,hashValue);
+    if (leq(group_order, u2)) sub(u2, u2, group_order);
 
     ec_mul(rP, ephemeralKey, basePoint);
     //ec_mul_window(rP, ephemeralKey, basePoint, basePoint3, basePoint5);
@@ -1218,7 +1221,7 @@ public abstract class ECCProvider {
     }
 
     group_mul(h, privateKey, signature.r);
-    group_add(h, hashValue, h);
+    group_add(h, u2, h);
 
     // Let signature.s = (e + d * sig_r) / ephemeralKey (mod group_order)
     mod_div(signature.s, h, ephemeralKey, group_order);

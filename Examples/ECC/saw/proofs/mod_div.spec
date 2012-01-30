@@ -3,9 +3,8 @@ method com.galois.ecc.P384ECC64.mod_div {
   var this.t1, this.t2, this.t3 :: int[12];
 
   ensure valueOf(ra) 
-    := split(ref_mod_div(join(valueOf(p)),
-                         join(valueOf(x)),
-                         join(valueOf(y)))) : [12][32];
+    := split(ref_mod_div(
+         join(valueOf(p)), join(valueOf(x)), join(valueOf(y)))) : [12][32];
   modify valueOf(this.t1), valueOf(this.t2), valueOf(this.t3);
 
   from line +7 {
@@ -15,10 +14,8 @@ method com.galois.ecc.P384ECC64.mod_div {
 
     let res
       = split(ref_egcd(join(valueOf(p)),
-                        join(valueOf(a)),
-                        join(valueOf(ra)),
-                        join(valueOf(b)),
-                        join(valueOf(rb)))) : [12][32];
+                       join(valueOf(a)), join(valueOf(ra)),
+                       join(valueOf(b)), join(valueOf(rb)))) : [12][32];
 
     if (swapped == 0:[32]) {
       assert swapped := false;
