@@ -29,7 +29,6 @@ data YResult  = YUnknown
 yices :: Maybe Int -> Script -> IO YResult
 yices mbTime script =
   do mbYicesExe <- findExecutable "yices"
-     putStrLn $ "Yices executable is: " ++ show mbYicesExe
      case mbYicesExe of
        Nothing -> fail $ "Unable to find yices executable; please ensure that it is in your path."
        Just yicesExe -> do
