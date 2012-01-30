@@ -75,8 +75,8 @@ main = do
         , dbug   = def &= opt "0" &= help "Debug verbosity level (0-5)"
         , mcname = def &= typ "MAIN CLASS NAME" &= args
         }
-    &= summary ("Java Symbolic Simulator (jss) 0.1c Jan 2011. "
-                ++ "Copyright 2010-2011 Galois, Inc. All rights reserved.")
+    &= summary ("Java Symbolic Simulator (jss) 0.1d Jan 2012. "
+                ++ "Copyright 2010-2012 Galois, Inc. All rights reserved.")
 
   let
     cname  = case mcname args' of

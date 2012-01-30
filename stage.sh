@@ -7,7 +7,7 @@ NM=`uname`
 mkdir -p ${TARGET}/bin
 mkdir -p ${TARGET}/doc
 mkdir -p ${TARGET}/tutorial
-mkdir -p ${TARGET}/examples/ecc
+mkdir -p ${TARGET}/examples
 
 if [ "${OS}" == "Windows_NT" ]; then
   EXEDIR=windows
@@ -31,7 +31,7 @@ cp doc/isabelleTutorial/isabelleTutorial.pdf   ${TARGET}/tutorial
 cp dist/build/jss/jss                          ${TARGET}/bin
 cp dist/build/sawScript/sawScript              ${TARGET}/bin
 cp support/galois.jar                          ${TARGET}/bin
-cp -R Examples/ECC/                            ${TARGET}/examples/ecc
+cp -r Examples/ECC                             ${TARGET}/examples/ecc
 rm ${TARGET}/examples/ecc/saw/proofs.org
 rm ${TARGET}/examples/ecc/saw/proofs-old.saw
 rm -rf ${TARGET}/examples/ecc/saw/sbv-old
