@@ -5,8 +5,9 @@ all come from the P384ECC64 class and its superclasses).
 
 SUMMARY
 
-Run SAWScript on toplevel.saw to run all proofs, or type "make verify"
-from the parent directory.
+To run the collection of ECC proofs from inside this directory, do
+
+/path/to/sawScript -c../../build -j<PATH_TO_JDK1.6_CLASSES_JAR> toplevel.saw
 
 DETAILS
 
