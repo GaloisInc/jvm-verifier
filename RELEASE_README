@@ -1,16 +1,20 @@
 This directory contains executables and support files for the Java
 Symbolic Simulator (jss) and SAWScript verification tools (sawScript).
 
-Due to licensing restrictions, the Java Runtime Environment must be
-downloaded separately.  
+Due to licensing restrictions, the Java Runtime Environment and Yices
+must be downloaded and installed separately.
 
-CONTENTS (Version 0.1d Jan 2012.)
+CONTENTS (beta-rc4 released January 2012)
 
 doc/         : Java Symbolic API documentation, jss man page
 doc/japi     : JavaDoc documentation for the Java Symbolic API
-tutorial/    : Tutorials on using sawScript and jss
+tutorial/    : Tutorials on using sawScript, jss, and doing Isabelle 
+               correctness proofs
 bin/         : Command-line executables
-examples/ecc : ECC implementation code and SAW proof scripts
+examples/ecc : ECC implementation code and SAW proof scripts; see 
+               examples/ecc/saw/proofs/README for instructions on
+               how to run the SAWScript ECC proofs
+
 
 
 
