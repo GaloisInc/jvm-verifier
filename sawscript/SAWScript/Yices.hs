@@ -10,6 +10,7 @@ import Control.Applicative((<*))
 import Numeric
 import Data.List
 import Data.Function
+import System.Directory (findExecutable)
 import System.Process
 import qualified Data.Map as M
 import SMTLib1
@@ -27,16 +28,20 @@ data YResult  = YUnknown
 
 yices :: Maybe Int -> Script -> IO YResult
 yices mbTime script =
-  do txt <- readProcess "yices" (["--model"] ++ timeOpts)
-                (show (pp script))
-     case parseOutput txt of
-       Right a -> return a
-       Left e -> fail $ unlines [ "yices: Failed to parse the output from Yices"
-                                , show e
-                                ]
-  where timeOpts = case mbTime of
-                     Nothing -> []
-                     Just t  -> ["--timeout=" ++ show t]
+  do mbYicesExe <- findExecutable "yices"
+     case mbYicesExe of
+       Nothing -> fail $ "Unable to find yices executable; please ensure that it is in your path."
+       Just yicesExe -> do
+         txt <- readProcess yicesExe (["--model"] ++ timeOpts)
+                    (show (pp script))
+         case parseOutput txt of
+           Right a -> return a
+           Left e -> fail $ unlines [ "yices: Failed to parse the output from Yices"
+                                    , show e
+                                    ]
+      where timeOpts = case mbTime of
+                         Nothing -> []
+                         Just t  -> ["--timeout=" ++ show t]
 
 
 getIdent :: M.Map String YVal -> Ident -> YVal

@@ -62,7 +62,8 @@ method com.galois.ecc.P384ECC64.verifySignature
 
   return ref_ecdsa_public_verify(e, r, s, {x = qx; y = qy});
 
-  ensure valueOf(this.a)      := split(0 : [768]) : [24][32];
+  modify valueOf(this.a);
+
   ensure valueOf(this.h)      := zero;
   ensure valueOf(this.t1)     := zero;
   ensure valueOf(this.t2)     := zero;

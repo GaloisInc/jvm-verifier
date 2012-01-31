@@ -1,13 +1,13 @@
 #!/bin/sh
 
-TARGET=beta-rc3
+TARGET=beta-rc4
 
 NM=`uname`
 
 mkdir -p ${TARGET}/bin
 mkdir -p ${TARGET}/doc
 mkdir -p ${TARGET}/tutorial
-mkdir -p ${TARGET}/examples/ecc
+mkdir -p ${TARGET}/examples
 
 if [ "${OS}" == "Windows_NT" ]; then
   EXEDIR=windows
@@ -27,10 +27,15 @@ cp doc/jss-usage.txt                           ${TARGET}/doc
 cp doc/japi-tutorial/jss-tutorial.pdf          ${TARGET}/tutorial
 cp doc/japi-tutorial/code/*.{class,cry,java}   ${TARGET}/tutorial
 cp doc/sawScriptTutorial/sawScriptTutorial.pdf ${TARGET}/tutorial
+cp doc/isabelleTutorial/isabelleTutorial.pdf   ${TARGET}/tutorial
 cp dist/build/jss/jss                          ${TARGET}/bin
 cp dist/build/sawScript/sawScript              ${TARGET}/bin
 cp support/galois.jar                          ${TARGET}/bin
-cp -R Examples/ECC/                            ${TARGET}/examples/ecc
+cp -r Examples/ECC                             ${TARGET}/examples/ecc
+rm ${TARGET}/examples/ecc/saw/Makefile
+rm ${TARGET}/examples/ecc/saw/proofs.org
+rm ${TARGET}/examples/ecc/saw/proofs-old.saw
+rm -rf ${TARGET}/examples/ecc/saw/sbv-old
 
 if [ "${OS}" == "Windows_NT" ]; then
   zip -r ${TARGET}-${EXEDIR}.zip ${TARGET}

@@ -82,12 +82,12 @@ parseArgs = do popts <- CA.process m <$> getArgs
             , ssMode       = enum [ Verify &= help "Run verification (default)"
                                   , Blif &= explicit &= name "blif"
                                          &= help "Generate BLIF files (bypass verification)"
-                                  , CBlif &= explicit &= name "cblif" 
+                                  , CBlif &= explicit &= name "cblif"
                                           &= help "Generate compressed BLIF files (bypass verification)"
                                   ]
             }
             &= program "sawScript"
-            &= summary ("sawScript v" ++ showVersion version ++ ". Copyright 2011 Galois, Inc. All rights reserved.")
+            &= summary ("sawScript v" ++ showVersion version ++ ". Copyright 2011-2012 Galois, Inc. All rights reserved.")
 
 getCodeBase :: SSOpts -> IO Codebase
 getCodeBase opts = loadCodebase jpaths cpaths
