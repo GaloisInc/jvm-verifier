@@ -56,10 +56,9 @@
          showstringspaces=false      % Leerzeichen in Strings anzeigen ?
 }
 
-\author{Levent Erk\"{o}k $\;\;\;\;\;$ Joe Hendrix\\
-\texttt{\{levent.erkok,jhendrix\}@galois.com}}
+\author{The Galois HA Java Team\\\texttt{hajava@galois.com}}
 \title{\sawScript}
-\date{February 2011}
+\date{January 2012}
 \begin{document}
 \maketitle
 
@@ -122,27 +121,19 @@ its argument is properly set to all {\tt 0}s in \sawScript:
 \end{code}
 Let us walk through this proof script in detail to explain the basic concepts behind \sawScript:
 
-\paragraph{Lines 1, 2} Java has {\tt boolean}s as a built-in type with only possible values {\tt true} and {\tt false}
-as inhabitants. JVM, however,
-represents booleans simply as 32-bit integers, with values $1$ and $0$, respectively~\cite[Section 3.3.4]{Lindholm:1999:JVM:553607}.
-Therefore, the booleans at the Java level have to be treated properly as integers when we encode proofs over the corresponding JVM
-representation.  Since truth values come up quite often, we simply create two constants with the respective values. 
-
-Following the Cryptol notation, word types are written {\tt [n]}, where {\tt n}
-is the bit-size. Note that we do not distinguish between signed and unsigned words at this level: We are merely stating that there are 32
-bits available: How those bits are interpreted is up to the individual operations that act on these values. You will also notice that
-\sawScript requires annotations on all constants, i.e., the type specification {\tt [32]} is mandatory on the constants $1$ and $0$.
-
-\paragraph{Line 4} This is where the property specification starts for the {\tt is\_zero} method. We tag it with its class name,
-which happens to be {\tt com.galois.ecc.P384ECC64} in this case. Note that \sawScript will follow the Java inheritance hierarchy
-to find the method {\tt is\_zero} in this class: It can either be directly defined in that class, or it can be defined in any one
-of its superclasses: \sawScript will properly locate it, and will complain if it cannot.
+\paragraph{Line 1} This is where the property specification starts for the {\tt
+is\_zero} method. We tag it with its class name, which happens to be {\tt
+com.galois.ecc.P384ECC64} in this case. Note that \sawScript will follow the
+Java inheritance hierarchy to find the method {\tt is\_zero} in this class: It
+can either be directly defined in that class, or it can be defined in any one
+of its superclasses: \sawScript will properly locate it, and will complain if
+it cannot.
 
 \paragraph{Tip} To be able to locate java classes, you will need to tell \sawScript the class and {\tt jar} paths as installed
 on your system. See the {\tt -c} and {\tt -j} options of \sawScript for details. (You can issue {\tt sawScript --help} to see
 all available options.)
 
-\paragraph{Line 5} The first thing we do in a method specification is to provide the type information for the arguments to the method.
+\paragraph{Line 2} The first thing we do in a method specification is to provide the type information for the arguments to the method.
 The {\tt var} declaration states that the first argument to the method, i.e., {\tt arg[0]}, is an array of length 12, containing
 Java {\tt int}s. We write this type in \sawScript like this: {\tt int[12]}.
 
@@ -158,12 +149,16 @@ aim for push-button automated verification, and hence we focus our attention on 
 a fixed constant size for the array, and in this case we choose that number to be 12. (While it's unlikely that this monomorphism restriction
 will ever be completely removed from \sawScript, future versions might relax the requirements, and allow for some parametric proofs to be encoded directly.)
 
-\paragraph{Lines 6-9} At this point, we are ready to describe the desired behavior of the {\tt is\_zero} method directly in \sawScript. This is the goal
-of the {\tt returns} statement. The expression on the right hand-side is a direct encoding of how we would expect this method to work: If the argument
-has all 0 elements, then it should return {\tt true}, otherwise it should return {\tt false}. Keeping in mind how JVM represents Java booleans
-the {\tt then} and {\tt else} branches (lines 8 and 9) merely encode that specification.
+\paragraph{Line 3} At this point, we are ready to describe the desired behavior
+of the {\tt is\_zero} method directly in \sawScript. This is the goal of the
+{\tt return} statement. The expression on the right hand-side is a direct
+encoding of how we would expect this method to work: If the argument has all 0
+elements, then it should return {\tt true}, otherwise it should return {\tt
+false}.  It should be noted that the JVM internally represents {\tt bool}
+values as $32$-bit integers.  SAWScript implicitly converts {\tt true} to the
+$32$-bit value $1$, and {\tt false} to the $32$-bit value $0$.
 
-To understand how the specification is given, let us consider the test-expression (line 7) in more detail:
+To understand how the specification is given, let us consider the test-expression in more detail:
 
 \begin{verbatim}
         join(valueOf(args[0])) == 0:[384]
@@ -171,32 +166,50 @@ To understand how the specification is given, let us consider the test-expressio
 
 Here are the constituents:
 \begin{itemize}
-\item {\tt args[0]}: This is the first argument to the {\tt is\_zero} method, that we declared to have type {\tt int[12]} on line 5. Most importantly,
-this is a Java value, and not a \sawScript value.
-\item {\tt valueOf}: This function lifts values from the Java world into \sawScript. 
-Whenever we refer to a Java value (such as {\tt args[0]}), we have to
-explicitly bring it to the \sawScript level using {\tt valueOf}. This two-level type-system is crucial in keeping the two worlds separate: The object level at which
-Java operates, and the proof level at which \sawScript works. The {\tt valueOf} call basically tells \sawScript to take the Java value and bring it to the
-level where we write the specifications.
-\item {\tt join}: The function {\tt join} is a primitive in \sawScript, similar to Cryptol's {\tt join}. It takes a sequence of words and joins them
-together to make one big word out of them. In this case, its argument is a 12 element array containing 32-bit values, and hence it returns a $12\times32 = 384$
-bit word.
-\item {\tt 0:[384]}: This is the \sawScript constant 0 at 384 bits.
+
+\item {\tt args[0]}: This is the first argument to the {\tt is\_zero} method,
+        that we declared to have type {\tt int[12]} on line 1. Most
+        importantly, this is a Java value, and not a \sawScript value.
+
+\item {\tt valueOf}: This function lifts values from the Java world into
+        \sawScript.  Whenever we refer to a Java value (such as {\tt args[0]}),
+        we have to explicitly bring it to the \sawScript level using {\tt
+        valueOf}. This two-level type-system is crucial in keeping the two
+        worlds separate: The object level at which Java operates, and the proof
+        level at which \sawScript works. The {\tt valueOf} call basically tells
+        \sawScript to take the Java value and bring it to the level where we
+        write the specifications.
+
+\item {\tt join}: The function {\tt join} is a primitive in \sawScript, similar
+        to Cryptol's {\tt join}. It takes a sequence of words and joins them
+        together to make one big word out of them. In this case, its argument
+        is a 12 element array containing 32-bit values, and hence it returns a
+        $12\times32 = 384$ bit word.  \item {\tt 0:[384]}: This is the
+        \sawScript constant 0 at 384 bits.  SAWScript follows Cryptols
+        notation, word types are written {\tt [n]}, where {\tt n} is the bit-size.
+        You will also notice that
+        \sawScript requires annotations on all constants, i.e., the type
+        specification {\tt [32]} is mandatory on the constant $0$.
+
 \end{itemize}
 
-In summary, the {\tt returns} statement on lines 6-9 is telling \sawScript that when the method {\tt is\_zero} completes execution, it will return
-{\tt javaTrue} (i.e., 1:[32]) if all the elements of the input array are equal to 0, and {\tt javaFalse} (i.e., 0:[32]) otherwise. This is how we capture
-the operation of the Java method as a functional \sawScript specification.
+In summary, the {\tt return} statement on lines 3 is telling \sawScript that
+when the method {\tt is\_zero} completes execution, it will return {\tt true}
+if all the elements of the input array are equal to 0, and {\tt false}
+otherwise. This is how we capture the operation of the Java method as a
+functional \sawScript specification.
 
-\paragraph{Line 10} Finally, the user is giving a hint to \sawScript to use the the {\tt abc} tool to verify this specification, essentially showing
+\paragraph{Line 4} Finally, the user is giving a hint to \sawScript to use the the {\tt abc} tool to verify this specification, essentially showing
 correctness using first bit-blasting and then discharging the associated verification conditions
-using Mishchenko's  ABC tool~\cite{ABC}. The other possible values are {\tt rewriter} and {\tt auto}.
-The {\tt rewriter} tactic tries the internal rewriting engine to show correctness, while the latter first rewrites and tries {\tt abc} on the remaining subgoals, 
-i.e., it's a hybrid of {\tt abc} and {\tt rewriter}. Users can also specify
+using Mishchenko's  ABC tool~\cite{ABC}. Other tactics include {\tt rewrite}, {\tt yices}, and {\tt smtlib}.
+The {\tt rewrite} tactic tries the internal rewriting engine to show correctness.
+Users can also specify a sequence of tactics such as
 \begin{Verbatim}
-  verifyUsing: skip;
+        verify { rewrite; abc; }
 \end{Verbatim}
-which means that \sawScript should not attempt to prove the specification at all.
+which means to first apply the rewriter, and send the result to abc.
+If the {\tt verify} command is ommitted, SAWScript will perform no verification at all, and print a message stating that the
+specification is assumed correct.
 
 \paragraph{NB} In this particular example, the proof is
 specified directly within \sawScript's specification language: We do not perform equivalence checking, but rather
@@ -232,7 +245,7 @@ like to state that it indeed zeros out the given array as a property, and prove 
     verify abc;
   };
 \end{code}
-What is new in this specification is the use of the {\tt ensures} clause (line 3). What {\tt ensures} allows us is to state precisely
+What is new in this specification is the use of the {\tt ensure} clause (line 3). What {\tt ensure} allows us is to state precisely
 what observable modifications the Java method will have performed
 after it {\em completes} its execution. In this case, we are stating that {\tt args[0]} must essentially be
 equivalent to the 384-bit value {\tt 0} split into an array of length 12, containing all 0 elements.
@@ -242,7 +255,7 @@ equivalent to the 384-bit value {\tt 0} split into an array of length 12, contai
 arrays of arbitrary size. Also, you will find that \sawScript requires type annotations for uses of the {\tt split} function, similar to the
 mandatory annotations on constants.
 
-A given specification may contain both a {\tt returns} clause and multiple {\tt ensures} clauses, as necessary. If you were to try the
+A given specification may contain both a {\tt return} clause and multiple {\tt ensure} clauses, as necessary. If you were to try the
 above example using {\tt sawScript}, you will again see that the proof completes instantaneously.
 
 \subsection{Basic execution of a \sawScript proof}\label{sec:proofexec}
@@ -255,8 +268,7 @@ to ensure that the Java, Cryptol, and \sawScript types are compatible and
 used in a consistent way.  This initial typechecking can catch many early
 specification bugs, resulting in huge time savings from a development/evaluation perspective.
 
-Unless the directive ``{\tt verifyUsing:} {\tt skip}'' is given by the user, \sawScript will perform the following actions
-on each method specification:
+When verifying a method, \sawScript will perform the following actions on each method specification:
 
 \begin{enumerate}
 
@@ -275,8 +287,8 @@ on each method specification:
         ({\tt{}jss}),
 
 \item Compare the final JVM state returned by the symbolic simulator against
-        the values specified in the method specification {\tt returns} and
-        {\tt ensures} statements.  The main steps in this comparison are to:
+        the values specified in the method specification {\tt return} and
+        {\tt ensure} statements.  The main steps in this comparison are to:
         
  \begin{itemize}
 
@@ -288,8 +300,8 @@ on each method specification:
    \item Iterate through the defined field values, arrays, and the {\tt return} statement.
            For each one, generate a \emph{equivalence condition} $v_i = s_i$ asserting
            that the value $v_i$ from the symbolic simulator equals the relevant
-           specification value $s_i$ obtained from the \emph{ensures} clause.
-           If no \emph{ensures} clause is defined for the value, then
+           specification value $s_i$ obtained from the \emph{ensure} clause.
+           If no \emph{ensure} clause is defined for the value, then
            the specification value $s_i$ is the value in the initial state, i.e., it must
            not have been modified by the method.
 
@@ -319,15 +331,14 @@ SAWScript currently supports two main verification tactics: (1) using rewriting
 to simplify or solve a verification condition; (2) applying bitblasting to
 generate an And-Inverter Graph (AIG) from the verification problem, and sending
 it to the ABC equivalence checker for verification.  These verification
-tactics can either be used by themselves, or combined into a single \emph{auto}
-tactic which first applies the rewriter to simplify the problem, and then
-generates an AIG for the simplified result.
+tactics can either be used by themselves, or sequentially composed by listing the
+tactics in a block.
 
 The two verification tactics are useful in different situations.  Using the
 \emph{abc} tactic is much more automatic, but \emph{abc} may fail to terminate
 on a verification problem in a reasonable amount of time, 
 without providing any insight into why.  Using the
-\emph{rewriting} tactic is a more labor intensive affair, and requires the
+\emph{rewrite} tactic is a more labor intensive affair, and requires the
 \sawScript author to invest effort in coming up with a suitable set of rewrite rules
 to solve the verification problem. However, when the right rules are used, the
 rewriting based proofs can go much faster, as we shall see later in Section~\ref{sec:rules}.
@@ -336,13 +347,13 @@ The verification tactic also has an impact on what information is returned
 to the user when verification fails:
 \begin{itemize}
 
-  \item If the {\tt abc} or {\tt auto} tactics are used and {\tt abc} is able
+  \item If the {\tt abc} is used and {\tt abc} is able
           to generate a counterexample, then \sawScript will display the
           counterexample to the user with a detailed description of what Java
           input values triggered it, and how the expected and
           actual states differed.
 
-  \item If {\tt rewriting} is used as the proof method, then \sawScript will
+  \item If {\tt abc} is not used as the proof method, then \sawScript will
          display the final formula to the user as the remaining VC. The user
          can then inspect this formula manually and decide how to continue
          the proof, potentially by adding further rewrite rules.
@@ -367,13 +378,14 @@ For instance, we can write the prime for the P384 curve like this~\cite[Section 
 \item The following words are reserved, and cannot be used as identifiers:
 
 \begin{tabular}{llllll}
-{\tt abc         } & {\tt arbitrary   } & {\tt args        } & {\tt assume      } & {\tt auto        } & {\tt Bit         } \\
-{\tt boolean     } & {\tt const       } & {\tt disable     } & {\tt else        } & {\tt enable      } & {\tt ensures     } \\
-{\tt extern      } & {\tt False       } & {\tt forAll      } & {\tt valueOf     } & {\tt if          } & {\tt import      } \\
-{\tt int         } & {\tt let         } & {\tt long        } & {\tt mayAlias    } & {\tt method      } & {\tt off         } \\
-{\tt on          } & {\tt returns     } & {\tt rewriter    } & {\tt rule        } & {\tt SBV         } & {\tt set         } \\
-{\tt skip        } & {\tt then        } & {\tt this        } & {\tt True        } & {\tt type        } & {\tt var         } \\
-{\tt verification} & {\tt verifyUsing } 
+{\tt abc         } & {\tt args        } & {\tt assert      } & {\tt Bit         } & {\tt blif        } & {\tt boolean     }\\
+{\tt byte        } & {\tt char        } & {\tt disable     } & {\tt double      } & {\tt else        } & {\tt enable      }\\
+{\tt ensure      } & {\tt expand      } & {\tt extern      } & {\tt false       } & {\tt float       } & {\tt forAll      }\\
+{\tt from        } & {\tt if          } & {\tt import      } & {\tt int         } & {\tt let         } & {\tt line        }\\
+{\tt locals      } & {\tt long        } & {\tt mayAlias    } & {\tt method      } & {\tt modify      } & {\tt off         }\\
+{\tt on          } & {\tt pc          } & {\tt pragma      } & {\tt quickcheck  } & {\tt return      } & {\tt rewrite     }\\
+{\tt rule        } & {\tt SBV         } & {\tt set         } & {\tt short       } & {\tt smtlib      } & {\tt then        }\\
+{\tt this        } & {\tt true        } & {\tt var         } & {\tt verification} & {\tt verify      } & {\tt yices       }\\
 \end{tabular}
 
 \item \sawScript supports literate programming. In this format, the code is enclosed in {\tt \textbackslash begin\{code\}}
@@ -472,10 +484,9 @@ Here is the \sawScript method specification for {\tt field\_add}:
 \begin{code}[numbers=left]
   method com.galois.ecc.P384ECC64.field_add {
     var args[0], args[1], args[2] :: int[12];
-    var this.field_prime :: int[12];
-  
     mayAlias { args[0], args[1], args[2] };
   
+    var this.field_prime :: int[12];
     assert valueOf(this.field_prime) := split(field_prime) : [12][32];
   
     ensure valueOf(args[0]) := 
@@ -491,7 +502,7 @@ Let us go over this spec line by line, explaining how we constructed it:
 arguments to the method. Again, the Java method takes arbitrary length integer arrays as arguments, but the use case
 is for 384-bit numbers, which require an array of 12 32-bit Java {\tt int}s. Thus we fix the types at {\tt int[12]}.
 
-\paragraph{Line 4} Whenever we have a Java method that takes multiple arguments as references, we have to be
+\paragraph{Line 3} Whenever we have a Java method that takes multiple arguments as references, we have to be
 concerned about aliasing. That is, whether the method arguments {\tt x}, {\tt y}, and {\tt z} might actually refer
 to the same array. This is very important since {\tt field\_add} modifies {\tt z}, and it might have some
 assumptions regarding whether {\tt z} might alias {\tt x}, {\tt y}, or both. Unfortunately, Java does not let programmers
@@ -504,28 +515,28 @@ can alias each other. (Naturally, adding aliasing constraints will make proofs m
 will be hidden from the user.) In this case, we are telling
 \sawScript that any two, or all three arguments to {\tt field\_add} might alias each other, i.e., refer to the same array.
 
-\paragraph{Line 6} Remember that the Java method referred to the array {\tt field\_prime}, which happens to be a {\tt protected final}
+\paragraph{Lines 5,6} Remember that the Java method referred to the array {\tt field\_prime}, which happens to be a {\tt protected final}
 field in {\tt com.galois.ecc.P384ECC64}. In line 6, we are telling \sawScript that the constant {\tt field\_prime}
 we have defined above using the polynomial notation, and the Java value {\tt this.field\_prime} are indeed equivalent.
 (Note that we have to use {\tt split} to turn our 384-bit field prime into a Java array, as Java represents {\tt field\_prime}
 internally as an array.)
 
 \paragraph{Lines 8-10} We now express the correctness condition for the {\tt field\_add} method. Since there is no return value for this
-procedure, we cannot use a {\tt returns} statement. Instead, we express that the value of the first argument ({\tt args[0]}) will have 
-changed in a certain way when the method completes execution. We do this with the {\tt ensures} statement on lines 8-10.
+procedure, we cannot use a {\tt return} statement. Instead, we express that the value of the first argument ({\tt args[0]}) will have 
+changed in a certain way when the method completes execution. We do this with the {\tt ensure} statement on lines 8-10.
 The specification simply says that if you take the values of {\tt args[1]} and
 {\tt args[2]}, and then call the {\tt cry\_fadd} function we have imported from Cryptol,
 then the result is what the value {\tt args[0]} will get assigned at the end of the method execution. That is, the
 specification is simply:
 \begin{Verbatim}
    // type incorrect, but illustrates the idea!
-   ensures args[0] := cry_fadd(args[1], args[2]);
+   ensure args[0] := cry_fadd(args[1], args[2]);
 \end{Verbatim}
 We simply have to insert calls to {\tt valueOf} to get values from Java into \sawScript, and split/join appropriately
 to make sure the treatment of arrays and 384-bit words do match their intended usage. 
 
 Note that the values of {\tt args[0]} and {\tt args[1]}
-on the right hand side of the {\tt ensures} statement will refer to the initial values of the arguments when the method starts executing,
+on the right hand side of the {\tt ensure} statement will refer to the initial values of the arguments when the method starts executing,
 i.e., any changes to them due to aliasing will be properly accounted for in the proof.
 
 \paragraph{Line 12} Finally, we give a hint to \sawScript to use bit-blasting and in particular the ABC tool to complete the proof. 
@@ -540,8 +551,8 @@ Similar to field addition, the correctness proof of field subtraction proceeds i
 
   method com.galois.ecc.P384ECC64.field_sub {
     var args[0], args[1], args[2] :: int[12];
-    var this.field_prime :: int[12];
     mayAlias { args[0], args[1], args[2] };
+    var this.field_prime :: int[12];
     assert valueOf(this.field_prime) := split(field_prime) : [12][32];
     ensure valueOf(args[0]) :=
          split(cry_fsub( join(valueOf(args[1]))
@@ -556,37 +567,37 @@ Again, the proof for {\tt field\_sub} takes around 2 minutes to complete on a co
 
 \subsection{Using assumptions}
 
-The {\tt assume} directive tells \sawScript that a particular boolean expression can be assumed to hold when a proof is being attempted. This directive is
+The {\tt assert} directive tells \sawScript that a particular boolean expression will be assumed to hold when a proof is being attempted. This directive is
 useful for stating invariants on the data. For instance, we can state:
 \begin{Verbatim}
-   assume is_field(join(valueOf(args[0]))); 
+   assert is_field(join(valueOf(args[0]))); 
 \end{Verbatim}
 to state that the Java value of {\tt args[0]} satisfies the predicate {\tt is\_field}, which we might have
 imported from an SBV file earlier:
 \begin{Verbatim}
    extern SBV is_field("sbv/ref_p384_is_val.sbv") : [384] -> Bit;
 \end{Verbatim}
-When \sawScript sees this {\tt assume} directive, it will use it as a hypothesis during the proof, indicating that the method expects its inputs to
-satisfy certain conditions. Note that the proof may not go through without this {\tt assume} statement, if the method does not guarantee to work
+When \sawScript sees this {\tt assert} directive, it will use it as a hypothesis during the proof, indicating that the method expects its inputs to
+satisfy certain conditions. Note that the proof may not go through without this {\tt assert} statement, if the method does not guarantee to work
 correctly when its inputs do not have the property indicated.
 
 On the flip side of the coin,
-any other method that uses a method with {\tt assume} directives will have to make sure that the required conditions do indeed hold when the call is made.
+any other method that uses a method with {\tt assert} directives will have to make sure that the required conditions do indeed hold when the call is made.
 \sawScript will automatically track such dependencies and discharge them as appropriate, or the proof will fail with a bug identified.
 
 \subsection{Indicating ``don't care'' conditions}
 
-When \sawScript attempts a proof, it will make sure that {\em all} the changes made by the method are captured in {\tt ensures} statements. \sawScript
+When \sawScript attempts a proof, it will make sure that {\em all} the changes made by the method are captured in {\tt ensure} statements. \sawScript
 will not allow a proof to complete unless all of its side effects are properly accounted for.
 
 It is, however, quite possible that a method
 might be making some internal state changes that we really do not care about, as far as the verification tasks are concerned. For instance,
 it is unlikely that we want to explicitly track changes to private class fields that are used for temporary storage purposes.
-In such cases, we can use the {\tt arbitrary} directive to tell \sawScript to ignore any changes made to such references. For instance, the directive:
+In such cases, we can use the {\tt modify} directive to tell \sawScript to ignore any changes made to such references. For instance, the directive:
 \begin{Verbatim}
-  arbitrary: this.tmpBuffer;
+  modify valueOf(this.tmpBuffer);
 \end{Verbatim}
-tells \sawScript that the method changes the value of the class field {\tt tmpBuffer} during
+tells \sawScript that the method changes the value of the array {\tt tmpBuffer} during
 its execution, but we do not care about such changes. If we omit this directive,
 \sawScript will make sure that the field {\tt tmpBuffer} does {\em not} change during the execution of the method,
 indicating a much stronger requirement.
@@ -609,7 +620,7 @@ Alternatively, the user can also tell \sawScript to first try rewriting, and the
 \begin{Verbatim}
   verify { rewrite; abc };
 \end{Verbatim}
-Note that the {\tt verifyUsing} directive is per method specification: Different specifications in the same \sawScript file can use different tactics.
+Note that the {\tt verify} directive is per method specification: Different specifications in the same \sawScript file can use different tactics.
 
 In the remainder of this section we will illustrate how to use the rewriting engine to perform equivalence proofs of Java programs against their
 Cryptol counterparts.
@@ -635,10 +646,10 @@ We can write the method specification for {\tt field\_dbl\_dec} as follows (note
   
     let jarg0 = join(valueOf(args[0]));
     let jarg1 = join(valueOf(args[1]));
-    ensures args[0] :=
+    ensure args[0] :=
          split(cry_fsub(cry_fsub(jarg0, jarg1), jarg1)) : [12][32];
 
-    verifyUsing: abc;
+    verify abc;
   };
 \end{Verbatim}
 
@@ -647,7 +658,7 @@ see that it indeed does finish the proof, in about 2 minutes of run time.
 
 \subsection{Adding rules}
 Let us try the double decrement proof again, this time using the rewriter. To do so, replace the
-{\tt verifyUsing} command on line 10 as follows:
+{\tt verify} command on line 10 as follows:
 
 \begin{comment}
 \begin{code}
@@ -844,8 +855,7 @@ In particular, the pair of directives:
 will tell the rewriting engine to stop/start using the rule named {\tt r}, respectively.
 (When a rule is first defined, it is enabled by default.)
 
-Similarly, we can also start/stop proofs as well. Recall that {\tt verifyUsing:} {\tt skip;}
-tells \sawScript to skip the proof of a particular method. The directive
+Similarly, we can also start/stop proofs as well.  The directive
 \begin{Verbatim}
   set verification off;
 \end{Verbatim}
