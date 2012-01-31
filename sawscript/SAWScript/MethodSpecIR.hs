@@ -447,7 +447,7 @@ typecheckValueOfLhs astExpr maybeExpectedType = do
         Nothing -> return ()
         Just expectedType -> do
           when (javaValueType /= expectedType) $ do
-            let formattedExpr = "\'valueOf(" ++ show expr ++ ")\'"
+            let formattedExpr = "\'valueOf(" ++ TC.ppJavaExpr expr ++ ")\'"
             throwInvalidAssignment pos formattedExpr (ppType expectedType)
       return (expr, javaValueType)
     _ ->
