@@ -10,4 +10,4 @@ set verification on;
 
 enable ref_aset_768;
 enable ref_sq_java;
-import "sq.qcspec";
+import "sq.spec";

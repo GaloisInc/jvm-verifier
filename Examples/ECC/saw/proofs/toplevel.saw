@@ -27,7 +27,7 @@ import "sq_loop.spec";
 import "sq_inner1.spec";
 import "sq_inner2.spec";
 enable ref_sq_java;
-import "sq.qcspec";
+import "sq.spec";
 disable ref_sq_java;
 
 rule mul_java_elim: forAll {a:[768], x:[384], y:[384]}.
