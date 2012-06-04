@@ -2,7 +2,7 @@ Unless otherwise noted, all Java functions are assumed to be in the
 galois.ecc.P384ECC64 class or its superclasses.
 
 * Primary Proofs
-The "Status" column uses the following status codes: 
+The "Status" column uses the following status codes:
   DONE: no work remaining, this proof is complete
   INPR: in progress, some work started; see comments for brief details
    BUG: in progress, but currently stuck on a bug
@@ -13,53 +13,60 @@ discharge a given proof using the current strategy; it is likely the first set
 of necessary sub-proofs we identified for the given target.
 
 The "Best" column indicates the best running time of proof completion seen so
-far on a typical developer system. 
+far on a typical developer system.
 
 ** Level 1: Finite field arithmetic
-| Status | Name                 | Java      | Cryptol        | Impl directly calls     | Prereqs | Quickchecks | Verifies   | Best | Comments |
-| DONE   | Field Addition       | field_add | p384_field_add | leq, add, decFieldPrime | None    |        1000 | Yes, abc   | 37s  |          |
-| DONE   | Field Subtraction    | field_sub | p384_field_sub | sub, incFieldPrime      | None    |        1000 | Yes, abc   | 47s  |          |
-| DONE   | Field Doubling       | field_dbl | [fn:1]         | dbl, leq, decFieldPrime | None    |        1000 | Yes, abc   | 4s   |          |
-| DONE   | Field Division       | mod_div   | p384_mod_div   |                         |         |           1 | Yes, yices | 10s  |          |
-| DONE   | Field Squaring       | field_sq  | p384_field_mul | sq, field_red           |         |         100 | Yes, rw    | <1s  |          |
-| DONE   | Field Multiplication | field_mul | p384_field_mul | mul, field_red          |         |         100 | Yes, rw    | <1s  |          |
+| Status | Name                 | Java      | Cryptol        | Impl directly calls     | Prereqs | Quickchecks | Verifies      | Best | Comments |
+| DONE   | Field Addition       | field_add | p384_field_add | leq, add, decFieldPrime | None    |        1000 | Yes, rw+yices | 5s   |          |
+| DONE   | Field Subtraction    | field_sub | p384_field_sub | sub, incFieldPrime      | None    |        1000 | Yes, rw+yices | 9s   |          |
+| DONE   | Field Doubling       | field_dbl | [fn:1]         | dbl, leq, decFieldPrime | None    |        1000 | Yes, rw+yices | 1s   |          |
+| DONE   | Field Division       | mod_div   | p384_mod_div   |                         |         |           1 | Yes, rw+yices | 2s   |          |
+| DONE   | Field Squaring       | field_sq  | p384_field_mul | sq, field_red           |         |         100 | Yes, rw       | <2s  |          |
+| DONE   | Field Multiplication | field_mul | p384_field_mul | mul, field_red          |         |         100 | Yes, rw       | <2s  |          |
 
 ** Level 2: Curve operations over points
-| Status | Name                   | Java        | Cryptol          | Impl directly calls | Prereqs     | Quickchecks | Verifies      | Comments |
-| DONE   | Point Doubling         | ec_double   | p384_ec_double   | [fn:7]              | [fn:8]      |        1000 | Yes, rewriter |          |
-| DONE   | Point Full Addition    | ec_full_add | p384_ec_full_add | [fn:9]              |             |         100 | Yes, rw+yices |          |
-| DONE   | Point Full Subtraction | ec_full_sub | p384_ec_full_sub | ec_full_add, sub    | ec_full_add |         100 | Yes, rw+yices |          |
+| Status | Name                   | Java        | Cryptol          | Impl directly calls | Prereqs     | Quickchecks | Verifies      | Best | Comments |
+| DONE   | Point Doubling         | ec_double   | p384_ec_double   | [fn:7]              | [fn:8]      |        1000 | Yes, rw       | <1s  |          |
+| DONE   | Point Full Addition    | ec_full_add | p384_ec_full_add | [fn:9]              |             |         100 | Yes, rw+yices | <2s  |          |
+| DONE   | Point Full Subtraction | ec_full_sub | p384_ec_full_sub | ec_full_add, sub    | ec_full_add |         100 | Yes, rw+yices | <3s  |          |
 
 ** Level 3: Scalar multiplication operations
-| Status | Name                          | Java          | Cryptol          | Impl directly calls | Prereqs | Quickchecks | Verifies      | Comments                                     |
-| DONE   | SD Multiply                   | ec_mul        | p384_ec_mul      | [fn:10]             |         |           1 | Yes, yices    |                                              |
-| INPR   | SD Multiply w/ sliding window | ec_mul_window |                  |                     |         |           0 | No            | Implementation uses, but more complex than ^ |
-| DONE   | Twin multiplication           | ec_twin_mul   | p384_ec_twin_mul |                     |         |           0 | Yes, rewriter |                                              |
+| Status | Name                          | Java          | Cryptol          | Impl directly calls | Prereqs | Quickchecks | Verifies | Best | Comments                                        |
+| DONE   | SD Multiply                   | ec_mul        | p384_ec_mul      | [fn:10]             |         |           1 | Yes, rw  | ~30s |                                                 |
+| INPR   | SD Multiply w/ sliding window | ec_mul_window |                  |                     |         |           0 | No       |      | Implementation can use, but more complex than ^ |
+| DONE   | Twin multiplication           | ec_twin_mul   | p384_ec_twin_mul |                     |         |           0 | Yes, rw  | <30s |                                                 |
 
 ** Level 4: ECDSA
-| Status | Name           | Java                | Cryptol                  | Impl directly calls | Prereqs | Quickchecks | Verifies | Comments  |
-| DONE   | Signing        | signHash            | p384_ecdsa_sign          |                     |         | 0           | No       |           |
-| TODO   | Initialization | initializePublicKey |                          |                     |         | no spec     | No       |           |
-| DONE   | Verification   | verifySignature     | p384_ecdsa_public_verify |                     |         | 0           | No       |           |
+| Status | Name           | Java                | Cryptol                  | Impl directly calls | Prereqs | Quickchecks | Verifies      | Best | Comments |
+| DONE   | Signing        | signHash            | p384_ecdsa_sign          |                     |         |           0 | Yes, rw+yices | ~5s  |          |
+| TODO   | Initialization | initializePublicKey |                          |                     |         |     no spec | no spec       | --   |          |
+| DONE   | Verification   | verifySignature     | p384_ecdsa_public_verify |                     |         |           0 | Yes, rw+yices | ~17s |          |
 
 * Auxiliary Proofs
-| Status | Name                     | Java          | Cryptol            | Impl directly calls          | Prereqs   | Quickchecks | Verifies            | Best     | Comments                                                                           |
-| DONE   | Field Double Decrement   | field_dbl_dec | [fn:2]             | field_sub                    | field_sub |        1000 | Yes, abc            | 3s[fn:3] |                                                                                    |
-| DONE   | Field Multiply x3        | field_mul3    | [fn:4]             | field_dbl, field_add         |           |        1000 | Yes, abc            | 17s      |                                                                                    |
-| DONE   | Field Multiply x4        | field_mul4    | [fn:5]             | field_dbl                    |           |        1000 | Yes, abc            | 6s       |                                                                                    |
-| DONE   | Field Multiply x8        | field_mul8    | [fn:6]             | field_dbl                    |           |        1000 | Yes, abc            | 13s      |                                                                                    |
-| DONE   | Mod half                 | mod_half      | p384_mod_half      | shr, add                     |           |          -- | Yes, abc            | <5s      |                                                                                    |
-| DONE   | Field Reduction          | field_red     | p384_field_mod     | decFieldPrime, incFieldPrime |           |             | Yes, abc            | ~2m30s   |                                                                                    |
-| DONE   | Increment by field prime | incFieldPrime | p384_incFieldPrime |                              |           |      100000 | Yes, abc            | 2s       |                                                                                    |
-| DONE   | Decrement by field prime | decFieldPrime | p384_decFieldPrime |                              |           |      100000 | Yes, abc            | <2s      |                                                                                    |
-| DONE   | EC Mul Aux               | ec_mul_aux    | p384_ec_mul_aux    | p384_ec_full_add/sub         | [fn:11]   |         100 | Yes, rewriter       | <1s      | Also discharged by yices.                                                          |
-| INPR   | Large-Word Multiply      | mul           |                    |                              |           |         100 | No                  |          | Perhaps not high-pri if it can be successfully uninterpreted in proofs that use it |
-| DONE   | Add mod group size       | group_add     | p384_group_add     | leq, sub                     |           |        1000 | Yes, rewriter+yices | 6s       | Also discharged by abc and yices without rewriting.                                |
-| INPR   | Mult mod group size      | group_mul     |                    |                              |           |           0 | No                  |          |                                                                                    |
-| DONE   | array assignment         | assign        | trivial            |                              |           |          -- | Yes, abc            | <2s      |                                                                                    |
-| DONE   | array-valued zero test   | is_zero       | trivial            |                              |           |          -- | Yes, abc            | <2s      |                                                                                    |
-| DONE   | array set zero           | set_zero      | trivial            |                              |           |          -- | Yes, abc            | <2s      |                                                                                    |
-| DONE   | array set one            | set_unit      | trivial            |                              |           |          -- | Yes, abc            | <2s      |                                                                                    |
+| Status | Name                     | Java          | Cryptol            | Impl directly calls          | Prereqs   | Quickchecks | Verifies      | Best       | Comments                                            |
+| DONE   | Field Double Decrement   | field_dbl_dec | [fn:2]             | field_sub                    | field_sub |        1000 | Yes, rw       | <1s [fn:3] |                                                     |
+| DONE   | Field Multiply x3        | field_mul3    | [fn:4]             | field_dbl, field_add         |           |        1000 | Yes, rw       | <1s        |                                                     |
+| DONE   | Field Multiply x4        | field_mul4    | [fn:5]             | field_dbl                    |           |        1000 | Yes, rw       | <1s        |                                                     |
+| DONE   | Field Multiply x8        | field_mul8    | [fn:6]             | field_dbl                    |           |        1000 | Yes, rw       | <1s        |                                                     |
+| DONE   | Mod half                 | mod_half      | p384_mod_half      | shr, add                     |           |          -- | Yes, rw+yices | 4s         |                                                     |
+| DONE   | Mod subtract             | mod_sub       | p384_mod_sub       |                              |           |          -- | Yes, rw+yices | 9s         |                                                     |
+| DONE   | Field Reduction          | field_red     | p384_field_mod     | decFieldPrime, incFieldPrime |           |             | Yes, abc      | ~2m        |                                                     |
+| DONE   | Increment by field prime | incFieldPrime | p384_incFieldPrime |                              |           |      100000 | Yes, rw+yices | <2s        |                                                     |
+| DONE   | Decrement by field prime | decFieldPrime | p384_decFieldPrime |                              |           |      100000 | Yes, rw+yices | <2s        |                                                     |
+| DONE   | EC Mul Aux               | ec_mul_aux    | p384_ec_mul_aux    | p384_ec_full_add/sub         | [fn:11]   |         100 | Yes, rw+yices | <1s        | Also discharged by yices.                           |
+| DONE   | Add mod group size       | group_add     | p384_group_add     | leq, sub                     |           |        1000 | Yes, rw+yices | 27s        | Also discharged by abc and yices without rewriting. |
+| DONE   | Mult mod group size      | group_mul     |                    |                              |           |           0 | Yes, rw       | 8s         |                                                     |
+| DONE   | Group reduction          | group_red     |                    |                              |           |           0 | Yes, rw+yices | 5s         |                                                     |
+| DONE   | array assignment         | assign        | trivial            |                              |           |          -- | Yes, abc      | <2s        |                                                     |
+| DONE   | array-valued zero test   | is_zero       | trivial            |                              |           |          -- | Yes, abc      | <1s        |                                                     |
+| DONE   | array set zero           | set_zero      | trivial            |                              |           |          -- | Yes, abc      | <1s        |                                                     |
+| DONE   | array set one            | set_unit      | trivial            |                              |           |          -- | Yes, abc      | <1s        |                                                     |
+| DONE   | Large-Word Addition      | add           | trivial            |                              |           |          -- | Yes, yices    | 13s        |                                                     |
+| DONE   | Large-Word Subtraction   | sub           | trivial            |                              |           |          -- | Yes, yices    | 23s        |                                                     |
+| DONE   | Large-Word Multiply      | mul           | trivial            |                              |           |         100 | Yes, rw+abc   | ~1m30s     |                                                     |
+| DONE   | Large-Word Square        | sq            | trivial            |                              |           |         100 | Yes, rw+abc   | ~2m30s     |                                                     |
+| DONE   | Large-Word Less-Equal    | leq           | trivial            |                              |           |         100 | Yes, abc      | <2s        |                                                     |
+| DONE   | Large-Word Shift-Right   | shr           | trivial            |                              |           |         100 | Yes, yices    | <2s        |                                                     |
 
 * Footnotes
 [fn:1] \x -> p384_field_add(x,x)
