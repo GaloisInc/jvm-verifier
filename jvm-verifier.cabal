@@ -177,7 +177,6 @@ executable sawScript
         SAWScript.Parser
         SAWScript.ParserActions
         SAWScript.QuickCheck
-        SAWScript.Yices
         SAWScript.TIMonad
         SAWScript.Token
         SAWScript.TypeChecker
