@@ -46,7 +46,6 @@ import qualified Execution.Codebase as JSS
 import qualified JavaParser as JSS
 import qualified SAWScript.CongruenceClosure as CC
 import qualified SAWScript.QuickCheck as QuickCheck
-import qualified SAWScript.Yices  as Yices
 import qualified SAWScript.TypeChecker as TC
 import qualified Simulation as JSS
 import SAWScript.Utils
@@ -58,6 +57,7 @@ import Verinf.Symbolic
 import qualified Verinf.Symbolic.BLIF as Blif
 import qualified Verinf.Symbolic.SmtLibTrans as SmtLib
 import qualified Verinf.Symbolic.SmtLibTrans2 as SmtLib2
+import qualified Verinf.Symbolic.Yices  as Yices
 import Verinf.Utils.LogMonad
 
 import qualified SMTLib1 as SmtLib
