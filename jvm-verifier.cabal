@@ -48,10 +48,10 @@ library
     , executable-path
     , fingertree
     , filepath
-    , mtl == 2.0.*
+    , mtl >= 2.1
     , pretty
     , vector >= 0.7
-    , zlib == 0.5.3.1
+    , zlib
     , Verinf >= 0.2
     , random
 
@@ -98,11 +98,11 @@ executable jss
     , executable-path
     , filepath
     , fingertree
-    , mtl == 2.0.*
-    , parsec >= 2.1.0.1
+    , mtl >= 2.1
+    , parsec
     , pretty
     , vector >= 0.7
-    , zlib == 0.5.3.1
+    , zlib
     , Verinf
     
   hs-source-dirs   : src
@@ -147,16 +147,16 @@ executable sawScript
     , fingertree
     , jvm-verifier
     , monadLib
-    , mtl == 2.0.*
+    , mtl >= 2.1
     , old-locale >= 1.0.0.2
     , old-time >= 1.0.0.3
-    , parsec >= 2.1.0.1
+    , parsec
     , process
     , pretty
     , random
     , smtLib
     , vector >= 0.7
-    , zlib == 0.5.3.1
+    , zlib
     , Verinf
 
   build-tools:
@@ -202,12 +202,12 @@ executable Tests
     , executable-path
     , filepath
     , fingertree
-    , mtl == 2.0.*
+    , mtl >= 2.1
     , pretty
     , process
     , random >= 1.0.1.0
     , vector >= 0.7
-    , zlib == 0.5.3.1
+    , zlib
     , QuickCheck >= 2.1.2
     , Verinf
 
@@ -233,11 +233,11 @@ executable ExampleAIG
     , executable-path
     , fingertree
     , filepath
-    , mtl == 2.0.*
+    , mtl >= 2.1
     , pretty
     , random >= 1.0.1.0
     , vector >= 0.7
-    , zlib == 0.5.3.1
+    , zlib
     , QuickCheck >= 2.1.2
     , Verinf
 
