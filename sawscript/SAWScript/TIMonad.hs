@@ -7,7 +7,6 @@ Point-of-contact : lerkok
 
 module SAWScript.TIMonad where
 
-import Control.Monad
 import Control.Monad.Trans
 import SAWScript.Utils
 import Text.PrettyPrint.HughesPJ

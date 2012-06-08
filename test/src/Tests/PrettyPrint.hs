@@ -10,8 +10,6 @@ module Tests.PrettyPrint (prettyPrintTests) where
 import Test.QuickCheck
 import Test.QuickCheck.Monadic as QC
 
-import Control.Monad.Trans
-import qualified Data.Vector as V
 import qualified Verinf.SBV.Model as SBV
 import qualified Verinf.SBV.Parser as SBV
 import Verinf.Symbolic
@@ -32,7 +30,6 @@ testAction i what cfg = do res <- run $ do
                              oc <- mkOpCache
                              let path = testDir ++ "/ppTest.sbv"
                              pgm <- SBV.loadSBV path
-                             let (argTys,_) = SBV.inferSBVFunctionType oc pgm
                              (_,node) <- SBV.parseSBV oc (\_ _ -> Nothing) "ppTest" pgm
                              return $ prettyTermWith cfg node
                            let file = testDir ++ "/pp" ++ what ++ "." ++ show i ++ ".gold"

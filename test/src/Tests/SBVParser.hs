@@ -27,9 +27,6 @@ sbvParserTests =
   ]
 
 
-fieldPrec :: OpPrec
-fieldPrec = 100
-
 testCPlus :: Property
 testCPlus = monadicIO $ do
   _ <- run $ do
