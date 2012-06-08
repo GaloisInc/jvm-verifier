@@ -33,9 +33,9 @@ import SAWScript.Utils
 import qualified SAWScript.MethodAST as AST
 import qualified SAWScript.MethodSpec as TC
 import qualified SAWScript.TypeChecker as TC
-import qualified SBVModel.SBV as SBV
-import qualified SBVParser as SBV
 
+import qualified Verinf.SBV.Model as SBV
+import qualified Verinf.SBV.Parser as SBV
 import Verinf.Symbolic
 import Verinf.Symbolic.Common(opDefIndex)
 import Verinf.Utils.IOStateT

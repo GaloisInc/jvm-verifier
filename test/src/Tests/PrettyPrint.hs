@@ -12,8 +12,8 @@ import Test.QuickCheck.Monadic as QC
 
 import Control.Monad.Trans
 import qualified Data.Vector as V
-import qualified SBVModel.SBV as SBV
-import qualified SBVParser as SBV
+import qualified Verinf.SBV.Model as SBV
+import qualified Verinf.SBV.Parser as SBV
 import Verinf.Symbolic
 
 data TestMode = CREATE          -- create the gold files

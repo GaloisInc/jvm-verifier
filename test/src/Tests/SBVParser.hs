@@ -11,11 +11,11 @@ import Control.Monad.Trans (liftIO)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Vector as V
-import SBVParser
 import Test.QuickCheck
 import Test.QuickCheck.Monadic as MQC
 
-import SBVModel.SBV
+import Verinf.SBV.Model
+import Verinf.SBV.Parser
 
 import Verinf.Symbolic
 
