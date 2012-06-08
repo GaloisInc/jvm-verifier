@@ -176,7 +176,6 @@ executable sawScript
         SAWScript.MethodSpecIR
         SAWScript.Parser
         SAWScript.ParserActions
-        SAWScript.QuickCheck
         SAWScript.TIMonad
         SAWScript.Token
         SAWScript.TypeChecker
