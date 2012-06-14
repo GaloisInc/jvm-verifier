@@ -75,7 +75,6 @@ exc2 rt cb = go rt cb $ do
 -- -- | Expected to fail: Symbolic lookup in array of refs
 sa1 ::
   ( AigOps sym
-  , TermDagMonad sym
   , MonadTerm sym ~ Node
   )
   => RunTest sym -> TrivialProp

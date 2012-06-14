@@ -14,20 +14,23 @@ import Control.Monad
 import Control.Monad.State
 
 import Data.Int
-import Data.Maybe
 
 import Execution.Codebase
 import JavaParser
 
+{-
 import System.IO.Unsafe (unsafePerformIO)
+
 dbug :: String -> a -> a
 dbug = seq . unsafePerformIO . putStrLn
+
 -- dbug _ = id
 dbugM :: Monad m => String -> m ()
 dbugM s = dbug s $ return ()
 -- dbugM _ = return ()
 _nowarn_dbug :: IO ()
 _nowarn_dbug = undefined dbug >> dbugM undefined
+-}
 
 data AtomicValue double float int long ref
   = DValue double
@@ -47,15 +50,10 @@ type family JSRslt   (m :: * -> *)
 
 type JSValue m = AtomicValue (JSDouble m) (JSFloat m) (JSInt m) (JSLong m) (JSRef m)
 
-
-class (Functor m, MonadIO m) => HasCodebase m where
-  getCodebase :: m Codebase
-
 -- | This typeclass defines the underlying semantics for the parameterized JVM
 -- step function.
 class ( Monad m
       , MonadIO m
-      , HasCodebase m
       , Functor m
       , Show (JSDouble m)
       , Show (JSFloat m)
@@ -87,6 +85,8 @@ class ( Monad m
               -> m v
               -> m v
 
+  getCodebase :: m Codebase
+  
   -- | Returns the result of running the simulator
   getResult :: m (JSRslt m)
 
@@ -531,6 +531,28 @@ class ( Monad m
 
   doStep :: m ()
 
+  createInstance :: String -> Maybe [(Type, JSValue m)] -> m (JSRef m)
+
+  dynBind' :: JavaSemantics m
+           => String                -- ^ Name of 'this''s class
+           -> MethodKey             -- ^ Key of method to invoke
+           -> JSRef m               -- ^ 'this'
+           -> (String -> Case m ()) -- ^ case generator for method dispatch
+           -> m ()
+
+  -- | Invokes an instance method in a particular class.
+  invokeInstanceMethod :: String      -- ^ Name of class
+                       -> MethodKey   -- ^ Key of method to invoke
+                       -> JSRef m     -- ^ Reference to use for this parameter.
+                       -> [JSValue m] -- ^ Operands to pass method
+                       -> m ()
+
+  -- | Invokes a static method in a particular class.
+  invokeStaticMethod :: String      -- ^ Name of class
+                     -> MethodKey   -- ^ Key of method to invoke
+                     -> [JSValue m] -- ^ Operands to pass to method
+                     -> m ()
+
 --------------------------------------------------------------------------------
 -- Control flow primitives and helpers
 
@@ -573,20 +595,6 @@ throwNullPtrExc = createAndThrow "java/lang/NullPointerException" >> error "unre
 --------------------------------------------------------------------------------
 -- Instance creation, query, and method dispatch
 
-createInstance :: JavaSemantics m => String -> Maybe [(Type, JSValue m)] -> m (JSRef m)
-createInstance clNm margs = do
-  cb <- getCodebase
-  cl <- liftIO $ lookupClass cb clNm
-  case cl `lookupMethod` ctorKey of
-    Just method -> do
-      ref <- newObject clNm
-      runInstanceMethodCall clNm method ref (maybe [] (map snd) margs)
-      return ref
-    Nothing ->
-      error $ "Unable to find method " ++ clNm ++ " (signature mismatch?)"
-  where
-    ctorKey = MethodKey "<init>" (maybe [] (map fst) margs) Nothing
-
 -- | (dynBind cln meth r act) provides to 'act' the class name that defines r's
 -- implementation of 'meth'
 dynBind :: JavaSemantics m
@@ -598,60 +606,6 @@ dynBind :: JavaSemantics m
 dynBind clName key objectRef act =
   dynBind' clName key objectRef $ \cl ->
     objectRef `hasType` ClassType cl |-> act cl
-
--- Note: Assume linker errors can not be thrown
-dynBind' :: JavaSemantics m
-         => String                -- ^ Name of 'this''s class
-         -> MethodKey             -- ^ Key of method to invoke
-         -> JSRef m               -- ^ 'this'
-         -> (String -> Case m ()) -- ^ case generator for method dispatch
-         -> m ()
-dynBind' clName key objectRef cgen = do
-  mty <- typeOf objectRef
-  cb <- getCodebase
-  cls <- case mty of
-           Nothing     -> return []
-           Just (ClassType instTy) -> liftIO $ findVirtualMethodsByRef cb clName key instTy
-           Just _ -> error "dynBind' type parameter not ClassType-constructed"
-
-
-  let cases = (isNull objectRef |-> throwNullPtrExc) : map cgen cls
-  -- In theory, this error should be unreachable.
-  choice cases (error $ "Uncaught linker error: " ++ clName ++ ":" ++ show key)
-
--- | Invokes an instance method in a particular class.
-invokeInstanceMethod :: JavaSemantics m
-                     => String      -- ^ Name of class
-                     -> MethodKey   -- ^ Key of method to invoke
-                     -> JSRef m     -- ^ Reference to use for this parameter.
-                     -> [JSValue m] -- ^ Operands to pass method
-                     -> m ()
-invokeInstanceMethod cName key objectRef args = do
-  cb <- getCodebase
-  cl <- liftIO $ lookupClass cb cName
-  case cl `lookupMethod` key of
-     Just method -> pushInstanceMethodCall cName method objectRef args
-     Nothing -> error $
-       "Could not find instance method " ++ show key ++ " in " ++ cName
-         ++ "\n  objectRef = " ++ show objectRef ++ ", args = " ++ show args
-
--- | Invokes a static method in a particular class.
-invokeStaticMethod :: JavaSemantics m
-                   => String      -- ^ Name of class
-                   -> MethodKey   -- ^ Key of method to invoke
-                   -> [JSValue m] -- ^ Operands to pass to method
-                   -> m ()
-invokeStaticMethod cName key args = do
-  cb <- getCodebase
-  sups <- liftIO (supers cb =<< lookupClass cb cName)
-  case mapMaybe (\cl -> (,) cl `fmap` (cl `lookupMethod` key)) sups of
-    ((cl,method):_) -> do
-      when (not $ methodIsStatic method) $
-        fatal $ "Attempted static invocation on a non-static method ("
-              ++ className cl ++ "." ++ methodName method ++ ")"
-      initializeClass (className cl)
-      pushStaticMethodCall (className cl) method args
-    [] -> error $ "Could not find static method " ++ show key ++ " in " ++ cName
 
 --------------------------------------------------------------------------------
 -- Instruction/stack manip
