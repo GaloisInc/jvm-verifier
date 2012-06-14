@@ -30,7 +30,7 @@ psmsTests :: [(Args, Property)]
 psmsTests =
   [
     (`test1` "ddb1") $ \cb -> runTest $ do
-      outs <- runSimulator cb $ do
+      outs <- runDefSymSim cb $ do
         b      <- IValue <$> liftSymbolic freshInt
         let zero = mkCInt (Wx 32) 0
         inpArr <- newIntArray intArrayTy $ [zero, zero]
@@ -45,7 +45,7 @@ psmsTests =
     `catchMIO` simExcHndlr ("Unexpected error caught: psmsTests.ddb1")
   ,
      (`test1` "ddb2") $ \cb -> runTest $ do
-      out <- runSimulator cb $ do
+      out <- runDefSymSim cb $ do
         b <- IValue <$> liftSymbolic freshInt
         rs <- withoutExceptions
               <$> runStaticMethod "PathStateMerges" "ddb2" "(Z)I" [b]
@@ -57,7 +57,7 @@ psmsTests =
     `catchMIO` simExcHndlr ("Unexpected error caught: psmsTests.ddb2")
   ,
     (`test1` "ddb3") $ \cb -> runTest $ do
-      _refs <- runSimulator cb $ do
+      _refs <- runDefSymSim cb $ do
         b   <- IValue <$> liftSymbolic freshInt
         arr <- newMultiArray (ArrayType (ClassType dummyCN)) [mkCInt (Wx 32) 1]
         rs  <- withoutExceptions
@@ -69,7 +69,7 @@ psmsTests =
     `catchMIO` simExcHndlr ("Unexpected error caught: psmsTests.ddb3")
   ,
     (`test1` "ddb4") $ \cb -> runTest $ do
-      out <- runSimulator cb $ do
+      out <- runDefSymSim cb $ do
         b   <- IValue <$> liftSymbolic freshInt
         d   <- createInstance dummyCN $ Just [(IntType, IValue $ mkCInt (Wx 32) 0)]
         rs  <- withoutExceptions
@@ -83,7 +83,7 @@ psmsTests =
     `catchMIO` simExcHndlr ("Unexpected error caught: psmsTests.ddb4")
   ,
     (`test1` "ddb5") $ \cb -> runTest $ do
-      out <- runSimulator cb $ do
+      out <- runDefSymSim cb $ do
         b   <- IValue <$> liftSymbolic freshInt
         d   <- createInstance dummyCN $ Just [(IntType, IValue $ mkCInt (Wx 32) 0)]
         rs  <- withoutExceptions
@@ -97,7 +97,7 @@ psmsTests =
     `catchMIO` simExcHndlr ("Unexpected error caught: psmsTests.ddb5")
   ,
      (`test1` "ddb6") $ \cb -> runTest $ do
-      out <- runSimulator cb $ do
+      out <- runDefSymSim cb $ do
         b <- IValue <$> liftSymbolic freshInt
         rs <- withoutExceptions
               <$> runStaticMethod "PathStateMerges" "ddb6" "(Z)I" [b]
@@ -109,7 +109,7 @@ psmsTests =
     `catchMIO` simExcHndlr ("Unexpected error caught: psmsTests.ddb6")
   ,
      (`test1` "ddb7") $ \cb -> runTest $ do
-      out <- runSimulator cb $ do
+      out <- runDefSymSim cb $ do
         [b1, b2] <- map IValue <$> replicateM 2 (liftSymbolic freshInt)
         rs <- withoutExceptions
               <$> runStaticMethod "PathStateMerges" "ddb7" "(ZZ)I" [b1,b2]
@@ -123,7 +123,7 @@ psmsTests =
     `catchMIO` simExcHndlr ("Unexpected error caught: psmsTests.ddb7")
   ,
      (`test1` "mul3") $ \cb -> runTest $ do
-      out <- runSimulator cb $ do
+      out <- runDefSymSim cb $ do
         [a, b] <- map IValue <$> replicateM 2 (liftSymbolic freshInt)
         rs <- withoutExceptions
               <$> runStaticMethod "PathStateMerges" "mul3" "(III)I"
@@ -137,7 +137,7 @@ psmsTests =
     `catchMIO` simExcHndlr ("Unexpected error caught: psmsTests.mul3")
   ,
      (`test1` "mul2") $ \cb -> runTest $ do
-      out <- runSimulator' SimulationFlags{ alwaysBitBlastBranchTerms = True} cb $ do
+      out <- runSymSim SimulationFlags{ alwaysBitBlastBranchTerms = True} cb $ do
         [a, b] <- map IValue <$> replicateM 2 (liftSymbolic freshInt)
         rs <- withoutExceptions
               <$> runStaticMethod "PathStateMerges" "mul2" "(II)I" [a, b]
@@ -151,7 +151,7 @@ psmsTests =
 --   ,
 -- -- As of <2010-01-19 Wed>, ddb8 does not symbolically terminate, and it is not expected to.
 --      (`test1` "ddb8") $ \cb -> runTest $ do
---       out <- runSimulator cb $ do
+--       out <- runDefSymSim cb $ do
 --         x <- IValue <$> liftSymbolic freshInt
 --         rs <- withoutExceptions <$> runStaticMethod "PathStateMerges" "ddb8" "(I)I" [x]
 --         when (length rs /= 1) $ error "psmsTests.ddb8: failed path state merge"

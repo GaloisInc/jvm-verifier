@@ -75,7 +75,7 @@ evalCryptolJava name key input = do
   oc <- mkOpCache
   cb <- commonLoadCB
   runSymbolic oc $ do
-    outVars <- runSimulator cb $ do
+    outVars <- runSimulator defaultSimFlags cb $ do
       setVerbosity 0
       let tint      = mkCInt (Wx 32) . fromIntegral
           keyVars   = map tint $ hexToIntSeq key
@@ -91,7 +91,7 @@ evalCryptolJavaWord name key input = do
   runSymbolic oc $ do
     keyVars <- replicateM 4 $ freshInt
     inputVars <- replicateM 4 $ freshInt
-    outVars <- runSimulator cb $ do
+    outVars <- runDefSymSim cb $ do
       setVerbosity 0
       runCryptolJava name keyVars inputVars
     let inp = V.map constInt $ V.fromList $ hexToIntSeq key ++ hexToIntSeq input
@@ -141,7 +141,7 @@ makeCryptolAiger rio filepath cb simFn =
     be <- getBitEngine
     keyVars   <- replicateM 4 $ freshInt
     inputVars <- replicateM 4 $ freshInt
-    outVars   <- runSimulator cb (setVerbosity 0 >> simFn keyVars inputVars)
+    outVars   <- runDefSymSim cb (setVerbosity 0 >> simFn keyVars inputVars)
     outLits   <- mapM getVarLit outVars
     liftIO $ writeAiger be filepath (concat $ map toLsbf_lit outLits)
 
@@ -153,7 +153,7 @@ evalCryptolC key input = do
       keyVars   = map tint $ hexToIntSeq key
       inputVars = map tint $ hexToIntSeq input
   runSymbolic oc $ do
-    outVars <- runSimulator cb $ do
+    outVars <- runDefSymSim cb $ do
       setVerbosity 0
       runCryptolC keyVars inputVars
     evalFn <- mkConcreteEval V.empty
@@ -231,7 +231,7 @@ makeBouncyCastleAiger ct name cb = do
   runSymbolic oc $ do
     revKey <- replicateM 16 freshByte
     revInput <- replicateM 16 freshByte
-    output <- runSimulator cb $ do
+    output <- runDefSymSim cb $ do
       setVerbosity 0
       runBouncyCastle ct name (reverse revKey) (reverse revInput)
     outputLits <- mapM getVarLit $ reverse output
@@ -247,7 +247,7 @@ evalBouncyCastle ct name key input = do
   runSymbolic oc $ do
     keyVars <- replicateM 16 freshByte
     inputVars <- replicateM 16 freshByte
-    outVars <- runSimulator cb $ do
+    outVars <- runDefSymSim cb $ do
       setVerbosity 0
       runBouncyCastle ct name keyVars inputVars
     let inp = V.map constInt $ V.fromList $ hexToByteSeq key ++ hexToByteSeq input

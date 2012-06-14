@@ -20,6 +20,7 @@ import JavaParser
 import Simulation hiding (run)
 import Tests.Common
 import Utils
+import Overrides
 
 import Verinf.Symbolic
 import Verinf.Utils.CatchMIO
@@ -55,7 +56,8 @@ doTest tn cb = runTest (go `catchMIO` simExcHndlr failMsg)
   -- simExcHndlr is polymorphic in the symbolic backend
   where
     failMsg = "Unexpected error caught in JAPI test: " ++ tn
-    go = runSimulator cb $ do
+    go = runDefSymSim cb $ do
+           jssOverrides
            rs <- runMain "JAPI" =<< mkTestArgs tn
            CE.assert (length rs == 1) $ return ()
            return [True]

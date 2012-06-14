@@ -28,7 +28,7 @@ module Simulation
   , InstanceFieldRef
   , PathDescriptor
   , Ref(..)
-  , State, pathStates
+  , State, pathStates, backend
   , SimulationFlags(..)
   , Node
   , Value
@@ -43,7 +43,8 @@ module Simulation
   , getInstanceFieldValue
   , getStaticFieldValue
   , runSimulator
-  , runSimulator'
+  , runSymSim
+  , runDefSymSim
   , setInitializationStatus
   -- * PathState operations.
   , PathState(..)
@@ -93,6 +94,7 @@ module Simulation
   -- * Breakpoints
   , registerBreakpoints
   , resumeBreakpoint
+  , module Verifier.Java.Backend
   )
 where
 
@@ -127,6 +129,7 @@ import JavaParser
 import JavaParser.Common
 import Utils
 import Utils.Common
+import Verifier.Java.Backend
 
 import Verinf.Symbolic hiding (defaultValue, (&&&), (|||))
 import Verinf.Utils.CatchMIO
@@ -251,6 +254,7 @@ data State sym = State {
   , nextRef           :: !Word32 -- ^ Next index for constant ref.
   , verbosity         :: Int
   , simulationFlags   :: SimulationFlags
+  , backend           :: Backend sym
   }
 
 -- | Our exception data structure; used to track errors intended to be exposed
@@ -297,12 +301,22 @@ data SimulationFlags =
 defaultSimFlags :: SimulationFlags
 defaultSimFlags = SimulationFlags { alwaysBitBlastBranchTerms = False }
 
-runSimulator' ::
+runSymSim :: SimulationFlags -> Codebase-> Simulator SymbolicMonad a -> SymbolicMonad a
+runSymSim f cb m = do
+  sms <- getSymState
+  runSimulator (symbolicBackend sms) f cb m
+  
+runDefSymSim :: Codebase-> Simulator SymbolicMonad a -> SymbolicMonad a
+runDefSymSim = runSymSim defaultSimFlags
+
+-- | Execute a simulation action; propagate any exceptions that occur so that
+-- clients can deal with them however they wish.
+runSimulator ::
   forall sym a.
   ( AigOps sym
   )
-  => SimulationFlags -> Codebase -> Simulator sym a -> sym a
-runSimulator' flags cb m = evalStateT (runSM go) (newSimState flags cb)
+  => Backend sym -> SimulationFlags -> Codebase -> Simulator sym a -> sym a
+runSimulator b flags cb m = evalStateT (runSM go) (newSimState flags cb b)
   where
     go = stdOverrides >> m `catchMIO` \(e :: CE.SomeException) -> do
            let h :: (Show t, Typeable t, t ~ MonadTerm sym) => Maybe (SimulatorExc t)
@@ -320,18 +334,10 @@ runSimulator' flags cb m = evalStateT (runSM go) (newSimState flags cb)
              _ -> do
                CE.throw e
 
--- | Execute a simulation action; propagate any exceptions that occur so that
--- clients can deal with them however they wish.
-runSimulator ::
-  forall sym a.
-  ( AigOps sym
-  )
-  => Codebase -> Simulator sym a -> sym a
-runSimulator cb m = runSimulator' defaultSimFlags cb m
 
 newSimState :: ConstantInjection (MonadTerm sym) =>
-               SimulationFlags -> Codebase -> State sym
-newSimState flags cb = State
+               SimulationFlags -> Codebase -> Backend sym -> State sym
+newSimState flags cb b = State
   { codebase          = cb
   , instanceOverrides = M.empty
   , staticOverrides   = M.empty
@@ -359,6 +365,7 @@ newSimState flags cb = State
   , nextRef         = 1
   , verbosity       = 1
   , simulationFlags = flags
+  , backend = b
   }
 
 -- | Override behavior of simulator when it encounters a specific instance

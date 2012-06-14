@@ -1113,7 +1113,7 @@ validateMethodSpec
     (esd,results) <-
       runSymbolicWithDagEngine oc de $ do
         setVerbosity verb
-        JSS.runSimulator cb $ do
+        JSS.runDefSymSim cb $ do
           -- Create initial Java state and expected state definition.
           esd <- initializeVerification ir bs cl
           res <- mkSpecVC params esd

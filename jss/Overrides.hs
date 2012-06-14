@@ -18,6 +18,7 @@ import Verinf.Symbolic
 -- API.
 jssOverrides :: (AigOps sym) => Simulator sym ()
 jssOverrides = do
+  b <- gets backend
   mapM_ (\(cn, key, impl) -> overrideStaticMethod cn key impl)
       --------------------------------------------------------------------------------
       -- fresh vars & path info
@@ -28,8 +29,8 @@ jssOverrides = do
     [ sym "freshByte" "(B)B"    $ \_ -> freshByte `pushAs` IValue
     , sym "freshInt" "(I)I"     $ \_ -> freshInt  `pushAs` IValue
     , sym "freshBoolean" "(Z)Z" $ \_ -> freshInt  `pushAs` IValue
-    , sym "freshLong" "(J)J"    $ \_ -> freshLong `pushAs` LValue
-
+    , sym "freshLong" "(J)J"    $ \_ -> 
+       pushValue =<< LValue <$> liftIO (freshLong b) 
     , sym "freshByteArray" "(I)[B" $ \[IValue (intVal -> Just n)] ->
         pushByteArr =<< replicateM n (liftSymbolic freshByte)
 
@@ -37,7 +38,7 @@ jssOverrides = do
         pushIntArr =<< replicateM n (liftSymbolic freshInt)
 
     , sym "freshLongArray" "(I)[J" $ \[IValue (intVal -> Just n)] ->
-        pushLongArr =<< replicateM n (liftSymbolic freshLong)
+        pushLongArr =<< liftIO (replicateM n (freshLong b))
 
     , sym "getPathDescriptors" "(Z)[I" $ \[IValue (getSVal -> Just includeExc)] ->
         let filterExc PathState{ finalResult = fr } =
