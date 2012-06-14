@@ -83,7 +83,6 @@ module JavaParser (
   , charArrayTy
   , getElemTy
   , intArrayTy
-  , longArrayTy
   , unparseMethodDescriptor
   -- * Debugging information
   , hasDebugInfo

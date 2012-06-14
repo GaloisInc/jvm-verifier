@@ -32,7 +32,6 @@ module Simulation
   , SimulationFlags(..)
   , Node
   , Value
-  , cIntValue
   , defaultSimFlags
   , dumpMergeFrames
   -- * SimulationMonad core operations
@@ -120,6 +119,7 @@ import Data.Word
 import Prelude hiding (catch)
 import System.IO (hFlush, hPutStr, stderr, stdout)
 
+import Execution.JavaSemantics
 import Analysis.CFG (ppInst)
 import Execution
 import Execution.Codebase
@@ -279,9 +279,6 @@ instance (Show term, Typeable term) => Exception (SimulatorExc term)
 newtype Simulator sym a = SM { runSM :: StateT (State sym) sym a }
   deriving (CatchMIO, Functor, Monad, MonadIO, MonadState (State sym))
 
-instance MonadIO sym => HasCodebase (Simulator sym) where
-  getCodebase    = gets codebase
-
 instance MonadIO sym => LogMonad (Simulator sym) where
   getVerbosity   = gets verbosity
   setVerbosity v = modify $ \s -> s { verbosity = v}
@@ -399,7 +396,10 @@ overrideStaticMethod cName mKey action = do
   put s { staticOverrides = M.insert key action (staticOverrides s) }
 
 -- | Register all predefined overrides for builtin native implementations.
-stdOverrides :: (AigOps sym) => Simulator sym ()
+stdOverrides :: ( ConstantInjection (MonadTerm sym)
+                , Show (MonadTerm sym)
+                , CatchMIO sym
+                , AigOps sym) => Simulator sym ()
 stdOverrides = do
   --------------------------------------------------------------------------------
   -- Instance method overrides
@@ -800,10 +800,9 @@ terminateCurrentPath collapseOnAllFinished = do
             dumpMergeFrames
        )
 
-
 -- | Register breakpoints at each of a list of (class, method, PC)
 -- tuples.
-registerBreakpoints :: MonadIO sym
+registerBreakpoints :: AigOps sym
                     => [(String, MethodKey, PC)]
                     -> Simulator sym ()
 registerBreakpoints bkpts = do
@@ -999,6 +998,9 @@ skipInit cname = cname `elem` [ "java/lang/System"
                               , "java/io/InputStreamReader"
                               ]
 
+compareFloat :: (ConstantInjection term, Floating a, Ord a) => a -> a -> term
+compareFloat x y = mkCInt (Wx 32) $ toInteger $ fromEnum (compare x y) - 1
+
 --------------------------------------------------------------------------------
 -- Symbolic simulation semantics
 
@@ -1012,6 +1014,8 @@ type instance JSRslt   (Simulator sym) = [(PathDescriptor, FinalResult (MonadTer
 
 instance (AigOps sym) => JavaSemantics (Simulator sym) where
   -- Control functions {{{1
+
+  getCodebase    = gets codebase
 
   isFinished = and . map isPathFinished . M.elems . pathStates <$> get
 
@@ -1532,6 +1536,52 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
     if done
       then handleBreakpoints >> term
       else stepCommon doStep term
+
+  createInstance clNm margs = do
+    cb <- getCodebase
+    cl <- liftIO $ lookupClass cb clNm
+    case cl `lookupMethod` ctorKey of
+      Just method -> do
+        ref <- newObject clNm
+        runInstanceMethodCall clNm method ref (maybe [] (map snd) margs)
+        return ref
+      Nothing ->
+        error $ "Unable to find method " ++ clNm ++ " (signature mismatch?)"
+    where
+      ctorKey = MethodKey "<init>" (maybe [] (map fst) margs) Nothing
+
+  -- Note: Assume linker errors can not be thrown
+  dynBind' clName key objectRef cgen = do
+    mty <- typeOf objectRef
+    cb <- getCodebase
+    cls <- case mty of
+             Nothing     -> return []
+             Just (ClassType instTy) -> liftIO $ findVirtualMethodsByRef cb clName key instTy
+             Just _ -> error "dynBind' type parameter not ClassType-constructed"
+    let cases = (isNull objectRef |-> throwNullPtrExc) : map cgen cls
+    -- In theory, this error should be unreachable.
+    choice cases (error $ "Uncaught linker error: " ++ clName ++ ":" ++ show key)
+
+  invokeInstanceMethod cName key objectRef args = do
+    cb <- getCodebase
+    cl <- liftIO $ lookupClass cb cName
+    case cl `lookupMethod` key of
+       Just method -> pushInstanceMethodCall cName method objectRef args
+       Nothing -> error $
+         "Could not find instance method " ++ show key ++ " in " ++ cName
+           ++ "\n  objectRef = " ++ show objectRef ++ ", args = " ++ show args
+
+  invokeStaticMethod cName key args = do
+    cb <- getCodebase
+    sups <- liftIO (supers cb =<< lookupClass cb cName)
+    case mapMaybe (\cl -> (,) cl `fmap` (cl `lookupMethod` key)) sups of
+      ((cl,method):_) -> do
+        when (not $ methodIsStatic method) $
+          fatal $ "Attempted static invocation on a non-static method ("
+                ++ className cl ++ "." ++ methodName method ++ ")"
+        initializeClass (className cl)
+        pushStaticMethodCall (className cl) method args
+      [] -> error $ "Could not find static method " ++ show key ++ " in " ++ cName
 
 stepCommon :: AigOps sym => Simulator sym a -> Simulator sym a -> Simulator sym a
 stepCommon onOK onException = do
@@ -2101,7 +2151,7 @@ updateSymbolicArray r modFn = do
 
 -- | @newIntArray arTy terms@ produces a reference to a new array of type
 -- @arTy@ and populated with given @terms@.
-newIntArray :: WordMonad sym => Type -> [MonadTerm sym] -> Simulator sym Ref
+newIntArray :: AigOps sym => Type -> [MonadTerm sym] -> Simulator sym Ref
 newIntArray tp@(ArrayType eltType) values
   | isIValue eltType = do
     arr <- liftSymbolic $
@@ -2109,15 +2159,13 @@ newIntArray tp@(ArrayType eltType) values
     newSymbolicArray tp (safeCast (length values)) arr
 newIntArray _ _ = error "internal: newIntArray called with invalid type"
 
--- | @newLongArray arTy terms@ produces a reference to a new array of type
--- @arTy@ and populated with given @terms@.
-newLongArray :: WordMonad sym =>
-                Type -> [MonadTerm sym] -> Simulator sym Ref
-newLongArray tp@(ArrayType LongType) values = do
+-- | @newLongArray arTy terms@ produces a reference to a new long array
+-- populated with given @terms@.
+newLongArray :: AigOps sym => [MonadTerm sym] -> Simulator sym Ref
+newLongArray values = do
   arr <- liftSymbolic $
     symbolicArrayFromList int64Type values
-  newSymbolicArray tp (safeCast (length values)) arr
-newLongArray _ _ = error "internal: newLongArray called with invalid type"
+  newSymbolicArray (ArrayType LongType) (safeCast (length values)) arr
 
 -- | Returns array length at given index in path.
 getArrayLength :: AigOps sym => PathDescriptor -> Ref -> Simulator sym Int32
@@ -2208,7 +2256,7 @@ getInstanceFieldValue pd ref fldId = do
     Nothing  -> error $ "getInstanceFieldValue: instance field " ++
                         show fldId ++ " does not exist"
 
-getStaticFieldValue :: WordMonad sym =>
+getStaticFieldValue :: AigOps sym =>
                        PathDescriptor
                     -> FieldId
                     -> Simulator sym (Value (MonadTerm sym))

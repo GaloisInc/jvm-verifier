@@ -25,7 +25,7 @@ import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 
 import JavaParser (Type(..))
-import Simulation hiding (run, newLongArray)
+import Simulation hiding (run)
 import qualified Simulation
 import Tests.Common
 import Utils
@@ -54,7 +54,7 @@ verb :: Int
 verb = 0
 
 -- A "symbolic backend testable" typeclass alias to clean up signatures a bit
-class (AigOps sym, TermDagMonad sym) => SBETestable sym
+class AigOps sym => SBETestable sym
 instance SBETestable SymbolicMonad
 
 -- NB: This whole module could probably use a rewrite; with the move to type
@@ -190,7 +190,6 @@ mkLongTest runTest' s = mkTest runTest' s takeLongRslt
 t1 ::
   ( AigOps sym
   , MonadTerm sym ~ Node
-  , TermDagMonad sym
   )
   => RunIO sym Int32 -> TrivialProp
 t1 runIO cb = mkBinOpTest cb ("Trivial", "bool_f1", "(ZZ)Z") (.&.)
@@ -201,7 +200,6 @@ t1 runIO cb = mkBinOpTest cb ("Trivial", "bool_f1", "(ZZ)Z") (.&.)
 t2 ::
   ( AigOps sym
   , MonadTerm sym ~ Node
-  , TermDagMonad sym
   )
   => RunIO sym Int32 -> TrivialProp
 t2 runIO cb = mkBinOpTest cb ("Trivial", "int_f2", "(II)I") (+)
@@ -239,7 +237,6 @@ t4 runIO cb = mkBinOpTest cb ("Trivial", "int_f4", "(II)I") (-)
 t7 ::
   ( AigOps sym
   , MonadTerm sym ~ Node
-  , TermDagMonad sym
   )
   => RunIO sym Int64
   -> TrivialProp
@@ -251,7 +248,6 @@ t7 runIO cb = mkBinOpTest cb ("Trivial", "long_f1", "(JJ)J") (.&.)
 t8 ::
   ( AigOps sym
   , MonadTerm sym ~ Node
-  , TermDagMonad sym
   )
   => RunIO sym Int64
   -> TrivialProp
@@ -482,7 +478,6 @@ chkQuotRem cb quotSpec remSpec eval = do
 evalInt32BinOp ::
   ( AigOps sym
   , MonadTerm sym ~ Node
-  , TermDagMonad sym
   )
   => RunIO sym Int32
   -> String
@@ -497,7 +492,6 @@ evalInt32BinOp runIO lbl maigNm cb =
 evalInt64BinOp ::
   ( AigOps sym
   , MonadTerm sym ~ Node
-  , TermDagMonad sym
   )
   => RunIO sym Int64
   -> String
@@ -514,8 +508,6 @@ evalBinOp ::
   ( AigOps sym
   , Integral a
   , MonadTerm sym ~ Node
-  , TermDagMonad sym
-  , WordMonad sym
   )
   => (sym (CValue, c) -> IO (CValue, c))
   -> String
@@ -565,9 +557,6 @@ intInputs = map constInt
 
 longInputs :: [Int64] -> TestInput
 longInputs = map constLong
-
-newLongArray :: WordMonad sym => [MonadTerm sym] -> Simulator sym Ref
-newLongArray = Simulation.newLongArray (ArrayType LongType)
 
 _containsExc :: Monad m => [FinalResult (MonadTerm m)] -> String -> m ()
 _containsExc frs s = flip CE.assert (return ()) $

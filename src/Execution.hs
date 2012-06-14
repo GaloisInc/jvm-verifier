@@ -8,7 +8,6 @@ Point-of-contact : jhendrix, jstanley
 module Execution
   ( AtomicValue(..)
   , Codebase
-  , HasCodebase(..)
   , JavaSemantics(..)
   , JSDouble
   , JSFloat
@@ -19,11 +18,8 @@ module Execution
   , JSRslt
   , JSValue
   , createAndThrow
-  , createInstance
   , dynBind
   , getNextPc
-  , invokeInstanceMethod
-  , invokeStaticMethod
   , isSubtype
   , loadClass
   , loadCodebase

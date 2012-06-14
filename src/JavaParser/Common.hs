@@ -31,9 +31,6 @@ data Type
 stringTy :: Type
 stringTy = ClassType "java/lang/String"
 
-longArrayTy :: Type
-longArrayTy = ArrayType LongType
-
 intArrayTy :: Type
 intArrayTy = ArrayType IntType
 

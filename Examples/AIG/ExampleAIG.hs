@@ -101,7 +101,6 @@ evalCryptolJavaWord name key input = do
 -- Levent's Cryptol C Port {{{1
 runCryptolC ::
   ( AigOps sym
-  , TermDagMonad sym
   , MonadTerm sym ~ Node
   )
   => [MonadTerm sym]
@@ -131,9 +130,7 @@ runCryptolC key input = do
 type RunIO sym a = sym a -> IO a
 
 makeCryptolAiger ::
-  ( AigOps sym
-  , WordMonad sym
-  )
+  ( AigOps sym)
   => RunIO sym ()
   -> String
   -> Codebase

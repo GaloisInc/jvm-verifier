@@ -11,6 +11,7 @@ import qualified Data.Vector.Storable as SV
 import Execution.JavaSemantics
 import JavaParser
 import Simulation
+import Utils.Common
 import Verinf.Symbolic
 
 -- | Register all predefined overrides for the com.galois.symbolic.Symbolic
@@ -130,7 +131,7 @@ jssOverrides = do
     m `pushAs` f  = pushValue =<< f <$> liftSymbolic m
     pushByteArr   = pushValue . RValue <=< newIntArray byteArrayTy
     pushIntArr    = pushValue . RValue <=< newIntArray intArrayTy
-    pushLongArr   = pushValue . RValue <=< newLongArray longArrayTy
+    pushLongArr   = pushValue . RValue <=< newLongArray 
 
     assertAllInts xs = do
       when (any (\x -> case x of IValue{} -> False; _ -> True) xs) $
