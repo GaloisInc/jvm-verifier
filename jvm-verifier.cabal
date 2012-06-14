@@ -65,8 +65,6 @@ library
     JarReader
     JavaParser
     JavaParser.Common
-    SBVModel.SBV
-    SBVParser
     Simulation
     Utils
     Utils.Common
@@ -180,10 +178,6 @@ executable sawScript
         SAWScript.MethodSpecIR
         SAWScript.Parser
         SAWScript.ParserActions
-        SAWScript.QuickCheck
-        SAWScript.SmtLibTrans
-        SAWScript.SmtLibTrans2
-        SAWScript.Yices
         SAWScript.TIMonad
         SAWScript.Token
         SAWScript.TypeChecker

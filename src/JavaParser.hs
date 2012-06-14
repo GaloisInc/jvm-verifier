@@ -97,7 +97,7 @@ module JavaParser (
 
   import Control.Exception (assert)
   import Control.Monad
-  import Data.Array (Array,(!),assocs,listArray)
+  import Data.Array (Array, (!), listArray)
   import Data.Binary
   import Data.Binary.Get
   import Data.Binary.IEEE754
@@ -806,10 +806,12 @@ module JavaParser (
                   in impl (pos + dist) newRead (padding ++ (Just inst : result))
 
   -- Returns valid program counters in ascending order.
+  {-
   getValidPcs :: InstructionStream -> [PC]
   getValidPcs = map fst . filter (isJust . snd) . assocs
     where isJust Nothing = False
           isJust _ = True
+  -}
 
   -- LineNumberTable {{{2
   getLineNumberTableEntries :: Get [(PC,Word16)]

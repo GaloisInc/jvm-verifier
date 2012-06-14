@@ -1585,7 +1585,6 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
 
 stepCommon :: AigOps sym => Simulator sym a -> Simulator sym a -> Simulator sym a
 stepCommon onOK onException = do
-  ps <- getPathState
   method <- getCurrentMethod
   pc     <- getPc
   let inst    = lookupInstruction method pc
@@ -2433,25 +2432,25 @@ instance (PrettyTerm (MonadTerm sym)) => Show (State sym) where
              ++ "\nNext Ref: " ++ show (nextRef s)
 
 instance PrettyTerm term => Show (PathState term) where
-  show state =
+  show st =
     let dispMapBy :: (forall k a. Map k a -> ((k, a) -> String) -> String)
         x `dispMapBy` showItem = (multi . map showItem . M.toList)  x
         x `dispBy` showItem    = (multi . map showItem . DF.toList) x
         multi lns              = pad ++ intercalate pad lns ++ "\n"
         pad                    = "\n" ++ replicate 4 ' '
     in
-      ppPSS (pathStSel state) ++ ":\n"
+      ppPSS (pathStSel st) ++ ":\n"
       ++
       "  frames         : "
-      ++ (if null $ frames state
+      ++ (if null $ frames st
             then "(none)\n"
-            else frames state `dispBy` ppFrame
+            else frames st `dispBy` ppFrame
          )
       ++
       "  instance fields: "
-      ++ (if M.null $ instanceFields state
+      ++ (if M.null $ instanceFields st
             then "(none)\n"
-            else instanceFields state `dispMapBy` \((r, fldId), v) ->
+            else instanceFields st `dispMapBy` \((r, fldId), v) ->
                    "(" ++ ppRefId r
                    ++ "::"
                    ++ fieldIdClass fldId
@@ -2462,7 +2461,7 @@ instance PrettyTerm term => Show (PathState term) where
          )
       ++
       "  static fields  : "
-      ++ (if M.null (staticFields state)
+      ++ (if M.null (staticFields st)
             then "(none)\n"
             else
               let f (fldId, v) = fieldIdClass fldId
@@ -2471,19 +2470,19 @@ instance PrettyTerm term => Show (PathState term) where
                                  ++ " => "
                                  ++ ppValue v
               in
-                staticFields state `dispMapBy` f
+                staticFields st `dispMapBy` f
          )
       ++
       "  arrays         : "
-      ++ (if M.null $ arrays state
+      ++ (if M.null $ arrays st
             then "(none)\n"
-            else arrays state `dispMapBy` \(k,(l,v)) -> show k ++ " : " ++ show l ++ " = " ++ prettyTerm v
+            else arrays st `dispMapBy` \(k,(l,v)) -> show k ++ " : " ++ show l ++ " = " ++ prettyTerm v
          )
       ++
       "  refArrays      : "
-      ++ (if M.null $ refArrays state
+      ++ (if M.null $ refArrays st
             then "(none)\n"
-            else refArrays state `dispMapBy` \(r,rs) ->
+            else refArrays st `dispMapBy` \(r,rs) ->
                    ppRef r
                    ++ " => [ "
                    ++ intercalate ", " (map ppRefId $ elems rs)
@@ -2492,8 +2491,8 @@ instance PrettyTerm term => Show (PathState term) where
       ++
   --    "  assumptions    : " ++ ppSymTerm (psAssumptions state) ++ "\n"
   --    ++
-      "  finalResult    : " ++ ppFinalResult (finalResult state)
+      "  finalResult    : " ++ ppFinalResult (finalResult st)
       ++
-      "  starting PC    : " ++ show (startingPC state)
+      "  starting PC    : " ++ show (startingPC st)
       ++
-      "  instr count    : " ++ show (insnCount state)
+      "  instr count    : " ++ show (insnCount st)

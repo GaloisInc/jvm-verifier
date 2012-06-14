@@ -35,7 +35,7 @@ testSymbolicSession = do
   sess <- makeSession :: IO (Session SymbolicMonad)
   let sym = toIO sess
   -- Test that SymbolicMonad errors are properly converted to IO exceptions.
-  v <- sym $ freshUninterpretedVar (SymInt (constantWidth 32))
+  _v <- sym $ freshUninterpretedVar (SymInt (constantWidth 32))
   -- Construct an unsatisfiable Symbolic term
   be <- sym $ getBitEngine 
   l1 <- liftIO $ beMakeInputLit be
