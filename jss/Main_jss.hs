@@ -32,6 +32,7 @@ import JavaParser.Common
 import Simulation
 import Utils
 import Utils.Simulation
+import Overrides
 
 import Verinf.Symbolic
 import Verinf.Utils.CatchMIO
@@ -124,6 +125,7 @@ main = do
   runSymbolic oc $
     let fl = defaultSimFlags{ alwaysBitBlastBranchTerms = blast args' }
         go = runSimulator' fl cb $ do
+               jssOverrides
                Simulation.setVerbosity (dbug args')
                rs <- runMain cname =<< do
                        jargs <- newMultiArray (ArrayType (ClassType "java/lang/String"))

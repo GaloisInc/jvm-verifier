@@ -28,7 +28,7 @@ module Simulation
   , InstanceFieldRef
   , PathDescriptor
   , Ref(..)
-  , State
+  , State, pathStates
   , SimulationFlags(..)
   , Node
   , Value
@@ -53,6 +53,7 @@ module Simulation
   , pushFrame
   , getPathStateByName
   , getPSS
+  , PSS(..)
   , withPathState
   -- * Path splitting.
   , ResumeAction(..)
@@ -64,7 +65,9 @@ module Simulation
   -- * Array operations
   , getArrayLength
   , getArrayValue
+  , getByteArray
   , getIntArray
+  , getLongArray
   , getRefArray
   , getSymbolicArray
   , newIntArray
@@ -82,8 +85,12 @@ module Simulation
   , setVerbosity
   , simExcHndlr
   , simExcHndlr'
+  , lookupStringRef
+  , splitFinishedPaths
 --  , verbosity
   , withVerbosity
+  , abort
+  , runFrame
   -- * Breakpoints
   , registerBreakpoints
   , resumeBreakpoint
@@ -223,13 +230,15 @@ data PathState term = PathState {
   -- ^ The number of instructions executed so far on this path.
   }
 
+type SymPathState sym = PathState (MonadTerm sym)
+
 data State sym = State {
     codebase          :: !Codebase
   , instanceOverrides :: !(Map (String, MethodKey) (Ref -> [Value' sym] -> Simulator sym ()))
     -- ^ Maps instance method identifiers to a function for executing them.
   , staticOverrides   :: !(Map (String, MethodKey) ([Value' sym] -> Simulator sym ()))
     -- ^ Maps static method identifiers to a function for executing them.
-  , pathStates        :: !(Map PathDescriptor (PathState (MonadTerm sym)))
+  , pathStates        :: !(Map PathDescriptor (SymPathState sym))
     -- ^ Simulation state for each distinct control flow path
   , mergeFrames       :: ![MergeFrame sym]
     -- ^ Auxiliary data structures for tracking execution and merging of
@@ -389,8 +398,7 @@ overrideStaticMethod cName mKey action = do
     abort $ "Method " ++ cName ++ "." ++ methodKeyName mKey ++ " is already overridden."
   put s { staticOverrides = M.insert key action (staticOverrides s) }
 
--- | Register all predefined overrides for builtin native implementations and
--- the com.galois.symbolic.Symbolic API.
+-- | Register all predefined overrides for builtin native implementations.
 stdOverrides :: (AigOps sym) => Simulator sym ()
 stdOverrides = do
   --------------------------------------------------------------------------------
@@ -567,121 +575,8 @@ stdOverrides = do
                      a []
                    _ -> abort "doPrivileged called with incorrect arguments"
       )
-
-      --------------------------------------------------------------------------------
-      -- fresh vars & path info
-
-      -- TODO: Make the overriden functions be total and handle errors if, e.g.,
-      -- user passes a symbolic value where a concrete one is expected
-      -- (getPathDescriptors, for instance).
-
-    , sym "freshByte" "(B)B"    $ \_ -> freshByte `pushAs` IValue
-    , sym "freshInt" "(I)I"     $ \_ -> freshInt  `pushAs` IValue
-    , sym "freshBoolean" "(Z)Z" $ \_ -> freshInt  `pushAs` IValue
-    , sym "freshLong" "(J)J"    $ \_ -> freshLong `pushAs` LValue
-
-    , sym "freshByteArray" "(I)[B" $ \[IValue (intVal -> Just n)] ->
-        pushByteArr =<< replicateM n (liftSymbolic freshByte)
-
-    , sym "freshIntArray" "(I)[I" $ \[IValue (intVal -> Just n)] ->
-        pushIntArr =<< replicateM n (liftSymbolic freshInt)
-
-    , sym "freshLongArray" "(I)[J" $ \[IValue (intVal -> Just n)] ->
-        pushLongArr =<< replicateM n (liftSymbolic freshLong)
-
-    , sym "getPathDescriptors" "(Z)[I" $ \[IValue (getSVal -> Just includeExc)] ->
-        let filterExc PathState{ finalResult = fr } =
-              if includeExc /= 0
-                then True
-                else case fr of Exc{} -> False; _ -> True
-        in pushIntArr
-             =<< mapM (liftSymbolic . termInt . fromIntegral . unPSS)
-               =<< (M.keys . M.filter filterExc <$> gets pathStates)
-
-      --------------------------------------------------------------------------------
-      -- evalAig
-
-      -- symbolic byte AIG output -> concrete byte
-    , sym "evalAig" "(B[Lcom/galois/symbolic/CValue;)B" $ \[IValue out, RValue cvArr] ->
-        evalAigBody (take 8) assertAllInts unIValue IValue out cvArr
-
-      -- symbolic int AIG output -> concrete int
-    , sym "evalAig" "(I[Lcom/galois/symbolic/CValue;)I" $ \[IValue out, RValue cvArr] ->
-        evalAigBody id assertAllInts unIValue IValue out cvArr
-
-      -- symbolic long AIG output -> concrete long
-    , sym "evalAig" "(J[Lcom/galois/symbolic/CValue;)J" $ \[LValue out, RValue cvArr] ->
-        evalAigBody id assertAllLongs unLValue LValue out cvArr
-
-      -- symbolic byte array AIG output -> concrete byte array
-    , sym "evalAig" "([B[Lcom/galois/symbolic/CValue;)[B" $
-        evalAigArrayBody 8 assertAllInts getByteArray unIValue pushByteArr
-
-      -- symbolic int array AIG output -> concrete int array
-    , sym "evalAig" "([I[Lcom/galois/symbolic/CValue;)[I" $
-        evalAigArrayBody 32 assertAllInts getIntArray unIValue pushIntArr
-
-      -- symbolic long array AIG output -> long array
-    , sym "evalAig" "([J[Lcom/galois/symbolic/CValue;)[J" $
-        evalAigArrayBody 64 assertAllLongs getLongArray unLValue pushLongArr
-
-      --------------------------------------------------------------------------------
-      -- writeAiger
-
-    , sym "writeAiger" "(Ljava/lang/String;Z)V"  $ \([RValue fnameRef, IValue out]) ->
-        writeAigerBody (SV.take 1) fnameRef [out]
-    , sym "writeAiger" "(Ljava/lang/String;B)V"  $ \([RValue fnameRef, IValue out]) ->
-        writeAigerBody id fnameRef [out]
-    , sym "writeAiger" "(Ljava/lang/String;I)V"  $ \([RValue fnameRef, IValue out]) ->
-        writeAigerBody id fnameRef [out]
-    , sym "writeAiger" "(Ljava/lang/String;J)V"  $ \([RValue fnameRef, LValue out]) ->
-        writeAigerBody id fnameRef [out]
-    , sym "writeAiger" "(Ljava/lang/String;[B)V" $ \([RValue fnameRef, RValue outs]) ->
-        writeAigerBody id fnameRef =<< (`getByteArray` outs) =<< getPSS
-    , sym "writeAiger" "(Ljava/lang/String;[I)V" $ \([RValue fnameRef, RValue outs]) ->
-        writeAigerBody id fnameRef =<< (`getIntArray` outs) =<< getPSS
-    , sym "writeAiger" "(Ljava/lang/String;[J)V" $ \([RValue fnameRef, RValue outs]) ->
-        writeAigerBody id fnameRef =<< (`getLongArray` outs) =<< getPSS
-
-      --------------------------------------------------------------------------------
-      -- debugging
-
-    , dbg "trace" "(I)V" $ \[v@IValue{}] -> dbugM $ ppValue v
-    , dbg "trace" "(Ljava/lang/String;I)V" $ \[RValue msgRef, v@IValue{}] -> do
-        mmsg <- lookupStringRef msgRef
-        case mmsg of
-          Just msg -> dbugM $ "(JSS) " ++ msg ++ ": " ++ ppValue v
-          _ -> error "Symbolic.Debug.trace expects interned message strings"
-    , dbg "trace" "(J)V" $ \[v@LValue{}] -> dbugM $ ppValue v
-    , dbg "trace" "(Ljava/lang/String;J)V" $ \[RValue msgRef, v@LValue{}] -> do
-        mmsg <- lookupStringRef msgRef
-        case mmsg of
-          Just msg -> dbugM $ "(JSS) " ++ msg ++ ": " ++ ppValue v
-          _ -> error "Symbolic.Debug.trace expects interned message strings"
-
-    , dbg "abort" "()V"          $ \_ -> abort "Abort explicitly triggered (via JAPI)."
-    , dbg "dumpPathStates" "()V" $ \_ -> dumpPathStates
-    , dbg "setVerbosity" "(I)V"  $ \[IValue (intVal -> Just v)] ->
-        setVerbosity v
-    , dbg "eval" "(I[Lcom/galois/symbolic/CValue;)I" $ \[IValue _out, RValue _cvArr] -> do
-        error "debug dag eval / bitblast integrity checker NYI"
     ]
   where
-    intVal = fmap fromInteger  . getSVal
-    abortWhenMultiPath msg = do
-      finished <- snd <$> splitFinishedPaths
-      when (length finished > 1) $ do
-        dbugM $ "Error: " ++ msg ++ ": There are multiple non-exception paths.  Displaying all path states:"
-        dumpPathStates
-        abort $ msg ++ ": only permitted when there's one non-exception path state."
-
-    sym meth md f = (symbolicCN, makeMethodKey meth md, f)
-    dbg meth md f = (symbolicCN ++ "$Debug", makeMethodKey meth md, f)
-    symbolicCN    = "com/galois/symbolic/Symbolic"
-    m `pushAs` f  = pushValue =<< f <$> liftSymbolic m
-    pushByteArr   = pushValue . RValue <=< newIntArray byteArrayTy
-    pushIntArr    = pushValue . RValue <=< newIntArray intArrayTy
-    pushLongArr   = pushValue . RValue <=< newLongArray longArrayTy
     printlnMthd t = ( "java/io/PrintStream"
                     , makeMethodKey "println" t
                     , \_ args -> printStream True (t == "(C)V") args
@@ -729,67 +624,6 @@ stdOverrides = do
             runInstanceMethodCall cn meth this [RValue sr]
         )
 
-    assertAllInts xs = do
-      when (any (\x -> case x of IValue{} -> False; _ -> True) xs) $
-        abort "JAPI: expected CValue operands to represent type int "
-      return xs
-
-    assertAllLongs xs = do
-      when (any (\x -> case x of LValue{} -> False; _ -> True) xs) $
-        abort "JAPI: expected CValue operands to represent type long "
-      return xs
-
-    evalAigBody f chkInps dtor ctor out cvArr = do
-      abortWhenMultiPath "AIG evaluation (scalar)"
-      cinps <- map (fromJust . termConst . dtor)
-               <$> (chkInps =<< getInputs cvArr)
-      evalAigIntegral f cinps out `pushAs` ctor
-
-    evalAigArrayBody w chkInps getArr dtor push [RValue outs, RValue cvArr] = do
-      abortWhenMultiPath "AIG evaluation (array)"
-      pd      <- getPSS
-      ins     <- chkInps =<< getInputs cvArr
-      outLits <- getArr pd outs
-      push =<< liftSymbolic
-                 (evalAigArray w
-                               (map (fromJust . termConst . dtor) ins)
-                               outLits
-                 )
-    evalAigArrayBody _ _ _ _ _ _ = error "invalid evalAigArrayBody parameters"
-
-    writeAigerBody f fnameRef outs = do
-      abortWhenMultiPath "AIGER write"
-      mfn <- lookupStringRef fnameRef
-      case mfn of
-        Nothing -> abort $ "writeAiger filename parameter does "
-                         ++ "not refer to a constant string"
-        Just fn -> liftSymbolic
-                   $ writeAigToFile fn . SV.concat
-                       =<< mapM (fmap (f . toLsbfV) . getVarLit) outs
-
-    getInputs cvArr = do
-      cvalRefs <- getPSS >>= (`getRefArray` cvArr)
-      forM cvalRefs $ \r -> do
-        mty <- typeOf r
-        case mty of
-          Nothing -> abort "Null reference encountered in concrete value array"
-          Just ty
-            | ty == ClassType ciCN -> unboxCV ciCN r "()I"
-            | ty == ClassType czCN -> unboxCV czCN r "()Z"
-            | ty == ClassType cjCN -> unboxCV cjCN r "()J"
-            | ty == ClassType cbCN -> unboxCV cbCN r "()B"
-            | otherwise ->
-                abort $ "evalAig concrete value operand type is not supported"
-      where
-        cbCN              = "com/galois/symbolic/CValue$CByte"
-        ciCN              = "com/galois/symbolic/CValue$CInt"
-        czCN              = "com/galois/symbolic/CValue$CBool"
-        cjCN              = "com/galois/symbolic/CValue$CLong"
-        unboxCV cn ref td = do
-          invokeInstanceMethod cn (makeMethodKey "getValue" td) ref []
-          runFrame
-          popValue
-
 --------------------------------------------------------------------------------
 -- PathState and State selector functions
 
@@ -830,7 +664,7 @@ onNewPath ra = do
   return ()
 
 onResumedPath :: (MonadIO sym, PrettyTerm (MonadTerm sym)) =>
-                 PathState (MonadTerm sym) -> ResumeAction sym -> Simulator sym ()
+                 SymPathState sym -> ResumeAction sym -> Simulator sym ()
 onResumedPath ps ra = do
   newPSS <- gets nextPSS
   case frames ps of
@@ -886,7 +720,7 @@ getPSS = pathStSel <$> getPathState
 -- path is the only path upon which execution of the computation occurs.
 withPathState :: MonadIO sym =>
                  PathDescriptor
-              -> (PathState (MonadTerm sym) -> Simulator sym a)
+              -> (SymPathState sym -> Simulator sym a)
               -> Simulator sym a
 withPathState pd f = do
   oldMergeFrames <- gets mergeFrames
@@ -895,7 +729,7 @@ withPathState pd f = do
   modify $ \s -> s{ mergeFrames = oldMergeFrames }
   return rslt
 
-getPathState :: MonadIO sym => Simulator sym (PathState (MonadTerm sym))
+getPathState :: MonadIO sym => Simulator sym (SymPathState sym)
 getPathState = do
   mf <- getMergeFrame
   let getIt pss = getPathStateByName pss >>= \ps ->
@@ -999,12 +833,12 @@ handleBreakpoints = do
     _ -> return ()
 
 resumeBreakpoint :: (MonadIO sym, PrettyTerm (MonadTerm sym))
-                 => PathState (MonadTerm sym)
+                 => SymPathState sym
                  -> Simulator sym ()
 resumeBreakpoint ps = onResumedPath ps NextInst
 
 getPathStateByName :: MonadIO sym =>
-                      PathDescriptor -> Simulator sym (PathState (MonadTerm sym))
+                      PathDescriptor -> Simulator sym (SymPathState sym)
 getPathStateByName n = do
   mps <- lookupPathStateByName n
   case mps of
@@ -1013,11 +847,10 @@ getPathStateByName n = do
 
 lookupPathStateByName :: MonadIO sym =>
                          PathDescriptor
-                      -> Simulator sym (Maybe (PathState (MonadTerm sym)))
+                      -> Simulator sym (Maybe (SymPathState sym))
 lookupPathStateByName n = M.lookup n . pathStates <$> get
 
-putPathState :: MonadIO sym =>
-                PathState (MonadTerm sym) -> Simulator sym ()
+putPathState :: MonadIO sym => SymPathState sym -> Simulator sym ()
 putPathState ps = ps `seq` do
   pss <- getPSS
   -- never permit selector tweaking
@@ -1025,7 +858,7 @@ putPathState ps = ps `seq` do
   modify $ \s -> s{ pathStates = M.insert pss ps (pathStates s) }
 
 modifyPathState :: MonadIO sym =>
-                   (PathState (MonadTerm sym) -> PathState (MonadTerm sym))
+                   (SymPathState sym -> SymPathState sym)
                 -> Simulator sym ()
 modifyPathState f = f <$> getPathState >>= putPathState
 
@@ -1841,10 +1674,10 @@ data MergePrecond
   | StackFramesAlign
     deriving Show
 
-merge :: forall sym. (AigOps sym)
-      => PathState (MonadTerm sym)
-      -> PathState (MonadTerm sym)
-      -> Simulator sym (Maybe (PathState (MonadTerm sym)))
+merge :: forall sym . AigOps sym
+      => SymPathState sym
+      -> SymPathState sym
+      -> Simulator sym (Maybe (SymPathState sym))
 merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } = do
   -- A path that has thrown an exception should not have been identified as a
   -- merge candidate!
@@ -1964,7 +1797,7 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
     -- states via the given action 'mrg', and then union in elements unique to
     -- each state as well (via the left-biased map union operator)
     mergeBy :: forall k a. (Ord k)
-            => (PathState (MonadTerm sym) -> Map k a)
+            => (SymPathState sym -> Map k a)
             -> (a -> a -> Simulator sym a)
             -> Simulator sym (Map k a)
     mergeBy sel mrg = leftUnion <$> merged
@@ -2115,7 +1948,7 @@ splitFinishedPaths = partitionMFOn ((\r -> isExc r || isBkpt r) . finalResult)
 -- | Partition the top merge frame's finished paths into those paths which match
 -- a predicate and those which do not.
 partitionMFOn :: MonadIO sym
-              => (PathState (MonadTerm sym) -> Bool)
+              => (SymPathState sym -> Bool)
               -> Simulator sym ([PathDescriptor], [PathDescriptor])
 partitionMFOn f = do
   psts <- gets pathStates
@@ -2141,10 +1974,8 @@ newString s = do
   -- (thread local variables, character encodings, builtin unsafe operations,
   -- etc.), so we cheat and just forcibly set the (private) instance fields.
   -- We'll want want to REVISIT this in the future.
-
   chars <- liftSymbolic (mapM (termInt . fromIntegral . fromEnum) s)
   arr   <- newIntArray charArrayTy chars
-
   initializeClass "java/lang/String"
   ref <- genRef stringTy
   setInstanceFieldValue
@@ -2325,13 +2156,6 @@ getArrayValue pd r idx = do
         let Just (_,rslt) = M.lookup r (arrays ps)
         fmap IValue $ liftSymbolic $ applyGetArrayValue rslt idx
 
--- | Returns values in byte array at given reference.
-getByteArray :: AigOps sym =>
-                PathDescriptor -> Ref -> Simulator sym [MonadTerm sym]
-getByteArray pd ref = do
-  a <- getIntArray pd ref
-  liftSymbolic $ mapM (applyTrunc 8) a
-
 -- | Returns values in an array at a given reference, passing them through the
 -- given projection
 getArray :: AigOps sym
@@ -2342,6 +2166,13 @@ getArray :: AigOps sym
 getArray f pd ref = do
   len <- getArrayLength pd ref
   forM [0..len-1] $ liftM f . getArrayValue pd ref <=< liftSymbolic . termInt
+
+-- | Returns values in byte array at given reference.
+getByteArray :: AigOps sym =>
+                PathDescriptor -> Ref -> Simulator sym [MonadTerm sym]
+getByteArray pd ref = do
+  a <- getIntArray pd ref
+  liftSymbolic $ mapM (applyTrunc 8) a
 
 -- | Returns values in integer array at given reference.
 getIntArray ::AigOps sym

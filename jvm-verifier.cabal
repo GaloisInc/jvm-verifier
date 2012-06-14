@@ -98,14 +98,18 @@ executable jss
     , executable-path
     , filepath
     , fingertree
+    , jvm-verifier
     , mtl >= 2.1
     , parsec
     , pretty
     , vector >= 0.7
     , zlib
     , Verinf
+
+  other-modules:
+    Overrides
     
-  hs-source-dirs   : src
+  hs-source-dirs   : jss
   main-is          : Main_jss.hs
   ghc-options      : -O2 -Wall -fno-ignore-asserts
   ghc-prof-options : -prof -auto-all
