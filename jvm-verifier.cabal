@@ -72,6 +72,8 @@ library
 
   other-modules:
     Execution.Stepper
+    Verifier.Java.Backend
+
 
   if !flag(build-library)
     buildable: False
@@ -210,7 +212,7 @@ executable Tests
     , Verinf
 
   main-is          : Tests.hs
-  hs-source-dirs   : src test/src
+  hs-source-dirs   : src jss test/src
   ghc-options      : -O2 -Wall -fno-ignore-asserts
   ghc-prof-options : -prof -auto-all
 

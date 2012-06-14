@@ -124,7 +124,7 @@ main = do
   oc <- mkOpCache
   runSymbolic oc $
     let fl = defaultSimFlags{ alwaysBitBlastBranchTerms = blast args' }
-        go = runSimulator' fl cb $ do
+        go = runSymSim fl cb $ do
                jssOverrides
                Simulation.setVerbosity (dbug args')
                rs <- runMain cname =<< do

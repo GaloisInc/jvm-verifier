@@ -38,7 +38,7 @@ sa1 cb =
   runTest $ do
     idx <- IValue <$> freshInt
 
-    outVar <- runSimulator cb $ do
+    outVar <- runDefSymSim cb $ do
       let tint = mkCInt (Wx 32) . fromIntegral
       inpArr <- newIntArray intArrayTy $ map tint arrayElems
       Right rslt <- snd . takeIntRslt . withoutExceptions
@@ -66,7 +66,7 @@ sa2 cb =
 
     [idx, val]  <- map IValue <$> replicateM 2 freshInt
 
-    rslt <- runSimulator cb $ do
+    rslt <- runDefSymSim cb $ do
       let tint = mkCInt (Wx 32) . fromIntegral
       arr <- newIntArray intArrayTy $ map tint arrayElems
       [(pd, Terminated)] <- withoutExceptions
@@ -91,7 +91,7 @@ sa3 cb =
 
     val     <- IValue <$> freshInt
     symVals <- replicateM n freshInt
-    rslt <- runSimulator cb $ do
+    rslt <- runDefSymSim cb $ do
       arr <- newIntArray intArrayTy symVals
       [(pd, Terminated)] <-
         withoutExceptions
@@ -117,7 +117,7 @@ sa4 cb =
         fill     = 99
 
     symVals <- replicateM n (replicateM m freshInt)
-    rslt <- runSimulator cb $ do
+    rslt <- runDefSymSim cb $ do
       let tint = mkCInt (Wx 32)
       inners <- mapM (newIntArray intArrayTy) symVals
       twodim <- newMultiArray (ArrayType intArrayTy) [tint nI]

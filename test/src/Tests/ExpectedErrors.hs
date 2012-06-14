@@ -41,30 +41,22 @@ verb = 0
 type RunTest sym = sym [Bool] -> PropertyM IO ()
 
 go ::
-  ( AigOps sym
-  )
-  => RunTest sym
+   RunTest SymbolicMonad
   -> Codebase
-  -> Simulator sym a
+  -> Simulator SymbolicMonad a
   -> PropertyM IO ()
 go rt cb act =
-  rt $ runSimulator cb . Sim.withVerbosity verb $ act >> return [False]
+  rt $ runDefSymSim cb . Sim.withVerbosity verb $ act >> return [False]
 
 --------------------------------------------------------------------------------
 -- Exception (negative) tests
 
 -- | Negative test case: fail on single path exception
-exc1 ::
-  ( AigOps sym
-  )
-  => RunTest sym -> TrivialProp
+exc1 :: RunTest SymbolicMonad -> TrivialProp
 exc1 rt cb = go rt cb $ runStaticMethod_ "Trivial" "always_throws" "()V" []
 
 -- | Negative test case: expect fail when all paths raise an exception
-exc2 ::
-  ( AigOps sym
-  )
-  => RunTest sym -> TrivialProp
+exc2 :: RunTest SymbolicMonad -> TrivialProp
 exc2 rt cb = go rt cb $ do
   b <- liftSymbolic freshInt
   runStaticMethod_ "Errors" "allPathsThrowExc" "(Z)V" [IValue b]
@@ -73,11 +65,7 @@ exc2 rt cb = go rt cb $ do
 -- Array (negative) tests
 
 -- -- | Expected to fail: Symbolic lookup in array of refs
-sa1 ::
-  ( AigOps sym
-  , MonadTerm sym ~ Node
-  )
-  => RunTest sym -> TrivialProp
+sa1 :: RunTest SymbolicMonad -> TrivialProp
 sa1 rt cb = go rt cb $ do
   symIdx <- liftSymbolic $ IValue <$> freshInt
   arr <- newMultiArray (ArrayType intArrayTy) [mkCInt (Wx 32) 1, mkCInt (Wx 32) 1]
@@ -88,21 +76,15 @@ sa1 rt cb = go rt cb $ do
   getIntArray pd r
 
 -- | Expected to fail: arrays with given element type are not supported
-sa2 ::
-  ( AigOps sym
-  )
-  => RunTest sym -> Type -> TrivialProp
+sa2 :: RunTest SymbolicMonad -> Type -> TrivialProp
 sa2 rt ety cb = go rt cb $ newMultiArray (ArrayType ety) [mkCInt (Wx 32) 1]
 
 -- | Expected to fail: arrays with symbolic size are not supported
-sa3 ::
-  ( AigOps sym
-  )
-  => RunTest sym -> TrivialProp
+sa3 :: RunTest SymbolicMonad -> TrivialProp
 sa3 rt cb = go rt cb $ liftSymbolic freshInt >>= newMultiArray intArrayTy . (:[])
 
 -- | Expected to fail: update an array of refs at a symbolic index
-sa4 :: (AigOps sym) => RunTest sym -> TrivialProp
+sa4 :: RunTest SymbolicMonad -> TrivialProp
 sa4 rt cb = go rt cb $ do
   symIdx <- liftSymbolic $ IValue <$> freshInt
   arr <- newMultiArray (ArrayType intArrayTy) [mkCInt (Wx 32) 1, mkCInt (Wx 32) 1]
@@ -120,7 +102,7 @@ sa4 rt cb = go rt cb $ do
 sy1 :: (AigOps sym) => RunTest sym -> TrivialProp
 sy1 rt cb = rt $ do
   uv <- IValue <$> freshUninterpretedVar (SymInt (constantWidth 32))
-  outVar <- runSimulator cb $ do
+  outVar <- runDefSymSim cb $ do
     setVerbosity verb
     liftSymbolic $ setVerbosity verb
     arr <- newIntArray intArrayTy [mkCInt (Wx 32) 0]

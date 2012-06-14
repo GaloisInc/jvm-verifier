@@ -71,7 +71,7 @@ evalDagRC564 key input = do
   rslt <- run $ runSymbolic oc $ do
     keyVars <- replicateM 16 freshByte
     inpVars <- replicateM 16 freshByte
-    outVars <- runSimulator cb $ runRC564 keyVars inpVars
+    outVars <- runDefSymSim cb $ runRC564 keyVars inpVars
     let inpValues = V.map constInt
                   $ V.fromList
                   $ hexToByteSeq key ++ hexToByteSeq input
@@ -88,7 +88,7 @@ _makeAigerRC564 filepath = do
   runSymbolic oc $ do
     keyVars <- replicateM 16 freshByte
     inpVars <- replicateM 16 freshByte
-    outValues <- runSimulator cb $ runRC564 keyVars inpVars
+    outValues <- runDefSymSim cb $ runRC564 keyVars inpVars
     liftIO $ putStrLn "Creating RC564 aiger..."
     outLits <- mapM getVarLit outValues
     be <- getBitEngine

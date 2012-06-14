@@ -68,7 +68,7 @@ evalDagSHA384 msg = do
   oc <- run mkOpCache
   rslt <- run $ runSymbolic oc $ do
     msgVars <- replicateM (length msg `div` 2) freshByte
-    outVars <- runSimulator cb $ runSHA384 msgVars
+    outVars <- runDefSymSim cb $ runSHA384 msgVars
     let inputValues = V.map constInt $ V.fromList (hexToByteSeq msg)
     evalFn <- mkConcreteEval inputValues
     liftIO $ byteSeqToHex <$> mapM evalFn outVars
@@ -84,7 +84,7 @@ evalAigSHA384 msg = do
   rslt <- run $ runSymbolic oc $ do
     let msgLen = length msg `div` 2
     msgVars <- replicateM msgLen freshByte
-    outVars <- runSimulator cb $ runSHA384 msgVars
+    outVars <- runDefSymSim cb $ runSHA384 msgVars
     outLits <- concat <$> mapM getVarLitLsbf outVars
     -- | Word-level inputs
     let cinps = map constInt $ hexToByteSeq msg
