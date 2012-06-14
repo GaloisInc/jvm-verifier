@@ -18,20 +18,6 @@ import Data.Int
 import Execution.Codebase
 import JavaParser
 
-{-
-import System.IO.Unsafe (unsafePerformIO)
-
-dbug :: String -> a -> a
-dbug = seq . unsafePerformIO . putStrLn
-
--- dbug _ = id
-dbugM :: Monad m => String -> m ()
-dbugM s = dbug s $ return ()
--- dbugM _ = return ()
-_nowarn_dbug :: IO ()
-_nowarn_dbug = undefined dbug >> dbugM undefined
--}
-
 data AtomicValue double float int long ref
   = DValue double
   | FValue float
