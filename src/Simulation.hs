@@ -77,7 +77,6 @@ module Simulation
   , setSymbolicArray
   , updateSymbolicArray
   -- * Misc
-  , liftSymbolic
   , overrideInstanceMethod
   , overrideStaticMethod
   , ppFinalResult
@@ -292,9 +291,6 @@ instance MonadIO sym => LogMonad (Simulator sym) where
 instance Monad sym => Applicative (Simulator sym) where
   pure      = return
   af <*> aa = af >>= flip (<$>) aa
-
-liftSymbolic :: Monad sym => sym a -> Simulator sym a
-liftSymbolic = SM . lift
 
 data SimulationFlags =
   SimulationFlags { alwaysBitBlastBranchTerms :: Bool }
@@ -1210,7 +1206,7 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
         case getBool y of
           Just True -> return x
           Just False -> return y
-          _ -> liftSymbolic $ applyBAnd x y
+          _ -> withSBE $ \sbe -> termAnd sbe x y
   -- Conversions
   floatFromDouble  = return . fromRational . toRational
   intFromDouble x  = withSBE $ \sbe -> termInt sbe (truncate x)
@@ -1259,47 +1255,46 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
 
   -- Integer functions {{{1
   iAdd  x y = withSBE $ \sbe -> termAdd sbe x y
-  iAnd  x y = liftSymbolic $ applyIAnd x y
+  iAnd  x y = withSBE $ \sbe -> termIAnd sbe x y
   iConst v  = withSBE $ \sbe -> termInt sbe v
   iDiv  x y = withSBE $ \sbe -> termDiv sbe x y
-  iEq   x y = liftSymbolic $ applyEq x y
+  iEq   x y = withSBE $ \sbe -> termEq sbe x y
   iLeq  x y = withSBE $ \sbe -> termLeq sbe x y
   iMul  x y = withSBE $ \sbe -> termMul sbe x y
   iNeg  x   = withSBE $ \sbe -> termNeg sbe x
-  iOr   x y = liftSymbolic $ applyIOr x y
+  iOr   x y = withSBE $ \sbe -> termIOr sbe x y
   iRem  x y = withSBE $ \sbe -> termRem   sbe x y
   iShl  x y = withSBE $ \sbe -> termIShl  sbe x y
   iShr  x y = withSBE $ \sbe -> termIShr  sbe x y
   iSub  x y = withSBE $ \sbe -> termSub   sbe x y  
   iUshr x y = withSBE $ \sbe -> termIUshr sbe x y
-  iXor  x y = liftSymbolic $ applyIXor x y
+  iXor  x y = withSBE $ \sbe -> termIXor  sbe x y 
 
   ------------------------------------------------------------------------------
   -- operations on longs
   lAdd x y = withSBE $ \sbe -> termAdd sbe x y
-  lAnd x y = liftSymbolic $ applyIAnd x y
-
+  lAnd x y = withSBE $ \sbe -> termIAnd sbe x y
   lCmp x y = do
     sbe <- gets backend
-    eqXY   <- liftSymbolic $ applyEq x y
     liftIO $ do
+      eqXY   <- termEq sbe x y
       ltXY   <- termLt sbe x y
       negVal <- termInt sbe (-1)
       posVal <- termInt sbe 1
       zeroVal <- termInt sbe 0
       termIte sbe eqXY zeroVal =<< termIte sbe ltXY negVal posVal
   lConst v  = withSBE $ \sbe -> termLong sbe v
-  lEq x y   = liftSymbolic $ applyEq x y
+  lEq x y   = withSBE $ \sbe -> termEq sbe x y
   lDiv x y  = withSBE $ \sbe -> termDiv sbe x y
   lMul x y  = withSBE $ \sbe -> termMul sbe x y
   lNeg x    = withSBE $ \sbe -> termNeg sbe x
-  lOr   x y = liftSymbolic $ applyIOr x y
+  lOr   x y = withSBE $ \sbe -> termIOr sbe x y
   lRem  x y = withSBE $ \sbe -> termRem sbe x y
   lShl  x y = withSBE $ \sbe -> termLShl sbe x y
   lShr  x y = withSBE $ \sbe -> termLShr sbe x y
   lSub  x y = withSBE $ \sbe -> termSub sbe x y
   lUshr x y = withSBE $ \sbe -> termLUshr sbe x y
-  lXor  x y = liftSymbolic $ applyIXor x y
+  lXor  x y = withSBE $ \sbe -> termIXor sbe x y
 
   --------------------------------------------------------------------------------
   -- Conversions
