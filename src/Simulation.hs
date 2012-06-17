@@ -117,7 +117,6 @@ import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Typeable hiding (typeOf)
-import qualified Data.Vector.Storable as SV
 import Data.Word
 import Prelude hiding (catch)
 import System.IO (hFlush, hPutStr, stderr, stdout)
@@ -1039,17 +1038,15 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
     -- flag is true.  This can help addresses some symbolic termination
     -- problems, e.g. the 'recursive multiplier' problem (see the mul2 function
     -- in test/src/support/PathStateMerges.java).
-
     blast <- gets $ alwaysBitBlastBranchTerms . simulationFlags
     if blast
       then do
-        be <- liftSymbolic $ getBitEngine
-        LV lv           <- liftSymbolic $ getVarLit v
-        v'              <- CE.assert (SV.length lv == 1) $ return $ SV.head lv
---         dbugM $ "v = \n" ++ prettyTerm v
-        case () of () | v' == beTrue be  -> trueM
-                      | v' == beFalse be -> falseM
-                      | otherwise    -> splitPaths
+        sbe <- gets backend
+        mb <- liftIO $ blastTerm sbe v
+        case mb of 
+          Just True -> trueM
+          Just False -> falseM
+          Nothing -> splitPaths
       else do
         splitPaths
 

@@ -3,6 +3,7 @@
 module Verifier.Java.Backend where
 
 import Control.Applicative
+import Control.Exception (assert)
 import Data.Int
 import Data.IORef
 import qualified Data.Map as Map
@@ -23,6 +24,7 @@ data Backend sym = Backend {
        , termBool :: Bool  -> IO (MonadTerm sym)  
        , termInt  :: Int32 -> IO (MonadTerm sym)
        , termLong :: Int64 -> IO (MonadTerm sym)
+       , blastTerm :: MonadTerm sym -> IO (Maybe Bool)
          -- | @evalAigIntegral' f ins out@ applies concrete inputs @ins@ to the 
          -- AIG at the given symbolic output term @out@, applying @f@ to the
          -- @ins@ bit sequence
@@ -62,6 +64,15 @@ symbolicBackend sms = do
     , termBool = return . mkCBool
     , termInt  = return . mkCInt 32 . fromIntegral
     , termLong = return . mkCInt 64 . fromIntegral
+    , blastTerm = \v -> do
+        LV lv <- getTermLit v
+        let l = assert (SV.length lv == 1) $ SV.head lv
+        if l == lTrue then
+          return (Just True)
+        else if l == lFalse then
+          return (Just False)
+        else
+          return Nothing
     , evalAigIntegral = \f ins out -> do
         outLits <- getTermLit out
         bbits <- lEvalAig (SV.fromList (concatMap (f . intToBoolSeq) ins))
