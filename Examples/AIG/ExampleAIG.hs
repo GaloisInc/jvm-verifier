@@ -81,8 +81,9 @@ evalCryptolJava name key input = do
           keyVars   = map tint $ hexToIntSeq key
           inputVars = map tint $ hexToIntSeq input
       runCryptolJava name keyVars inputVars
-    evalFn <- mkConcreteEval V.empty
-    intSeqToHex <$> mapM (liftIO . evalFn) outVars
+    liftIO $ do
+      evalFn <- concreteEvalFn V.empty
+      intSeqToHex <$> mapM evalFn outVars
 
 evalCryptolJavaWord :: String -> String -> String -> IO String
 evalCryptolJavaWord name key input = do
@@ -96,8 +97,9 @@ evalCryptolJavaWord name key input = do
       setVerbosity 0
       runCryptolJava name keyVars inputVars
     let inp = V.map constInt $ V.fromList $ hexToIntSeq key ++ hexToIntSeq input
-    evalFn <- mkConcreteEval inp
-    intSeqToHex <$> mapM (liftIO . evalFn) outVars
+    liftIO $ do
+      evalFn <- concreteEvalFn inp
+      intSeqToHex <$> mapM evalFn outVars
 
 -- Levent's Cryptol C Port {{{1
 runCryptolC ::
@@ -144,8 +146,9 @@ makeCryptolAiger rio filepath cb simFn =
     keyVars   <- liftIO $ replicateM 4 $ freshInt sbe
     inputVars <- liftIO $ replicateM 4 $ freshInt sbe
     outVars   <- runDefSymSim cb (setVerbosity 0 >> simFn keyVars inputVars)
-    outLits   <- mapM getVarLit outVars
-    liftIO $ writeAiger be filepath (concat $ map toLsbf_lit outLits)
+    liftIO $ do
+      outLits   <- mapM (getVarLit sbe) outVars
+      writeAiger be filepath (concat $ map toLsbf_lit outLits)
 
 evalCryptolC :: String -> String -> IO String
 evalCryptolC key input = do
@@ -158,8 +161,9 @@ evalCryptolC key input = do
     outVars <- runDefSymSim cb $ do
       setVerbosity 0
       runCryptolC keyVars inputVars
-    evalFn <- mkConcreteEval V.empty
-    intSeqToHex <$> mapM (liftIO . evalFn) outVars
+    liftIO $
+      evalFn <- concreteEvalFn V.empty
+      intSeqToHex <$> mapM evalFn outVars
 
 -- Bouncy Castle {{{1
 
@@ -237,11 +241,12 @@ makeBouncyCastleAiger ct name cb = do
     output <- runDefSymSim cb $ do
       setVerbosity 0
       runBouncyCastle ct name (reverse revKey) (reverse revInput)
-    outputLits <- mapM getVarLit $ reverse output
-    liftIO $ putStrLn $ "makeBouncyCastleAiger: Creating " ++ (name ++ ".aig")
     be <- getBitEngine
-    liftIO $ writeAiger be (name ++ ".aig") $
-               concat $ map (take 8 . toLsbf_lit) outputLits
+    liftIO $ do
+      outputLits <- mapM (getVarLit sbe) $ reverse output
+      putStrLn $ "makeBouncyCastleAiger: Creating " ++ (name ++ ".aig")
+      writeAiger be (name ++ ".aig") $
+        concat $ map (take 8 . toLsbf_lit) outputLits
 
 evalBouncyCastle :: CipherType -> String -> String -> String -> IO String
 evalBouncyCastle ct name key input = do
@@ -254,9 +259,10 @@ evalBouncyCastle ct name key input = do
     outVars <- runDefSymSim cb $ do
       setVerbosity 0
       runBouncyCastle ct name keyVars inputVars
-    let inp = V.map constInt $ V.fromList $ hexToByteSeq key ++ hexToByteSeq input
-    evalFn <- mkConcreteEval inp
-    intSeqToHex <$> mapM (liftIO . evalFn) outVars
+    liftIO $ do
+      let inp = V.map constInt $ V.fromList $ hexToByteSeq key ++ hexToByteSeq input
+      evalFn <- concreteEvalFn inp
+      intSeqToHex <$> mapM evalFn outVars
 
 writeBouncyCastleAiger :: String -> IO ()
 writeBouncyCastleAiger name = do

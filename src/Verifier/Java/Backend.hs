@@ -10,6 +10,7 @@ import qualified Data.Map as Map
 import Verinf.Symbolic.Common
 import Verinf.Symbolic
 import Verinf.Symbolic.Lit.Functional
+import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 
 type BackendInt  sym = MonadTerm sym
@@ -24,6 +25,15 @@ data Backend sym = Backend {
        , termBool :: Bool  -> IO (MonadTerm sym)  
        , termInt  :: Int32 -> IO (MonadTerm sym)
        , termLong :: Int64 -> IO (MonadTerm sym)
+         -- | Complement argument.
+       , termNot :: MonadTerm sym -> IO (MonadTerm sym)
+       , termIte :: MonadTerm sym -> MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
+         -- | @termIntArray l@ returns an integer array of zeros with length
+         -- @l@.  Will return @Nothing@ is operation cannot be performed because
+         -- length is symbolic and symbolic lengths are unsupported. 
+       , termIntArray :: MonadTerm sym -> IO (Maybe (MonadTerm sym))
+         -- | @termLongArray l@ returns a long array of zeros with length @l@.
+       , termLongArray :: MonadTerm sym -> IO (Maybe (MonadTerm sym))
          -- | @applyGetArrayValue arr i@ returns value at @arr[i]@.
        , applyGetArrayValue :: MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
          -- | @applySetArrayValue arr i v@ returns value at @arr[i] = v@.
@@ -38,6 +48,10 @@ data Backend sym = Backend {
           -- AIG at the given symbolic output terms @outs@.  Each output is
           -- assumed to be w bits.
        , evalAigArray :: BitWidth -> [CValue] -> [MonadTerm sym] -> IO [MonadTerm sym]
+       , writeAigToFile :: FilePath -> SV.Vector Lit -> IO ()
+         -- | Returns lit vector associated with given term, or fails
+         -- if term cannot be bitblasted.
+       , getVarLit :: MonadTerm sym -> IO (LitResult Lit)
        }
                    
 getBackend :: SymbolicMonad (Backend SymbolicMonad)
@@ -47,6 +61,7 @@ symbolicBackend :: SymbolicMonadState -> Backend SymbolicMonad
 symbolicBackend sms = do
   let ?be = smsBitEngine sms
   let de = smsDagEngine sms
+  let oc = smsOpCache sms
   let lr = smsInputLitRef sms 
   let getTermLit = smsBitBlastFn sms
   let freshTerm tp lv = do  
@@ -67,8 +82,27 @@ symbolicBackend sms = do
         lv <- SV.replicateM 64 lMkInput
         freshTerm int64Type lv
     , termBool = return . mkCBool
-    , termInt  = return . mkCInt 32 . fromIntegral
-    , termLong = return . mkCInt 64 . fromIntegral
+    , termInt  = return . mkCInt 32 . toInteger
+    , termLong = return . mkCInt 64 . toInteger
+    , termNot  = deApplyUnary de bNotOp
+    , termIte = \b t f ->
+        case getBool b of
+          Just True -> return t
+          Just False -> return f
+          Nothing | t == f -> return t
+                  | otherwise -> deApplyTernary de (iteOp (termType t)) b t f
+    , termIntArray = \l ->
+        case fromIntegral <$> getSVal l of
+          Just c ->
+            Just <$> deApplyOp de (mkArrayOp oc c int32Type)
+                       (V.replicate c (mkCInt 32 0))  
+          Nothing -> return Nothing
+    , termLongArray = \l ->
+        case fromIntegral <$> getSVal l of
+          Just c ->
+            Just <$> deApplyOp de (mkArrayOp oc c int64Type)
+                       (V.replicate c (mkCInt 64 0))  
+          Nothing -> return Nothing
     , applyGetArrayValue = \a i ->
         case (termType a, termType i) of
           (SymArray len eltType, SymInt idxType) ->
@@ -115,4 +149,6 @@ symbolicBackend sms = do
           32 -> return $ map (mkCInt 32 . fromIntegral) $ outsToInts32 n' rsl
           64 -> return $ map (mkCInt 64 . fromIntegral) $ outsToInts64 n' rsl
           _  -> error $ "evalAigArray: input array elements have unexpected bit width"
-    }
+   , writeAigToFile = \fname res -> lWriteAiger fname [res]
+   , getVarLit = getTermLit
+   }

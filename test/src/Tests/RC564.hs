@@ -9,6 +9,7 @@ Point-of-contact : jstanley
 
 module Tests.RC564 (rc564Tests) where
 
+import Control.Applicative
 import Control.Monad
 import qualified Data.Vector as V
 import System.Process
@@ -72,11 +73,12 @@ evalDagRC564 key input = do
     keyVars <- liftIO $ replicateM 16 $ freshByte sbe
     inpVars <- liftIO $ replicateM 16 $ freshByte sbe
     outVars <- runDefSymSim cb $ runRC564 keyVars inpVars
-    let inpValues = V.map constInt
-                  $ V.fromList
-                  $ hexToByteSeq key ++ hexToByteSeq input
-    evalFn <- mkConcreteEval inpValues
-    liftIO $ byteSeqToHex `fmap` mapM evalFn outVars
+    liftIO $ do
+      let inpValues = V.map constInt
+                    $ V.fromList
+                    $ hexToByteSeq key ++ hexToByteSeq input
+      evalFn <- concreteEvalFn inpValues
+      byteSeqToHex <$> mapM evalFn outVars
   assert $ rslt == golden
 --   run $ putStrLn $ "Result : " ++ rslt
 
@@ -90,10 +92,10 @@ _makeAigerRC564 filepath = do
     keyVars <- liftIO $ replicateM 16 $ freshByte sbe
     inpVars <- liftIO $ replicateM 16 $ freshByte sbe
     outValues <- runDefSymSim cb $ runRC564 keyVars inpVars
-    liftIO $ putStrLn "Creating RC564 aiger..."
-    outLits <- mapM getVarLit outValues
     be <- getBitEngine
     liftIO $ do
+      putStrLn "Creating RC564 aiger..."
+      outLits <- mapM (getVarLit sbe) outValues
       putStrLn $ "Writing RC564 aiger to '" ++ filepath ++ "'"
       writeAiger be filepath $ concat (map (take 8 . toLsbf_lit) outLits)
 

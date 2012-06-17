@@ -118,6 +118,7 @@ import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Typeable hiding (typeOf)
+import qualified Data.Vector as V
 import Data.Word
 import Prelude hiding (catch)
 import System.IO (hFlush, hPutStr, stderr, stdout)
@@ -271,7 +272,7 @@ data SimulatorExc term
     { excRef    :: Ref          -- ^ the java.lang.Exception instance
     , excFrames :: [Frame term] -- ^ stack trace @ raise point
     }
-  deriving (Show, Typeable)
+  deriving (Show,Typeable)
 
 instance Eq (SimulatorExc m) where
   e1@JavaException{} == e2@JavaException{} = excRef e1 == excRef e2
@@ -388,10 +389,7 @@ overrideInstanceMethod cName mKey action = do
 -- method to perform a user-definable action.
 -- Note: Fails if the method has already been overridden.
 overrideStaticMethod ::
-  ( CatchMIO sym
-  , Show (MonadTerm sym)
-  , Typeable (MonadTerm sym)
-  )
+  AigOps sym
   => String
   -> MethodKey
   -> ([Value (MonadTerm sym)] -> Simulator sym ())
@@ -404,10 +402,7 @@ overrideStaticMethod cName mKey action = do
   put s { staticOverrides = M.insert key action (staticOverrides s) }
 
 -- | Register all predefined overrides for builtin native implementations.
-stdOverrides :: ( ConstantInjection (MonadTerm sym)
-                , Show (MonadTerm sym)
-                , CatchMIO sym
-                , AigOps sym) => Simulator sym ()
+stdOverrides :: AigOps sym => Simulator sym ()
 stdOverrides = do
   --------------------------------------------------------------------------------
   -- Instance method overrides
@@ -1020,6 +1015,9 @@ type instance JSRef    (Simulator sym) = Ref
 type instance JSBool   (Simulator sym) = MonadTerm sym
 type instance JSRslt   (Simulator sym) = [(PathDescriptor, FinalResult (MonadTerm sym))]
 
+withSBE :: MonadIO sym => (Backend sym -> IO a) -> Simulator sym a
+withSBE f = liftIO . f =<< gets backend
+    
 instance (AigOps sym) => JavaSemantics (Simulator sym) where
   -- Control functions {{{1
 
@@ -1199,7 +1197,7 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   fatal = abort
 
   -- Negate a Boolean value
-  bNot = liftSymbolic . applyBNot
+  bNot x = gets backend >>= \sbe -> liftIO (termNot sbe x) 
 
   -- (x &&& y) returns logical and
   mx &&& my = do
@@ -1266,7 +1264,7 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   -- Integer functions {{{1
   iAdd  x y = liftSymbolic $ applyAdd x y
   iAnd  x y = liftSymbolic $ applyIAnd x y
-  iConst    = return . mkCInt 32 . toInteger
+  iConst v  = withSBE $ \sbe -> termInt sbe v
   iDiv  x y = liftSymbolic $ applySignedDiv x y
   iEq   x y = liftSymbolic $ applyEq x y
   iLeq  x y = liftSymbolic $ applySignedLeq x y
@@ -1286,13 +1284,16 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   lAnd x y = liftSymbolic $ applyIAnd x y
 
 
-  lCmp x y = liftSymbolic $ do
-    eqXY   <- applyEq x y
-    ltXY   <- applySignedLt x y
-    negRes <- applyIte ltXY (mkCInt 32 (-1)) (mkCInt 32 1)
-    applyIte eqXY (mkCInt 32 0) negRes
-
-  lConst    = return . mkCInt 64 . toInteger
+  lCmp x y = do
+    sbe <- gets backend
+    eqXY   <- liftSymbolic $ applyEq x y
+    ltXY   <- liftSymbolic $ applySignedLt x y
+    liftIO $ do
+      negVal <- termInt sbe (-1)
+      posVal <- termInt sbe 1
+      zeroVal <- termInt sbe 0
+      termIte sbe eqXY zeroVal =<< termIte sbe ltXY negVal posVal
+  lConst v  = withSBE $ \sbe -> termLong sbe v
   lEq x y   = liftSymbolic $ applyEq x y
   lDiv x y  = liftSymbolic $ applySignedDiv x y
   lMul x y  = liftSymbolic $ applyMul x y
@@ -1322,13 +1323,15 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   -- all integer values are nonnegative.
   newMultiArray tp []
     | isRValue tp = return NullRef
-  newMultiArray tp@(ArrayType eltType) [getSVal -> Just cnt]
+  newMultiArray tp@(ArrayType eltType) [l@(getSVal -> Just cnt)]
     | (isIValue eltType) || (eltType == LongType) = do
       ref <- genRef tp
-      let width = if eltType == LongType then 64 else 32
-      arr <- liftSymbolic $
-        symbolicArrayFromList (SymInt (constantWidth width)) $
-          replicate (fromIntegral cnt) (mkCInt width 0)
+      sbe <- gets backend
+      Just arr <- liftIO $
+        if eltType == LongType then
+          termLongArray sbe l
+        else
+          termIntArray sbe l
       modifyPathState $ \ps ->
         ps { arrays = M.insert ref (fromIntegral cnt, arr) (arrays ps) }
       return ref
@@ -1787,9 +1790,8 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
       -- "superfluously" symbolic, which can make code that should trivially
       -- terminate (e.g., because its termination conditions are concrete) no
       -- longer do so.
-      if t == f
-        then return t
-        else liftSymbolic $ applyIte (psAssumptions from) t f
+      sbe <- gets backend
+      liftIO $ termIte sbe (psAssumptions from) t f
     --
     same f              = f from == f to
     pathConds           = return (psAssumptions from) ||| return (psAssumptions to)
@@ -1951,9 +1953,7 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
 
 simExcHndlr' ::
   forall sym.
-  ( MonadIO sym
-  , Show (MonadTerm sym)
-  , Typeable (MonadTerm sym)
+  ( AigOps sym
   )
   => Bool -> String -> CE.SomeException -> sym [Bool]
 simExcHndlr' suppressOutput failMsg exc = do
@@ -1968,11 +1968,7 @@ simExcHndlr' suppressOutput failMsg exc = do
 
 simExcHndlr ::
   forall sym.
-  ( MonadIO sym
-  , Show (MonadTerm sym)
-  , Typeable (MonadTerm sym)
-  )
-  => String -> CE.SomeException -> sym [Bool]
+  AigOps sym => String -> CE.SomeException -> sym [Bool]
 simExcHndlr = simExcHndlr' True
 
 _interactiveBreak :: MonadIO m => String -> m ()
@@ -2162,8 +2158,15 @@ updateSymbolicArray r modFn = do
 newIntArray :: AigOps sym => Type -> [MonadTerm sym] -> Simulator sym Ref
 newIntArray tp@(ArrayType eltType) values
   | isIValue eltType = do
-    arr <- liftSymbolic $
-      symbolicArrayFromList int32Type values
+    sbe <- gets backend
+    arr <- liftIO $ do
+      let v = V.fromList values
+      l <- termInt sbe (fromIntegral (V.length v))
+      Just a0 <- termIntArray sbe l
+      let fn a i = do
+            ti <- termInt sbe (fromIntegral i)
+            applySetArrayValue sbe a ti (v V.! i)
+      V.foldM fn a0 (V.enumFromN 0 (V.length v))
     newSymbolicArray tp (safeCast (length values)) arr
 newIntArray _ _ = error "internal: newIntArray called with invalid type"
 
@@ -2171,8 +2174,15 @@ newIntArray _ _ = error "internal: newIntArray called with invalid type"
 -- populated with given @terms@.
 newLongArray :: AigOps sym => [MonadTerm sym] -> Simulator sym Ref
 newLongArray values = do
-  arr <- liftSymbolic $
-    symbolicArrayFromList int64Type values
+  sbe <- gets backend
+  arr <- liftIO $ do
+    let v = V.fromList values
+    l <- termInt sbe (fromIntegral (V.length v))
+    Just a0 <- termLongArray sbe l
+    let fn a i = do
+          ti <- termInt sbe (fromIntegral i)
+          applySetArrayValue sbe a ti (v V.! i)
+    V.foldM fn a0 (V.enumFromN 0 (V.length v))
   newSymbolicArray (ArrayType LongType) (safeCast (length values)) arr
 
 -- | Returns array length at given index in path.
@@ -2329,8 +2339,7 @@ _dumpFrameInfo = do
 -- | Fatal error: kill all paths but the offending path (for exception
 -- propagation) and provide some additional information to the user.
 
-abort :: (CatchMIO sym, Show (MonadTerm sym), Typeable (MonadTerm sym)) =>
-         String -> Simulator sym a
+abort :: AigOps sym => String -> Simulator sym a
 abort msg = do
   whenVerbosity (>=5) $ dbugM $ "abort invoked w/ msg:\n--\n" ++ msg ++ "\n--\n"
   -- TODO: For debugging, save info about other paths states here, and report
@@ -2349,10 +2358,7 @@ abort msg = do
         (M.singleton pss (Aborted, frms))
 
 throwExternal ::
-  ( MonadIO sym
-  , Show (MonadTerm sym)
-  , Typeable (MonadTerm sym)
-  )
+  AigOps sym
   => String
   -> Map PathDescriptor (FinalResult (MonadTerm sym), [Frame (MonadTerm sym)])
   -> Simulator sym a
