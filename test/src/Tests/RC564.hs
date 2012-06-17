@@ -10,7 +10,6 @@ Point-of-contact : jstanley
 module Tests.RC564 (rc564Tests) where
 
 import Control.Monad
-import Control.Monad.Trans (liftIO)
 import qualified Data.Vector as V
 import System.Process
 import Test.QuickCheck
