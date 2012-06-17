@@ -1197,7 +1197,7 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   fatal = abort
 
   -- Negate a Boolean value
-  bNot x = gets backend >>= \sbe -> liftIO (termNot sbe x) 
+  bNot x = withSBE $ \sbe -> termNot sbe x 
 
   -- (x &&& y) returns logical and
   mx &&& my = do
@@ -1211,14 +1211,13 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
           Just True -> return x
           Just False -> return y
           _ -> liftSymbolic $ applyBAnd x y
-
   -- Conversions
   floatFromDouble  = return . fromRational . toRational
-  intFromDouble    = return . mkCInt 32 . truncate
-  longFromDouble   = return . mkCInt 64 . truncate
+  intFromDouble x  = withSBE $ \sbe -> termInt sbe (truncate x)
+  longFromDouble x = withSBE $ \sbe -> termLong sbe (truncate x)
   doubleFromFloat  = return . fromRational . toRational
-  intFromFloat     = return . mkCInt 32 . truncate
-  longFromFloat    = return . mkCInt 64 . truncate
+  intFromFloat x   = withSBE $ \sbe -> termInt sbe (truncate x)
+  longFromFloat x  = withSBE $ \sbe -> termLong sbe (truncate x)
   doubleFromInt  i =
     case getSVal i of
       Just n -> return (fromIntegral n)
@@ -1236,12 +1235,9 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
           (return . fromInteger)
           (getSVal l)
 
-
-
   -- Double operations
   dAdd  x y = return $ x + y
   dCmpg x y = return $ compareFloat x y
-
   dCmpl x y = return $ compareFloat x y
   dConst    = return
   dDiv  x y = return $ x / y
@@ -1262,54 +1258,53 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   fSub  x y = return $ x - y
 
   -- Integer functions {{{1
-  iAdd  x y = liftSymbolic $ applyAdd x y
+  iAdd  x y = withSBE $ \sbe -> termAdd sbe x y
   iAnd  x y = liftSymbolic $ applyIAnd x y
   iConst v  = withSBE $ \sbe -> termInt sbe v
-  iDiv  x y = liftSymbolic $ applySignedDiv x y
+  iDiv  x y = withSBE $ \sbe -> termDiv sbe x y
   iEq   x y = liftSymbolic $ applyEq x y
-  iLeq  x y = liftSymbolic $ applySignedLeq x y
-  iMul  x y = liftSymbolic $ applyMul x y
-  iNeg  x   = liftSymbolic $ applyNeg x
+  iLeq  x y = withSBE $ \sbe -> termLeq sbe x y
+  iMul  x y = withSBE $ \sbe -> termMul sbe x y
+  iNeg  x   = withSBE $ \sbe -> termNeg sbe x
   iOr   x y = liftSymbolic $ applyIOr x y
-  iRem  x y = liftSymbolic $ applySignedRem x y
-  iShl  x y = liftSymbolic $ applyShl x =<< applyTrunc 5 y
-  iShr  x y = liftSymbolic $ applyShr x =<< applyTrunc 5 y
-  iSub  x y = liftSymbolic $ applySub x y
-  iUshr x y = liftSymbolic $ applyUshr x =<< applyTrunc 5 y
+  iRem  x y = withSBE $ \sbe -> termRem   sbe x y
+  iShl  x y = withSBE $ \sbe -> termIShl  sbe x y
+  iShr  x y = withSBE $ \sbe -> termIShr  sbe x y
+  iSub  x y = withSBE $ \sbe -> termSub   sbe x y  
+  iUshr x y = withSBE $ \sbe -> termIUshr sbe x y
   iXor  x y = liftSymbolic $ applyIXor x y
 
   ------------------------------------------------------------------------------
   -- operations on longs
-  lAdd x y = liftSymbolic $ applyAdd x y
+  lAdd x y = withSBE $ \sbe -> termAdd sbe x y
   lAnd x y = liftSymbolic $ applyIAnd x y
-
 
   lCmp x y = do
     sbe <- gets backend
     eqXY   <- liftSymbolic $ applyEq x y
-    ltXY   <- liftSymbolic $ applySignedLt x y
     liftIO $ do
+      ltXY   <- termLt sbe x y
       negVal <- termInt sbe (-1)
       posVal <- termInt sbe 1
       zeroVal <- termInt sbe 0
       termIte sbe eqXY zeroVal =<< termIte sbe ltXY negVal posVal
   lConst v  = withSBE $ \sbe -> termLong sbe v
   lEq x y   = liftSymbolic $ applyEq x y
-  lDiv x y  = liftSymbolic $ applySignedDiv x y
-  lMul x y  = liftSymbolic $ applyMul x y
-  lNeg x    = liftSymbolic $ applyNeg x
+  lDiv x y  = withSBE $ \sbe -> termDiv sbe x y
+  lMul x y  = withSBE $ \sbe -> termMul sbe x y
+  lNeg x    = withSBE $ \sbe -> termNeg sbe x
   lOr   x y = liftSymbolic $ applyIOr x y
-  lRem  x y = liftSymbolic $ applySignedRem x y
-  lShl  x y = liftSymbolic $ applyShl x =<< applyTrunc 6 y
-  lShr  x y = liftSymbolic $ applyShr x =<< applyTrunc 6 y
-  lSub  x y = liftSymbolic $ applySub x y
-  lUshr x y = liftSymbolic $ applyUshr x =<< applyTrunc 6 y
+  lRem  x y = withSBE $ \sbe -> termRem sbe x y
+  lShl  x y = withSBE $ \sbe -> termLShl sbe x y
+  lShr  x y = withSBE $ \sbe -> termLShr sbe x y
+  lSub  x y = withSBE $ \sbe -> termSub sbe x y
+  lUshr x y = withSBE $ \sbe -> termLUshr sbe x y
   lXor  x y = liftSymbolic $ applyIXor x y
 
   --------------------------------------------------------------------------------
   -- Conversions
-  longFromInt x = liftSymbolic $ applySignedExt 64 x
-  intFromLong x = liftSymbolic $ applyTrunc 32 x
+  longFromInt x = withSBE $ \sbe -> termLongFromInt sbe x
+  intFromLong x = withSBE $ \sbe -> termIntFromLong sbe x
 
   -- (arrayLength ref) return length of array at ref.
   arrayLength ref = do
@@ -2242,7 +2237,7 @@ getByteArray :: AigOps sym =>
                 PathDescriptor -> Ref -> Simulator sym [MonadTerm sym]
 getByteArray pd ref = do
   a <- getIntArray pd ref
-  liftSymbolic $ mapM (applyTrunc 8) a
+  withSBE $ \sbe -> mapM (termByteFromInt sbe) a
 
 -- | Returns values in integer array at given reference.
 getIntArray ::AigOps sym
