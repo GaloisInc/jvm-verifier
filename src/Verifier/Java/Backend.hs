@@ -34,7 +34,18 @@ data Backend sym = Backend {
        , termIntFromLong :: UnaryOp sym
          -- | Complement argument.
        , termNot :: UnaryOp sym
+         -- | Return conjunction of two arguments. 
+       , termAnd :: BinaryOp sym
+         -- | Compare equality of arguments.
+       , termEq :: BinaryOp sym
+         -- | Form if-then-else comparing arguments.
        , termIte :: MonadTerm sym -> MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
+         -- | Bitwise and of arguments.
+       , termIAnd :: BinaryOp sym
+         -- | Bitwise or of arguments.
+       , termIOr  :: BinaryOp sym
+         -- | Bitwise exclusive or of arguments.
+       , termIXor :: BinaryOp sym
          -- | Java shift-left on int values.
        , termIShl  :: BinaryOp sym
          -- | Java signed shift-right on int values.
@@ -145,12 +156,17 @@ symbolicBackend sms = do
           _ -> error "internal: illegal value to termLongFromInt"
     , termIntFromLong = \x -> termTrunc 32 x
     , termNot  = deApplyUnary de bNotOp
-    , termIte = \b t f ->
+    , termAnd  = deApplyBinary de bAndOp
+    , termEq   = \x y -> deApplyBinary de (eqOp (termType x)) x y
+    , termIte  = \b t f ->
         case getBool b of
           Just True -> return t
           Just False -> return f
           Nothing | t == f -> return t
                   | otherwise -> deApplyTernary de (iteOp (termType t)) b t f
+    , termIAnd  = termBinaryIntOp iAndOp "termIAnd"
+    , termIOr   = termBinaryIntOp iOrOp  "termIOr"
+    , termIXor  = termBinaryIntOp iXorOp "termIXor"
     , termIShl  = termShift shlOp  "termIShl"  5 
     , termIShr  = termShift shrOp  "termIShr"  5
     , termIUshr = termShift ushrOp "termIUshr" 5 
