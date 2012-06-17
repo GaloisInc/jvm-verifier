@@ -36,6 +36,15 @@ jssOverrides = do
                                (map (fromJust . termConst . dtor) ins)
                                outLits)
       evalAigArrayBody _ _ _ _ _ _ = error "invalid evalAigArrayBody parameters"
+  let writeAigerBody f fnameRef outs = do
+        abortWhenMultiPath "AIGER write"
+        mfn <- lookupStringRef fnameRef
+        case mfn of
+          Nothing -> abort $ "writeAiger filename parameter does "
+                       ++ "not refer to a constant string"
+          Just fn -> liftIO $
+            writeAigToFile sbe fn . SV.concat
+              =<< mapM (fmap (f . toLsbfV) . getVarLit sbe) outs
   mapM_ (\(cn, key, impl) -> overrideStaticMethod cn key impl)
       --------------------------------------------------------------------------------
       -- fresh vars & path info
@@ -158,17 +167,6 @@ jssOverrides = do
       when (any (\x -> case x of LValue{} -> False; _ -> True) xs) $
         abort "JAPI: expected CValue operands to represent type long "
       return xs
-
-    writeAigerBody f fnameRef outs = do
-      abortWhenMultiPath "AIGER write"
-      mfn <- lookupStringRef fnameRef
-      case mfn of
-        Nothing -> abort $ "writeAiger filename parameter does "
-                         ++ "not refer to a constant string"
-        Just fn -> liftSymbolic
-                   $ writeAigToFile fn . SV.concat
-                       =<< mapM (fmap (f . toLsbfV) . getVarLit) outs
-
     getInputs cvArr = do
       cvalRefs <- getPSS >>= (`getRefArray` cvArr)
       forM cvalRefs $ \r -> do

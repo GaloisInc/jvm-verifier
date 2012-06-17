@@ -71,8 +71,9 @@ evalDagSHA384 msg = do
     msgVars <- liftIO $ replicateM (length msg `div` 2) $ freshByte sbe
     outVars <- runDefSymSim cb $ runSHA384 msgVars
     let inputValues = V.map constInt $ V.fromList (hexToByteSeq msg)
-    evalFn <- mkConcreteEval inputValues
-    liftIO $ byteSeqToHex <$> mapM evalFn outVars
+    liftIO $ do
+      evalFn <- concreteEvalFn inputValues
+      byteSeqToHex <$> mapM evalFn outVars
   assert $ rslt == golden
   -- run $ putStrLn $ "SHA-384 Result : " ++ rslt
 
@@ -87,23 +88,19 @@ evalAigSHA384 msg = do
     sbe <- getBackend
     msgVars <- liftIO $ replicateM msgLen $ freshByte sbe
     outVars <- runDefSymSim cb $ runSHA384 msgVars
-    outLits <- concat <$> mapM getVarLitLsbf outVars
-    -- | Word-level inputs
-    let cinps = map constInt $ hexToByteSeq msg
-    -- | Boolean inputs to evalAig
-    let binps = concatMap (take 8 . intToBoolSeq) cinps
     be <- getBitEngine
-    r <- liftIO $ beEvalAigV be (SV.fromList binps) (SV.fromList outLits)
-    let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
-               $ SV.toList $ SV.slice (32*k) 32 r
-             | k <- [0..47]
-             ]
-    -- Perform evaluation and blasting of every literal
-    -- (expensive, but good for debugging failed runs)
---     evalAndBlast (map constInt $ hexToByteSeq msg) binps
---     liftIO $ mapM_ (putStrLn . show) rs
---     liftIO $ putStrLn $ "evalAigSHA384: rs = " ++ byteSeqToHex rs
-    return $ byteSeqToHex rs
+    liftIO $ do
+      outLits <- liftIO $ concat <$> mapM (fmap toLsbf_lit . getVarLit sbe) outVars
+      -- | Word-level inputs
+      let cinps = map constInt $ hexToByteSeq msg
+      -- | Boolean inputs to evalAig
+      let binps = concatMap (take 8 . intToBoolSeq) cinps
+      r <- beEvalAigV be (SV.fromList binps) (SV.fromList outLits)
+      let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
+                 $ SV.toList $ SV.slice (32*k) 32 r
+               | k <- [0..47]
+               ]
+      return $ byteSeqToHex rs
   assert $ rslt == golden
 
 runSHA384 :: AigOps sym => [MonadTerm sym] -> Simulator sym [MonadTerm sym]

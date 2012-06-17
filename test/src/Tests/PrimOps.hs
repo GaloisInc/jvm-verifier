@@ -156,12 +156,12 @@ mkTest runTest' _lbl getRslt cb maigNm (cNm, mNm, sig)
        snd . getRslt . withoutExceptions
          <$> (runStaticMethod cNm mNm sig =<< mkArgs syms)
     -- dbugM $ "mkTest: rslt = " ++ show rslt
-    outIntLit <- toLsbfV <$> getVarLit rslt
-    chks0 <- forM inps $ \inp -> do
-       evalFn <- mkConcreteEval (V.fromList inp)
-       liftIO $ prDag inp <$> evalFn rslt
     be <- getBitEngine
     liftIO $ do
+      outIntLit <- toLsbfV <$> getVarLit sbe rslt
+      chks0 <- forM inps $ \inp -> do
+        evalFn <- concreteEvalFn (V.fromList inp)
+        prDag inp <$> evalFn rslt
       case maigNm of
         Nothing -> return ()
         Just nm -> beWriteAigerV be nm [outIntLit]
@@ -264,6 +264,7 @@ t12c rt cb = t12cmn rt "t12c" ("Trivial", "fork_loop_f2", "(ZZ)I") chk cb
 t13 :: TrivialProp
 t13 cb = runTest $ do
   sbe <- getBackend
+  be <- getBitEngine
   let n       = 4
       cInputs = [constInt 16, constInt 4]
       expect  = map constInt [4, 64, 4, 8]
@@ -279,20 +280,18 @@ t13 cb = runTest $ do
                 return q
             )
     getIntArray pd outArr
-
-  -- DAG eval
-  evalFn <- mkConcreteEval (V.fromList cInputs)
-  outVals <- liftIO $ mapM evalFn outVars
-  -- AIG eval
-  outLits <- mapM getVarLit outVars
-  be <- getBitEngine
-  r <- liftIO $ beEvalAigV be
-                           (SV.fromList $ concatMap intToBoolSeq cInputs)
-                           (SV.fromList $ concatMap toLsbf_lit outLits)
-  let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
-             $ SV.toList $ (SV.slice (32*k) 32 r)
-           | k <- [0..(n-1)] ]
-  return [outVals == expect && rs == expect]
+  liftIO $ do
+    -- DAG eval
+    evalFn <- concreteEvalFn (V.fromList cInputs)
+    outVals <- mapM evalFn outVars
+    -- AIG eval
+    outLits <- mapM (getVarLit sbe) outVars
+    r <- beEvalAigV be (SV.fromList $ concatMap intToBoolSeq cInputs)
+                       (SV.fromList $ concatMap toLsbf_lit outLits)
+    let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
+               $ SV.toList $ (SV.slice (32*k) 32 r)
+             | k <- [0..(n-1)] ]
+    return [outVals == expect && rs == expect]
 
 -- NB: This won't symbolically terminate yet.
 _t14 :: TrivialProp
@@ -323,9 +322,10 @@ ct1 cb = runTest $ do
                                          "([I)V"
                                          [RValue outArr]
     getIntArray pd outArr
-  evalFn <- mkConcreteEval V.empty
-  outVals <- liftIO $ mapM evalFn outVars
-  return $ [[constInt 42, constInt 42] == outVals]
+  liftIO $ do
+    evalFn <- concreteEvalFn V.empty
+    outVals <- mapM evalFn outVars
+    return $ [[constInt 42, constInt 42] == outVals]
 
 -- | Ensure that refFromString produces a usable string reference
 ct2 :: TrivialProp
@@ -337,9 +337,10 @@ ct2 cb =
       (\(~(Right r)) -> r) . snd . takeIntRslt . withoutExceptions
         <$> runStaticMethod "Trivial" "stringCheck" "(Ljava/lang/String;I)Z"
               [RValue s, IValue (mkCInt (Wx 32) . fromIntegral . length $ str)]
-    evalFn <- mkConcreteEval V.empty
-    outVal <- liftIO $ evalFn outVar
-    return [boolFromConst outVal]
+    liftIO $ do
+      evalFn <- concreteEvalFn V.empty
+      outVal <- evalFn outVar
+      return [boolFromConst outVal]
 
 --------------------------------------------------------------------------------
 -- floating point tests
@@ -466,12 +467,12 @@ evalBinOp runIO _lbl cb w maigNm mkValue getSymIntegralFromValue newSymVar
       snd . takeSingleRslt . withoutExceptions
             <$> runStaticMethod classNm methodNm sig [mkValue a, mkValue b]
     let rslt = getSymIntegralFromValue val
-    outIntLit <- toLsbf_lit <$> getVarLit rslt
-    evalFn <- mkConcreteEval (V.map (mkCInt w . fromIntegral) $ V.fromList [x, y])
-    rsltVal <- liftIO $ evalFn rslt
-    let inputs = concatMap (intToBoolSeq . mkCInt w . fromIntegral) [x, y]
     be <- getBitEngine
     liftIO $ do
+      outIntLit <- toLsbf_lit <$> getVarLit sbe rslt
+      evalFn <- concreteEvalFn (V.map (mkCInt w . fromIntegral) $ V.fromList [x, y])
+      rsltVal <- evalFn rslt
+      let inputs = concatMap (intToBoolSeq . mkCInt w . fromIntegral) [x, y]
       aigResult <- beEvalAigV be (SV.fromList inputs) (SV.fromList outIntLit)
       case maigNm of
         Nothing -> return ()
