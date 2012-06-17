@@ -24,8 +24,12 @@ data Backend sym = Backend {
        , termBool :: Bool  -> IO (MonadTerm sym)  
        , termInt  :: Int32 -> IO (MonadTerm sym)
        , termLong :: Int64 -> IO (MonadTerm sym)
+         -- | @applyGetArrayValue arr i@ returns value at @arr[i]@.
+       , applyGetArrayValue :: MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
+         -- | @applySetArrayValue arr i v@ returns value at @arr[i] = v@.
+       , applySetArrayValue :: MonadTerm sym -> MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
        , blastTerm :: MonadTerm sym -> IO (Maybe Bool)
-         -- | @evalAigIntegral' f ins out@ applies concrete inputs @ins@ to the 
+         -- | @evalAigIntegral f ins out@ applies concrete inputs @ins@ to the 
          -- AIG at the given symbolic output term @out@, applying @f@ to the
          -- @ins@ bit sequence
        ,  evalAigIntegral :: ([Bool] -> [Bool]) -> [CValue] 
@@ -42,6 +46,7 @@ getBackend = symbolicBackend <$> getSymState
 symbolicBackend :: SymbolicMonadState -> Backend SymbolicMonad
 symbolicBackend sms = do
   let ?be = smsBitEngine sms
+  let de = smsDagEngine sms
   let lr = smsInputLitRef sms 
   let getTermLit = smsBitBlastFn sms
   let freshTerm tp lv = do  
@@ -64,6 +69,17 @@ symbolicBackend sms = do
     , termBool = return . mkCBool
     , termInt  = return . mkCInt 32 . fromIntegral
     , termLong = return . mkCInt 64 . fromIntegral
+    , applyGetArrayValue = \a i ->
+        case (termType a, termType i) of
+          (SymArray len eltType, SymInt idxType) ->
+            deApplyBinary de (getArrayValueOp len idxType eltType) a i
+          _ -> error $ "internal: illegal arguments to applyGetArrayValue "
+                        ++ prettyTerm a ++ "\n" ++ show (termType a)
+    , applySetArrayValue = \a i v ->
+        case (termType a,termType i) of
+          (SymArray len eltType, SymInt idxType) ->
+            deApplyTernary de (setArrayValueOp len idxType eltType) a i v
+          _ -> error "internal: illegal arguments to applySetArrayValue"
     , blastTerm = \v -> do
         LV lv <- getTermLit v
         let l = assert (SV.length lv == 1) $ SV.head lv
