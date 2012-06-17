@@ -17,7 +17,6 @@ import Control.Applicative
 import qualified Control.Exception as CE
 import Control.Monad
 import Control.Monad.State
-import Control.Monad.Trans
 import Data.Bits
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
@@ -27,7 +26,6 @@ import Test.QuickCheck.Monadic
 
 import JavaParser (Type(..))
 import Simulation hiding (run)
-import qualified Simulation
 import Tests.Common
 import Utils
 import Utils.Simulation
@@ -40,7 +38,7 @@ type Test sym a =
      Codebase
   -> Maybe String                                               -- ^ aig filename to write, if any
   -> MethodSpec                                                 -- ^ method under test
-  -> sym [MonadTerm sym]                                        -- ^ symbolic term creator
+  -> (Backend sym -> IO [MonadTerm sym])                                        -- ^ symbolic term creator
   -> ([MonadTerm sym] -> Simulator sym [Value (MonadTerm sym)]) -- ^ function argument creator
   -> (TestInput -> [Bool])                                      -- ^ concrete input => aig input
   -> (TestInput -> CValue -> Bool)                              -- ^ correct dag eval predicate
@@ -151,7 +149,8 @@ mkTest ::
 mkTest runTest' _lbl getRslt cb maigNm (cNm, mNm, sig)
        mkSyms mkArgs toAigInps prDag prAig inps =
   runTest' $ do
-    syms       <- mkSyms
+    sbe <- getBackend
+    syms       <- liftIO $ mkSyms sbe
     Right rslt <- runDefSymSim cb $ do
        setVerbosity verb
        snd . getRslt . withoutExceptions
@@ -191,7 +190,7 @@ t2 runIO cb = mkBinOpTest cb ("Trivial", "int_f2", "(II)I") (+)
 
 t3 :: RunTest SymbolicMonad -> TrivialProp
 t3 rt cb = mkIntTest rt "t3" cb (Just "t3.aig") ("Trivial", "byte_array_f3", "([B)B")
-  (replicateM 4 freshByte)
+  (\sbe -> replicateM 4 $ freshByte sbe)
   (singletonArg RValue . newIntArray (ArrayType ByteType))
   (concatMap (take 8 . intToBoolSeq))
   (chk intFromConst)
@@ -221,7 +220,7 @@ t8 runIO cb = mkBinOpTest cb ("Trivial", "long_f2", "(JJ)J") (+)
 
 t9 :: RunTest SymbolicMonad -> TrivialProp
 t9 rt cb = mkLongTest rt "t9" cb (Just "t9.aig") ("Trivial", "long_array_f3", "([J)J")
-  (getBackend >>= \b -> liftIO (replicateM 4 $ freshLong b))
+  (\sbe -> replicateM 4 $ freshLong sbe)
   (singletonArg RValue . newLongArray)
   (concatMap intToBoolSeq)
   (chk longFromConst)
@@ -233,7 +232,7 @@ t9 rt cb = mkLongTest rt "t9" cb (Just "t9.aig") ("Trivial", "long_array_f3", "(
 
 t12a :: RunTest SymbolicMonad -> TrivialProp
 t12a rt cb = mkIntTest rt "t12a" cb Nothing ("Trivial", "fork_f1", "(Z)I")
-  (replicateM 1 freshInt)
+  (replicateM 1 . freshInt)
   (return . map IValue)
   (concatMap intToBoolSeq)
   (\(~[inp]) rslt -> intFromConst inp == intFromConst rslt)
@@ -247,7 +246,7 @@ t12cmn
   -> (Int32 -> Int32 -> Int32 -> Bool)
   -> TrivialProp
 t12cmn rt lbl ms chk cb = mkIntTest rt lbl cb Nothing ms
-  (replicateM 2 freshInt)
+  (\sbe -> replicateM 2 $ freshInt sbe)
   (return . map IValue)
   (concatMap intToBoolSeq)
   (\(~[b0,b1]) rslt -> chk (intFromConst b0) (intFromConst b1) (intFromConst rslt))
@@ -264,10 +263,11 @@ t12c rt cb = t12cmn rt "t12c" ("Trivial", "fork_loop_f2", "(ZZ)I") chk cb
 
 t13 :: TrivialProp
 t13 cb = runTest $ do
+  sbe <- getBackend
   let n       = 4
       cInputs = [constInt 16, constInt 4]
       expect  = map constInt [4, 64, 4, 8]
-  ins <- map IValue <$> replicateM 2 freshInt
+  ins <- liftIO $ replicateM 2 $ IValue <$> freshInt sbe
   outVars <- runDefSymSim cb $ do
     setVerbosity verb
     outArr <- newMultiArray (ArrayType IntType) [mkCInt (Wx 32) 4]
@@ -297,7 +297,8 @@ t13 cb = runTest $ do
 -- NB: This won't symbolically terminate yet.
 _t14 :: TrivialProp
 _t14 cb = runTest $ do
-  a <- freshInt
+  sbe <- getBackend
+  a <- liftIO $ freshInt sbe
   Right _rslt <- runDefSymSim cb $ do
     setVerbosity verb
     rs <- runStaticMethod "Trivial" "loop1" "(I)I" [IValue a]
@@ -430,9 +431,6 @@ evalInt32BinOp runIO lbl maigNm cb =
   where getIntegral (IValue v) = v
         getIntegral _          = error "evalInt32BinOp: invalid Value type"
 
-getBackend :: SymbolicMonad (Backend SymbolicMonad)
-getBackend = symbolicBackend <$> getSymState 
-  
 evalInt64BinOp
   :: RunIO SymbolicMonad Int64
   -> String
@@ -440,7 +438,7 @@ evalInt64BinOp
   -> EvalBinOp Int64
 evalInt64BinOp runIO lbl maigNm cb =
   evalBinOp runIO lbl cb (Wx 64) maigNm LValue
-            getIntegral (getBackend >>= \b -> liftIO (freshLong b)) (head . hexToLongSeq)
+            getIntegral freshLong (head . hexToLongSeq)
   where getIntegral (LValue v) = v
         getIntegral _          = error "evalInt64BinOp: invalid Value type"
 
@@ -453,15 +451,16 @@ evalBinOp :: Integral a
   -> Maybe String -- aig filename
   -> (b -> Value Node)
   -> (Value Node -> Node)
-  -> SymbolicMonad b
+  -> (Backend SymbolicMonad -> IO b)
   -> ([Char] -> c)
   -> MethodSpec
   -> (a -> a -> IO (CValue, c))
 evalBinOp runIO _lbl cb w maigNm mkValue getSymIntegralFromValue newSymVar
           hexToIntegral (classNm, methodNm, sig) x y = do
   runIO $ do
-    a <- newSymVar
-    b <- newSymVar
+    sbe <- getBackend
+    a <- liftIO $ newSymVar sbe
+    b <- liftIO $ newSymVar sbe
     Right val <- runDefSymSim cb $ do
       setVerbosity verb
       snd . takeSingleRslt . withoutExceptions

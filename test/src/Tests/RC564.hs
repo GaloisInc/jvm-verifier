@@ -69,8 +69,9 @@ evalDagRC564 key input = do
 --   run $ putStrLn $ "Input  : " ++ input
 --   run $ putStrLn $ "Golden : " ++ golden
   rslt <- run $ runSymbolic oc $ do
-    keyVars <- replicateM 16 freshByte
-    inpVars <- replicateM 16 freshByte
+    sbe <- getBackend
+    keyVars <- liftIO $ replicateM 16 $ freshByte sbe
+    inpVars <- liftIO $ replicateM 16 $ freshByte sbe
     outVars <- runDefSymSim cb $ runRC564 keyVars inpVars
     let inpValues = V.map constInt
                   $ V.fromList
@@ -86,8 +87,9 @@ _makeAigerRC564 filepath = do
   oc <- mkOpCache
   putStrLn "Simulating RC564"
   runSymbolic oc $ do
-    keyVars <- replicateM 16 freshByte
-    inpVars <- replicateM 16 freshByte
+    sbe <- getBackend
+    keyVars <- liftIO $ replicateM 16 $ freshByte sbe
+    inpVars <- liftIO $ replicateM 16 $ freshByte sbe
     outValues <- runDefSymSim cb $ runRC564 keyVars inpVars
     liftIO $ putStrLn "Creating RC564 aiger..."
     outLits <- mapM getVarLit outValues

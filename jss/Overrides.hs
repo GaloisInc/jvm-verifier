@@ -18,7 +18,24 @@ import Verinf.Symbolic
 -- API.
 jssOverrides :: (AigOps sym) => Simulator sym ()
 jssOverrides = do
-  b <- gets backend
+  sbe <- gets backend
+  let m `pushAs` f  = pushValue =<< f <$> liftIO (m sbe)
+  let evalAigBody f chkInps dtor ctor out cvArr = do
+        abortWhenMultiPath "AIG evaluation (scalar)"
+        cinps <- map (fromJust . termConst . dtor)
+                 <$> (chkInps =<< getInputs cvArr)
+        pushValue =<< liftIO (ctor <$> evalAigIntegral sbe f cinps out)
+  let evalAigArrayBody w chkInps getArr dtor push [RValue outs, RValue cvArr] = do
+        abortWhenMultiPath "AIG evaluation (array)"
+        pd      <- getPSS
+        ins     <- chkInps =<< getInputs cvArr
+        outLits <- getArr pd outs
+        push =<< liftIO
+                 (evalAigArray sbe
+                               w
+                               (map (fromJust . termConst . dtor) ins)
+                               outLits)
+      evalAigArrayBody _ _ _ _ _ _ = error "invalid evalAigArrayBody parameters"
   mapM_ (\(cn, key, impl) -> overrideStaticMethod cn key impl)
       --------------------------------------------------------------------------------
       -- fresh vars & path info
@@ -29,16 +46,15 @@ jssOverrides = do
     [ sym "freshByte" "(B)B"    $ \_ -> freshByte `pushAs` IValue
     , sym "freshInt" "(I)I"     $ \_ -> freshInt  `pushAs` IValue
     , sym "freshBoolean" "(Z)Z" $ \_ -> freshInt  `pushAs` IValue
-    , sym "freshLong" "(J)J"    $ \_ -> 
-       pushValue =<< LValue <$> liftIO (freshLong b) 
+    , sym "freshLong" "(J)J"    $ \_ -> freshLong `pushAs` LValue
     , sym "freshByteArray" "(I)[B" $ \[IValue (intVal -> Just n)] ->
-        pushByteArr =<< replicateM n (liftSymbolic freshByte)
+        pushByteArr =<< liftIO (replicateM n $ freshByte sbe)
 
     , sym "freshIntArray" "(I)[I" $ \[IValue (intVal -> Just n)] ->
-        pushIntArr =<< replicateM n (liftSymbolic freshInt)
+        pushIntArr =<< liftIO (replicateM n $ freshInt sbe)
 
     , sym "freshLongArray" "(I)[J" $ \[IValue (intVal -> Just n)] ->
-        pushLongArr =<< liftIO (replicateM n (freshLong b))
+        pushLongArr =<< liftIO (replicateM n $ freshLong sbe)
 
     , sym "getPathDescriptors" "(Z)[I" $ \[IValue (getSVal -> Just includeExc)] ->
         let filterExc PathState{ finalResult = fr } =
@@ -46,7 +62,7 @@ jssOverrides = do
                 then True
                 else case fr of Exc{} -> False; _ -> True
         in pushIntArr
-             =<< mapM (liftSymbolic . termInt . fromIntegral . unPSS)
+             =<< mapM (liftIO . termInt sbe . fromIntegral . unPSS)
                =<< (M.keys . M.filter filterExc <$> gets pathStates)
 
       --------------------------------------------------------------------------------
@@ -129,7 +145,6 @@ jssOverrides = do
     sym meth md f = (symbolicCN, makeMethodKey meth md, f)
     dbg meth md f = (symbolicCN ++ "$Debug", makeMethodKey meth md, f)
     symbolicCN    = "com/galois/symbolic/Symbolic"
-    m `pushAs` f  = pushValue =<< f <$> liftSymbolic m
     pushByteArr   = pushValue . RValue <=< newIntArray byteArrayTy
     pushIntArr    = pushValue . RValue <=< newIntArray intArrayTy
     pushLongArr   = pushValue . RValue <=< newLongArray 
@@ -143,24 +158,6 @@ jssOverrides = do
       when (any (\x -> case x of LValue{} -> False; _ -> True) xs) $
         abort "JAPI: expected CValue operands to represent type long "
       return xs
-
-    evalAigBody f chkInps dtor ctor out cvArr = do
-      abortWhenMultiPath "AIG evaluation (scalar)"
-      cinps <- map (fromJust . termConst . dtor)
-               <$> (chkInps =<< getInputs cvArr)
-      evalAigIntegral f cinps out `pushAs` ctor
-
-    evalAigArrayBody w chkInps getArr dtor push [RValue outs, RValue cvArr] = do
-      abortWhenMultiPath "AIG evaluation (array)"
-      pd      <- getPSS
-      ins     <- chkInps =<< getInputs cvArr
-      outLits <- getArr pd outs
-      push =<< liftSymbolic
-                 (evalAigArray w
-                               (map (fromJust . termConst . dtor) ins)
-                               outLits
-                 )
-    evalAigArrayBody _ _ _ _ _ _ = error "invalid evalAigArrayBody parameters"
 
     writeAigerBody f fnameRef outs = do
       abortWhenMultiPath "AIGER write"
