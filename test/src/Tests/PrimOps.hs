@@ -144,7 +144,7 @@ mkBinOpTest cb ms gnd eval ctor inps = runTest $ do
 mkTest ::
      RunTest SymbolicMonad
   -> String
-  -> TakeSingleton Node Node
+  -> TakeSingleton DagTerm DagTerm 
   -> Test SymbolicMonad a
 mkTest runTest' _lbl getRslt cb maigNm (cNm, mNm, sig)
        mkSyms mkArgs toAigInps prDag prAig inps =
@@ -450,8 +450,8 @@ evalBinOp :: Integral a
   -> Codebase
   -> BitWidth
   -> Maybe String -- aig filename
-  -> (b -> Value Node)
-  -> (Value Node -> Node)
+  -> (b -> Value DagTerm)
+  -> (Value DagTerm -> DagTerm)
   -> (Backend SymbolicMonad -> IO b)
   -> ([Char] -> c)
   -> MethodSpec

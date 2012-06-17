@@ -1,5 +1,6 @@
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE ViewPatterns #-}
 module Verifier.Java.Backend where
 
 import Control.Applicative
@@ -16,6 +17,9 @@ import qualified Data.Vector.Storable as SV
 type BackendInt  sym = MonadTerm sym
 type BackendLong sym = MonadTerm sym
 
+type UnaryOp sym = MonadTerm sym -> IO (MonadTerm sym)
+type BinaryOp sym = MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
+
 data Backend sym = Backend {
           -- | Allocates a fresh variable where the 8 low-order bits are fresh
           -- lits and the upper bits are zero.
@@ -25,9 +29,40 @@ data Backend sym = Backend {
        , termBool :: Bool  -> IO (MonadTerm sym)  
        , termInt  :: Int32 -> IO (MonadTerm sym)
        , termLong :: Int64 -> IO (MonadTerm sym)
+       , termByteFromInt :: UnaryOp sym
+       , termLongFromInt :: UnaryOp sym
+       , termIntFromLong :: UnaryOp sym
          -- | Complement argument.
-       , termNot :: MonadTerm sym -> IO (MonadTerm sym)
+       , termNot :: UnaryOp sym
        , termIte :: MonadTerm sym -> MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
+         -- | Java shift-left on int values.
+       , termIShl  :: BinaryOp sym
+         -- | Java signed shift-right on int values.
+       , termIShr  :: BinaryOp sym
+         -- | Java unsigned shift-right on int values.
+       , termIUshr :: BinaryOp sym
+         -- | Java shift-left on long values.
+       , termLShl  :: BinaryOp sym
+         -- | Java signed shift-right on long values.
+       , termLShr  :: BinaryOp sym
+         -- | Java unsigned shift-right on long values.
+       , termLUshr :: BinaryOp sym
+         -- | Less than or equal.
+       , termLeq :: BinaryOp sym
+         -- |Less than
+       , termLt :: BinaryOp sym
+         -- | Negates argument
+       , termNeg :: UnaryOp sym
+         -- | Adds two arguments.
+       , termAdd :: BinaryOp sym
+         -- | Subtracts two integer arguments.
+       , termSub :: BinaryOp sym
+         -- | Multiplies two arguments.
+       , termMul :: BinaryOp sym
+         -- | Returns signed division of two arguments.
+       , termDiv :: BinaryOp sym 
+         -- | Returns signed remainder of two arguments.
+       , termRem :: BinaryOp sym
          -- | @termIntArray l@ returns an integer array of zeros with length
          -- @l@.  Will return @Nothing@ is operation cannot be performed because
          -- length is symbolic and symbolic lengths are unsupported. 
@@ -35,7 +70,7 @@ data Backend sym = Backend {
          -- | @termLongArray l@ returns a long array of zeros with length @l@.
        , termLongArray :: MonadTerm sym -> IO (Maybe (MonadTerm sym))
          -- | @applyGetArrayValue arr i@ returns value at @arr[i]@.
-       , applyGetArrayValue :: MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
+       , applyGetArrayValue :: BinaryOp sym
          -- | @applySetArrayValue arr i v@ returns value at @arr[i] = v@.
        , applySetArrayValue :: MonadTerm sym -> MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
        , blastTerm :: MonadTerm sym -> IO (Maybe Bool)
@@ -69,6 +104,23 @@ symbolicBackend sms = do
         m <- readIORef lr
         writeIORef lr $! (Map.insert i (LV lv) m)
         return n
+  let termTrunc resultWidth t = do
+        case termType t of
+          SymInt iw@(widthConstant -> Just inputWidth)
+            | inputWidth >= resultWidth ->
+              deApplyUnary de (truncOp oc iw resultWidth) t
+          _ -> error "internal: illegal arguments to termTrunc"
+  let termBinaryIntOp opFn name x y =
+        case termType x of
+          SymInt w -> deApplyBinary de (opFn w) x y
+          _ -> error $ "internal: illegal value to " ++ name ++ ": " ++ show x
+  let termShift opFn name w x y = do
+        case (termType x, termType y) of
+          (SymInt vw, SymInt sw@(widthConstant -> Just inputWidth))
+            | inputWidth >= w -> do
+                y' <- deApplyUnary de (truncOp oc sw w) y
+                deApplyBinary de (opFn vw (constantWidth w)) x y'
+          _ -> error $ "internal: illegal value to " ++ name ++ ": " ++ show x
   Backend {
       freshByte = do
         inputs <- SV.replicateM 7 lMkInput
@@ -84,6 +136,14 @@ symbolicBackend sms = do
     , termBool = return . mkCBool
     , termInt  = return . mkCInt 32 . toInteger
     , termLong = return . mkCInt 64 . toInteger
+    , termByteFromInt = \x -> termTrunc 8 x
+    , termLongFromInt = \t ->
+        case termType t of
+          SymInt iw@(widthConstant -> Just inputWidth)
+            | inputWidth <= 64  -> 
+              deApplyUnary de (signedExtOp oc iw 64) t
+          _ -> error "internal: illegal value to termLongFromInt"
+    , termIntFromLong = \x -> termTrunc 32 x
     , termNot  = deApplyUnary de bNotOp
     , termIte = \b t f ->
         case getBool b of
@@ -91,6 +151,23 @@ symbolicBackend sms = do
           Just False -> return f
           Nothing | t == f -> return t
                   | otherwise -> deApplyTernary de (iteOp (termType t)) b t f
+    , termIShl  = termShift shlOp  "termIShl"  5 
+    , termIShr  = termShift shrOp  "termIShr"  5
+    , termIUshr = termShift ushrOp "termIUshr" 5 
+    , termLShl  = termShift shlOp  "termLShl"  6
+    , termLShr  = termShift shrOp  "termLShr"  6
+    , termLUshr = termShift ushrOp "termLUshr" 6
+    , termLeq = termBinaryIntOp signedLeqOp "termLeq"
+    , termLt  = termBinaryIntOp signedLtOp  "termLt"
+    , termNeg = \x ->
+        case termType x of
+          SymInt w -> deApplyUnary de (negOp w) x
+          _ -> error "internal: illegal value to termNeg"
+    , termAdd = termBinaryIntOp addOp "termAdd"
+    , termSub = termBinaryIntOp subOp "termSub"
+    , termMul = termBinaryIntOp mulOp "termMul"
+    , termDiv = termBinaryIntOp signedDivOp "termDiv"
+    , termRem = termBinaryIntOp signedRemOp "termRem"
     , termIntArray = \l ->
         case fromIntegral <$> getSVal l of
           Just c ->
