@@ -103,26 +103,6 @@ sa4 rt cb = go rt cb $ do
   return ()
 
 --------------------------------------------------------------------------------
--- Symbolic (negative) tests
-
-{-
-sy1 :: (AigOps sym) => RunTest sym -> TrivialProp
-sy1 rt cb = rt $ do
-  uv <- IValue <$> freshUninterpretedVar (SymInt (constantWidth 32))
-  outVar <- runDefSymSim cb $ do
-    setVerbosity verb
-    liftSymbolic $ setVerbosity verb
-    arr <- newIntArray intArrayTy [mkCInt (Wx 32) 0]
-    Right rslt <- snd . takeIntRslt . withoutExceptions
-                  <$> runStaticMethod "Arrays" "index" "(I[I)I"
-                        [uv, RValue arr]
-    return rslt
-  s <- getVarLit outVar
-  -- fail if we've not thrown an exception by now
-  s `seq` return [False]
-  -}
-
---------------------------------------------------------------------------------
 -- Scratch
 
 _ignore_nouse :: a

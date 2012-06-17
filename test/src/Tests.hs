@@ -7,7 +7,6 @@ import System.Exit
 import Test.QuickCheck
 import Test.QuickCheck.Test
 
-import Tests.Session
 import Tests.Arrays
 import Tests.ExampleErrorSession
 import Tests.ExampleExceptionSession
@@ -42,7 +41,6 @@ runTests chooseTest = do
     allTests =
       [ ("Error propagation in IO.Session: via IO exception",   exampleExceptionSessionTests)
       , ("Error propagation in IO.Session: via ErrorT",         exampleErrorSessionTests)
-      , ("Session",                                             sessionTests)
       , ("SBVParser",                                           sbvParserTests)
       , ("PrimOps",                                             primOpTests)
       , ("Arrays",                                              arrayTests)

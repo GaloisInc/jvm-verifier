@@ -7,6 +7,7 @@ Point-of-contact : jstanley
 
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE DoAndIfThenElse            #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE FunctionalDependencies     #-}
@@ -1312,7 +1313,7 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   -- (arrayLength ref) return length of array at ref.
   arrayLength ref = do
     pd  <- getPSS
-    fmap (mkCInt 32 . toInteger) $ getArrayLength pd ref
+    mkCInt 32 . toInteger <$> getArrayLength pd ref
 
 
   -- (newMultiArray tp len) returns a reference to a multidimentional array with
@@ -1452,10 +1453,10 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
     val <- getArrayValue pd r idx
     pushValue val
 
-  setArrayValue r idx (IValue val) = updateSymbolicArray r $ \arr ->
-    applySetArrayValue arr idx val
-  setArrayValue r idx (LValue val) = updateSymbolicArray r $ \arr ->
-    applySetArrayValue arr idx val
+  setArrayValue r idx (IValue val) = updateSymbolicArray r $ \sbe arr ->
+    applySetArrayValue sbe arr idx val
+  setArrayValue r idx (LValue val) = updateSymbolicArray r $ \sbe arr ->
+    applySetArrayValue sbe arr idx val
   setArrayValue r (getSVal -> Just i) (RValue v) = do
     ps <- getPathState
     let updateFn arr = Just (arr // [(fromIntegral i,v)])
@@ -2140,19 +2141,20 @@ getSymbolicArray r = do
 -- | Sets integer or long array to use using given update function.
 -- TODO: Revisit what error should be thrown if ref is not an array reference.
 setSymbolicArray :: MonadIO sym => Ref -> MonadTerm sym -> Simulator sym ()
-setSymbolicArray r arr = updateSymbolicArray r (\_ -> return arr)
+setSymbolicArray r arr = updateSymbolicArray r (\_ _ -> return arr)
 
 -- | Updates integer or long array using given update function.
 -- TODO: Revisit what error should be thrown if ref is not an array refence.
 updateSymbolicArray :: MonadIO sym =>
                        Ref
-                    -> (MonadTerm sym -> sym (MonadTerm sym))
+                    -> (Backend sym -> MonadTerm sym -> IO (MonadTerm sym))
                     -> Simulator sym ()
 updateSymbolicArray r modFn = do
   ps <- getPathState
   let (len,arr) = maybe (error "internal: reference is not a symbolic array") id
                       $ M.lookup r (arrays ps)
-  newArr <- liftSymbolic $ modFn arr
+  sbe <- gets backend
+  newArr <- liftIO $ modFn sbe arr
   putPathState ps{ arrays = M.insert r (len, newArr) (arrays ps) }
 
 -- | @newIntArray arTy terms@ produces a reference to a new array of type
@@ -2201,14 +2203,16 @@ getArrayValue pd r idx = do
       case getSVal idx of
         Just i -> return $ RValue (arr ! fromInteger i)
         _ -> abort "Not supported: symbolic indexing into arrays of references."
-    else if tp == LongType
-      then do
-        let Just (_,rslt) = M.lookup r (arrays ps)
-        fmap LValue $ liftSymbolic $ applyGetArrayValue rslt idx
-      else do
-        CE.assert (isIValue tp) $ return ()
-        let Just (_,rslt) = M.lookup r (arrays ps)
-        fmap IValue $ liftSymbolic $ applyGetArrayValue rslt idx
+    else do
+      sbe <- gets backend
+      liftIO $ do
+        if tp == LongType then do
+          let Just (_,rslt) = M.lookup r (arrays ps)
+          LValue <$> applyGetArrayValue sbe rslt idx
+        else do
+          CE.assert (isIValue tp) $ return ()
+          let Just (_,rslt) = M.lookup r (arrays ps)
+          IValue <$> applyGetArrayValue sbe rslt idx
 
 -- | Returns values in an array at a given reference, passing them through the
 -- given projection
