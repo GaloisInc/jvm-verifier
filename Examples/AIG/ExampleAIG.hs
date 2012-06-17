@@ -89,8 +89,9 @@ evalCryptolJavaWord name key input = do
   oc <- mkOpCache
   cb <- commonLoadCB
   runSymbolic oc $ do
-    keyVars <- replicateM 4 $ freshInt
-    inputVars <- replicateM 4 $ freshInt
+    sbe <- getBackend
+    keyVars   <- liftIO $ replicateM 4 $ freshInt sbe
+    inputVars <- liftIO $ replicateM 4 $ freshInt sbe
     outVars <- runDefSymSim cb $ do
       setVerbosity 0
       runCryptolJava name keyVars inputVars
@@ -139,8 +140,9 @@ makeCryptolAiger ::
 makeCryptolAiger rio filepath cb simFn =
   rio $ do
     be <- getBitEngine
-    keyVars   <- replicateM 4 $ freshInt
-    inputVars <- replicateM 4 $ freshInt
+    sbe <- getBackend
+    keyVars   <- liftIO $ replicateM 4 $ freshInt sbe
+    inputVars <- liftIO $ replicateM 4 $ freshInt sbe
     outVars   <- runDefSymSim cb (setVerbosity 0 >> simFn keyVars inputVars)
     outLits   <- mapM getVarLit outVars
     liftIO $ writeAiger be filepath (concat $ map toLsbf_lit outLits)
@@ -229,8 +231,9 @@ makeBouncyCastleAiger :: CipherType -> String -> Codebase -> IO ()
 makeBouncyCastleAiger ct name cb = do
   oc <- mkOpCache
   runSymbolic oc $ do
-    revKey <- replicateM 16 freshByte
-    revInput <- replicateM 16 freshByte
+    sbe <- getBackend
+    revKey   <- liftIO $ replicateM 16 $ freshByte sbe
+    revInput <- liftIO $ replicateM 16 $ freshByte sbe
     output <- runDefSymSim cb $ do
       setVerbosity 0
       runBouncyCastle ct name (reverse revKey) (reverse revInput)
@@ -245,8 +248,9 @@ evalBouncyCastle ct name key input = do
   oc <- mkOpCache
   cb <- commonLoadCB
   runSymbolic oc $ do
-    keyVars <- replicateM 16 freshByte
-    inputVars <- replicateM 16 freshByte
+    sbe <- getBackend
+    keyVars   <- liftIO $ replicateM 16 $ freshByte sbe
+    inputVars <- liftIO $ replicateM 16 $ freshByte sbe
     outVars <- runDefSymSim cb $ do
       setVerbosity 0
       runBouncyCastle ct name keyVars inputVars

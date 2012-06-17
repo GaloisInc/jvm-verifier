@@ -9,7 +9,6 @@ module Tests.Arrays (arrayTests) where
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Trans (liftIO)
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 
@@ -36,8 +35,8 @@ sa1 :: TrivialProp
 sa1 cb =
   forAllM (int32s 128) $ \arrayElems ->
   runTest $ do
-    idx <- IValue <$> freshInt
-
+    sbe <- getBackend
+    idx <- liftIO $ IValue <$> freshInt sbe
     outVar <- runDefSymSim cb $ do
       let tint = mkCInt (Wx 32) . fromIntegral
       inpArr <- newIntArray intArrayTy $ map tint arrayElems
@@ -63,9 +62,8 @@ sa2 cb =
   forAllM (choose (0, fromIntegral (length arrayElems - 1))) $ \overwriteIdx ->
   runTest $ do
     let n = length arrayElems
-
-    [idx, val]  <- map IValue <$> replicateM 2 freshInt
-
+    sbe <- getBackend
+    [idx, val]  <- liftIO $ replicateM 2 $ IValue <$> freshInt sbe
     rslt <- runDefSymSim cb $ do
       let tint = mkCInt (Wx 32) . fromIntegral
       arr <- newIntArray intArrayTy $ map tint arrayElems
@@ -86,11 +84,11 @@ sa2 cb =
 sa3 :: TrivialProp
 sa3 cb =
   runTest $ do
+    sbe <- getBackend
     let n    = 3
         fill = 99
-
-    val     <- IValue <$> freshInt
-    symVals <- replicateM n freshInt
+    val     <- liftIO $ IValue <$> freshInt sbe
+    symVals <- liftIO $ replicateM n $ freshInt sbe
     rslt <- runDefSymSim cb $ do
       arr <- newIntArray intArrayTy symVals
       [(pd, Terminated)] <-
@@ -111,12 +109,12 @@ sa3 cb =
 sa4 :: TrivialProp
 sa4 cb =
   runTest $ do
+    sbe <- getBackend
     let n        = 3 ; nI = fromIntegral n
         m        = 4
         numElems = n * m
         fill     = 99
-
-    symVals <- replicateM n (replicateM m freshInt)
+    symVals <- liftIO $ replicateM n $ replicateM m $ freshInt sbe
     rslt <- runDefSymSim cb $ do
       let tint = mkCInt (Wx 32)
       inners <- mapM (newIntArray intArrayTy) symVals

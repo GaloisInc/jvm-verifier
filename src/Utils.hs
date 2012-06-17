@@ -7,8 +7,6 @@ Point-of-contact : jstanley
 {-# LANGUAGE ViewPatterns #-}
 module Utils where
 
-import Verinf.Symbolic
-
 import Execution
 import JavaParser
 

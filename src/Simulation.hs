@@ -95,6 +95,7 @@ module Simulation
   , registerBreakpoints
   , resumeBreakpoint
   , module Verifier.Java.Backend
+  , liftIO
   )
 where
 
@@ -2030,7 +2031,9 @@ newString s = do
   -- (thread local variables, character encodings, builtin unsafe operations,
   -- etc.), so we cheat and just forcibly set the (private) instance fields.
   -- We'll want want to REVISIT this in the future.
-  chars <- liftSymbolic (mapM (termInt . fromIntegral . fromEnum) s)
+  sbe <- gets backend
+  -- TODO: Check this with unicode characters.
+  chars <- liftIO $ mapM (termInt sbe . fromIntegral . fromEnum) s
   arr   <- newIntArray charArrayTy chars
   initializeClass "java/lang/String"
   ref <- genRef stringTy
@@ -2038,12 +2041,12 @@ newString s = do
     ref
     (FieldId "java/lang/String" "value" charArrayTy)
     (RValue arr)
-  arrayOffset <- liftSymbolic $ termInt 0
+  arrayOffset <- liftIO $ termInt sbe 0
   setInstanceFieldValue
     ref
     (FieldId "java/lang/String" "offset" IntType)
     (IValue arrayOffset)
-  alen <- liftSymbolic $ termInt $ fromIntegral (length s)
+  alen <- liftIO $ termInt sbe $ fromIntegral (length s)  
   setInstanceFieldValue
     ref
     (FieldId "java/lang/String" "count" IntType)
@@ -2218,8 +2221,10 @@ getArray :: AigOps sym
          -> Ref
          -> Simulator sym [a]
 getArray f pd ref = do
+  sbe <- gets backend
   len <- getArrayLength pd ref
-  forM [0..len-1] $ liftM f . getArrayValue pd ref <=< liftSymbolic . termInt
+  forM [0..len-1] $ \i -> do
+    liftM f . getArrayValue pd ref =<< liftIO (termInt sbe i)
 
 -- | Returns values in byte array at given reference.
 getByteArray :: AigOps sym =>

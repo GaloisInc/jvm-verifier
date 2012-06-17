@@ -4,6 +4,7 @@
 module Tests.ExpectedErrors (expErrTests) where
 
 import Control.Applicative
+import Control.Monad.State
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 
@@ -58,7 +59,8 @@ exc1 rt cb = go rt cb $ runStaticMethod_ "Trivial" "always_throws" "()V" []
 -- | Negative test case: expect fail when all paths raise an exception
 exc2 :: RunTest SymbolicMonad -> TrivialProp
 exc2 rt cb = go rt cb $ do
-  b <- liftSymbolic freshInt
+  sbe <- gets backend
+  b <- liftIO $ freshInt sbe
   runStaticMethod_ "Errors" "allPathsThrowExc" "(Z)V" [IValue b]
 
 --------------------------------------------------------------------------------
@@ -67,7 +69,8 @@ exc2 rt cb = go rt cb $ do
 -- -- | Expected to fail: Symbolic lookup in array of refs
 sa1 :: RunTest SymbolicMonad -> TrivialProp
 sa1 rt cb = go rt cb $ do
-  symIdx <- liftSymbolic $ IValue <$> freshInt
+  sbe <- gets backend
+  symIdx <- liftIO $ IValue <$> freshInt sbe
   arr <- newMultiArray (ArrayType intArrayTy) [mkCInt (Wx 32) 1, mkCInt (Wx 32) 1]
   [(pd, ReturnVal (RValue r))] <-
     withoutExceptions
@@ -81,12 +84,16 @@ sa2 rt ety cb = go rt cb $ newMultiArray (ArrayType ety) [mkCInt (Wx 32) 1]
 
 -- | Expected to fail: arrays with symbolic size are not supported
 sa3 :: RunTest SymbolicMonad -> TrivialProp
-sa3 rt cb = go rt cb $ liftSymbolic freshInt >>= newMultiArray intArrayTy . (:[])
+sa3 rt cb = go rt cb $ do
+  sbe <- gets backend
+  v <- liftIO $ freshInt sbe
+  newMultiArray intArrayTy [v]
 
 -- | Expected to fail: update an array of refs at a symbolic index
 sa4 :: RunTest SymbolicMonad -> TrivialProp
 sa4 rt cb = go rt cb $ do
-  symIdx <- liftSymbolic $ IValue <$> freshInt
+  sbe <- gets backend
+  symIdx <- liftIO $ IValue <$> freshInt sbe
   arr <- newMultiArray (ArrayType intArrayTy) [mkCInt (Wx 32) 1, mkCInt (Wx 32) 1]
   elm <- newIntArray intArrayTy [mkCInt (Wx 32) 1]
   [(_pd, Terminated)] <-
