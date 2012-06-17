@@ -402,14 +402,14 @@ checkClassesInitialized pos nm requiredClasses = do
                   ++ "currently support methods that initialize new classes."
        in throwIOExecException pos (ftext msg) ""
 
-execOverride :: Pos
+execOverride :: DagEngine
+             -> Pos
              -> MethodSpecIR
              -> Maybe JSS.Ref
              -> [JSS.Value Node]
              -> JSS.Simulator SymbolicMonad ()
-execOverride pos ir mbThis args = do
+execOverride de pos ir mbThis args = do
   -- Execute behaviors.
-  de <- JSS.liftSymbolic $ getDagEngine
   initPS <- JSS.getPathState
   let Just bsl = Map.lookup 0 (specBehaviors ir)
   let method = specMethod ir
@@ -456,14 +456,15 @@ execOverride pos ir mbThis args = do
   JSS.onCurrPath (resAction firstRes)
 
 -- | Add a method override for the given method to the simulator.
-overrideFromSpec :: Pos -> MethodSpecIR -> JSS.Simulator SymbolicMonad ()
-overrideFromSpec pos ir
+overrideFromSpec :: DagEngine -> Pos -> MethodSpecIR
+                 -> JSS.Simulator SymbolicMonad ()
+overrideFromSpec de pos ir
   | JSS.methodIsStatic method =
       JSS.overrideStaticMethod cName key $ \args ->
-        execOverride pos ir Nothing args
+        execOverride de pos ir Nothing args
   | otherwise =
       JSS.overrideInstanceMethod cName key $ \thisVal args ->
-        execOverride pos ir (Just thisVal) args
+        execOverride de pos ir (Just thisVal) args
  where cName = JSS.className (specMethodClass ir)
        method = specMethod ir
        key = JSS.methodKey method
@@ -698,14 +699,14 @@ esStep (ModifyArray refExpr _) = do
   when (Map.notMember ref (esArrays es)) $ do
     put es { esArrays = Map.insert ref Nothing (esArrays es) }
 
-initializeVerification :: MethodSpecIR
+initializeVerification :: DagEngine
+                       -> MethodSpecIR
                        -> BehaviorSpec
                        -> RefEquivConfiguration
                        -> JSS.Simulator SymbolicMonad ExpectedStateDef
-initializeVerification ir bs refConfig = do
+initializeVerification de ir bs refConfig = do
   exprRefs <- mapM (JSS.genRef . jssTypeOfActual . snd) refConfig
   let refAssignments = (map fst refConfig `zip` exprRefs)
-  de <- JSS.liftSymbolic $ getDagEngine
   let clName = JSS.className (specThisClass ir)
       key = JSS.methodKey (specMethod ir)
       callFrame = JSS.Call { JSS.frmClass = clName
@@ -929,15 +930,16 @@ generateVC ir esd (ps, endPC, res) = do
 
 -- verifyMethodSpec and friends {{{2
 
-mkSpecVC :: VerifyParams
+mkSpecVC :: DagEngine
+         -> VerifyParams
          -> ExpectedStateDef
          -> JSS.Simulator SymbolicMonad [PathVC]
-mkSpecVC params esd = do
+mkSpecVC de params esd = do
   let ir = vpSpec params
   -- Log execution.
   setVerbosity (simverbose (vpOpts params))
   -- Add method spec overrides.
-  mapM_ (overrideFromSpec (specPos ir)) (vpOver params)
+  mapM_ (overrideFromSpec de (specPos ir)) (vpOver params)
   -- Execute code.
   jssResults <- JSS.run
   finalPathResults <-
@@ -947,7 +949,6 @@ mkSpecVC params esd = do
         JSS.ReturnVal val -> return [(finalPS, Nothing, Right (Just val))]
         JSS.Terminated ->    return [(finalPS, Nothing, Right Nothing)]
         JSS.Breakpoint pc -> do
-          de <- JSS.liftSymbolic getDagEngine
           -- Execute behavior specs at PC.
           let Just bsl = Map.lookup pc (specBehaviors ir)
           let ec = evalContextFromPathState de finalPS
@@ -1115,8 +1116,8 @@ validateMethodSpec
         setVerbosity verb
         JSS.runDefSymSim cb $ do
           -- Create initial Java state and expected state definition.
-          esd <- initializeVerification ir bs cl
-          res <- mkSpecVC params esd
+          esd <- initializeVerification de ir bs cl
+          res <- mkSpecVC de params esd
           return (esd,res)
     handler de esd results
 
