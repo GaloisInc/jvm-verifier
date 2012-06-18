@@ -42,9 +42,9 @@ sa1 cb =
       outVar <- runDefSimulator sbe cb $ do
         let tint = mkCInt 32 . fromIntegral
         inpArr <- newIntArray intArrayTy $ map tint arrayElems
-        Right rslt <- snd . takeIntRslt . withoutExceptions
-                      <$> runStaticMethod "Arrays" "index" "(I[I)I"
-                            [idx, RValue inpArr]
+        [(_,ReturnVal (IValue rslt))] <-
+          withoutExceptions <$>
+            runStaticMethod "Arrays" "index" "(I[I)I" [idx, RValue inpArr]
         return rslt
       outIntLit <- toLsbf_lit <$> getVarLit sbe outVar
       let getAt = fmap boolSeqToInt32
@@ -127,9 +127,9 @@ sa4 cb =
         concat <$> (mapM (getIntArray pd) =<< getRefArray pd twodim)
       -- Overwrite the first index with 42 and check it
       rsltLits <- concatMap toLsbf_lit <$> mapM (getVarLit sbe) rslt
-      ((:[]) . (==) (42 : replicate (numElems - 1) fill))
+      ((:[]) . (==) (42 : replicate (numElems - 1) (fromIntegral fill)))
         <$> outsToInts32 (fromIntegral numElems)
-        <$> evalAig be (evalAigArgs32 (replicate numElems fill)) rsltLits
+        <$> evalAig be (concatMap intToBoolSeq $ replicate numElems (mkCInt 32 fill)) rsltLits
 
 --------------------------------------------------------------------------------
 -- Scratch

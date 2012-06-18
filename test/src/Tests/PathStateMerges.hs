@@ -2,7 +2,7 @@
 Module           : $Header$
 Description      :
 Stability        : provisional
-Point-of-contact : jstanley
+Point-of-contact : atomb, jhendrix
 -}
 
 module Tests.PathStateMerges(psmsTests) where
@@ -64,42 +64,38 @@ psmsTests =
       return [True]
   , (`test1` "ddb4") $ \cb -> runSymTest $ \sbe -> do
       b   <- IValue <$> freshInt sbe
-      out <- runDefSimulator sbe cb $ do
+      IValue out <- runDefSimulator sbe cb $ do
         d   <- createInstance dummyCN $ Just [(IntType, IValue $ mkCInt 32 0)]
         rs  <- withoutExceptions
                  <$> runStaticMethod "PathStateMerges" "ddb4"
                        ("(ZL" ++ dummyCN ++ ";)V") [b, RValue d]
         when (length rs /= 1) $ error "psmsTests.ddb4: failed path state merge"
         let [(pd,Terminated)] = rs
-        unIValue <$> getInstanceFieldValue pd d (FieldId dummyCN "m_x" IntType)
+        getInstanceFieldValue pd d (FieldId dummyCN "m_x" IntType)
       (:[]) . (==) [99,42] . map (intFromConst . fromJust . termConst)
         <$> mapM (\x -> evalAigIntegral sbe id [mkCInt 32 x] out) [0,1]
-  , (`test1` "ddb5") $ \cb -> runTest $ do
-      sbe <- getBackend
-      liftIO $ do
-        b   <- IValue <$> freshInt sbe
-        out <- runDefSimulator sbe cb $ do
-          d   <- createInstance dummyCN $ Just [(IntType, IValue $ mkCInt 32 0)]
-          rs  <- withoutExceptions
-                 <$> runStaticMethod "PathStateMerges" "ddb5"
-                       ("(ZL" ++ dummyCN ++ ";)V") [b, RValue d]
-          when (length rs /= 1) $ error "psmsTests.ddb5: failed path state merge"
-          let [(pd,Terminated)] = rs
-          unLValue <$> getStaticFieldValue pd (FieldId dummyCN "m_st" LongType)
-        (:[]) . (==) [7,42] . map (longFromConst . fromJust . termConst)
-          <$> mapM (\x -> evalAigIntegral sbe id [mkCInt 32 x] out) [0,1]
-  , (`test1` "ddb6") $ \cb -> runTest $ do
-      sbe <- getBackend 
-      b <- liftIO $ IValue <$> freshInt sbe
-      liftIO $ do
-        out <- runDefSimulator sbe cb $ do
-          rs <- withoutExceptions
-                  <$> runStaticMethod "PathStateMerges" "ddb6" "(Z)I" [b]
-          when (length rs /= 1) $ error "psmsTests.ddb6: failed path state merge"
-          let [(_, ReturnVal (IValue r))] = rs
-          return r
-        (:[]) . (==) [99,42] . map (intFromConst . fromJust . termConst)
-          <$> mapM (\x -> evalAigIntegral sbe id [mkCInt 32 x] out) [0,1]
+  , (`test1` "ddb5") $ \cb -> runSymTest $ \sbe -> do
+      b   <- IValue <$> freshInt sbe
+      LValue out <- runDefSimulator sbe cb $ do
+        d   <- createInstance dummyCN $ Just [(IntType, IValue $ mkCInt 32 0)]
+        rs  <- withoutExceptions <$>
+                 runStaticMethod "PathStateMerges" "ddb5"
+                    ("(ZL" ++ dummyCN ++ ";)V") [b, RValue d]
+        when (length rs /= 1) $ error "psmsTests.ddb5: failed path state merge"
+        let [(pd,Terminated)] = rs
+        getStaticFieldValue pd (FieldId dummyCN "m_st" LongType)
+      (:[]) . (==) [7,42] . map (longFromConst . fromJust . termConst)
+        <$> mapM (\x -> evalAigIntegral sbe id [mkCInt 32 x] out) [0,1]
+  , (`test1` "ddb6") $ \cb -> runSymTest $ \sbe -> do
+      b <- IValue <$> freshInt sbe
+      rs <- runDefSimulator sbe cb $
+        withoutExceptions <$>
+          runStaticMethod "PathStateMerges" "ddb6" "(Z)I" [b]
+      when (length rs /= 1) $ error "psmsTests.ddb6: failed path state merge"
+      let [(_, ReturnVal (IValue out))] = rs
+      forM [(0,99),(1,42)] $ \(x,e) -> do
+        r <- evalAigIntegral sbe id [mkCInt 32 x] out
+        return $ e == (intFromConst (fromJust (termConst r)))
   , (`test1` "ddb7") $ \cb -> runSymTest $ \sbe -> do
       [b1, b2] <- replicateM 2 $ IValue <$> freshInt sbe
       out <- runDefSimulator sbe cb $ do
@@ -113,24 +109,22 @@ psmsTests =
                  [(0,0), (0,1), (1,0), (1,1)]
   , (`test1` "mul3") $ \cb -> runSymTest $ \sbe -> do
       [a, b] <- replicateM 2 $ IValue <$> freshInt sbe
-      out <- runDefSimulator sbe cb $ do
-        rs <- withoutExceptions
-                 <$> runStaticMethod "PathStateMerges" "mul3" "(III)I"
-                       [a, b, IValue (mkCInt 32 33)]
-        when (length rs /= 1) $ error "psmsTests.mul3: failed path state merge"
-        let [(_, ReturnVal (IValue r))] = rs
-        return r
+      rs <- runDefSimulator sbe cb $ do
+        withoutExceptions <$>
+          runStaticMethod "PathStateMerges" "mul3" "(III)I"
+                          [a, b, IValue (mkCInt 32 33)]
+      when (length rs /= 1) $ error "psmsTests.mul3: failed path state merge"
+      let [(_, ReturnVal (IValue out))] = rs
       (:[]) . (==) [4, 20, 4158] . map (intFromConst . fromJust . termConst)
         <$> mapM (\(x,y) -> evalAigIntegral sbe id [mkCInt 32 x, mkCInt 32 y] out)
                  [(2,2), (4,5), (42,99)]
   , (`test1` "mul2") $ \cb -> runSymTest $ \sbe -> do
       [a, b] <- replicateM 2 $ IValue <$> freshInt sbe
-      out <- runSimulator sbe SimulationFlags{ alwaysBitBlastBranchTerms = True} cb $ do
-        rs <- withoutExceptions
-                 <$> runStaticMethod "PathStateMerges" "mul2" "(II)I" [a, b]
-        when (length rs /= 1) $ error "psmsTests.mul2: failed path state merge"
-        let [(_, ReturnVal (IValue r))] = rs
-        return r
+      rs <- runSimulator sbe SimulationFlags{ alwaysBitBlastBranchTerms = True} cb $ do
+        withoutExceptions <$>
+          runStaticMethod "PathStateMerges" "mul2" "(II)I" [a, b]
+      when (length rs /= 1) $ error "psmsTests.mul2: failed path state merge"
+      let [(_, ReturnVal (IValue out))] = rs
       (:[]) . (==) [4, 20, 4158, 77137830] . map (intFromConst . fromJust . termConst)
         <$> mapM (\(x,y) -> evalAigIntegral sbe id [mkCInt 32 x, mkCInt 32 y] out)
                  [(2,2), (4,5), (42,99), (2310, 33393)]

@@ -92,11 +92,11 @@ data Backend sym = Backend {
          -- | @evalAigIntegral f ins out@ applies concrete inputs @ins@ to the 
          -- AIG at the given symbolic output term @out@, applying @f@ to the
          -- @ins@ bit sequence
-       ,  evalAigIntegral :: ([Bool] -> [Bool]) -> [MonadTerm sym] 
+       , evalAigIntegral :: ([Bool] -> [Bool]) -> [MonadTerm sym] 
                              -> MonadTerm sym -> IO (MonadTerm sym)
-          -- | @evalAigArray w ins outs@ applies concrete inputs @ins@ to the
-          -- AIG at the given symbolic output terms @outs@.  Each output is
-          -- assumed to be w bits.  If @ins@ is not a constant, then this fails.
+         -- | @evalAigArray w ins outs@ applies concrete inputs @ins@ to the
+         -- AIG at the given symbolic output terms @outs@.  Each output is
+         -- assumed to be w bits.  If @ins@ is not a constant, then this fails.
        , evalAigArray :: BitWidth -> [MonadTerm sym] -> [MonadTerm sym] -> IO [MonadTerm sym]
        , writeAigToFile :: FilePath -> SV.Vector Lit -> IO ()
          -- | Returns lit vector associated with given term, or fails
