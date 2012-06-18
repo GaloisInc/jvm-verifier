@@ -40,7 +40,7 @@ psmsTests =
         getIntArray (fst . head $ rs) inpArr
       let fn x = do
             map (intFromConst . fromJust . termConst)
-              <$> evalAigArray sbe 32 [constInt x] outs
+              <$> evalAigArray sbe 32 [mkCInt 32 x] outs
       (\x -> [[[99,2000],[42,1000]] == x]) <$> mapM fn [0,1]
   , (`test1` "ddb2") $ \cb -> runSymTest $ \sbe -> do
       b <- IValue <$> freshInt sbe
@@ -51,7 +51,7 @@ psmsTests =
         let [(_, ReturnVal (IValue r))] = rs
         return r
       (:[]) . (==) [99,42] . map (intFromConst . fromJust . termConst)
-         <$> mapM (\x -> evalAigIntegral sbe id [constInt x] out) [0,1]
+         <$> mapM (\x -> evalAigIntegral sbe id [mkCInt 32 x] out) [0,1]
   , (`test1` "ddb3") $ \cb -> runSymTest $ \sbe -> do
       b     <- IValue <$> freshInt sbe
       _refs <- runDefSimulator sbe cb $ do
@@ -73,7 +73,7 @@ psmsTests =
         let [(pd,Terminated)] = rs
         unIValue <$> getInstanceFieldValue pd d (FieldId dummyCN "m_x" IntType)
       (:[]) . (==) [99,42] . map (intFromConst . fromJust . termConst)
-        <$> mapM (\x -> evalAigIntegral sbe id [constInt x] out) [0,1]
+        <$> mapM (\x -> evalAigIntegral sbe id [mkCInt 32 x] out) [0,1]
   , (`test1` "ddb5") $ \cb -> runTest $ do
       sbe <- getBackend
       liftIO $ do
@@ -87,7 +87,7 @@ psmsTests =
           let [(pd,Terminated)] = rs
           unLValue <$> getStaticFieldValue pd (FieldId dummyCN "m_st" LongType)
         (:[]) . (==) [7,42] . map (longFromConst . fromJust . termConst)
-          <$> mapM (\x -> evalAigIntegral sbe id [constInt x] out) [0,1]
+          <$> mapM (\x -> evalAigIntegral sbe id [mkCInt 32 x] out) [0,1]
   , (`test1` "ddb6") $ \cb -> runTest $ do
       sbe <- getBackend 
       b <- liftIO $ IValue <$> freshInt sbe
@@ -99,7 +99,7 @@ psmsTests =
           let [(_, ReturnVal (IValue r))] = rs
           return r
         (:[]) . (==) [99,42] . map (intFromConst . fromJust . termConst)
-          <$> mapM (\x -> evalAigIntegral sbe id [constInt x] out) [0,1]
+          <$> mapM (\x -> evalAigIntegral sbe id [mkCInt 32 x] out) [0,1]
   , (`test1` "ddb7") $ \cb -> runSymTest $ \sbe -> do
       [b1, b2] <- replicateM 2 $ IValue <$> freshInt sbe
       out <- runDefSimulator sbe cb $ do
@@ -109,7 +109,7 @@ psmsTests =
         let [(_, ReturnVal (IValue r))] = rs
         return r
       (:[]) . (==) (map (2*) [2000,99,1000,42]) . map (intFromConst . fromJust . termConst)
-        <$> mapM (\(b1,b2) -> evalAigIntegral sbe id (map constInt [b1,b2]) out)
+        <$> mapM (\(b1,b2) -> evalAigIntegral sbe id (map (mkCInt 32) [b1,b2]) out)
                  [(0,0), (0,1), (1,0), (1,1)]
   , (`test1` "mul3") $ \cb -> runSymTest $ \sbe -> do
       [a, b] <- replicateM 2 $ IValue <$> freshInt sbe
@@ -121,7 +121,7 @@ psmsTests =
         let [(_, ReturnVal (IValue r))] = rs
         return r
       (:[]) . (==) [4, 20, 4158] . map (intFromConst . fromJust . termConst)
-        <$> mapM (\(x,y) -> evalAigIntegral sbe id [constInt x, constInt y] out)
+        <$> mapM (\(x,y) -> evalAigIntegral sbe id [mkCInt 32 x, mkCInt 32 y] out)
                  [(2,2), (4,5), (42,99)]
   , (`test1` "mul2") $ \cb -> runSymTest $ \sbe -> do
       [a, b] <- replicateM 2 $ IValue <$> freshInt sbe
@@ -132,7 +132,7 @@ psmsTests =
         let [(_, ReturnVal (IValue r))] = rs
         return r
       (:[]) . (==) [4, 20, 4158, 77137830] . map (intFromConst . fromJust . termConst)
-        <$> mapM (\(x,y) -> evalAigIntegral sbe id [constInt x, constInt y] out)
+        <$> mapM (\(x,y) -> evalAigIntegral sbe id [mkCInt 32 x, mkCInt 32 y] out)
                  [(2,2), (4,5), (42,99), (2310, 33393)]
   ]
 

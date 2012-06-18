@@ -8,6 +8,7 @@ import Control.Exception (assert)
 import Data.Int
 import Data.IORef
 import qualified Data.Map as Map
+import Data.Maybe (fromJust)
 import Verinf.Symbolic.Common
 import Verinf.Symbolic
 import Verinf.Symbolic.Lit.Functional
@@ -26,6 +27,9 @@ data Backend sym = Backend {
          freshByte :: IO (BackendInt sym)
        , freshInt  :: IO (BackendInt sym)
        , freshLong :: IO (BackendLong sym)
+       , asBool :: MonadTerm sym -> Maybe Bool
+       , asInt :: MonadTerm sym -> Maybe Int32
+       , asLong :: MonadTerm sym -> Maybe Int64
        , termBool :: Bool  -> IO (MonadTerm sym)  
        , termInt  :: Int32 -> IO (MonadTerm sym)
        , termLong :: Int64 -> IO (MonadTerm sym)
@@ -88,12 +92,12 @@ data Backend sym = Backend {
          -- | @evalAigIntegral f ins out@ applies concrete inputs @ins@ to the 
          -- AIG at the given symbolic output term @out@, applying @f@ to the
          -- @ins@ bit sequence
-       ,  evalAigIntegral :: ([Bool] -> [Bool]) -> [CValue] 
+       ,  evalAigIntegral :: ([Bool] -> [Bool]) -> [MonadTerm sym] 
                              -> MonadTerm sym -> IO (MonadTerm sym)
           -- | @evalAigArray w ins outs@ applies concrete inputs @ins@ to the
           -- AIG at the given symbolic output terms @outs@.  Each output is
-          -- assumed to be w bits.
-       , evalAigArray :: BitWidth -> [CValue] -> [MonadTerm sym] -> IO [MonadTerm sym]
+          -- assumed to be w bits.  If @ins@ is not a constant, then this fails.
+       , evalAigArray :: BitWidth -> [MonadTerm sym] -> [MonadTerm sym] -> IO [MonadTerm sym]
        , writeAigToFile :: FilePath -> SV.Vector Lit -> IO ()
          -- | Returns lit vector associated with given term, or fails
          -- if term cannot be bitblasted.
@@ -144,6 +148,9 @@ symbolicBackend sms = do
     , freshLong = do
         lv <- SV.replicateM 64 lMkInput
         freshTerm int64Type lv
+    , asBool = getBool
+    , asInt = \x -> fromInteger <$> getSVal x
+    , asLong = \x -> fromInteger <$> getSVal x
     , termBool = return . mkCBool
     , termInt  = return . mkCInt 32 . toInteger
     , termLong = return . mkCInt 64 . toInteger
@@ -218,7 +225,7 @@ symbolicBackend sms = do
           return Nothing
     , evalAigIntegral = \f ins out -> do
         outLits <- getTermLit out
-        bbits <- lEvalAig (SV.fromList (concatMap (f . intToBoolSeq) ins))
+        bbits <- lEvalAig (SV.fromList (concatMap (f . intToBoolSeq . fromJust . termConst) ins))
                           (toLsbfV outLits)
         if SV.length bbits <= 32 then
           return $ mkCInt 32 $ fromIntegral $ boolSeqToInt32 (SV.toList bbits)
@@ -227,10 +234,11 @@ symbolicBackend sms = do
         else
           error "internal: evalAigIntegral: no support for arbitrary-width integers"
     , evalAigArray = \(Wx n) ins outs -> do
+        -- TODO: Report sensible error if ins is not constants.
         let bits = case n of
-                     8  -> evalAigArgs8  $ map intFromConst  ins
-                     32 -> evalAigArgs32 $ map intFromConst  ins
-                     64 -> evalAigArgs64 $ map longFromConst ins
+                     8  -> evalAigArgs8  $ map (fromInteger . fromJust . getSVal) ins
+                     32 -> evalAigArgs32 $ map (fromInteger . fromJust . getSVal) ins
+                     64 -> evalAigArgs64 $ map (fromInteger . fromJust . getSVal) ins
                      _  -> error $ "evalAigArray: input array elements have unexpected bit width"
         outLits <- mapM getTermLit outs
         rs <- lEvalAig (SV.fromList bits)

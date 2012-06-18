@@ -602,13 +602,10 @@ stdOverrides = do
                     ++ "'System.out.print(\"x = \"); System.out.println(x);'"
                     ++ "\n  instead of 'System.out.println(\"x = \" + x); "
                     ++ "also see Symbolic.Debug.trace()."
+            sbe <- gets backend        
             case st of
-              IValue (getSVal -> Just{}) -> return ()
-              IValue (getUVal -> Just{}) -> return ()
-              IValue (getBool -> Just{}) -> return ()
-              LValue (getSVal -> Just{}) -> return ()
-              LValue (getUVal -> Just{}) -> return ()
-              LValue (getBool -> Just{}) -> return ()
+              IValue (asInt sbe -> Just{}) -> return ()
+              LValue (asLong sbe -> Just{}) -> return ()
               _ -> warn
             sr        <- refFromString (ppValue st)
             cb <- getCodebase
@@ -1007,34 +1004,34 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
 
   isFinished = and . map isPathFinished . M.elems . pathStates <$> get
 
-  fork (getBool -> Just True) trueM _   = trueM
-  fork (getBool -> Just False) _ falseM = falseM
-  fork v trueM falseM                   = do
-    let splitPaths = do
-          v' <- bNot v
-          onNewPath  $ CustomRA "falseM" $ assume v' >> falseM >> return NextInst
-          onCurrPath $ CustomRA "trueM"  $ assume v  >> trueM  >> return NextInst
-
-    -- NB: We permit explicit bitblasting when the 'alwaysBitBlastBranchTerms'
-    -- flag is true.  This can help addresses some symbolic termination
-    -- problems, e.g. the 'recursive multiplier' problem (see the mul2 function
-    -- in test/src/support/PathStateMerges.java).
-    blast <- gets $ alwaysBitBlastBranchTerms . simulationFlags
-    if blast
-      then do
-        sbe <- gets backend
-        mb <- liftIO $ blastTerm sbe v
-        case mb of 
-          Just True -> trueM
-          Just False -> falseM
-          Nothing -> splitPaths
-      else do
-        splitPaths
-
+  fork v trueM falseM = do
+    sbe <- gets backend
+    case asBool sbe v of
+      Just True -> trueM
+      Just False -> falseM
+      Nothing -> do
+        let splitPaths = do
+              v' <- bNot v
+              onNewPath  $ CustomRA "falseM" $ assume v' >> falseM >> return NextInst
+              onCurrPath $ CustomRA "trueM"  $ assume v  >> trueM  >> return NextInst
+        -- NB: We permit explicit bitblasting when the 'alwaysBitBlastBranchTerms'
+        -- flag is true.  This can help addresses some symbolic termination
+        -- problems, e.g. the 'recursive multiplier' problem (see the mul2 function
+        -- in test/src/support/PathStateMerges.java).
+        blast <- gets $ alwaysBitBlastBranchTerms . simulationFlags
+        if blast then do
+          mb <- liftIO $ blastTerm sbe v
+          case mb of 
+            Just True -> trueM
+            Just False -> falseM
+            Nothing -> splitPaths
+        else
+          splitPaths
   -- | Resolve the monadic condition to exactly one of its branches
   singleForkM condM trueM falseM = do
+    sbe <- gets backend
     cond <- condM
-    case getBool cond of
+    case asBool sbe cond of
       Just True  -> trueM
       Just False -> falseM
       _ -> error "singleForkM: Failed to resolve to single branch"
@@ -1183,16 +1180,17 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
 
   -- (x &&& y) returns logical and
   mx &&& my = do
+    sbe <- gets backend
     x <- mx
-    case getBool x of
+    case asBool sbe x of
       Just True -> my
       Just False -> return x
       _ -> do
         y <- my
-        case getBool y of
+        case asBool sbe y of
           Just True -> return x
           Just False -> return y
-          _ -> withSBE $ \sbe -> termAnd sbe x y
+          _ -> liftIO $ termAnd sbe x y
   -- Conversions
   floatFromDouble  = return . fromRational . toRational
   intFromDouble x  = withSBE $ \sbe -> termInt sbe (truncate x)
@@ -1200,22 +1198,26 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   doubleFromFloat  = return . fromRational . toRational
   intFromFloat x   = withSBE $ \sbe -> termInt sbe (truncate x)
   longFromFloat x  = withSBE $ \sbe -> termLong sbe (truncate x)
-  doubleFromInt  i =
-    case getSVal i of
+  doubleFromInt  i = do
+    sbe <- gets backend
+    case asInt sbe i of
       Just n -> return (fromIntegral n)
-      _ -> error "cannot convert symbolic int to double"
-  floatFromInt   i =
-    case getSVal i of
+      Nothing -> error "cannot convert symbolic int to double"
+  floatFromInt i = do
+    sbe <- gets backend
+    case asInt sbe i of
       Just n -> return (fromIntegral n)
-      _ -> error "cannot convert symbolic int to float"
-  doubleFromLong l =
-    case getSVal l of
+      Nothing -> error "cannot convert symbolic int to float"
+  doubleFromLong l = do
+    sbe <- gets backend
+    case asLong sbe l of
       Just n -> return (fromIntegral n)
-      _ -> error "cannot convert symbolic long to double"
-  floatFromLong  l =
-    maybe (error "cannot convert symbolic long to float")
-          (return . fromInteger)
-          (getSVal l)
+      Nothing -> error "cannot convert symbolic long to double"
+  floatFromLong  l = do
+    sbe <- gets backend
+    case asLong sbe l of
+      Just n -> return $ fromIntegral n
+      Nothing -> error "cannot convert symbolic long to float"
 
   -- Double operations
   dAdd  x y = return $ x + y
@@ -1300,29 +1302,36 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   -- all integer values are nonnegative.
   newMultiArray tp []
     | isRValue tp = return NullRef
-  newMultiArray tp@(ArrayType eltType) [l@(getSVal -> Just cnt)]
-    | (isIValue eltType) || (eltType == LongType) = do
-      ref <- genRef tp
+  newMultiArray tp@(ArrayType eltType) [l]
+    | isIValue eltType || (eltType == LongType) = do
       sbe <- gets backend
-      Just arr <- liftIO $
-        if eltType == LongType then
-          termLongArray sbe l
-        else
-          termIntArray sbe l
-      modifyPathState $ \ps ->
-        ps { arrays = M.insert ref (fromIntegral cnt, arr) (arrays ps) }
-      return ref
-    | eltType == DoubleType =
-        abort "Floating point arrays (e.g., double) are not supported"
-    | eltType == FloatType  =
-        abort "Floating point arrays (e.g., float) are not supported"
-  newMultiArray tp@(ArrayType eltTp) ((getSVal -> Just cnt) : rest) = do
-    ref <- genRef tp
-    values <- replicateM (fromIntegral cnt) (newMultiArray eltTp rest)
-    let arr = listArray (0, fromIntegral cnt-1) values
-    modifyPathState $ \ps ->
-      ps { refArrays = M.insert ref arr (refArrays ps) }
-    return ref
+      case asInt sbe l of
+        Nothing -> abort "Cannot create array with symbolic size"
+        Just cnt -> do
+          ref <- genRef tp
+          Just arr <- liftIO $
+            if eltType == LongType then
+              termLongArray sbe l
+            else
+              termIntArray sbe l
+          modifyPathState $ \ps ->
+            ps { arrays = M.insert ref (fromIntegral cnt, arr) (arrays ps) }
+          return ref
+  newMultiArray (ArrayType DoubleType) _ =
+    abort "Floating point arrays (e.g., double) are not supported"
+  newMultiArray (ArrayType FloatType) _ =
+    abort "Floating point arrays (e.g., float) are not supported"
+  newMultiArray tp@(ArrayType eltTp) (tcnt : rest) = do
+    sbe <- gets backend
+    case asInt sbe tcnt of
+      Nothing -> abort "Cannot create array of references with symbolic size"
+      Just cnt -> do
+        ref <- genRef tp
+        values <- replicateM (fromIntegral cnt) (newMultiArray eltTp rest)
+        let arr = listArray (0, fromIntegral cnt-1) values
+        modifyPathState $ \ps ->
+          ps { refArrays = M.insert ref arr (refArrays ps) }
+        return ref
   newMultiArray _ _ = abort "Cannot create array with symbolic size"
 
   newObject name = do
@@ -1442,14 +1451,15 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
     applySetArrayValue sbe arr idx val
   setArrayValue r idx (LValue val) = updateSymbolicArray r $ \sbe arr ->
     applySetArrayValue sbe arr idx val
-  setArrayValue r (getSVal -> Just i) (RValue v) = do
+  setArrayValue r idx (RValue v) = do
+    sbe <- gets backend
     ps <- getPathState
-    let updateFn arr = Just (arr // [(fromIntegral i,v)])
-        ps'          = ps{ refArrays = M.update updateFn r (refArrays ps) }
-    refArrays ps' M.! r `seq` putPathState ps'
-
-  setArrayValue _ _ (RValue _) = do
-    abort "Cannot update reference arrays at symbolic indices"
+    case asInt sbe idx of
+      Nothing -> abort "Cannot update reference arrays at symbolic indices"
+      Just i ->
+        let updateFn arr = Just (arr // [(fromIntegral i,v)])
+            ps'          = ps{ refArrays = M.update updateFn r (refArrays ps) }
+         in refArrays ps' M.! r `seq` putPathState ps'
   setArrayValue _ _ _ =
     error "internal: invalid setArrayValue parameters (array type/elem mismatch?)"
 
@@ -1495,13 +1505,15 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
 
   printStream nl _ []       = liftIO $ (if nl then putStrLn else putStr) "" >> hFlush stdout
   printStream nl binary [x] = do
+    sbe <- gets backend
     let putStr' s = liftIO $ (if nl then putStrLn else putStr) s >> hFlush stdout
     case x of
-      IValue (getSVal -> Just v) -> if binary then putStr' [chr $ fromEnum v]
-                                              else putStr' $ show v
+      IValue (asInt sbe -> Just v)
+        | binary    -> putStr' [chr $ fromEnum v]
+        | otherwise -> putStr' $ show v
       v@IValue{} -> putStr' $ ppValue v
 
-      LValue (getSVal -> Just v) -> putStr' $ show v
+      LValue (asLong sbe -> Just v) -> putStr' $ show v
       v@LValue{} -> putStr' $ ppValue v
       FValue f -> putStr' (show f)
       DValue d -> putStr' (show d)
@@ -2037,9 +2049,10 @@ drefString strRef = do
   case mapMaybe lkup fldIds of
     [RValue arrRef, IValue cnt, IValue off] -> do
       chars <- getPSS >>= \pd -> getIntArray pd arrRef
-      when (any (not . isJust . termConst) $ cnt:off:chars) $
+      sbe <- gets backend
+      when (any (not . isJust . asInt sbe) $ cnt:off:chars) $
         abort "Unable to dereference symbolic strings"
-      let cvt = fromIntegral . intFromConst . fromJust . termConst
+      let cvt = fromIntegral . fromJust . asInt sbe
       return $ take (cvt cnt) $ drop (cvt off) $ map (toEnum . cvt) chars
     _ -> error "Invalid field name/type for java.lang.String instance"
 
@@ -2180,22 +2193,19 @@ getArrayValue :: AigOps sym
 getArrayValue pd r idx = do
   ps <- getPathStateByName pd
   ArrayType tp <- getType r
-  if isRValue tp
-    then do
-      let Just arr = M.lookup r (refArrays ps)
-      case getSVal idx of
-        Just i -> return $ RValue (arr ! fromInteger i)
-        _ -> abort "Not supported: symbolic indexing into arrays of references."
-    else do
-      sbe <- gets backend
-      liftIO $ do
-        if tp == LongType then do
-          let Just (_,rslt) = M.lookup r (arrays ps)
-          LValue <$> applyGetArrayValue sbe rslt idx
-        else do
-          CE.assert (isIValue tp) $ return ()
-          let Just (_,rslt) = M.lookup r (arrays ps)
-          IValue <$> applyGetArrayValue sbe rslt idx
+  sbe <- gets backend
+  if isRValue tp then do
+    let Just arr = M.lookup r (refArrays ps)
+    case asInt sbe idx of
+      Just i -> return $ RValue (arr ! fromIntegral i)
+      _ -> abort "Not supported: symbolic indexing into arrays of references."
+  else if tp == LongType then do
+    let Just (_,rslt) = M.lookup r (arrays ps)
+    liftIO $ LValue <$> applyGetArrayValue sbe rslt idx
+  else do
+    CE.assert (isIValue tp) $ return ()
+    let Just (_,rslt) = M.lookup r (arrays ps)
+    liftIO $ IValue <$> applyGetArrayValue sbe rslt idx
 
 -- | Returns values in an array at a given reference, passing them through the
 -- given projection

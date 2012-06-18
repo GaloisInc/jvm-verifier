@@ -5,7 +5,6 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.State
 import qualified Data.Map as M
-import Data.Maybe
 import qualified Data.Vector.Storable as SV
 
 import Execution.JavaSemantics
@@ -22,8 +21,7 @@ jssOverrides = do
   let m `pushAs` f  = pushValue =<< f <$> liftIO (m sbe)
   let evalAigBody f chkInps dtor ctor out cvArr = do
         abortWhenMultiPath "AIG evaluation (scalar)"
-        cinps <- map (fromJust . termConst . dtor)
-                 <$> (chkInps =<< getInputs cvArr)
+        cinps <- map dtor <$> (chkInps =<< getInputs cvArr)
         pushValue =<< liftIO (ctor <$> evalAigIntegral sbe f cinps out)
   let evalAigArrayBody w chkInps getArr dtor push [RValue outs, RValue cvArr] = do
         abortWhenMultiPath "AIG evaluation (array)"
@@ -33,7 +31,7 @@ jssOverrides = do
         push =<< liftIO
                  (evalAigArray sbe
                                w
-                               (map (fromJust . termConst . dtor) ins)
+                               (map dtor ins)
                                outLits)
       evalAigArrayBody _ _ _ _ _ _ = error "invalid evalAigArrayBody parameters"
   let writeAigerBody f fnameRef outs = do
@@ -56,16 +54,13 @@ jssOverrides = do
     , sym "freshInt" "(I)I"     $ \_ -> freshInt  `pushAs` IValue
     , sym "freshBoolean" "(Z)Z" $ \_ -> freshInt  `pushAs` IValue
     , sym "freshLong" "(J)J"    $ \_ -> freshLong `pushAs` LValue
-    , sym "freshByteArray" "(I)[B" $ \[IValue (intVal -> Just n)] ->
-        pushByteArr =<< liftIO (replicateM n $ freshByte sbe)
-
-    , sym "freshIntArray" "(I)[I" $ \[IValue (intVal -> Just n)] ->
-        pushIntArr =<< liftIO (replicateM n $ freshInt sbe)
-
-    , sym "freshLongArray" "(I)[J" $ \[IValue (intVal -> Just n)] ->
-        pushLongArr =<< liftIO (replicateM n $ freshLong sbe)
-
-    , sym "getPathDescriptors" "(Z)[I" $ \[IValue (getSVal -> Just includeExc)] ->
+    , sym "freshByteArray" "(I)[B" $ \[IValue (asInt sbe -> Just n)] ->
+        pushByteArr =<< liftIO (replicateM (fromIntegral n) $ freshByte sbe)
+    , sym "freshIntArray" "(I)[I" $ \[IValue (asInt sbe -> Just n)] ->
+        pushIntArr =<< liftIO (replicateM (fromIntegral n) $ freshInt sbe)
+    , sym "freshLongArray" "(I)[J" $ \[IValue (asInt sbe -> Just n)] ->
+        pushLongArr =<< liftIO (replicateM (fromIntegral n) $ freshLong sbe)
+    , sym "getPathDescriptors" "(Z)[I" $ \[IValue (asInt sbe -> Just includeExc)] ->
         let filterExc PathState{ finalResult = fr } =
               if includeExc /= 0
                 then True
@@ -137,13 +132,12 @@ jssOverrides = do
 
     , dbg "abort" "()V"          $ \_ -> abort "Abort explicitly triggered (via JAPI)."
     , dbg "dumpPathStates" "()V" $ \_ -> dumpPathStates
-    , dbg "setVerbosity" "(I)V"  $ \[IValue (intVal -> Just v)] ->
-        setVerbosity v
+    , dbg "setVerbosity" "(I)V"  $ \[IValue (asInt sbe -> Just v)] ->
+        setVerbosity (fromIntegral v)
     , dbg "eval" "(I[Lcom/galois/symbolic/CValue;)I" $ \[IValue _out, RValue _cvArr] -> do
         error "debug dag eval / bitblast integrity checker NYI"
     ]
   where
-    intVal = fmap fromInteger  . getSVal
     abortWhenMultiPath msg = do
       finished <- snd <$> splitFinishedPaths
       when (length finished > 1) $ do
