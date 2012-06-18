@@ -47,20 +47,18 @@ mkTestArgs :: (ConstantInjection (JSInt m), JavaSemantics m) =>
               String -> m [JSValue m]
 mkTestArgs tn = do
   args <- newMultiArray (ArrayType (ClassType "java/lang/String")) [mkCInt (Wx 32) 1]
-  setArrayValue args (mkCInt (Wx 32) 0) =<< (RValue <$> refFromString tn)
+  setArrayValue args (mkCInt 32 0) =<< (RValue <$> refFromString tn)
   return [RValue args]
 
 doTest :: String -> TrivialProp
-doTest tn cb = runTest (go `catchMIO` simExcHndlr failMsg)
+doTest tn cb = runSymTest $ \sbe -> runDefSimulator sbe cb go `catchMIO` simExcHndlr failMsg
   -- ^ NB: It's the type of runTest that forces use of SymbolicMonad here;
   -- simExcHndlr is polymorphic in the symbolic backend
   where
     failMsg = "Unexpected error caught in JAPI test: " ++ tn
-    go = runDefSymSim cb $ do
-           jssOverrides
-           rs <- runMain "JAPI" =<< mkTestArgs tn
-           CE.assert (length rs == 1) $ return ()
-           return [True]
+    go = do jssOverrides
+            rs <- runMain "JAPI" =<< mkTestArgs tn
+            CE.assert (length rs == 1) $ return [True]
 
 -- --------------------------------------------------------------------------------
 -- -- Scratch

@@ -36,16 +36,16 @@ sa1 cb =
   forAllM (int32s 128) $ \arrayElems ->
   runTest $ do
     sbe <- getBackend
-    idx <- liftIO $ IValue <$> freshInt sbe
-    outVar <- runDefSymSim cb $ do
-      let tint = mkCInt 32 . fromIntegral
-      inpArr <- newIntArray intArrayTy $ map tint arrayElems
-      Right rslt <- snd . takeIntRslt . withoutExceptions
-                    <$> runStaticMethod "Arrays" "index" "(I[I)I"
-                          [idx, RValue inpArr]
-      return rslt
     be <- getBitEngine
     liftIO $ do
+      idx <- IValue <$> freshInt sbe
+      outVar <- runDefSimulator sbe cb $ do
+        let tint = mkCInt 32 . fromIntegral
+        inpArr <- newIntArray intArrayTy $ map tint arrayElems
+        Right rslt <- snd . takeIntRslt . withoutExceptions
+                      <$> runStaticMethod "Arrays" "index" "(I[I)I"
+                            [idx, RValue inpArr]
+        return rslt
       outIntLit <- toLsbf_lit <$> getVarLit sbe outVar
       let getAt = fmap boolSeqToInt32
                 . (\inp -> evalAig be inp outIntLit)
@@ -60,20 +60,19 @@ sa2 cb =
   forAllM (int32s 128 `suchThat` (not . elem 42))            $ \arrayElems ->
   forAllM (choose (0, fromIntegral (length arrayElems - 1))) $ \overwriteIdx ->
   runTest $ do
-    let n = length arrayElems
     sbe <- getBackend
-    [idx, val]  <- liftIO $ replicateM 2 $ IValue <$> freshInt sbe
-    rslt <- runDefSymSim cb $ do
-      let tint = mkCInt 32 . fromIntegral
-      arr <- newIntArray intArrayTy $ map tint arrayElems
-      [(pd, Terminated)] <- withoutExceptions
-                            <$> runStaticMethod "Arrays" "update" "(II[I)V"
-                                  [idx, val, RValue arr]
-      getIntArray pd arr
-
-    -- Overwrite a random index with 42 and check it
     be <- getBitEngine
     liftIO $ do
+      let n = length arrayElems
+      [idx, val]  <- replicateM 2 $ IValue <$> freshInt sbe
+      rslt <- runDefSimulator sbe cb $ do
+        let tint = mkCInt 32 . fromIntegral
+        arr <- newIntArray intArrayTy $ map tint arrayElems
+        [(pd, Terminated)] <- withoutExceptions
+                                <$> runStaticMethod "Arrays" "update" "(II[I)V"
+                                      [idx, val, RValue arr]
+        getIntArray pd arr
+      -- Overwrite a random index with 42 and check it
       rsltLits <- concatMap toLsbf_lit <$> mapM (getVarLit sbe) rslt
       ((:[]) . elem 42)
         <$> outsToInts32 n
@@ -84,20 +83,20 @@ sa3 :: TrivialProp
 sa3 cb =
   runTest $ do
     sbe <- getBackend
-    let n    = 3
-        fill = 99
-    val     <- liftIO $ IValue <$> freshInt sbe
-    symVals <- liftIO $ replicateM n $ freshInt sbe
-    rslt <- runDefSymSim cb $ do
-      arr <- newIntArray intArrayTy symVals
-      [(pd, Terminated)] <-
-        withoutExceptions
-        <$> runStaticMethod "Arrays" "update" "(II[I)V"
-              [IValue (mkCInt 32 $ fromIntegral n - 1), val, RValue arr]
-      getIntArray pd arr
     be <- getBitEngine
-    -- Overwrite the last index with 42 and check it
     liftIO $ do
+      let n    = 3
+          fill = 99
+      val     <- IValue <$> freshInt sbe
+      symVals <- replicateM n $ freshInt sbe
+      rslt <- runDefSimulator sbe cb $ do
+        arr <- newIntArray intArrayTy symVals
+        [(pd, Terminated)] <-
+          withoutExceptions
+          <$> runStaticMethod "Arrays" "update" "(II[I)V"
+                [IValue (mkCInt 32 $ fromIntegral n - 1), val, RValue arr]
+        getIntArray pd arr
+      -- Overwrite the last index with 42 and check it
       rsltLits <- concatMap toLsbf_lit <$> mapM (getVarLit sbe) rslt
       ((:[]) . (==) (replicate (n-1) fill ++ [42]))
         <$> outsToInts32 n
@@ -108,31 +107,29 @@ sa4 :: TrivialProp
 sa4 cb =
   runTest $ do
     sbe <- getBackend
-    let n        = 3 ; nI = fromIntegral n
-        m        = 4
-        numElems = n * m
-        fill     = 99
-    symVals <- liftIO $ replicateM n $ replicateM m $ freshInt sbe
-    rslt <- runDefSymSim cb $ do
-      let tint = mkCInt 32
-      inners <- mapM (newIntArray intArrayTy) symVals
-      twodim <- newMultiArray (ArrayType intArrayTy) [tint nI]
-      forM_ (map (tint . fromIntegral) [0..nI] `zip` map RValue inners) $
-        uncurry (setArrayValue twodim)
-      [(pd, Terminated)] <-
-        withoutExceptions
-        <$> runStaticMethod "Arrays" "update" "(III[[I)V"
-              (map (IValue . tint) [0, 0, 42] ++ [RValue twodim])
-      concat <$> (mapM (getIntArray pd) =<< getRefArray pd twodim)
-
-    -- Overwrite the first index with 42 and check it
     be <- getBitEngine
     liftIO $ do
+      let n        = 3 ; nI = fromIntegral n
+          m        = 4
+          numElems = n * m
+          fill     = 99
+      symVals <- replicateM n $ replicateM m $ freshInt sbe
+      rslt <- runDefSimulator sbe cb $ do
+        let tint = mkCInt 32
+        inners <- mapM (newIntArray intArrayTy) symVals
+        twodim <- newMultiArray (ArrayType intArrayTy) [tint nI]
+        forM_ (map (tint . fromIntegral) [0..nI] `zip` map RValue inners) $
+          uncurry (setArrayValue twodim)
+        [(pd, Terminated)] <-
+          withoutExceptions
+            <$> runStaticMethod "Arrays" "update" "(III[[I)V"
+                  (map (IValue . tint) [0, 0, 42] ++ [RValue twodim])
+        concat <$> (mapM (getIntArray pd) =<< getRefArray pd twodim)
+      -- Overwrite the first index with 42 and check it
       rsltLits <- concatMap toLsbf_lit <$> mapM (getVarLit sbe) rslt
       ((:[]) . (==) (42 : replicate (numElems - 1) fill))
         <$> outsToInts32 (fromIntegral numElems)
         <$> evalAig be (evalAigArgs32 (replicate numElems fill)) rsltLits
-
 
 --------------------------------------------------------------------------------
 -- Scratch

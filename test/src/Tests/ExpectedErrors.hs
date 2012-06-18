@@ -41,13 +41,15 @@ verb = 0
 
 type RunTest sym = sym [Bool] -> PropertyM IO ()
 
-go ::
-   RunTest SymbolicMonad
-  -> Codebase
-  -> Simulator SymbolicMonad a
-  -> PropertyM IO ()
-go rt cb act =
-  rt $ runDefSymSim cb . Sim.withVerbosity verb $ act >> return [False]
+go :: RunTest SymbolicMonad
+   -> Codebase
+   -> Simulator SymbolicMonad a
+   -> PropertyM IO ()
+go rt cb act = rt $ do
+  sbe <- getBackend
+  liftIO $ do
+    _ <- runDefSimulator sbe cb $ Sim.withVerbosity verb $ act
+    return [False]
 
 --------------------------------------------------------------------------------
 -- Exception (negative) tests

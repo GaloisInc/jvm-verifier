@@ -44,8 +44,7 @@ module Simulation
   , getInstanceFieldValue
   , getStaticFieldValue
   , runSimulator
-  , runSymSim
-  , runDefSymSim
+  , runDefSimulator
   , setInitializationStatus
   -- * PathState operations.
   , PathState(..)
@@ -281,14 +280,14 @@ instance Eq (SimulatorExc m) where
 instance (Show term, Typeable term) => Exception (SimulatorExc term)
 
 -- A Simulator is a monad transformer around a symbolic backend m
-newtype Simulator sym a = SM { runSM :: StateT (State sym) sym a }
+newtype Simulator sym a = SM { runSM :: StateT (State sym) IO a }
   deriving (CatchMIO, Functor, Monad, MonadIO, MonadState (State sym))
 
-instance MonadIO sym => LogMonad (Simulator sym) where
+instance LogMonad (Simulator sym) where
   getVerbosity   = gets verbosity
   setVerbosity v = modify $ \s -> s { verbosity = v}
 
-instance Monad sym => Applicative (Simulator sym) where
+instance Applicative (Simulator sym) where
   pure      = return
   af <*> aa = af >>= flip (<$>) aa
 
@@ -299,39 +298,31 @@ data SimulationFlags =
 defaultSimFlags :: SimulationFlags
 defaultSimFlags = SimulationFlags { alwaysBitBlastBranchTerms = False }
 
-runSymSim :: SimulationFlags -> Codebase-> Simulator SymbolicMonad a -> SymbolicMonad a
-runSymSim f cb m = do
-  sms <- getSymState
-  runSimulator (symbolicBackend sms) f cb m
-  
-runDefSymSim :: Codebase-> Simulator SymbolicMonad a -> SymbolicMonad a
-runDefSymSim = runSymSim defaultSimFlags
-
 -- | Execute a simulation action; propagate any exceptions that occur so that
 -- clients can deal with them however they wish.
 runSimulator ::
-  forall sym a.
-  ( AigOps sym
-  )
-  => Backend sym -> SimulationFlags -> Codebase -> Simulator sym a -> sym a
-runSimulator b flags cb m = evalStateT (runSM go) (newSimState flags cb b)
+  forall sym a . AigOps sym
+  => Backend sym -> SimulationFlags -> Codebase -> Simulator sym a -> IO a
+runSimulator sbe flags cb m = evalStateT (runSM (stdOverrides >> m)) (newSimState flags cb sbe)
+                              `CE.catch` hsome sbe
   where
-    go = stdOverrides >> m `catchMIO` \(e :: CE.SomeException) -> do
-           let h :: (Show t, Typeable t, t ~ MonadTerm sym) => Maybe (SimulatorExc t)
-               h = CE.fromException e
-           case h of
-             Just (e'@(SimExtErr msg _ _)) -> do
-               CE.throw $
-                 e'{ simExtErrMsg =
-                       "An error has occurred in the symbolic simulator:\n"
-                       ++ msg
-                       -- TODO: put some contact info here?
-                   }
-             Just e'@(JavaException{}) -> do
-               error $ "runSimulator internal: uncaught Java exception: " ++ show (excRef e')
-             _ -> do
-               CE.throw e
+    hsome _ (e :: CE.SomeException) = do
+      let h :: (Show t, Typeable t, t ~ MonadTerm sym) => Maybe (SimulatorExc t)
+          h = CE.fromException e
+      case h of
+        Just (e'@(SimExtErr msg _ _)) -> do
+          CE.throw $
+            e'{ simExtErrMsg =
+                  "An error has occurred in the symbolic simulator:\n"
+                  ++ msg
+                  -- TODO: put some contact info here?
+              }
+        Just e'@(JavaException{}) -> do
+          error $ "runSimulator internal: uncaught Java exception: " ++ show (excRef e')
+        _ -> CE.throw e
 
+runDefSimulator :: AigOps sym => Backend sym -> Codebase -> Simulator sym a -> IO a
+runDefSimulator sbe cb m = runSimulator sbe defaultSimFlags cb m
 
 newSimState :: ConstantInjection (MonadTerm sym) =>
                SimulationFlags -> Codebase -> Backend sym -> State sym
@@ -369,8 +360,7 @@ newSimState flags cb b = State
 -- | Override behavior of simulator when it encounters a specific instance
 -- method to perform a user-definable action.
 -- Note: Fails if the method has already been overridden.
-overrideInstanceMethod :: MonadIO sym =>
-                          String
+overrideInstanceMethod :: String
                        -> MethodKey
                        -> (Ref -> [Value (MonadTerm sym)] -> Simulator sym ())
                        -> Simulator sym ()
@@ -630,14 +620,14 @@ stdOverrides = do
 newtype PSS a       = PSS{ unPSS :: a } deriving (Bounded, Eq, Functor, Ord, Show)
 type PathDescriptor = PSS Int
 
-onCurrPath :: MonadIO sym => ResumeAction sym -> Simulator sym ()
+onCurrPath :: ResumeAction sym -> Simulator sym ()
 onCurrPath ra = modifyMF $ \mf ->
   CE.assert (not (null (nextPaths mf)))
     mf { nextPaths = headf (nextPaths mf) $ \(path, _) -> (path, ra) }
 
 -- | Split the current path (by duplicating it from the current path state), and
 -- set the new path to be the next path executed after the current path.
-onNewPath :: (MonadIO sym, PrettyTerm (MonadTerm sym)) =>
+onNewPath :: (PrettyTerm (MonadTerm sym)) =>
              ResumeAction sym -> Simulator sym ()
 onNewPath ra = do
   ps     <- getPathState
@@ -662,7 +652,7 @@ onNewPath ra = do
     dumpPathStates
   return ()
 
-onResumedPath :: (MonadIO sym, PrettyTerm (MonadTerm sym)) =>
+onResumedPath :: (PrettyTerm (MonadTerm sym)) =>
                  SymPathState sym -> ResumeAction sym -> Simulator sym ()
 onResumedPath ps ra = do
   newPSS <- gets nextPSS
@@ -711,14 +701,13 @@ assume v = do
   v' <- return v &&& psAssumptions <$> getPathState
   modifyPathState $ \ps -> ps{ psAssumptions = v' }
 
-getPSS :: MonadIO sym => Simulator sym PathDescriptor
+getPSS :: Simulator sym PathDescriptor
 getPSS = pathStSel <$> getPathState
 
 -- | Run the given computation using the path referent of the given path
 -- descriptor.  Assumes that no paths are already finished and that the given
 -- path is the only path upon which execution of the computation occurs.
-withPathState :: MonadIO sym =>
-                 PathDescriptor
+withPathState :: PathDescriptor
               -> (SymPathState sym -> Simulator sym a)
               -> Simulator sym a
 withPathState pd f = do
@@ -728,7 +717,7 @@ withPathState pd f = do
   modify $ \s -> s{ mergeFrames = oldMergeFrames }
   return rslt
 
-getPathState :: MonadIO sym => Simulator sym (SymPathState sym)
+getPathState :: Simulator sym (SymPathState sym)
 getPathState = do
   mf <- getMergeFrame
   let getIt pss = getPathStateByName pss >>= \ps ->
@@ -750,7 +739,7 @@ getPathState = do
                          ++ " finished paths (merge failure?)"
       ((pss,_):_) -> getIt pss
 
-getMergeFrame :: MonadIO sym => Simulator sym (MergeFrame sym)
+getMergeFrame :: Simulator sym (MergeFrame sym)
 getMergeFrame = do
   mfs <- gets mergeFrames
   case mfs of
@@ -760,7 +749,7 @@ getMergeFrame = do
 -- | Returns the number of nextPaths remaining; if @collapseOnAllFinished@ is
 -- True, then if there are no nextPaths remaining, all finished paths will
 -- migrate into the previous merge frame and the current merge frame is popped.
-terminateCurrentPath :: MonadIO sym => Bool -> Simulator sym Int
+terminateCurrentPath :: Bool -> Simulator sym Int
 terminateCurrentPath collapseOnAllFinished = do
   pss <- getPSS
   mf' <- getMergeFrame
@@ -818,7 +807,7 @@ registerBreakpoints bkpts = do
 
 -- | Set the appropriate finalResult if we've stopped at a breakpoint.
 -- assertion.
-handleBreakpoints :: MonadIO sym => Simulator sym ()
+handleBreakpoints :: Simulator sym ()
 handleBreakpoints = do
   ps <- getPathState
   case frames ps of
@@ -830,40 +819,36 @@ handleBreakpoints = do
         modifyPathState (setFinalResult . Breakpoint $ pc)
     _ -> return ()
 
-resumeBreakpoint :: (MonadIO sym, PrettyTerm (MonadTerm sym))
+resumeBreakpoint :: PrettyTerm (MonadTerm sym)
                  => SymPathState sym
                  -> Simulator sym ()
 resumeBreakpoint ps = onResumedPath ps NextInst
 
-getPathStateByName :: MonadIO sym =>
-                      PathDescriptor -> Simulator sym (SymPathState sym)
+getPathStateByName :: PathDescriptor -> Simulator sym (SymPathState sym)
 getPathStateByName n = do
   mps <- lookupPathStateByName n
   case mps of
     Nothing -> error $ "internal: pss not in pathstate list: " ++ show n
     Just ps -> return ps
 
-lookupPathStateByName :: MonadIO sym =>
-                         PathDescriptor
+lookupPathStateByName :: PathDescriptor
                       -> Simulator sym (Maybe (SymPathState sym))
 lookupPathStateByName n = M.lookup n . pathStates <$> get
 
-putPathState :: MonadIO sym => SymPathState sym -> Simulator sym ()
+putPathState :: SymPathState sym -> Simulator sym ()
 putPathState ps = ps `seq` do
   pss <- getPSS
   -- never permit selector tweaking
   CE.assert (pathStSel ps == pss) $ return ()
   modify $ \s -> s{ pathStates = M.insert pss ps (pathStates s) }
 
-modifyPathState :: MonadIO sym =>
-                   (SymPathState sym -> SymPathState sym)
+modifyPathState :: (SymPathState sym -> SymPathState sym)
                 -> Simulator sym ()
 modifyPathState f = f <$> getPathState >>= putPathState
 
 -- | (updateFrame fn) replaces the top frame (head f) in the current
 -- path state with (fn (head f)).
-updateFrame :: MonadIO sym =>
-               (Frame (MonadTerm sym) -> Frame (MonadTerm sym))
+updateFrame :: (Frame (MonadTerm sym) -> Frame (MonadTerm sym))
             -> Simulator sym ()
 updateFrame fn = {-# SCC "uF" #-} do
   ps <- getPathState
@@ -874,7 +859,7 @@ updateFrame fn = {-# SCC "uF" #-} do
       ps' `seq` putPathState ps'
     _ -> error "internal: updateFrame: frame list is empty"
 
-pushFrame :: MonadIO sym => Frame (MonadTerm sym) -> Simulator sym ()
+pushFrame :: Frame (MonadTerm sym) -> Simulator sym ()
 pushFrame call = do
   -- Allow an unambiguous finished path to be "reactivated" whenever a new frame
   -- is pushed.
@@ -903,8 +888,7 @@ pushFrame call = do
 
 
 -- (pushCallFrame st m vals) pushes frame to the stack for PC 0.
-pushCallFrame :: MonadIO sym =>
-                 String
+pushCallFrame :: String
               -> Method
               -> [Value (MonadTerm sym)]
               -> Simulator sym ()
@@ -919,7 +903,7 @@ pushCallFrame name method vals = pushFrame call
 -- | Returns a new reference value with the given type, but does not
 -- initialize and fields or array elements.
 -- Note: Assumes class for reference has already been initialized.
-genRef :: MonadIO sym => Type -> Simulator sym Ref
+genRef :: Type -> Simulator sym Ref
 genRef tp = do
   s <- get
   let r = nextRef s
@@ -927,15 +911,13 @@ genRef tp = do
   return $ Ref r tp
 
 -- | Returns initialization status of class
-getInitializationStatus :: MonadIO sym =>
-                           String -> Simulator sym (Maybe InitializationStatus)
+getInitializationStatus :: String -> Simulator sym (Maybe InitializationStatus)
 getInitializationStatus cName = do
   ps <- getPathState
   return $ M.lookup cName (initialization ps)
 
 -- | Sets initialization status of class with given name.
-setInitializationStatus :: MonadIO sym =>
-                           String -> InitializationStatus -> Simulator sym ()
+setInitializationStatus :: String -> InitializationStatus -> Simulator sym ()
 setInitializationStatus cName status =
   modifyPathState $ \ps ->
     ps { initialization = M.insert cName status (initialization ps) }
@@ -943,7 +925,7 @@ setInitializationStatus cName status =
 setFinalResult :: FinalResult term -> PathState term -> PathState term
 setFinalResult fr ps = ps { finalResult = fr }
 
-popFrameImpl :: MonadIO sym => Bool -> Simulator sym ()
+popFrameImpl :: Bool -> Simulator sym ()
 popFrameImpl isNormalReturn = do
   ps <- getPathState
   let (Call cName method _ _ _):_ = frames ps
@@ -959,7 +941,7 @@ popFrameImpl isNormalReturn = do
         _ -> ps { frames = (tail . frames) ps }
 
 -- Returns number of frames in current state.
-frameCount :: MonadIO sym => Simulator sym Int
+frameCount :: Simulator sym Int
 frameCount = length . frames <$> getPathState
 
 runFrame :: AigOps sym => Simulator sym ()
@@ -1011,7 +993,7 @@ type instance JSRef    (Simulator sym) = Ref
 type instance JSBool   (Simulator sym) = MonadTerm sym
 type instance JSRslt   (Simulator sym) = [(PathDescriptor, FinalResult (MonadTerm sym))]
 
-withSBE :: MonadIO sym => (Backend sym -> IO a) -> Simulator sym a
+withSBE :: (Backend sym -> IO a) -> Simulator sym a
 withSBE f = liftIO . f =<< gets backend
     
 instance (AigOps sym) => JavaSemantics (Simulator sym) where
@@ -1941,24 +1923,18 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
 --------------------------------------------------------------------------------
 -- Misc utilities
 
-simExcHndlr' ::
-  forall sym.
-  ( AigOps sym
-  )
-  => Bool -> String -> CE.SomeException -> sym [Bool]
+simExcHndlr' :: Bool -> String -> CE.SomeException -> IO [Bool]
 simExcHndlr' suppressOutput failMsg exc = do
-  let h :: (Show t, Typeable t, t ~ MonadTerm sym) => Maybe (SimulatorExc t)
+  let h :: Maybe (SimulatorExc DagTerm)
       h = CE.fromException exc
   case h of
     Just (SimExtErr msg _ _) -> do
-      unless suppressOutput $ liftIO $ hPutStr stderr msg
+      unless suppressOutput $ hPutStr stderr msg
       return [False]
     Just se -> error $ ppSimulatorExc se
     _ -> error $ failMsg ++ ": " ++ show exc
 
-simExcHndlr ::
-  forall sym.
-  AigOps sym => String -> CE.SomeException -> sym [Bool]
+simExcHndlr :: String -> CE.SomeException -> IO [Bool]
 simExcHndlr = simExcHndlr' True
 
 _interactiveBreak :: MonadIO m => String -> m ()
@@ -1983,13 +1959,12 @@ _isNormal _           = False
 
 -- | Partition the top merge frame's finished paths into those paths which are
 -- in either an exception or breakpoint state, and those which are not
-splitFinishedPaths :: MonadIO sym => Simulator sym ([PathDescriptor], [PathDescriptor])
+splitFinishedPaths :: Simulator sym ([PathDescriptor], [PathDescriptor])
 splitFinishedPaths = partitionMFOn ((\r -> isExc r || isBkpt r) . finalResult)
 
 -- | Partition the top merge frame's finished paths into those paths which match
 -- a predicate and those which do not.
-partitionMFOn :: MonadIO sym
-              => (SymPathState sym -> Bool)
+partitionMFOn :: (SymPathState sym -> Bool)
               -> Simulator sym ([PathDescriptor], [PathDescriptor])
 partitionMFOn f = do
   psts <- gets pathStates
@@ -1997,8 +1972,7 @@ partitionMFOn f = do
   partition passes . finishedPaths <$> getMergeFrame
 
 -- | Modify the active merge frame
-modifyMF :: MonadIO sym =>
-            (MergeFrame sym -> MergeFrame sym) -> Simulator sym ()
+modifyMF :: (MergeFrame sym -> MergeFrame sym) -> Simulator sym ()
 modifyMF f =
   modify $ \s ->
     CE.assert (not (null (mergeFrames s))) $
@@ -2098,7 +2072,7 @@ classNameIsPrimitive' :: String -> Bool
 classNameIsPrimitive' (ch:[]) = ch `elem` ['B','S','I','J','F','D','Z','C']
 classNameIsPrimitive' _       = False
 
-lookupStringRef :: MonadIO sym => Ref -> Simulator sym (Maybe String)
+lookupStringRef :: Ref -> Simulator sym (Maybe String)
 lookupStringRef r =
   lookup r. map (\(a,b) -> (b,a)) . M.assocs <$> gets strings
 
@@ -2106,8 +2080,7 @@ lookupStringRef r =
 -- | Create a new symbolic array with the given type, length and initial value.
 -- TODO: Identify appropriate error to throw if type is not an array of IValues or
 -- LValues or cnt is negative.
-newSymbolicArray :: MonadIO sym =>
-                    Type -> Int32 -> MonadTerm sym -> Simulator sym Ref
+newSymbolicArray :: Type -> Int32 -> MonadTerm sym -> Simulator sym Ref
 newSymbolicArray tp@(ArrayType eltType) cnt arr =
   CE.assert ((isIValue eltType || eltType == LongType) && cnt >= 0) $ do
     r <- genRef tp
@@ -2118,21 +2091,19 @@ newSymbolicArray _ _ _ = error "internal: newSymbolicArray called with invalid t
 
 -- | Returns length and symbolic value associated with array reference,
 -- and nothing if this is not an array reference.
-getSymbolicArray :: MonadIO sym =>
-                    Ref -> Simulator sym (Maybe (Int32, MonadTerm sym))
+getSymbolicArray :: Ref -> Simulator sym (Maybe (Int32, MonadTerm sym))
 getSymbolicArray r = do
   ps <- getPathState
   return $ M.lookup r (arrays ps)
 
 -- | Sets integer or long array to use using given update function.
 -- TODO: Revisit what error should be thrown if ref is not an array reference.
-setSymbolicArray :: MonadIO sym => Ref -> MonadTerm sym -> Simulator sym ()
+setSymbolicArray :: Ref -> MonadTerm sym -> Simulator sym ()
 setSymbolicArray r arr = updateSymbolicArray r (\_ _ -> return arr)
 
 -- | Updates integer or long array using given update function.
 -- TODO: Revisit what error should be thrown if ref is not an array refence.
-updateSymbolicArray :: MonadIO sym =>
-                       Ref
+updateSymbolicArray :: Ref
                     -> (Backend sym -> MonadTerm sym -> IO (MonadTerm sym))
                     -> Simulator sym ()
 updateSymbolicArray r modFn = do
@@ -2256,8 +2227,7 @@ getType :: AigOps sym => Ref -> Simulator sym Type
 getType NullRef    = throwNullPtrExc
 getType (Ref _ tp) = return tp
 
-getInstanceFieldValue :: MonadIO sym =>
-                         PathDescriptor
+getInstanceFieldValue :: PathDescriptor
                       -> Ref
                       -> FieldId
                       -> Simulator sym (Value (MonadTerm sym))
@@ -2268,8 +2238,8 @@ getInstanceFieldValue pd ref fldId = do
     Nothing  -> error $ "getInstanceFieldValue: instance field " ++
                         show fldId ++ " does not exist"
 
-getStaticFieldValue :: AigOps sym =>
-                       PathDescriptor
+getStaticFieldValue :: AigOps sym
+                    => PathDescriptor
                     -> FieldId
                     -> Simulator sym (Value (MonadTerm sym))
 getStaticFieldValue pd fldId = do
@@ -2299,8 +2269,7 @@ defaultValue        IntType  = IValue $ mkCInt 32 0
 defaultValue       LongType  = LValue $ mkCInt 64 0
 defaultValue      ShortType  = IValue $ mkCInt 32 0
 
-dumpPathStates :: (MonadIO sym, PrettyTerm (MonadTerm sym)) =>
-                  Simulator sym ()
+dumpPathStates :: (PrettyTerm (MonadTerm sym)) => Simulator sym ()
 dumpPathStates = do
   psts <- gets pathStates
   dbugM "-- begin pathstates --"
@@ -2308,19 +2277,19 @@ dumpPathStates = do
   dbugM "-- end pathstates --"
   dumpMergeFrames
 
-dumpPathStateCount :: MonadIO sym => Simulator sym ()
+dumpPathStateCount :: Simulator sym ()
 dumpPathStateCount = do
   (sz, mx) <- gets ((M.size CA.&&& foldr max minBound . M.keys) . pathStates)
   dbugM $ "pathstates size is: " ++ show sz ++ ", max pss is: " ++ show mx
 
-dumpMergeFrames :: MonadIO sym => Simulator sym ()
+dumpMergeFrames :: Simulator sym ()
 dumpMergeFrames = do
   mfs <- gets mergeFrames
   dbugM $ "== MergeFrames from top to bottom = \n  "
           ++ intercalate "\n  " (map ppMergeFrame mfs)
   dbugM "---"
 
-_dumpFrameInfo :: MonadIO sym => Simulator sym ()
+_dumpFrameInfo :: Simulator sym ()
 _dumpFrameInfo = do
   psts <- gets pathStates
   dbugM $ "frame info: # pathstates = " ++ show (M.size psts) ++ ", max depth = "

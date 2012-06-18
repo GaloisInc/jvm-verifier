@@ -150,14 +150,13 @@ mkTest runTest' _lbl getRslt cb maigNm (cNm, mNm, sig)
        mkSyms mkArgs toAigInps prDag prAig inps =
   runTest' $ do
     sbe <- getBackend
-    syms       <- liftIO $ mkSyms sbe
-    Right rslt <- runDefSymSim cb $ do
-       setVerbosity verb
-       snd . getRslt . withoutExceptions
-         <$> (runStaticMethod cNm mNm sig =<< mkArgs syms)
-    -- dbugM $ "mkTest: rslt = " ++ show rslt
     be <- getBitEngine
     liftIO $ do
+      syms       <- mkSyms sbe
+      Right rslt <- runDefSimulator sbe cb $ do
+        setVerbosity verb
+        snd . getRslt . withoutExceptions
+          <$> (runStaticMethod cNm mNm sig =<< mkArgs syms)
       outIntLit <- toLsbfV <$> getVarLit sbe rslt
       chks0 <- forM inps $ \inp -> do
         evalFn <- concreteEvalFn (V.fromList inp)
@@ -265,22 +264,22 @@ t13 :: TrivialProp
 t13 cb = runTest $ do
   sbe <- getBackend
   be <- getBitEngine
-  let n       = 4
-      cInputs = [constInt 16, constInt 4]
-      expect  = map constInt [4, 64, 4, 8]
-  ins <- liftIO $ replicateM 2 $ IValue <$> freshInt sbe
-  outVars <- runDefSymSim cb $ do
-    setVerbosity verb
-    outArr <- newMultiArray (ArrayType IntType) [mkCInt (Wx 32) 4]
-    [(pd, Terminated)] <-
-      withoutExceptions
-        <$> (do q <- runStaticMethod "Trivial" "out_array" "(II[I)V"
-                       (ins ++ [RValue outArr])
-                -- dbugM $ "t13 q = " ++ show q
-                return q
-            )
-    getIntArray pd outArr
   liftIO $ do
+    let n       = 4
+        cInputs = [constInt 16, constInt 4]
+        expect  = map constInt [4, 64, 4, 8]
+    ins <- replicateM 2 $ IValue <$> freshInt sbe
+    outVars <- runDefSimulator sbe cb $ do
+      setVerbosity verb
+      outArr <- newMultiArray (ArrayType IntType) [mkCInt (Wx 32) 4]
+      [(pd, Terminated)] <-
+        withoutExceptions
+          <$> (do q <- runStaticMethod "Trivial" "out_array" "(II[I)V"
+                         (ins ++ [RValue outArr])
+                  -- dbugM $ "t13 q = " ++ show q
+                  return q
+              )
+      getIntArray pd outArr
     -- DAG eval
     evalFn <- concreteEvalFn (V.fromList cInputs)
     outVals <- mapM evalFn outVars
@@ -295,17 +294,16 @@ t13 cb = runTest $ do
 
 -- NB: This won't symbolically terminate yet.
 _t14 :: TrivialProp
-_t14 cb = runTest $ do
-  sbe <- getBackend
-  a <- liftIO $ freshInt sbe
-  Right _rslt <- runDefSymSim cb $ do
-    setVerbosity verb
-    rs <- runStaticMethod "Trivial" "loop1" "(I)I" [IValue a]
-    liftIO $ putStrLn $ "t14: rs = " ++
-               unlines (map (\(p,r) -> show p ++ " => " ++ ppFinalResult r) rs)
-    CE.assert (length rs == 1) $ return ()
-    return (snd . takeIntRslt $ rs)
-  return [True]
+_t14 cb = runSymTest $ \sbe -> do
+    a <- freshInt sbe
+    Right _rslt <- runDefSimulator sbe cb $ do
+      setVerbosity verb
+      rs <- runStaticMethod "Trivial" "loop1" "(I)I" [IValue a]
+      liftIO $ putStrLn $ "t14: rs = " ++
+                 unlines (map (\(p,r) -> show p ++ " => " ++ ppFinalResult r) rs)
+      CE.assert (length rs == 1) $ return ()
+      return (snd . takeIntRslt $ rs)
+    return [True]
 
 --------------------------------------------------------------------------------
 -- Class tests
@@ -313,34 +311,32 @@ _t14 cb = runTest $ do
 -- | Check assignment in a virtual subclass method to a protected superclass
 -- field
 ct1 :: TrivialProp
-ct1 cb = runTest $ do
-  outVars <- runDefSymSim cb $ do
-    outArr <- newMultiArray (ArrayType IntType) [mkCInt (Wx 32) 2]
+ct1 cb = runSymTest $ \sbe -> do
+  outVars <- runDefSimulator sbe cb $ do
+    outArr <- newMultiArray (ArrayType IntType) [mkCInt 32 2]
     (pd, Left Terminated) <-
       takeSingleRslt <$> runStaticMethod "IVTDriver"
                                          "go"
                                          "([I)V"
                                          [RValue outArr]
     getIntArray pd outArr
-  liftIO $ do
-    evalFn <- concreteEvalFn V.empty
-    outVals <- mapM evalFn outVars
-    return $ [[constInt 42, constInt 42] == outVals]
+  evalFn <- concreteEvalFn V.empty
+  outVals <- mapM evalFn outVars
+  return $ [[constInt 42, constInt 42] == outVals]
 
 -- | Ensure that refFromString produces a usable string reference
 ct2 :: TrivialProp
 ct2 cb =
   forAllM (listOf1 $ elements $ ['a'..'z'] ++ ['A'..'Z']) $ \str -> do
-  runTest $ do
-    outVar <- runDefSymSim cb $ do
+  runSymTest $ \sbe -> do
+    outVar <- runDefSimulator sbe cb $ do
       s <- refFromString str
       (\(~(Right r)) -> r) . snd . takeIntRslt . withoutExceptions
         <$> runStaticMethod "Trivial" "stringCheck" "(Ljava/lang/String;I)Z"
               [RValue s, IValue (mkCInt (Wx 32) . fromIntegral . length $ str)]
-    liftIO $ do
-      evalFn <- concreteEvalFn V.empty
-      outVal <- evalFn outVar
-      return [boolFromConst outVal]
+    evalFn <- concreteEvalFn V.empty
+    outVal <- evalFn outVar
+    return [boolFromConst outVal]
 
 --------------------------------------------------------------------------------
 -- floating point tests
@@ -353,10 +349,11 @@ testDoubleBin :: Codebase
 testDoubleBin cb op method ty =
   let a = 1.0
       b = 2.0 in
-  runTest $ runDefSymSim cb $ do
-    r <- snd <$> takeDoubleRslt <$>
-         runStaticMethod "Trivial" method ty [DValue a, DValue b]
-    return [r == Right (op a b)]
+  runSymTest $ \sbe -> do
+    runDefSimulator sbe cb $ do
+      r <- snd <$> takeDoubleRslt <$>
+           runStaticMethod "Trivial" method ty [DValue a, DValue b]
+      return [r == Right (op a b)]
 
 testFloatBin :: Codebase
              -> (Float -> Float -> Float)
@@ -366,7 +363,7 @@ testFloatBin :: Codebase
 testFloatBin cb op method ty =
   let a = 1.0
       b = 2.0 in
-  runTest $ runDefSymSim cb $ do
+  runSymTest $ \sbe -> runDefSimulator sbe cb $ do
     r <- snd <$> takeFloatRslt <$>
          runStaticMethod "Trivial" method ty [FValue a, FValue b]
     return [r == Right (op a b)]
@@ -460,15 +457,15 @@ evalBinOp runIO _lbl cb w maigNm mkValue getSymIntegralFromValue newSymVar
           hexToIntegral (classNm, methodNm, sig) x y = do
   runIO $ do
     sbe <- getBackend
-    a <- liftIO $ newSymVar sbe
-    b <- liftIO $ newSymVar sbe
-    Right val <- runDefSymSim cb $ do
-      setVerbosity verb
-      snd . takeSingleRslt . withoutExceptions
-            <$> runStaticMethod classNm methodNm sig [mkValue a, mkValue b]
-    let rslt = getSymIntegralFromValue val
     be <- getBitEngine
     liftIO $ do
+      a <- newSymVar sbe
+      b <- newSymVar sbe
+      Right val <- runDefSimulator sbe cb $ do
+        setVerbosity verb
+        snd . takeSingleRslt . withoutExceptions
+          <$> runStaticMethod classNm methodNm sig [mkValue a, mkValue b]
+      let rslt = getSymIntegralFromValue val
       outIntLit <- toLsbf_lit <$> getVarLit sbe rslt
       evalFn <- concreteEvalFn (V.map (mkCInt w . fromIntegral) $ V.fromList [x, y])
       rsltVal <- evalFn rslt

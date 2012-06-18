@@ -91,13 +91,13 @@ evalCryptolJavaWord name key input = do
   cb <- commonLoadCB
   runSymbolic oc $ do
     sbe <- getBackend
-    keyVars   <- liftIO $ replicateM 4 $ freshInt sbe
-    inputVars <- liftIO $ replicateM 4 $ freshInt sbe
-    outVars <- runDefSymSim cb $ do
-      setVerbosity 0
-      runCryptolJava name keyVars inputVars
-    let inp = V.map constInt $ V.fromList $ hexToIntSeq key ++ hexToIntSeq input
     liftIO $ do
+      keyVars   <- replicateM 4 $ freshInt sbe
+      inputVars <- replicateM 4 $ freshInt sbe
+      outVars <- runDefSimulator sbe cb $ do
+        setVerbosity 0
+        runCryptolJava name keyVars inputVars
+      let inp = V.map constInt $ V.fromList $ hexToIntSeq key ++ hexToIntSeq input
       evalFn <- concreteEvalFn inp
       intSeqToHex <$> mapM evalFn outVars
 
@@ -141,12 +141,12 @@ makeCryptolAiger ::
   -> IO ()
 makeCryptolAiger rio filepath cb simFn =
   rio $ do
-    be <- getBitEngine
     sbe <- getBackend
-    keyVars   <- liftIO $ replicateM 4 $ freshInt sbe
-    inputVars <- liftIO $ replicateM 4 $ freshInt sbe
-    outVars   <- runDefSymSim cb (setVerbosity 0 >> simFn keyVars inputVars)
+    be <- getBitEngine
     liftIO $ do
+      keyVars   <- replicateM 4 $ freshInt sbe
+      inputVars <- replicateM 4 $ freshInt sbe
+      outVars   <- runDefSimulator cb (setVerbosity 0 >> simFn keyVars inputVars)
       outLits   <- mapM (getVarLit sbe) outVars
       writeAiger be filepath (concat $ map toLsbf_lit outLits)
 
@@ -158,10 +158,11 @@ evalCryptolC key input = do
       keyVars   = map tint $ hexToIntSeq key
       inputVars = map tint $ hexToIntSeq input
   runSymbolic oc $ do
-    outVars <- runDefSymSim cb $ do
-      setVerbosity 0
-      runCryptolC keyVars inputVars
-    liftIO $
+    sbe <- getBackend
+    liftIO $ do
+      outVars <- runDefSimulator sbe cb $ do
+        setVerbosity 0
+        runCryptolC keyVars inputVars
       evalFn <- concreteEvalFn V.empty
       intSeqToHex <$> mapM evalFn outVars
 
@@ -236,13 +237,13 @@ makeBouncyCastleAiger ct name cb = do
   oc <- mkOpCache
   runSymbolic oc $ do
     sbe <- getBackend
-    revKey   <- liftIO $ replicateM 16 $ freshByte sbe
-    revInput <- liftIO $ replicateM 16 $ freshByte sbe
-    output <- runDefSymSim cb $ do
-      setVerbosity 0
-      runBouncyCastle ct name (reverse revKey) (reverse revInput)
     be <- getBitEngine
     liftIO $ do
+      revKey   <- replicateM 16 $ freshByte sbe
+      revInput <- replicateM 16 $ freshByte sbe
+      output <- runDefSimulator sbe cb $ do
+        setVerbosity 0
+        runBouncyCastle ct name (reverse revKey) (reverse revInput)
       outputLits <- mapM (getVarLit sbe) $ reverse output
       putStrLn $ "makeBouncyCastleAiger: Creating " ++ (name ++ ".aig")
       writeAiger be (name ++ ".aig") $
@@ -254,12 +255,12 @@ evalBouncyCastle ct name key input = do
   cb <- commonLoadCB
   runSymbolic oc $ do
     sbe <- getBackend
-    keyVars   <- liftIO $ replicateM 16 $ freshByte sbe
-    inputVars <- liftIO $ replicateM 16 $ freshByte sbe
-    outVars <- runDefSymSim cb $ do
-      setVerbosity 0
-      runBouncyCastle ct name keyVars inputVars
     liftIO $ do
+      keyVars   <- replicateM 16 $ freshByte sbe
+      inputVars <- replicateM 16 $ freshByte sbe
+      outVars <- runDefSimulator cb $ do
+        setVerbosity 0
+        runBouncyCastle ct name keyVars inputVars
       let inp = V.map constInt $ V.fromList $ hexToByteSeq key ++ hexToByteSeq input
       evalFn <- concreteEvalFn inp
       intSeqToHex <$> mapM evalFn outVars

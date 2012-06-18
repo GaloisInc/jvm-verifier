@@ -1112,13 +1112,14 @@ validateMethodSpec
       putStrLn $ "Executing " ++ specName ir ++ " at PC " ++ show (bsPC bs) ++ "."
     de <- mkConstantFoldingDagEngine
     (esd,results) <-
-      runSymbolicWithDagEngine oc de $ do
-        setVerbosity verb
-        JSS.runDefSymSim cb $ do
-          -- Create initial Java state and expected state definition.
-          esd <- initializeVerification de ir bs cl
-          res <- mkSpecVC de params esd
-          return (esd,res)
+      runSymbolicWithDagEngine oc de $ do                
+        sbe <- JSS.getBackend
+        liftIO $ do
+          JSS.runDefSimulator sbe cb $ do
+            -- Create initial Java state and expected state definition.
+            esd <- initializeVerification de ir bs cl
+            res <- mkSpecVC de params esd
+            return (esd,res)
     handler de esd results
 
 data VerifyState = VState {

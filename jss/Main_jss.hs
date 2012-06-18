@@ -26,6 +26,7 @@ import System.Environment.Executable (getExecutablePath)
 import System.Exit
 import System.FilePath
 import Text.ParserCombinators.Parsec
+import Prelude hiding (catch)
 
 import Execution
 import JavaParser.Common
@@ -33,9 +34,7 @@ import Simulation
 import Utils
 import Utils.Simulation
 import Overrides
-
 import Verinf.Symbolic
-import Verinf.Utils.CatchMIO
 
 data JSS = JSS
   { classpath :: String
@@ -122,26 +121,25 @@ main = do
 
   cb <- loadCodebase jpaths' cpaths
   oc <- mkOpCache
-  runSymbolic oc $
-    let fl = defaultSimFlags{ alwaysBitBlastBranchTerms = blast args' }
-        go = runSymSim fl cb $ do
-               jssOverrides
-               Simulation.setVerbosity (dbug args')
-               rs <- runMain cname =<< do
-                       jargs <- newMultiArray (ArrayType (ClassType "java/lang/String"))
-                                              [mkCInt (Wx 32) $ fromIntegral $ length jopts]
-                       forM_ ([0..length jopts - 1] `zip` jopts) $ \(i,s) ->
-                         setArrayValue jargs (mkCInt (Wx 32) . fromIntegral $ i)
-                           =<< RValue <$> refFromString s
-                       return [RValue jargs]
-
-               when (length (withoutExceptions rs) > 1) $
-                 -- As long as we filter out exception paths and our merging is working,
-                 -- this warning shouldn't fire.
-                 liftIO $ putStrLn $ "Warning: Simulator could not merge all paths."
-    in
-      go `catchMIO` \e -> do
+  let fl = defaultSimFlags{ alwaysBitBlastBranchTerms = blast args' }
+      go = runSymbolic oc $ do
+        sms <- getSymState
+        liftIO $ runSimulator (symbolicBackend sms) fl cb $ do
+          jssOverrides
+          Simulation.setVerbosity (dbug args')
+          rs <- runMain cname =<< do
+            jargs <- newMultiArray (ArrayType (ClassType "java/lang/String"))
+                                   [mkCInt 32 $ fromIntegral $ length jopts]
+            forM_ ([0..length jopts - 1] `zip` jopts) $ \(i,s) ->
+              setArrayValue jargs (mkCInt 32 . fromIntegral $ i)
+                =<< RValue <$> refFromString s
+            return [RValue jargs]
+          when (length (withoutExceptions rs) > 1) $
+            -- As long as we filter out exception paths and our merging is working,
+            -- this warning shouldn't fire.
+            liftIO $ putStrLn $ "Warning: Simulator could not merge all paths."
+    in go `catch` \e -> do
         case fromException e of
           Just ExitSuccess     -> liftIO $ exitSuccess
           Just c@ExitFailure{} -> liftIO $ exitWith c
-          _ -> simExcHndlr' False "jss" e >> liftIO (exitWith $ ExitFailure 1)
+          _ -> simExcHndlr' False "jss" e >> (exitWith $ ExitFailure 1)
