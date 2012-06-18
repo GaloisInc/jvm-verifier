@@ -105,7 +105,8 @@ runRC564 keyVars inpVars = do
   let byteArrayType = ArrayType ByteType
   keyArray <- newIntArray byteArrayType keyVars
   inpArray <- newIntArray byteArrayType inpVars
-  outArray <- newMultiArray byteArrayType [mkCInt (Wx 32) 16]
+  l16 <- withSBE $ \sbe -> termInt sbe 16
+  outArray <- newMultiArray byteArrayType [l16]
   [(pd,Terminated)] <- runStaticMethod "TestRC564"
                                        "rc564_encrypt"
                                        "([B[B[B)V"

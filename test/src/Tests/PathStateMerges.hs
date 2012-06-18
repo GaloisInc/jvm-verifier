@@ -8,7 +8,6 @@ Point-of-contact : jstanley
 module Tests.PathStateMerges(psmsTests) where
 
 import Control.Applicative
-import Control.Exception
 import Control.Monad
 import Data.Maybe
 import Prelude hiding (catch)
@@ -20,7 +19,6 @@ import Tests.Common
 import Utils
 import Utils.Simulation
 
-import Verinf.Utils.CatchMIO
 import Verinf.Symbolic
 
 -- import Debug.Trace

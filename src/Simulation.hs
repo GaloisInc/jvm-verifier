@@ -95,6 +95,7 @@ module Simulation
   , resumeBreakpoint
   , module Verifier.Java.Backend
   , liftIO
+  , withSBE
   )
 where
 
@@ -303,8 +304,9 @@ defaultSimFlags = SimulationFlags { alwaysBitBlastBranchTerms = False }
 runSimulator ::
   forall sym a . AigOps sym
   => Backend sym -> SimulationFlags -> Codebase -> Simulator sym a -> IO a
-runSimulator sbe flags cb m = evalStateT (runSM (stdOverrides >> m)) (newSimState flags cb sbe)
-                              `CE.catch` hsome sbe
+runSimulator sbe flags cb m = do
+    s <- newSimState flags cb sbe
+    evalStateT (runSM (stdOverrides >> m)) s `CE.catch` hsome sbe
   where
     hsome _ (e :: CE.SomeException) = do
       let h :: (Show t, Typeable t, t ~ MonadTerm sym) => Maybe (SimulatorExc t)
@@ -324,38 +326,39 @@ runSimulator sbe flags cb m = evalStateT (runSM (stdOverrides >> m)) (newSimStat
 runDefSimulator :: AigOps sym => Backend sym -> Codebase -> Simulator sym a -> IO a
 runDefSimulator sbe cb m = runSimulator sbe defaultSimFlags cb m
 
-newSimState :: ConstantInjection (MonadTerm sym) =>
-               SimulationFlags -> Codebase -> Backend sym -> State sym
-newSimState flags cb b = State
-  { codebase          = cb
-  , instanceOverrides = M.empty
-  , staticOverrides   = M.empty
-  , pathStates        =
+newSimState :: SimulationFlags -> Codebase -> Backend sym -> IO (State sym)
+newSimState flags cb sbe = do
+  true <- termBool sbe True
+  let ps = PathState
+             { frames          = []
+             , finalResult     = Unassigned
+             , initialization  = M.empty
+             , staticFields    = M.empty
+             , instanceFields  = M.empty
+             , arrays          = M.empty
+             , refArrays       = M.empty
+             , psAssumptions   = true
+             , psAssertions    = []
+             , pathStSel       = PSS 0
+             , classObjects    = M.empty
+             , startingPC      = 0
+             , breakpoints     = S.empty
+             , insnCount       = 0
+             }
+  return State
+    { codebase          = cb
+    , instanceOverrides = M.empty
+    , staticOverrides   = M.empty
       -- NB: Always start with one path state; startNewPath adds more
-      M.singleton (PSS 0) $ PathState
-        { frames          = []
-        , finalResult     = Unassigned
-        , initialization  = M.empty
-        , staticFields    = M.empty
-        , instanceFields  = M.empty
-        , arrays          = M.empty
-        , refArrays       = M.empty
-        , psAssumptions   = mkCBool True
-        , psAssertions    = []
-        , pathStSel       = PSS 0
-        , classObjects    = M.empty
-        , startingPC      = 0
-        , breakpoints     = S.empty
-        , insnCount       = 0
-        }
-  , mergeFrames = [mergeFrame [(PSS 0, NextInst)]]
-  , nextPSS         = PSS 1
-  , strings         = M.empty
-  , nextRef         = 1
-  , verbosity       = 1
-  , simulationFlags = flags
-  , backend = b
-  }
+    , pathStates        = M.singleton (PSS 0) ps
+    , mergeFrames = [mergeFrame [(PSS 0, NextInst)]]
+    , nextPSS         = PSS 1
+    , strings         = M.empty
+    , nextRef         = 1
+    , verbosity       = 1
+    , simulationFlags = flags
+    , backend = sbe
+    }
 
 -- | Override behavior of simulator when it encounters a specific instance
 -- method to perform a user-definable action.
@@ -436,12 +439,12 @@ stdOverrides = do
     -- java.lang.Class.isArray
     , ( "java/lang/Class"
       , makeMethodKey "isArray" "()Z"
-      , \this _ -> pushValue =<< classNameIsArray <$> getClassName this
+      , \this _ -> pushValue =<< classNameIsArray =<< getClassName this
       )
     -- java.lang.Class.isPrimitive
     , ( "java/lang/Class"
       , makeMethodKey "isPrimitive" "()Z"
-      , \this _ -> pushValue =<< classNameIsPrimitive <$> getClassName this
+      , \this _ -> pushValue =<< classNameIsPrimitive =<< getClassName this
       )
     -- java.lang.Class.getComponentType
     , ( "java/lang/Class"
@@ -492,7 +495,7 @@ stdOverrides = do
                    [FValue flt] -> do
                      when (flt /= (-0.0 :: Float)) $
                        abort "floatToRawIntBits: overridden for -0.0f only"
-                     pushValue (IValue $ mkCInt 32 0x80000000)
+                     pushValue =<< withSBE (\sbe -> IValue <$> termInt sbe 0x80000000)
                    _ -> abort "floatToRawIntBits: called with incorrect arguments"
       )
       -- java.lang.Double.doubleToRawLongBits: override for invocation by
@@ -503,7 +506,7 @@ stdOverrides = do
                    [DValue dbl] -> do
                      when (dbl /= (-0.0 :: Double)) $
                        abort "doubltToRawLongBits: overriden -0.0d only"
-                     pushValue (LValue $ mkCInt 64 0x8000000000000000)
+                     pushValue =<< withSBE (\sbe -> LValue <$> termLong sbe 0x8000000000000000)
                    _ -> abort "floatToRawIntBits: called with incorrect arguments"
       )
       -- Set up any necessary state for the native methods of various
@@ -522,7 +525,7 @@ stdOverrides = do
       )
     , ( "java/lang/Class"
       , makeMethodKey "desiredAssertionStatus0" "(Ljava/lang/Class;)Z"
-      , \_ -> pushValue (IValue $ mkCInt 32 1)
+      , \_ -> pushValue =<< withSBE (\sbe -> IValue <$> termInt sbe 1)
       )
     , ( "java/lang/Class"
       , makeMethodKey "getPrimitiveClass" "(Ljava/lang/String;)Ljava/lang/Class;"
@@ -979,8 +982,9 @@ skipInit cname = cname `elem` [ "java/lang/System"
                               , "java/io/InputStreamReader"
                               ]
 
-compareFloat :: (ConstantInjection term, Floating a, Ord a) => a -> a -> term
-compareFloat x y = mkCInt (Wx 32) $ toInteger $ fromEnum (compare x y) - 1
+compareFloat :: ( Floating a, Ord a) => a -> a -> Simulator sym (MonadTerm sym)
+compareFloat x y = withSBE $ \sbe -> termInt sbe (fromIntegral v)
+  where v = fromEnum (compare x y) - 1
 
 --------------------------------------------------------------------------------
 -- Symbolic simulation semantics
@@ -1092,9 +1096,9 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
                   Just (String v) ->
                     setStaticFieldValue fieldId . RValue =<< refFromString v
                   Nothing ->
-                    if fieldIsStatic f
-                      then setStaticFieldValue fieldId (defaultValue (fieldType f))
-                      else return ()
+                    when (fieldIsStatic f) $ do
+                      val <- withSBE $ \sbe -> defaultValue sbe (fieldType f)
+                      setStaticFieldValue fieldId val
                   Just tp -> error $ "Unsupported field type" ++ show tp
         cb <- getCodebase
         cl <- liftIO $ lookupClass cb name
@@ -1215,8 +1219,9 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
 
   -- Double operations
   dAdd  x y = return $ x + y
-  dCmpg x y = return $ compareFloat x y
-  dCmpl x y = return $ compareFloat x y
+  -- TODO: Fix Nan handling.
+  dCmpg x y = compareFloat x y
+  dCmpl x y = compareFloat x y
   dConst    = return
   dDiv  x y = return $ x / y
   dMul  x y = return $ x * y
@@ -1226,8 +1231,8 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
 
   -- Float operations
   fAdd  x y = return $ x + y
-  fCmpg x y = return $ compareFloat x y
-  fCmpl x y = return $ compareFloat x y
+  fCmpg x y = compareFloat x y
+  fCmpl x y = compareFloat x y
   fConst    = return
   fDiv  x y = return $ x / y
   fMul  x y = return $ x * y
@@ -1286,8 +1291,8 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   -- (arrayLength ref) return length of array at ref.
   arrayLength ref = do
     pd  <- getPSS
-    mkCInt 32 . toInteger <$> getArrayLength pd ref
-
+    l <- getArrayLength pd ref
+    withSBE $ \sbe -> termInt sbe l
 
   -- (newMultiArray tp len) returns a reference to a multidimentional array with
   -- type tp and len = [len1, len2, ...] where len1 equals length of first
@@ -1325,30 +1330,33 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
    ref <- genRef (ClassType name)
    -- Set fields to default value
    cb <- getCodebase
-   fields <- liftIO (classFields <$> lookupClass cb name)
+   fields <- liftIO $ classFields <$> lookupClass cb name
+   fvals <- withSBE $ \sbe -> mapM (defaultValue sbe . fieldType) fields
    modifyPathState $ \ps ->
      ps { instanceFields =
-            foldl' (\fieldMap f ->
+            foldl' (\fieldMap (f,val) ->
                       let fid = FieldId name (fieldName f) (fieldType f)
-                          val = defaultValue (fieldType f)
                        in val `seq` M.insert (ref,fid) val fieldMap)
                    (instanceFields ps)
-                   fields
+                   (fields `zip` fvals)
         }
    return ref
 
   isValidEltOfArray elt arr = do
-    if elt == NullRef
-      then return (mkCBool True)
-      else do
-        cb <- getCodebase
-        ArrayType arrayTy <- getType arr
-        elTy              <- getType elt
-        liftIO $ mkCBool <$> isSubtype cb elTy arrayTy
+    if elt == NullRef then
+      withSBE $ \sbe -> termBool sbe True
+    else do
+      cb <- getCodebase
+      ArrayType arrayTy <- getType arr
+      elTy              <- getType elt
+      withSBE $ \sbe -> termBool sbe =<< isSubtype cb elTy arrayTy
 
   hasType ref tp = do
     cb <- getCodebase
-    mkCBool <$> ((\rtp -> liftIO (isSubtype cb rtp tp)) =<< getType ref)
+    rtp <- getType ref
+    b <- liftIO $ isSubtype cb rtp tp
+    withSBE $ \sbe -> termBool sbe b
+
 
   typeOf NullRef    = return Nothing
   typeOf (Ref _ ty) = return (Just ty)
@@ -1360,14 +1368,15 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   superHasType ref tp = do
     ClassType refClassname <- getType ref
     cb <- getCodebase
-    liftIO $ do
+    withSBE $ \sbe -> do
       cl <- lookupClass cb refClassname
-      mkCBool <$> case superClass cl of
-                    Just super -> isSubtype cb (ClassType super) (ClassType tp)
-                    Nothing    -> return False
+      b <- case superClass cl of
+             Just super -> isSubtype cb (ClassType super) (ClassType tp)
+             Nothing    -> return False
+      termBool sbe b
 
   -- (rEq x y) returns boolean formula that holds if x == y.
-  rEq x y = return $ mkCBool $ x == y
+  rEq x y = withSBE $ \sbe -> termBool sbe (x == y)
 
   -- rNull returns node representing null pointer.
   rNull = return NullRef
@@ -1403,23 +1412,24 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
       Just value -> pushValue value
       -- Some code seems to depend on instance fields being
       -- initialized to their default value.
-      Nothing    ->
-        if isFloatType (fieldIdType fieldId)
-          then (error $ "internal: unassigned floating-point instance field " ++
-                       show fieldId ++ " in " ++ show r)
-          else (pushValue $ defaultValue $ fieldIdType fieldId)
+      Nothing    -> do
+        when (isFloatType (fieldIdType fieldId)) $
+          error $ "internal: unassigned floating-point instance field "
+                    ++ show fieldId ++ " in " ++ show r
+        val <- withSBE $ \sbe -> defaultValue sbe (fieldIdType fieldId)
+        pushValue val
 
   -- Pushes value of field onto stack.
   -- NOTE: Assumes ref is not null.
   pushStaticFieldValue fieldId = do
     ps <- getPathState
     case M.lookup fieldId (staticFields ps) of
-      Just value -> pushValue $ value
-      Nothing    ->
-        if isFloatType (fieldIdType fieldId)
-          then (error $ "internal: unassigned static floating-point field " ++
-                        show fieldId)
-          else (pushValue $ defaultValue $ fieldIdType fieldId)
+      Just value -> pushValue value
+      Nothing    -> do
+        when (isFloatType (fieldIdType fieldId)) $
+          error $ "internal: unassigned static floating-point field " ++
+                        show fieldId
+        pushValue =<< withSBE (\sbe -> defaultValue sbe (fieldIdType fieldId))
 
   -- (pushArrayValue ref index) pushes the value of the array at index to the stack.
   -- NOTE: Assumes that ref is a valid array and index is a valid index in array.
@@ -2056,8 +2066,9 @@ getClassName _ = error "getClassName: wrong argument type"
 
 -- | Returns (the Value) 'true' if the given class name represents an array class
 -- (using java.lang.Class naming conventions)
-classNameIsArray :: ConstantInjection term => String -> Value term
-classNameIsArray s = IValue $ mkCInt 32 $ if classNameIsArray' s then 1 else 0
+classNameIsArray :: String -> Simulator sym (Value (MonadTerm sym))
+classNameIsArray s = withSBE $ \sbe -> IValue <$> termInt sbe v
+  where v = if classNameIsArray' s then 1 else 0
 
 classNameIsArray' :: String -> Bool
 classNameIsArray' ('[':_) = True
@@ -2065,9 +2076,10 @@ classNameIsArray' _       = False
 
 -- | Returns (the Value) 'true' if the given class name represents a primtive
 -- type (using java.lang.Class naming conventions)
-classNameIsPrimitive :: ConstantInjection term => String -> Value term
-classNameIsPrimitive s = IValue $ mkCInt 32 $ if classNameIsPrimitive' s then 1 else 0
-
+classNameIsPrimitive :: String -> Simulator sym (Value (MonadTerm sym))
+classNameIsPrimitive s = withSBE $ \sbe -> IValue <$> termInt sbe v 
+  where v = if classNameIsPrimitive' s then 1 else 0
+    
 classNameIsPrimitive' :: String -> Bool
 classNameIsPrimitive' (ch:[]) = ch `elem` ['B','S','I','J','F','D','Z','C']
 classNameIsPrimitive' _       = False
@@ -2245,11 +2257,13 @@ getStaticFieldValue :: AigOps sym
 getStaticFieldValue pd fldId = do
   ps <- getPathStateByName pd
   cb <- getCodebase
-  cl <- liftIO $ lookupClass cb (fieldIdClass fldId)
-  case M.lookup fldId (staticFields ps) of
-    Just v  -> return v
-    Nothing -> CE.assert (validStaticField cl) $
-                 return $ defaultValue $ fieldIdType fldId
+  withSBE $ \sbe -> do
+    cl <- lookupClass cb (fieldIdClass fldId)
+    case M.lookup fldId (staticFields ps) of
+      Just v  -> return v
+      Nothing -> 
+        CE.assert (validStaticField cl) $
+          defaultValue sbe (fieldIdType fldId)
   where
     validStaticField cl =
       maybe False (\f -> fieldIsStatic f && fieldType f == fieldIdType fldId)
@@ -2257,17 +2271,17 @@ getStaticFieldValue pd fldId = do
       $ classFields cl
 
 -- Returns default value for objects with given type.
-defaultValue :: ConstantInjection term => Type -> Value term
-defaultValue (ArrayType _tp) = RValue NullRef
-defaultValue    BooleanType  = IValue $ mkCInt 32 0
-defaultValue       ByteType  = IValue $ mkCInt 32 0
-defaultValue       CharType  = IValue $ mkCInt 32 0
-defaultValue (ClassType _st) = RValue NullRef
-defaultValue     DoubleType  = DValue 0.0
-defaultValue      FloatType  = FValue 0.0
-defaultValue        IntType  = IValue $ mkCInt 32 0
-defaultValue       LongType  = LValue $ mkCInt 64 0
-defaultValue      ShortType  = IValue $ mkCInt 32 0
+defaultValue :: Backend sym -> Type -> IO (Value (MonadTerm sym))
+defaultValue _   (ArrayType _tp) = return $ RValue NullRef
+defaultValue sbe BooleanType     = IValue <$> termInt sbe 0 
+defaultValue sbe ByteType        = IValue <$> termInt sbe 0 
+defaultValue sbe CharType        = IValue <$> termInt sbe 0
+defaultValue _   (ClassType _st) = return $ RValue NullRef
+defaultValue _   DoubleType      = return $ DValue 0.0
+defaultValue _   FloatType       = return $ FValue 0.0
+defaultValue sbe IntType         = IValue <$> termInt sbe 0
+defaultValue sbe LongType        = LValue <$> termLong sbe 0
+defaultValue sbe ShortType       = IValue <$> termInt sbe 0
 
 dumpPathStates :: (PrettyTerm (MonadTerm sym)) => Simulator sym ()
 dumpPathStates = do
