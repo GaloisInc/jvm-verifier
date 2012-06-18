@@ -51,9 +51,7 @@ mkTestArgs tn = do
   return [RValue args]
 
 doTest :: String -> TrivialProp
-doTest tn cb = runSymTest $ \sbe -> runDefSimulator sbe cb go `catchMIO` simExcHndlr failMsg
-  -- ^ NB: It's the type of runTest that forces use of SymbolicMonad here;
-  -- simExcHndlr is polymorphic in the symbolic backend
+doTest tn cb = runSymTest $ \sbe -> runDefSimulator sbe cb go 
   where
     failMsg = "Unexpected error caught in JAPI test: " ++ tn
     go = do jssOverrides

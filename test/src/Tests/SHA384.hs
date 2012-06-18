@@ -106,7 +106,8 @@ evalAigSHA384 msg = do
 runSHA384 :: AigOps sym => [MonadTerm sym] -> Simulator sym [MonadTerm sym]
 runSHA384 msgVars = do
   msgArray <- newIntArray intArrayTy msgVars
-  outArray <- newMultiArray (ArrayType ByteType) [mkCInt (Wx 32) 48]
+  l <- withSBE $ \sbe -> termInt sbe 48
+  outArray <- newMultiArray (ArrayType ByteType) [l]
   [(pd, Terminated)] <- runStaticMethod "TestSHA384"
                                         "sha384_digest"
                                         "([B[B)V"
