@@ -68,10 +68,10 @@ evalDagSHA384 msg = do
   oc <- run mkOpCache
   rslt <- run $ runSymbolic oc $ do
     sbe <- getBackend
-    msgVars <- liftIO $ replicateM (length msg `div` 2) $ freshByte sbe
-    outVars <- runDefSymSim cb $ runSHA384 msgVars
-    let inputValues = V.map constInt $ V.fromList (hexToByteSeq msg)
     liftIO $ do
+      msgVars <- replicateM (length msg `div` 2) $ freshByte sbe
+      outVars <- runDefSimulator sbe cb $ runSHA384 msgVars
+      let inputValues = V.map constInt $ V.fromList (hexToByteSeq msg)
       evalFn <- concreteEvalFn inputValues
       byteSeqToHex <$> mapM evalFn outVars
   assert $ rslt == golden
@@ -86,11 +86,11 @@ evalAigSHA384 msg = do
   rslt <- run $ runSymbolic oc $ do
     let msgLen = length msg `div` 2
     sbe <- getBackend
-    msgVars <- liftIO $ replicateM msgLen $ freshByte sbe
-    outVars <- runDefSymSim cb $ runSHA384 msgVars
     be <- getBitEngine
     liftIO $ do
-      outLits <- liftIO $ concat <$> mapM (fmap toLsbf_lit . getVarLit sbe) outVars
+      msgVars <- replicateM msgLen $ freshByte sbe
+      outVars <- runDefSimulator sbe cb $ runSHA384 msgVars
+      outLits <- concat <$> mapM (fmap toLsbf_lit . getVarLit sbe) outVars
       -- | Word-level inputs
       let cinps = map constInt $ hexToByteSeq msg
       -- | Boolean inputs to evalAig
