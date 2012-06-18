@@ -116,8 +116,8 @@ runCryptolC key input = do
   inArray <- newIntArray intArrayTy $ reverse input
   -- Invoke static encrypt method.
   liftIO $ putStrLn "runCryptolC: Running static method"
-  (pd, Right outArray) <-
-    takeRefRslt . withoutExceptions
+  [(pd, ReturnVal (RValue outArray))] <-
+    withoutExceptions
       <$> runStaticMethod "AES128Encrypt"
                           "encrypt" "([I[I)[I"
                           [RValue keyArray, RValue inArray]
@@ -125,7 +125,7 @@ runCryptolC key input = do
   -- Get (path-specific!) result
   rslt <-
     forM [3,2..0] $ \i -> do
-      IValue iValue <- getArrayValue pd outArray (mkCInt (Wx 32) i)
+      IValue iValue <- getArrayValue pd outArray (mkCInt 32 i)
       return iValue
   liftIO $ putStrLn "runCryptolC: completed"
   return rslt
@@ -245,9 +245,9 @@ makeBouncyCastleAiger ct name cb = do
         setVerbosity 0
         runBouncyCastle ct name (reverse revKey) (reverse revInput)
       outputLits <- mapM (getVarLit sbe) $ reverse output
-      putStrLn $ "makeBouncyCastleAiger: Creating " ++ (name ++ ".aig")
+      putStrLn $ "makeBouncyCastleAiger: Creating " ++ name ++ ".aig"
       writeAiger be (name ++ ".aig") $
-        concat $ map (take 8 . toLsbf_lit) outputLits
+        concatMap (SV.toList . SV.take . toLsbfV) outputLits
 
 evalBouncyCastle :: CipherType -> String -> String -> String -> IO String
 evalBouncyCastle ct name key input = do
