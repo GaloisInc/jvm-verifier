@@ -1,29 +1,52 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DoAndIfThenElse #-}
+{-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
-module Verifier.Java.WordBackend where
+module Verifier.Java.WordBackend 
+       ( -- * Re-exports from Verifier infrastructure.
+         DagTerm
+       , mkOpCache
+       , mkCInt
+       , concreteEvalFn
+       , toLsbf_lit
+       , CValue
+       , getSVal
+       , BitEngine(..)
+       , evalAig
+       , writeAiger
+         -- * Utilities
+       , constInt
+       , constLong
+       , intToBoolSeq
+         -- * Backend Exports
+       , SymbolicMonad
+       , withSymbolicMonadState
+       , SymbolicMonadState(..)
+       , symbolicBackend
+       , evalAigArgs8
+       , evalAigArgs32
+       , evalAigArgs64
+       ) where
 
 import Control.Applicative
 import Control.Exception (assert, bracket)
-import Control.Monad.Reader
+import Data.Bits
+import Data.Int
 import Data.IORef
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
-import Data.Typeable
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 
 import Verinf.Symbolic.Common
 import Verinf.Symbolic
 import Verinf.Symbolic.Lit.Functional
-import Verinf.Utils.CatchMIO
 
 import Verifier.Java.Backend
-
-type Node = DagTerm
+import Verifier.Java.Utils
 
 data SymbolicMonadState = SMS {
     smsOpCache :: OpCache
@@ -55,15 +78,7 @@ mkSymbolicMonadState oc be de = do
              , smsBitBlastFn = bbFn
              }
 
-newtype SymbolicMonad a = SM (ReaderT SymbolicMonadState IO a)
-  deriving ( Applicative
-           , CatchMIO
-           , Functor
-           , Monad
-           , MonadIO
-           , Typeable
-           )
-
+data SymbolicMonad
 instance AigOps SymbolicMonad where
 type instance MonadTerm SymbolicMonad  = DagTerm
 
@@ -75,23 +90,6 @@ withSymbolicMonadState oc f =
   withBitEngine $ \be -> do
     de <- mkConstantFoldingDagEngine
     f =<< mkSymbolicMonadState oc be de
-
--- | Run symbolic monad in IO.
-runSymbolic :: OpCache -> SymbolicMonad a -> IO a
-runSymbolic oc (SM m) = withSymbolicMonadState oc (runReaderT m)
-  
-getSymState :: SymbolicMonad SymbolicMonadState
-getSymState = SM ask
-
-getDagEngine :: SymbolicMonad DagEngine
-getDagEngine = SM (asks smsDagEngine)
-
--- | Returns Bit engine used for literal computation inside monad.
-getBitEngine :: SymbolicMonad (BitEngine Lit)
-getBitEngine = SM (asks smsBitEngine)
-
-getBackend :: SymbolicMonad (Backend SymbolicMonad)
-getBackend = symbolicBackend <$> getSymState
 
 symbolicBackend :: SymbolicMonadState -> Backend SymbolicMonad
 symbolicBackend sms = do
@@ -239,3 +237,30 @@ symbolicBackend sms = do
    , writeAigToFile = \fname res -> lWriteAiger fname [res]
    , getVarLit = getTermLit
    }
+
+-- Misc utility functions {{{1
+
+int32Type :: DagType
+int32Type = SymInt (constantWidth 32)
+
+int64Type :: DagType
+int64Type = SymInt (constantWidth 64)
+
+intToBoolSeq :: CValue -> [Bool]
+intToBoolSeq (getSValW -> Just (Wx w, c)) = map (testBit c) [0..w-1]
+intToBoolSeq _ = error "internal: intToBoolSeq undefined"
+
+constInt :: Int32 -> CValue
+constInt = mkCInt 32 . fromIntegral
+
+constLong :: Int64 -> CValue
+constLong = mkCInt 64 . fromIntegral
+
+evalAigArgs8 :: [Int32] -> [Bool]
+evalAigArgs8 = concatMap (\c -> map (testBit c) [0..7])
+
+evalAigArgs32 :: [Int32] -> [Bool]
+evalAigArgs32 = concatMap (\c -> map (testBit c) [0..31]) 
+
+evalAigArgs64 :: [Int64] -> [Bool]
+evalAigArgs64 = concatMap (\c -> map (testBit c) [0..63])

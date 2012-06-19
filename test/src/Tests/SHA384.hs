@@ -11,19 +11,13 @@ module Tests.SHA384 (sha384Tests) where
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Trans
+import qualified Data.Vector as V
+import qualified Data.Vector.Storable as SV
 import System.Process
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 
-import qualified Data.Vector as V
-import qualified Data.Vector.Storable as SV
-import JavaParser.Common
-import Simulation hiding (run)
 import Tests.Common
-import Utils
-
-import Verinf.Symbolic
 
 sha384Tests :: [(Args, Property)]
 sha384Tests =
@@ -66,14 +60,13 @@ evalDagSHA384 msg = do
   -- run $ putStrLn $ "Message        : " ++ msg
   -- run $ putStrLn $ "SHA-384 Golden : " ++ golden
   oc <- run mkOpCache
-  rslt <- run $ runSymbolic oc $ do
-    sbe <- getBackend
-    liftIO $ do
-      msgVars <- replicateM (length msg `div` 2) $ freshByte sbe
-      outVars <- runDefSimulator sbe cb $ runSHA384 msgVars
-      let inputValues = V.map constInt $ V.fromList (hexToByteSeq msg)
-      evalFn <- concreteEvalFn inputValues
-      byteSeqToHex <$> mapM evalFn outVars
+  rslt <- run $ withSymbolicMonadState oc $ \sms -> do
+    let sbe = symbolicBackend sms 
+    msgVars <- replicateM (length msg `div` 2) $ freshByte sbe
+    outVars <- runDefSimulator sbe cb $ runSHA384 msgVars
+    let inputValues = V.map constInt $ V.fromList (hexToByteSeq msg)
+    evalFn <- concreteEvalFn inputValues
+    byteSeqToHex <$> mapM evalFn outVars
   assert $ rslt == golden
   -- run $ putStrLn $ "SHA-384 Result : " ++ rslt
 
@@ -83,24 +76,23 @@ evalAigSHA384 msg = do
   golden <- run $ getGoldenSHA384 msg
 --   run $ putStrLn $ "golden sha = " ++ golden
   oc <- run mkOpCache
-  rslt <- run $ runSymbolic oc $ do
+  rslt <- run $ withSymbolicMonadState oc $ \sms -> do
     let msgLen = length msg `div` 2
-    sbe <- getBackend
-    be <- getBitEngine
-    liftIO $ do
-      msgVars <- replicateM msgLen $ freshByte sbe
-      outVars <- runDefSimulator sbe cb $ runSHA384 msgVars
-      outLits <- concat <$> mapM (fmap toLsbf_lit . getVarLit sbe) outVars
-      -- | Word-level inputs
-      let cinps = map constInt $ hexToByteSeq msg
-      -- | Boolean inputs to evalAig
-      let binps = concatMap (take 8 . intToBoolSeq) cinps
-      r <- beEvalAigV be (SV.fromList binps) (SV.fromList outLits)
-      let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
+    let sbe = symbolicBackend sms 
+    let be = smsBitEngine sms
+    msgVars <- replicateM msgLen $ freshByte sbe
+    outVars <- runDefSimulator sbe cb $ runSHA384 msgVars
+    outLits <- concat <$> mapM (fmap toLsbf_lit . getVarLit sbe) outVars
+    -- | Word-level inputs
+    let cinps = map constInt $ hexToByteSeq msg
+    -- | Boolean inputs to evalAig
+    let binps = concatMap (take 8 . intToBoolSeq) cinps
+    r <- beEvalAigV be (SV.fromList binps) (SV.fromList outLits)
+    let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
                  $ SV.toList $ SV.slice (32*k) 32 r
-               | k <- [0..47]
-               ]
-      return $ byteSeqToHex rs
+             | k <- [0..47]
+             ]
+    return $ byteSeqToHex rs
   assert $ rslt == golden
 
 runSHA384 :: AigOps sym => [MonadTerm sym] -> Simulator sym [MonadTerm sym]

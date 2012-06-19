@@ -8,10 +8,10 @@ import qualified Data.Map as M
 import qualified Data.Vector.Storable as SV
 
 import Execution.JavaSemantics
-import JavaParser
 import Simulation
-import Utils.Common
 import Verinf.Symbolic
+
+import Verifier.Java.Parser
 
 -- | Register all predefined overrides for the com.galois.symbolic.Symbolic
 -- API.

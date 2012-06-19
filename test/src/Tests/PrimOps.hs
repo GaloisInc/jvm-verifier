@@ -14,7 +14,6 @@ Point-of-contact : jstanley
 module Tests.PrimOps (primOpTests) where
 
 import Control.Applicative
-import qualified Control.Exception as CE
 import Control.Monad
 import Data.Bits
 import qualified Data.Vector as V
@@ -23,12 +22,7 @@ import Data.Int
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 
-import JavaParser (Type(..))
-import Simulation hiding (run)
 import Tests.Common
-import Utils
-
-import Verinf.Symbolic
 
 verb :: Int
 verb = 0
@@ -192,7 +186,7 @@ t13 cb =
     ins <- replicateM 2 $ IValue <$> freshInt sbe
     outVars <- runDefSimulator sbe cb $ do
       setVerbosity verb
-      outArr <- newMultiArray (ArrayType IntType) [mkCInt (Wx 32) 4]
+      outArr <- newMultiArray (ArrayType IntType) [mkCInt 32 4]
       [(pd, Terminated)] <-
         withoutExceptions <$>
           runStaticMethod "Trivial" "out_array" "(II[I)V"
@@ -249,7 +243,7 @@ ct2 cb =
                       [RValue s, IValue inp]
     evalFn <- concreteEvalFn V.empty
     outVal <- evalFn outVar
-    return [boolFromConst outVal]
+    return [outVal == mkCInt 32 1]
 
 --------------------------------------------------------------------------------
 -- floating point tests
@@ -366,14 +360,6 @@ evalBinOp64 cb (classNm, methodNm, sig) x y = do
     let args = V.map (mkCInt 64 . toInteger) (V.fromList [x, y])
     evalFn <- concreteEvalFn args
     evalFn rslt
-
-_containsExc :: Monad m => [FinalResult (MonadTerm m)] -> String -> m ()
-_containsExc frs s = flip CE.assert (return ()) $
-  any (\fr -> case fr of
-                Exc (JavaException (Ref _ (ClassType s')) _) -> s == s'
-                _ -> False
-      )
-      frs
 
 --------------------------------------------------------------------------------
 -- Scratch

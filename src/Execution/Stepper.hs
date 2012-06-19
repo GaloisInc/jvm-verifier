@@ -12,7 +12,6 @@ import Control.Monad.Trans (liftIO)
 
 import Execution.Codebase
 import Execution.JavaSemantics
-import JavaParser
 
 -- -- Step function {{{1
 
