@@ -10,14 +10,14 @@ Point-of-contact : jstanley
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE TypeFamilies         #-}
 
-module Tests.Common where
+module Tests.Common 
+  ( module Tests.Common     
+  , module Verifier.Java.WordBackend 
+  ) where
 
 import Control.Monad
-import qualified Control.Exception as CE
 import Data.Int
-import Data.Typeable
 import Prelude hiding (catch)
-import System.IO
 import System.Random
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
@@ -26,8 +26,6 @@ import qualified Test.QuickCheck.Test as T
 import Execution.Codebase
 import Verifier.Java.Backend
 import Verifier.Java.WordBackend
-import Simulation (SimulatorExc(..), liftIO)
-
 import Verinf.Symbolic
 
 assertMsg :: Bool -> String -> PropertyM IO ()
@@ -76,8 +74,14 @@ commonCB = run commonLoadCB
 commonLoadCB :: IO Codebase
 commonLoadCB = loadCodebase commonJars commonClassPaths
 
+{-
 runTest :: SymbolicMonad [Bool] -> PropertyM IO ()
-runTest m = mapM_ assert =<< run (mkOpCache >>= \oc -> runSymbolic oc m) 
+runTest m = do
+ res <- run $ do
+   oc <- mkOpCache
+   runSymbolic oc m
+ mapM_ assert res
+-}
 
 runWithSymbolicMonadState :: (SymbolicMonadState -> IO [Bool]) ->  PropertyM IO ()
 runWithSymbolicMonadState f = do
@@ -88,38 +92,6 @@ runWithSymbolicMonadState f = do
 
 runSymTest :: (Backend SymbolicMonad -> IO [Bool]) -> PropertyM IO ()
 runSymTest m = runWithSymbolicMonadState (m . symbolicBackend)
-
-runNegTest :: SymbolicMonad [Bool] -> PropertyM IO ()
-runNegTest m = do
-  -- For negative test cases, we don't want to report success of *any* failure,
-  -- just the failures that we want to see, so we explicitly fail if any
-  -- unexpected exception escapes out of m.
-  eea <- run $ do
-   oc <- mkOpCache
-   CE.try (runSymbolic oc m)
-  case eea of
-    Left (e :: CE.SomeException) ->
-      case CE.fromException e of
-        Just (SymExtErr msg v) -> succeed msg v
-        _ -> let h :: (Show t, Typeable t, t ~ MonadTerm SymbolicMonad) =>
-                      Maybe (SimulatorExc t)
-                 h = CE.fromException e
-             in
-               case h of
-                 Just (SimExtErr msg v _) -> succeed msg v
-                 _ -> emitErr e
-    Right chks -> assert (all not chks)
-  where
-    succeed msg v | v > 0     = run (putStrLn msg) >> assert False
-                  | otherwise = assert False
-
-    emitErr e = do
-      run $ mapM_ (hPutStrLn stderr)
-              [ "vvv Test witnessed unexpected exception vvv"
-              , show e
-              , "^^^ Test witnessed unexpected exception ^^^"
-              ]
-      assert True -- fail
 
 runTests :: [(Args, Property)] -> IO ()
 runTests tests = do

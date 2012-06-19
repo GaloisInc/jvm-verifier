@@ -13,6 +13,7 @@ import Control.Applicative ((<$>))
 import Control.Monad (forM, replicateM)
 import Control.Monad.Trans
 import qualified Data.Vector as V
+import qualified Data.Vector.Storable as SV
 import System.CPUTime
 import Text.Printf
 
@@ -40,12 +41,7 @@ testInput = "4EC137A426DABF8AA0BEB8BC0C2B89D6"
 zeroBlock = replicate 32 '0'
 
 -- Cryptol Java Port {{{1
-runCryptolJava ::
-  AigOps sym
-  => String
-  -> [MonadTerm sym]
-  -> [MonadTerm sym]
-  -> Simulator sym [MonadTerm sym]
+runCryptolJava :: String -> [DagTerm] -> [DagTerm] -> Simulator SymbolicMonad [DagTerm]
 runCryptolJava name key input = do
   setVerbosity 0
   -- Create array for key.
@@ -53,7 +49,7 @@ runCryptolJava name key input = do
   -- Initialize in with variables
   inArray <- newIntArray intArrayTy input
   -- Create out buffer
-  outArray <- newMultiArray intArrayTy [mkCInt (Wx 32) 4]
+  outArray <- newMultiArray intArrayTy [mkCInt 32 4]
   -- Invoke static method
   liftIO $ putStrLn "runCryptolJava: Running static method"
   rs <- runStaticMethod name
@@ -65,48 +61,41 @@ runCryptolJava name key input = do
   let [(pd, Terminated)] = withoutExceptions rs
   -- Get (path-specific!) result
   forM [0..3] $ \i -> do
-    IValue iValue <- getArrayValue pd outArray (mkCInt (Wx 32) i)
+    IValue iValue <- getArrayValue pd outArray (mkCInt 32 i)
     return iValue
 
 evalCryptolJava :: String -> String -> String -> IO String
 evalCryptolJava name key input = do
   oc <- mkOpCache
   cb <- commonLoadCB
-  runSymbolic oc $ do
-    outVars <- runSimulator defaultSimFlags cb $ do
+  withSymbolicMonadState oc $ \sms -> do
+    let sbe = symbolicBackend sms
+    outVars <- runSimulator sbe defaultSimFlags cb $ do
       setVerbosity 0
       let tint      = mkCInt (Wx 32) . fromIntegral
           keyVars   = map tint $ hexToIntSeq key
           inputVars = map tint $ hexToIntSeq input
       runCryptolJava name keyVars inputVars
-    liftIO $ do
-      evalFn <- concreteEvalFn V.empty
-      intSeqToHex <$> mapM evalFn outVars
+    evalFn <- concreteEvalFn V.empty
+    intSeqToHex <$> mapM evalFn outVars
 
 evalCryptolJavaWord :: String -> String -> String -> IO String
 evalCryptolJavaWord name key input = do
   oc <- mkOpCache
   cb <- commonLoadCB
-  runSymbolic oc $ do
-    sbe <- getBackend
-    liftIO $ do
-      keyVars   <- replicateM 4 $ freshInt sbe
-      inputVars <- replicateM 4 $ freshInt sbe
-      outVars <- runDefSimulator sbe cb $ do
-        setVerbosity 0
-        runCryptolJava name keyVars inputVars
-      let inp = V.map constInt $ V.fromList $ hexToIntSeq key ++ hexToIntSeq input
-      evalFn <- concreteEvalFn inp
-      intSeqToHex <$> mapM evalFn outVars
+  withSymbolicMonadState oc $ \sms -> do
+    let sbe = symbolicBackend sms 
+    keyVars   <- replicateM 4 $ freshInt sbe
+    inputVars <- replicateM 4 $ freshInt sbe
+    outVars <- runDefSimulator sbe cb $ do
+      setVerbosity 0
+      runCryptolJava name keyVars inputVars
+    let inp = V.map constInt $ V.fromList $ hexToIntSeq key ++ hexToIntSeq input
+    evalFn <- concreteEvalFn inp
+    intSeqToHex <$> mapM evalFn outVars
 
 -- Levent's Cryptol C Port {{{1
-runCryptolC ::
-  ( AigOps sym
-  , MonadTerm sym ~ Node
-  )
-  => [MonadTerm sym]
-  -> [MonadTerm sym]
-  -> Simulator sym [MonadTerm sym]
+runCryptolC :: [DagTerm] -> [DagTerm] -> Simulator SymbolicMonad [DagTerm]
 runCryptolC key input = do
   -- Create array for key.
   keyArray <- newIntArray intArrayTy $ reverse key
@@ -130,23 +119,20 @@ runCryptolC key input = do
 
 type RunIO sym a = sym a -> IO a
 
-makeCryptolAiger ::
-  ( AigOps sym)
-  => RunIO sym ()
-  -> String
-  -> Codebase
-  -> ([MonadTerm sym] -> [MonadTerm sym] -> Simulator sym [MonadTerm sym])
-  -> IO ()
-makeCryptolAiger rio filepath cb simFn =
-  rio $ do
-    sbe <- getBackend
-    be <- getBitEngine
-    liftIO $ do
-      keyVars   <- replicateM 4 $ freshInt sbe
-      inputVars <- replicateM 4 $ freshInt sbe
-      outVars   <- runDefSimulator cb (setVerbosity 0 >> simFn keyVars inputVars)
-      outLits   <- mapM (getVarLit sbe) outVars
-      writeAiger be filepath (concat $ map toLsbf_lit outLits)
+makeCryptolAiger :: String
+                    -> Codebase
+                    -> ([DagTerm] -> [DagTerm] -> Simulator SymbolicMonad [DagTerm])
+                    -> IO ()
+makeCryptolAiger filepath cb simFn = do
+  oc <- mkOpCache
+  withSymbolicMonadState oc $ \sms -> do
+    let sbe = symbolicBackend sms 
+    let be  = smsBitEngine sms
+    keyVars   <- replicateM 4 $ freshInt sbe
+    inputVars <- replicateM 4 $ freshInt sbe
+    outVars   <- runDefSimulator sbe cb (setVerbosity 0 >> simFn keyVars inputVars)
+    outLits   <- mapM (getVarLit sbe) outVars
+    writeAiger be filepath (concat (map toLsbf_lit outLits))
 
 evalCryptolC :: String -> String -> IO String
 evalCryptolC key input = do
@@ -155,26 +141,23 @@ evalCryptolC key input = do
   let tint      = mkCInt (Wx 32) . fromIntegral
       keyVars   = map tint $ hexToIntSeq key
       inputVars = map tint $ hexToIntSeq input
-  runSymbolic oc $ do
-    sbe <- getBackend
-    liftIO $ do
-      outVars <- runDefSimulator sbe cb $ do
-        setVerbosity 0
-        runCryptolC keyVars inputVars
-      evalFn <- concreteEvalFn V.empty
-      intSeqToHex <$> mapM evalFn outVars
+  withSymbolicMonadState oc $ \sms -> do
+    let sbe = symbolicBackend sms
+    outVars <- runDefSimulator sbe cb $ do
+      setVerbosity 0
+      runCryptolC keyVars inputVars
+    evalFn <- concreteEvalFn V.empty
+    intSeqToHex <$> mapM evalFn outVars
 
 -- Bouncy Castle {{{1
 
 data CipherType = AES | RC5
 
-runBouncyCastle ::
-  AigOps sym
-  => CipherType
-  -> String
-  -> [MonadTerm sym]
-  -> [MonadTerm sym]
-  -> Simulator sym [MonadTerm sym]
+runBouncyCastle :: CipherType
+                -> String
+                -> [DagTerm]
+                -> [DagTerm]
+                -> Simulator SymbolicMonad [DagTerm]
 runBouncyCastle ct name key input = do
   let engineClassName = "org/bouncycastle/crypto/engines/" ++ name
       paramClassName  = "org/bouncycastle/crypto/params/" ++
@@ -183,7 +166,7 @@ runBouncyCastle ct name key input = do
                             RC5 -> "RC5Parameters"
       byteArrayType   = ArrayType ByteType
       init1           = makeMethodKey "<init>" $ case ct of AES -> "([B)V"; RC5 -> "([BI)V"
-      rc5Rounds       = IValue (mkCInt (Wx 32) 1)
+      rc5Rounds       = IValue (mkCInt 32 1)
 --  setVerbosity 4
   ---- Create array for key.
   keyArray <- newIntArray byteArrayType key
@@ -233,9 +216,9 @@ runBouncyCastle ct name key input = do
 makeBouncyCastleAiger :: CipherType -> String -> Codebase -> IO ()
 makeBouncyCastleAiger ct name cb = do
   oc <- mkOpCache
-  runSymbolic oc $ do
-    sbe <- getBackend
-    be <- getBitEngine
+  withSymbolicMonadState oc $ \sms -> do
+    let sbe = symbolicBackend sms
+    let be = smsBitEngine sms
     liftIO $ do
       revKey   <- replicateM 16 $ freshByte sbe
       revInput <- replicateM 16 $ freshByte sbe
@@ -245,23 +228,22 @@ makeBouncyCastleAiger ct name cb = do
       outputLits <- mapM (getVarLit sbe) $ reverse output
       putStrLn $ "makeBouncyCastleAiger: Creating " ++ name ++ ".aig"
       writeAiger be (name ++ ".aig") $
-        concatMap (SV.toList . SV.take . toLsbfV) outputLits
+        concatMap (SV.toList . SV.take 8 . toLsbfV) outputLits
 
 evalBouncyCastle :: CipherType -> String -> String -> String -> IO String
 evalBouncyCastle ct name key input = do
   oc <- mkOpCache
   cb <- commonLoadCB
-  runSymbolic oc $ do
-    sbe <- getBackend
-    liftIO $ do
-      keyVars   <- replicateM 16 $ freshByte sbe
-      inputVars <- replicateM 16 $ freshByte sbe
-      outVars <- runDefSimulator cb $ do
-        setVerbosity 0
-        runBouncyCastle ct name keyVars inputVars
-      let inp = V.map constInt $ V.fromList $ hexToByteSeq key ++ hexToByteSeq input
-      evalFn <- concreteEvalFn inp
-      intSeqToHex <$> mapM evalFn outVars
+  withSymbolicMonadState oc $ \sms -> do
+    let sbe = symbolicBackend sms
+    keyVars   <- replicateM 16 $ freshByte sbe
+    inputVars <- replicateM 16 $ freshByte sbe
+    outVars <- runDefSimulator sbe cb $ do
+      setVerbosity 0
+      runBouncyCastle ct name keyVars inputVars
+    let inp = V.map constInt $ V.fromList $ hexToByteSeq key ++ hexToByteSeq input
+    evalFn <- concreteEvalFn inp
+    intSeqToHex <$> mapM evalFn outVars
 
 writeBouncyCastleAiger :: String -> IO ()
 writeBouncyCastleAiger name = do
@@ -275,11 +257,10 @@ writeBouncyCastleAiger name = do
 
 createAigers :: IO ()
 createAigers = do
-  oc <- mkOpCache
   cb <- loadCodebase commonJars ("user":commonClassPaths)
-  makeCryptolAiger (runSymbolic oc) "cryptolJava.aig" cb     $ runCryptolJava "AESCryptol"
-  makeCryptolAiger (runSymbolic oc) "cryptolNoTables.aig" cb $ runCryptolJava "AESCryptolNoTables"
-  makeCryptolAiger (runSymbolic oc) "cryptolC.aig" cb runCryptolC
+  makeCryptolAiger "cryptolJava.aig" cb     $ runCryptolJava "AESCryptol"
+  makeCryptolAiger "cryptolNoTables.aig" cb $ runCryptolJava "AESCryptolNoTables"
+  makeCryptolAiger "cryptolC.aig" cb runCryptolC
 
   -- [JS <2011-07-06 Wed>] TODO FIXME BUG : At some point, the simulator started
   -- crashing on this example (and likely downstream examples as well), but we

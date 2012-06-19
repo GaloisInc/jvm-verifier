@@ -81,8 +81,6 @@ module Simulation
   , ppSimulatorExc
   , ppValue
   , setVerbosity
-  , simExcHndlr
-  , simExcHndlr'
   , lookupStringRef
   , splitFinishedPaths
 --  , verbosity
@@ -93,7 +91,6 @@ module Simulation
   , registerBreakpoints
   , resumeBreakpoint
   , module Verifier.Java.Backend
-  , module Verifier.Java.WordBackend
   , liftIO
   , withSBE
   , withoutExceptions
@@ -121,7 +118,7 @@ import Data.Typeable hiding (typeOf)
 import qualified Data.Vector as V
 import Data.Word
 import Prelude hiding (catch)
-import System.IO (hFlush, hPutStr, stderr, stdout)
+import System.IO (hFlush, stdout)
 
 import Execution.JavaSemantics
 import Analysis.CFG (ppInst)
@@ -132,12 +129,15 @@ import JavaParser.Common
 import Utils
 import Utils.Common
 import Verifier.Java.Backend
-import Verifier.Java.WordBackend
 
+{-
 import Verinf.Symbolic hiding (defaultValue, (&&&), (|||))
+-}
+
 import Verinf.Utils.CatchMIO
 import Verinf.Utils.IOStateT
 import Verinf.Utils.LogMonad
+
 
 data InitializationStatus
   = Started
@@ -1946,20 +1946,6 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
 
 --------------------------------------------------------------------------------
 -- Misc utilities
-
-simExcHndlr' :: Bool -> String -> CE.SomeException -> IO [Bool]
-simExcHndlr' suppressOutput failMsg exc = do
-  let h :: Maybe (SimulatorExc DagTerm)
-      h = CE.fromException exc
-  case h of
-    Just (SimExtErr msg _ _) -> do
-      unless suppressOutput $ hPutStr stderr msg
-      return [False]
-    Just se -> error $ ppSimulatorExc se
-    _ -> error $ failMsg ++ ": " ++ show exc
-
-simExcHndlr :: String -> CE.SomeException -> IO [Bool]
-simExcHndlr = simExcHndlr' True
 
 _interactiveBreak :: MonadIO m => String -> m ()
 _interactiveBreak msg = liftIO $ do

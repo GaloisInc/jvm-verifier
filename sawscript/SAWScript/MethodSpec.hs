@@ -407,7 +407,7 @@ execOverride :: DagEngine
              -> Pos
              -> MethodSpecIR
              -> Maybe JSS.Ref
-             -> [JSS.Value Node]
+             -> [JSS.Value DagTerm]
              -> JSS.Simulator SymbolicMonad ()
 execOverride de pos ir mbThis args = do
   -- Execute behaviors.
@@ -478,18 +478,18 @@ data ExpectedStateDef = ESD {
          esdStartPC :: JSS.PC
          -- | Initial path state (used for evaluating expressions in
          -- verification).
-       , esdInitialPathState :: JSS.PathState Node
+       , esdInitialPathState :: JSS.PathState DagTerm
          -- | Stores initial assignments.
-       , esdInitialAssignments :: [(TC.JavaExpr, Node)]
+       , esdInitialAssignments :: [(TC.JavaExpr, DagTerm)]
          -- | Map from references back to Java expressions denoting them.
        , esdRefExprMap :: Map JSS.Ref [TC.JavaExpr]
          -- | Expected return value or Nothing if method returns void.
-       , esdReturnValue :: Maybe (JSS.Value Node)
+       , esdReturnValue :: Maybe (JSS.Value DagTerm)
          -- | Maps instance fields to expected value, or Nothing if value may
          -- be arbitrary.
-       , esdInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe (JSS.Value Node))
+       , esdInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe (JSS.Value DagTerm))
          -- | Maps reference to expected node, or Nothing if value may be arbitrary.
-       , esdArrays :: Map JSS.Ref (Maybe (Int32,Node))
+       , esdArrays :: Map JSS.Ref (Maybe (Int32, DagTerm))
        }
 
 esdRefName :: JSS.Ref -> ExpectedStateDef -> String
@@ -1447,14 +1447,14 @@ useYices mbTime g = do
          $$ nest 2 (vcat (intersperse (text " ") ds))
 -- applyTactics {{{2
 
-applyTactics :: [VerifyCommand] -> Node -> VerifyExecutor ()
+applyTactics :: [VerifyCommand] -> DagTerm -> VerifyExecutor ()
 applyTactics (Rewrite:r) g = do
   de <- gets vsDagEngine
   rules <- gets vsRules
   enRules <- gets vsEnabledRules
-  let pgm = foldl' addRule' emptyProgram rules
-      addRule' p rl | ruleName rl `Set.member` enRules = addRule p rl
-                    | otherwise = p
+  let isEnabled rl = Set.member (ruleName rl) enRules 
+      pgm = foldl' addRule emptyProgram
+          $ filter isEnabled rules
   g' <- liftIO $ do
           rew <- mkRewriter pgm de
           reduce rew g

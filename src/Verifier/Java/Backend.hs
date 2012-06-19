@@ -1,20 +1,25 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
-module Verifier.Java.Backend where
+module Verifier.Java.Backend 
+  ( PrettyTerm(..)
+  , Typeable
+  , UnaryOp
+  , BinaryOp
+  , MonadTerm
+  , AigOps
+  , Backend(..)
+  ) where
 
 import Data.Int
 import Data.Typeable
 import Verinf.Symbolic
 import qualified Data.Vector.Storable as SV
 
-type BackendInt  sym = MonadTerm sym
-type BackendLong sym = MonadTerm sym
-
 type UnaryOp sym = MonadTerm sym -> IO (MonadTerm sym)
 type BinaryOp sym = MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
 
 -- | Returns term type associated with monad.
-type family MonadTerm (m :: * -> *)
+type family MonadTerm m
 
 class ( Ord (MonadTerm m)
       , PrettyTerm (MonadTerm m)
@@ -25,9 +30,9 @@ class ( Ord (MonadTerm m)
 data Backend sym = Backend {
           -- | Allocates a fresh variable where the 8 low-order bits are fresh
           -- lits and the upper bits are zero.
-         freshByte :: IO (BackendInt sym)
-       , freshInt  :: IO (BackendInt sym)
-       , freshLong :: IO (BackendLong sym)
+         freshByte :: IO (MonadTerm sym)
+       , freshInt  :: IO (MonadTerm sym)
+       , freshLong :: IO (MonadTerm sym)
        , asBool :: MonadTerm sym -> Maybe Bool
        , asInt :: MonadTerm sym -> Maybe Int32
        , asLong :: MonadTerm sym -> Maybe Int64

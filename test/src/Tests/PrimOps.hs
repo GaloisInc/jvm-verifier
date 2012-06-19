@@ -14,7 +14,6 @@ Point-of-contact : jstanley
 module Tests.PrimOps (primOpTests) where
 
 import Control.Applicative
-import qualified Control.Exception as CE
 import Control.Monad
 import Data.Bits
 import qualified Data.Vector as V
@@ -366,14 +365,6 @@ evalBinOp64 cb (classNm, methodNm, sig) x y = do
     let args = V.map (mkCInt 64 . toInteger) (V.fromList [x, y])
     evalFn <- concreteEvalFn args
     evalFn rslt
-
-_containsExc :: Monad m => [FinalResult (MonadTerm m)] -> String -> m ()
-_containsExc frs s = flip CE.assert (return ()) $
-  any (\fr -> case fr of
-                Exc (JavaException (Ref _ (ClassType s')) _) -> s == s'
-                _ -> False
-      )
-      frs
 
 --------------------------------------------------------------------------------
 -- Scratch
