@@ -98,6 +98,7 @@ module Verifier.Java.Parser (
   , lookupLocalVariableByName
   , ppInst
   , slashesToDots
+  , cfgToDot
   ) where
 
 import Control.Exception (assert)
