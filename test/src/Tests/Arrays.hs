@@ -12,12 +12,7 @@ import Control.Monad
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 
-import JavaParser.Common
-
-import Simulation hiding (run)
 import Tests.Common
-import Utils
-import Verinf.Symbolic
 
 arrayTests :: [(Args, Property)]
 arrayTests =

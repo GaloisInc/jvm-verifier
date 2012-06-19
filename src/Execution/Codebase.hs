@@ -17,6 +17,7 @@ module Execution.Codebase
   , lookupClass
   , findVirtualMethodsByRef
   , supers
+  , module Verifier.Java.Parser
   ) where
 
 import Control.Applicative ((<$>))
@@ -29,8 +30,7 @@ import System.FilePath
 import qualified Data.Map as M
 
 import JarReader
-import JavaParser
-import Utils.Common
+import Verifier.Java.Parser
 
 -- | Collection of classes loaded by JVM.
 data CodebaseState = CodebaseState {

@@ -43,14 +43,12 @@ import System.FilePath (splitExtension, addExtension)
 import System.IO
 
 import qualified Execution.Codebase as JSS
-import qualified JavaParser as JSS
 import qualified SAWScript.CongruenceClosure as CC
 import qualified SAWScript.TypeChecker as TC
 import qualified Simulation as JSS
 import SAWScript.Utils
 import SAWScript.MethodSpecIR
 import SAWScript.TypeChecker
-import Utils.Common
 
 import Verifier.Java.WordBackend
 import Verinf.Symbolic
@@ -89,7 +87,7 @@ typeBitCount (SymRec d s) = V.sum $ V.map typeBitCount $ recFieldTypes d s
 typeBitCount _ = error "internal: typeBitCount called on polymorphic type."
 
 mkInputEval :: DagType -> SV.Vector Bool -> CValue
-mkInputEval (SymInt (widthConstant -> Just (Wx _))) lits = mkCIntFromLsbfV lits
+mkInputEval (SymInt (widthConstant -> Just _)) lits = mkCIntFromLsbfV lits
 mkInputEval (SymArray (widthConstant -> Just (Wx l)) e) lits =
   let w = typeBitCount e
    in CArray $ V.generate l $ (\i -> mkCIntFromLsbfV $ SV.slice (i*w) w lits)
@@ -399,7 +397,7 @@ checkClassesInitialized pos nm requiredClasses = do
     status <- JSS.getInitializationStatus c
     when (status /= Just JSS.Initialized) $
       let msg = "The method spec \'" ++ nm ++ "\' requires that the class "
-                  ++ slashesToDots c ++ " is initialized.  SAWScript does not "
+                  ++ JSS.slashesToDots c ++ " is initialized.  SAWScript does not "
                   ++ "currently support methods that initialize new classes."
        in throwIOExecException pos (ftext msg) ""
 
@@ -883,10 +881,10 @@ generateVC ir esd (ps, endPC, res) = do
            forM_ (Map.keys (JSS.initialization ps)) $ \cl -> do
              when (cl `Set.notMember` sinits) $ do
                pvcgFail $ ftext $
-                 "Initializes extra class " ++ slashesToDots cl ++ "."
+                 "Initializes extra class " ++ JSS.slashesToDots cl ++ "."
         -- Check static fields
         do forM_ (Map.toList $ JSS.staticFields ps) $ \(f,_jvmVal) -> do
-             let clName = slashesToDots (JSS.fieldIdClass f)
+             let clName = JSS.slashesToDots (JSS.fieldIdClass f)
              let fName = clName ++ "." ++ JSS.fieldIdName f
              pvcgFail $ ftext $ "Modifies the static field " ++ fName ++ "."
         -- Check instance fields
@@ -927,7 +925,7 @@ generateVC ir esd (ps, endPC, res) = do
           pvcgAssert nm n
         -- Check class objects
         forM_ (Map.keys (JSS.classObjects ps)) $ \clNm ->
-          pvcgFail $ ftext $ "Allocated class object for " ++ slashesToDots clNm ++ "."
+          pvcgFail $ ftext $ "Allocated class object for " ++ JSS.slashesToDots clNm ++ "."
 
 -- verifyMethodSpec and friends {{{2
 
@@ -1233,21 +1231,21 @@ testRandom de v ir test_num lim pvc =
     vs   <- V.mapM QuickCheck.pickRandom =<< deInputTypes de
     eval <- concreteEvalFn vs
     badAsmp <- isViolated eval (pvcAssumptions pvc)
-    if badAsmp
-      then do
-        return passed
-      else do when (v >= 4) $
-                dbugM $ "Begin concrete DAG eval on random test case for all goals ("
-                        ++ show (length $ pvcChecks pvc) ++ ")."
-              forM_ (pvcChecks pvc) $ \goal ->
-                do bad_goal <- isInvalid eval goal
-                   when (v >= 4) $ dbugM "End concrete DAG eval for one VC check."
-                   when bad_goal $ do
-                     (_vs1,goal1) <- QuickCheck.minimizeCounterExample
-                                            isCounterExample (V.toList vs) goal
-                     txt <- msg eval goal1
-                     throwIOExecException (specPos ir) txt ""
-              return $! passed + 1
+    if badAsmp then do
+      return passed
+    else do 
+      when (v >= 4) $
+        JSS.dbugM $ "Begin concrete DAG eval on random test case for all goals ("
+                            ++ show (length $ pvcChecks pvc) ++ ")."
+      forM_ (pvcChecks pvc) $ \goal -> do
+        bad_goal <- isInvalid eval goal
+        when (v >= 4) $ JSS.dbugM "End concrete DAG eval for one VC check."
+        when bad_goal $ do
+          (_vs1,goal1) <- QuickCheck.minimizeCounterExample
+                            isCounterExample (V.toList vs) goal
+          txt <- msg eval goal1
+          throwIOExecException (specPos ir) txt ""
+      return $! passed + 1
 
   isCounterExample vs =
     do eval    <- concreteEvalFn (V.fromList vs)

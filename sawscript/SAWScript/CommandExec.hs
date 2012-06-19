@@ -26,13 +26,13 @@ import System.IO (hFlush, stdout)
 import Text.PrettyPrint.HughesPJ
 
 import qualified Execution.Codebase as JSS
-import qualified JavaParser as JSS
 import Simulation (SimulatorExc, ppSimulatorExc)
 import SAWScript.ErrorPlus
 import SAWScript.Utils
 import qualified SAWScript.MethodAST as AST
 import qualified SAWScript.MethodSpec as TC
 import qualified SAWScript.TypeChecker as TC
+
 
 import qualified Verinf.SBV.Model as SBV
 import qualified Verinf.SBV.Parser as SBV

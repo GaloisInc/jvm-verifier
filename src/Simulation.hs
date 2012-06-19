@@ -94,6 +94,7 @@ module Simulation
   , liftIO
   , withSBE
   , withoutExceptions
+  , dbugM
   )
 where
 
@@ -121,23 +122,26 @@ import Prelude hiding (catch)
 import System.IO (hFlush, stdout)
 
 import Execution.JavaSemantics
-import Analysis.CFG (ppInst)
 import Execution
 import Execution.Codebase
-import JavaParser
-import JavaParser.Common
-import Utils
-import Utils.Common
 import Verifier.Java.Backend
-
-{-
-import Verinf.Symbolic hiding (defaultValue, (&&&), (|||))
--}
+import Verifier.Java.Utils
 
 import Verinf.Utils.CatchMIO
 import Verinf.Utils.IOStateT
 import Verinf.Utils.LogMonad
 
+-- | Converts integral into bounded num class.
+-- TODO: Revisit error handling when integer is out of range.
+safeCast :: (Integral s, Bounded t, Integral t, Num t) => s -> t
+safeCast = impl minBound maxBound . toInteger
+  where impl :: Integral t => t -> t -> Integer -> t
+        impl minb maxb s
+          | toInteger minb <= s && s <= toInteger maxb = fromInteger s
+          | otherwise = error "internal: safeCast argument out of range"
+
+dbugM :: MonadIO m => String -> m ()
+dbugM = liftIO . putStrLn
 
 data InitializationStatus
   = Started

@@ -34,7 +34,6 @@ import Data.ByteString.Lazy       (ByteString, isSuffixOf, hGet, hGetContents)
 import Data.ByteString.Lazy.Char8 (pack, unpack)
 import Data.Map                   (Map)
 import Data.Word
-import Numeric                    (showHex)
 import System.IO hiding           (hGetContents)
 
 import qualified Codec.Compression.Zlib.Raw as Zlib
@@ -43,7 +42,7 @@ import qualified Data.List                  as L
 import qualified Data.ByteString.Lazy       as LBS
 import qualified Data.Map                   as M
 
-import JavaParser
+import Verifier.Java.Parser
 
 -- import Debug.Trace
 
@@ -179,7 +178,7 @@ data DirEnd = DirEnd
   , dendEntryCnt     :: !Word16
   , dendDirSize      :: !Word32
   , dendDirStartOff  :: !Word32
-  , dendComment      :: !(Maybe ByteString)
+  , _dendComment      :: !(Maybe ByteString)
   }
   deriving (Show)
 
@@ -199,9 +198,6 @@ dirEnd = do
              then Just <$> getRemainingLazyByteString
              else return Nothing
 
-showWord32 :: Word32 -> String
-showWord32 w = let r = showHex w "" in "0x" ++ replicate (8 - length r) '0' ++ r
-
 dirEndSig :: Word32
 dirEndSig = 0x06054b50
 
@@ -218,6 +214,3 @@ compTypeNotSupported =
 ddSizesNotSupported :: a
 ddSizesNotSupported =
   error $ "JAR processing error: data descriptor sizes encoding unsupported"
-
-_unused_ok :: a
-_unused_ok = dendComment `undefined` showWord32

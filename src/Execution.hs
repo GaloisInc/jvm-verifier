@@ -34,7 +34,6 @@ where
 import Execution.Codebase
 import Execution.JavaSemantics
 import Execution.Stepper
-import JavaParser
 
 -- | Executes the JavaSemantics doStep function until execution is complete.
 run :: JavaSemantics m => m (JSRslt m)

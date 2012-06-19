@@ -12,12 +12,7 @@ import System.IO
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 
-import JavaParser.Common
-import Simulation hiding (run)
-import qualified Simulation as Sim
 import Tests.Common
-import Utils
-import Verinf.Symbolic
 
 -- NB: REVISIT: The poorly named "runNegTest" is what grounds to the default
 -- symbolic backend; we'll want better names when we support multiple symbolic
@@ -51,18 +46,16 @@ go cb act = do
    oc <- mkOpCache
    CE.try $ withSymbolicMonadState oc $ \sms ->  do
      let sbe = symbolicBackend sms 
-     _ <- runDefSimulator sbe cb $ Sim.withVerbosity verb $ act
+     _ <- runDefSimulator sbe cb $ withVerbosity verb $ act
      return [False]
   case eea of
     Left (e :: CE.SomeException) ->
-      case CE.fromException e of
-        Just (SymExtErr msg v) -> succeed msg v
-        _ -> let h :: (Show t, Typeable t, t ~ MonadTerm SymbolicMonad) =>
-                      Maybe (SimulatorExc t)
-                 h = CE.fromException e
-             in case h of
-                  Just (SimExtErr msg v _) -> succeed msg v
-                  _ -> emitErr e
+      let h :: (Show t, Typeable t, t ~ MonadTerm SymbolicMonad) =>
+               Maybe (SimulatorExc t)
+          h = CE.fromException e
+       in case h of
+            Just (SimExtErr msg v _) -> succeed msg v
+            _ -> emitErr e
     Right chks -> assert (all not chks)
   where
     succeed msg v | v > 0     = run (putStrLn msg) >> assert False
@@ -120,8 +113,8 @@ sa4 :: TrivialProp
 sa4 cb = go cb $ do
   sbe <- gets backend
   symIdx <- liftIO $ IValue <$> freshInt sbe
-  arr <- newMultiArray (ArrayType intArrayTy) [mkCInt (Wx 32) 1, mkCInt (Wx 32) 1]
-  elm <- newIntArray intArrayTy [mkCInt (Wx 32) 1]
+  arr <- newMultiArray (ArrayType intArrayTy) [mkCInt 32 1, mkCInt 32 1]
+  elm <- newIntArray intArrayTy [mkCInt 32 1]
   [(_pd, Terminated)] <-
     withoutExceptions
     <$> runStaticMethod "Errors" "updArrayRef" "(I[I[[I)V"

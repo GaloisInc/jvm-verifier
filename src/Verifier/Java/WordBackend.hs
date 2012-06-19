@@ -5,10 +5,36 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
-module Verifier.Java.WordBackend where
+module Verifier.Java.WordBackend 
+       ( -- * Re-exports from Verifier infrastructure.
+         DagTerm
+       , mkOpCache
+       , mkCInt
+       , concreteEvalFn
+       , toLsbf_lit
+       , CValue
+       , getSVal
+       , BitEngine(..)
+       , evalAig
+       , writeAiger
+         -- * Utilities
+       , constInt
+       , constLong
+       , intToBoolSeq
+         -- * Backend Exports
+       , SymbolicMonad
+       , withSymbolicMonadState
+       , SymbolicMonadState(..)
+       , symbolicBackend
+       , evalAigArgs8
+       , evalAigArgs32
+       , evalAigArgs64
+       ) where
 
 import Control.Applicative
 import Control.Exception (assert, bracket)
+import Data.Bits
+import Data.Int
 import Data.IORef
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
@@ -20,6 +46,7 @@ import Verinf.Symbolic
 import Verinf.Symbolic.Lit.Functional
 
 import Verifier.Java.Backend
+import Verifier.Java.Utils
 
 data SymbolicMonadState = SMS {
     smsOpCache :: OpCache
@@ -210,3 +237,30 @@ symbolicBackend sms = do
    , writeAigToFile = \fname res -> lWriteAiger fname [res]
    , getVarLit = getTermLit
    }
+
+-- Misc utility functions {{{1
+
+int32Type :: DagType
+int32Type = SymInt (constantWidth 32)
+
+int64Type :: DagType
+int64Type = SymInt (constantWidth 64)
+
+intToBoolSeq :: CValue -> [Bool]
+intToBoolSeq (getSValW -> Just (Wx w, c)) = map (testBit c) [0..w-1]
+intToBoolSeq _ = error "internal: intToBoolSeq undefined"
+
+constInt :: Int32 -> CValue
+constInt = mkCInt 32 . fromIntegral
+
+constLong :: Int64 -> CValue
+constLong = mkCInt 64 . fromIntegral
+
+evalAigArgs8 :: [Int32] -> [Bool]
+evalAigArgs8 = concatMap (\c -> map (testBit c) [0..7])
+
+evalAigArgs32 :: [Int32] -> [Bool]
+evalAigArgs32 = concatMap (\c -> map (testBit c) [0..31]) 
+
+evalAigArgs64 :: [Int64] -> [Bool]
+evalAigArgs64 = concatMap (\c -> map (testBit c) [0..63])

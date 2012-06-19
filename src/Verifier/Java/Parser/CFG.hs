@@ -7,9 +7,8 @@ Point-of-contact : jstanley
 
 {-# LANGUAGE GeneralizedNewtypeDeriving, BangPatterns #-}
 
-module Analysis.CFG
-  (
-    BasicBlock(bbId)
+module Verifier.Java.Parser.CFG
+  ( BasicBlock(bbId)
   , BBId
   , CFG(bbById, bbByPC, nextPC)
   , buildCFG
@@ -29,8 +28,7 @@ import Data.Map (Map)
 import qualified Data.Map as M
 import Prelude hiding (rem)
 
-import JavaParser.Common
-import Utils.Common
+import Verifier.Java.Parser.Common
 
 -- import Debug.Trace
 

@@ -58,21 +58,20 @@ library
   hs-source-dirs: src
 
   exposed-modules:
-    Analysis.CFG
     Execution
     Execution.Codebase
     Execution.JavaSemantics
     JarReader
-    JavaParser
-    JavaParser.Common
     Simulation
-    Utils
-    Utils.Common
     Verifier.Java.Backend
+    Verifier.Java.Parser
+    Verifier.Java.Utils
     Verifier.Java.WordBackend
  
   other-modules:
     Execution.Stepper
+    Verifier.Java.Parser.CFG
+    Verifier.Java.Parser.Common
 
   if !flag(build-library)
     buildable: False

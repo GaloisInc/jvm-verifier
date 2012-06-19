@@ -13,14 +13,7 @@ import Data.Maybe
 import Prelude hiding (catch)
 import Test.QuickCheck
 
-import JavaParser
-import Simulation hiding (run)
 import Tests.Common
-import Utils
-
-import Verinf.Symbolic
-
--- import Debug.Trace
 
 dummyCN :: String
 dummyCN = "PathStateMerges$Dummy"
@@ -38,7 +31,7 @@ psmsTests =
         when (length rs /= 1) $ error "psmsTests.ddb1: failed path state merge"
         getIntArray (fst . head $ rs) inpArr
       let fn x = do
-            map (intFromConst . fromJust . termConst)
+            map (fromJust . asInt sbe)
               <$> evalAigArray sbe 32 [mkCInt 32 x] outs
       (\x -> [[[99,2000],[42,1000]] == x]) <$> mapM fn [0,1]
   , (`test1` "ddb2") $ \cb -> runSymTest $ \sbe -> do
@@ -49,8 +42,9 @@ psmsTests =
         when (length rs /= 1) $ error "psmsTests.ddb2: failed path state merge"
         let [(_, ReturnVal (IValue r))] = rs
         return r
-      (:[]) . (==) [99,42] . map (intFromConst . fromJust . termConst)
-         <$> mapM (\x -> evalAigIntegral sbe id [mkCInt 32 x] out) [0,1]
+      res <- forM [0,1] $ \x ->
+        asInt sbe <$> evalAigIntegral sbe id [mkCInt 32 x] out
+      return [map Just [99,42] ==  res]
   , (`test1` "ddb3") $ \cb -> runSymTest $ \sbe -> do
       b     <- IValue <$> freshInt sbe
       _refs <- runDefSimulator sbe cb $ do
@@ -71,7 +65,7 @@ psmsTests =
         when (length rs /= 1) $ error "psmsTests.ddb4: failed path state merge"
         let [(pd,Terminated)] = rs
         getInstanceFieldValue pd d (FieldId dummyCN "m_x" IntType)
-      (:[]) . (==) [99,42] . map (intFromConst . fromJust . termConst)
+      (:[]) . (==) [99,42] . map (fromJust . asInt sbe)
         <$> mapM (\x -> evalAigIntegral sbe id [mkCInt 32 x] out) [0,1]
   , (`test1` "ddb5") $ \cb -> runSymTest $ \sbe -> do
       b   <- IValue <$> freshInt sbe
@@ -83,7 +77,7 @@ psmsTests =
         when (length rs /= 1) $ error "psmsTests.ddb5: failed path state merge"
         let [(pd,Terminated)] = rs
         getStaticFieldValue pd (FieldId dummyCN "m_st" LongType)
-      (:[]) . (==) [7,42] . map (longFromConst . fromJust . termConst)
+      (:[]) . (==) [7,42] . map (fromJust . asLong sbe)
         <$> mapM (\x -> evalAigIntegral sbe id [mkCInt 32 x] out) [0,1]
   , (`test1` "ddb6") $ \cb -> runSymTest $ \sbe -> do
       b <- IValue <$> freshInt sbe
@@ -94,7 +88,7 @@ psmsTests =
       let [(_, ReturnVal (IValue out))] = rs
       forM [(0,99),(1,42)] $ \(x,e) -> do
         r <- evalAigIntegral sbe id [mkCInt 32 x] out
-        return $ e == (intFromConst (fromJust (termConst r)))
+        return $ Just e == asInt sbe r
   , (`test1` "ddb7") $ \cb -> runSymTest $ \sbe -> do
       [b1, b2] <- replicateM 2 $ IValue <$> freshInt sbe
       out <- runDefSimulator sbe cb $ do
@@ -103,7 +97,7 @@ psmsTests =
         when (length rs /= 1) $ error "psmsTests.ddb7: failed path state merge"
         let [(_, ReturnVal (IValue r))] = rs
         return r
-      (:[]) . (==) (map (2*) [2000,99,1000,42]) . map (intFromConst . fromJust . termConst)
+      (:[]) . (==) (map (2*) [2000,99,1000,42]) . map (fromJust . asInt sbe)
         <$> mapM (\(b1,b2) -> evalAigIntegral sbe id (map (mkCInt 32) [b1,b2]) out)
                  [(0,0), (0,1), (1,0), (1,1)]
   , (`test1` "mul3") $ \cb -> runSymTest $ \sbe -> do
@@ -114,7 +108,7 @@ psmsTests =
                           [a, b, IValue (mkCInt 32 33)]
       when (length rs /= 1) $ error "psmsTests.mul3: failed path state merge"
       let [(_, ReturnVal (IValue out))] = rs
-      (:[]) . (==) [4, 20, 4158] . map (intFromConst . fromJust . termConst)
+      (:[]) . (==) [4, 20, 4158] . map (fromJust . asInt sbe)
         <$> mapM (\(x,y) -> evalAigIntegral sbe id [mkCInt 32 x, mkCInt 32 y] out)
                  [(2,2), (4,5), (42,99)]
   , (`test1` "mul2") $ \cb -> runSymTest $ \sbe -> do
@@ -124,7 +118,7 @@ psmsTests =
           runStaticMethod "PathStateMerges" "mul2" "(II)I" [a, b]
       when (length rs /= 1) $ error "psmsTests.mul2: failed path state merge"
       let [(_, ReturnVal (IValue out))] = rs
-      (:[]) . (==) [4, 20, 4158, 77137830] . map (intFromConst . fromJust . termConst)
+      (:[]) . (==) [4, 20, 4158, 77137830] . map (fromJust . asInt sbe)
         <$> mapM (\(x,y) -> evalAigIntegral sbe id [mkCInt 32 x, mkCInt 32 y] out)
                  [(2,2), (4,5), (42,99), (2310, 33393)]
   ]

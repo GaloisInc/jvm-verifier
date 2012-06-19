@@ -59,13 +59,11 @@ import Text.PrettyPrint.HughesPJ
 import Verinf.Symbolic
 
 import qualified Execution.Codebase as JSS
-import qualified JavaParser as JSS
 import qualified SAWScript.CongruenceClosure as CC
 import qualified SAWScript.MethodAST as AST
 import qualified SAWScript.TypeChecker as TC
 import SAWScript.CongruenceClosure (CCSet)
 import SAWScript.Utils
-import Utils.Common (slashesToDots)
 
 -- Utility definitions {{{1
 
@@ -957,7 +955,7 @@ specName :: MethodSpecIR -> String
 specName ir =
  let clName = JSS.className (specThisClass ir)
      mName = JSS.methodName (specMethod ir)
-  in slashesToDots clName ++ ('.' : mName)
+  in JSS.slashesToDots clName ++ ('.' : mName)
 
 -- | Interprets AST method spec commands to construct an intermediate
 -- representation that

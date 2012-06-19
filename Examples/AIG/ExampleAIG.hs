@@ -18,8 +18,7 @@ import System.CPUTime
 import Text.Printf
 
 import Execution
-import JavaParser.Common
-import JavaParser
+import Verifier.Java.Parser
 import Simulation
 import Tests.Common
 import Utils
