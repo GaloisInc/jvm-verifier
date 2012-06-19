@@ -11,6 +11,7 @@ module Verifier.Java.WordBackend
        , mkOpCache
        , mkCInt
        , concreteEvalFn
+       , toLsbfV
        , toLsbf_lit
        , CValue
        , getSVal
@@ -211,12 +212,7 @@ symbolicBackend sms = do
         outLits <- getTermLit out
         bbits <- lEvalAig (SV.fromList (concatMap (f . intToBoolSeq . fromJust . termConst) ins))
                           (toLsbfV outLits)
-        if SV.length bbits <= 32 then
-          return $ mkCInt 32 $ fromIntegral $ boolSeqToInt32 (SV.toList bbits)
-        else if SV.length bbits <= 64 then
-          return $ mkCInt 64 $ fromIntegral $ boolSeqToInt64 (SV.toList bbits)
-        else
-          error "internal: evalAigIntegral: no support for arbitrary-width integers"
+        return $ mkCInt (Wx (SV.length bbits)) $ boolSeqToValue (SV.toList bbits)
     , evalAigArray = \(Wx n) ins outs -> do
         -- TODO: Report sensible error if ins is not constants.
         let bits = case n of
@@ -227,12 +223,11 @@ symbolicBackend sms = do
         outLits <- mapM getTermLit outs
         rs <- lEvalAig (SV.fromList bits)
                        (SV.concat (map toLsbfV outLits))
-        let n' = SV.length rs `div` n
         let rsl = SV.toList rs
         case n of
-          8  -> return $ map (mkCInt 32 . fromIntegral) $ outsToInts8 n' rsl
-          32 -> return $ map (mkCInt 32 . fromIntegral) $ outsToInts32 n' rsl
-          64 -> return $ map (mkCInt 64 . fromIntegral) $ outsToInts64 n' rsl
+          8  -> return $ map (mkCInt 32 . boolSeqToValue) $ splitN 8 rsl
+          32 -> return $ map (mkCInt 32 . boolSeqToValue) $ splitN 32 rsl
+          64 -> return $ map (mkCInt 64 . boolSeqToValue) $ splitN 64 rsl
           _  -> error $ "evalAigArray: input array elements have unexpected bit width"
    , writeAigToFile = \fname res -> lWriteAiger fname [res]
    , getVarLit = getTermLit

@@ -8,12 +8,14 @@ module Verifier.Java.Backend
   , MonadTerm
   , AigOps
   , Backend(..)
+  , toLsbfV
   ) where
 
 import Data.Int
 import Data.Typeable
-import Verinf.Symbolic
 import qualified Data.Vector.Storable as SV
+
+import Verinf.Symbolic (BitWidth, PrettyTerm(..), Lit, LitResult, toLsbfV)
 
 type UnaryOp sym = MonadTerm sym -> IO (MonadTerm sym)
 type BinaryOp sym = MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)

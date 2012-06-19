@@ -10,8 +10,8 @@ module Execution.Stepper (step) where
 import Control.Monad
 import Control.Monad.Trans (liftIO)
 
-import Execution.Codebase
 import Execution.JavaSemantics
+import Verifier.Java.Codebase
 
 -- -- Step function {{{1
 

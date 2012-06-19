@@ -15,7 +15,7 @@ import Control.Monad.State
 
 import Data.Int
 
-import Execution.Codebase
+import Verifier.Java.Codebase
 
 data AtomicValue double float int long ref
   = DValue double

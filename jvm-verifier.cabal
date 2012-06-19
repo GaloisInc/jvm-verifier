@@ -59,17 +59,17 @@ library
 
   exposed-modules:
     Execution
-    Execution.Codebase
     Execution.JavaSemantics
-    JarReader
     Simulation
     Verifier.Java.Backend
+    Verifier.Java.Codebase
     Verifier.Java.Parser
     Verifier.Java.Utils
     Verifier.Java.WordBackend
  
   other-modules:
     Execution.Stepper
+    Verifier.Java.JarReader
     Verifier.Java.Parser.CFG
     Verifier.Java.Parser.Common
 

@@ -2,14 +2,14 @@
 Module           : $Header$
 Description      :
 Stability        : provisional
-Point-of-contact : jstanley
+Point-of-contact : atomb, jhendrix
 -}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE FlexibleContexts     #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE TypeFamilies         #-}
-
+{-# LANGUAGE ViewPatterns         #-}
 module Tests.Common 
   ( module Tests.Common
   , module Simulation
@@ -27,7 +27,6 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import qualified Test.QuickCheck.Test as T
 
-import Execution.Codebase
 import Simulation hiding (run)
 import Verifier.Java.Parser
 import Verifier.Java.Utils

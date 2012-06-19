@@ -28,12 +28,15 @@ module Execution
   , run_
   , step
   , throwNullPtrExc
+  , runMain
+  , runStaticMethod
+  , runStaticMethod_
   )
 where
 
-import Execution.Codebase
 import Execution.JavaSemantics
 import Execution.Stepper
+import Verifier.Java.Codebase
 
 -- | Executes the JavaSemantics doStep function until execution is complete.
 run :: JavaSemantics m => m (JSRslt m)
@@ -47,3 +50,19 @@ run = isFinished >>= \b -> if b then getResult else doStep >> run
 
 run_ :: JavaSemantics m => m ()
 run_ = run >> return ()
+
+runStaticMethod_ :: JavaSemantics m => String -> String -> String -> [JSValue m] -> m ()
+runStaticMethod_ cName methName methodType args =
+  runStaticMethod cName methName methodType args >> return ()
+
+runStaticMethod :: JavaSemantics m => String -> String -> String -> [JSValue m] -> m (JSRslt m)
+runStaticMethod cName methName methodType args = do
+  invokeStaticMethod
+    cName
+    (makeMethodKey methName methodType)
+    args
+  run
+
+runMain :: JavaSemantics m => String -> [JSValue m] -> m (JSRslt m)
+runMain cName args =
+  runStaticMethod cName "main" "([Ljava/lang/String;)V" args
