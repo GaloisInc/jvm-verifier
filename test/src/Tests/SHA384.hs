@@ -17,11 +17,7 @@ import System.Process
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 
-import JavaParser.Common
-import Simulation hiding (run)
 import Tests.Common
-import Utils
-import Verinf.Symbolic
 
 sha384Tests :: [(Args, Property)]
 sha384Tests =

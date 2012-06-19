@@ -16,13 +16,8 @@ import Control.Applicative
 import qualified Control.Exception as CE
 import Test.QuickCheck
 
-import JavaParser
-import Simulation hiding (run)
 import Tests.Common
-import Utils
 import Overrides
-
-import Verinf.Symbolic
 
 -- Test names match those found in PrimOps where possible.
 
@@ -39,13 +34,11 @@ japiTests =
   , test1 (doTest "t9")           "JAPI: symbolic long array sum"
   , test1 (doTest "byteProd")     "JAPI: symbolic byte array product"
   , test1 (doTest "outArr")       "JAPI: symbolic array out param"
---  , test1 (doTest "dbugEvalTest") "JAPI: Symbolic.Debug.dbugEval test"
   ]
 
-mkTestArgs :: (ConstantInjection (JSInt m), JavaSemantics m) =>
-              String -> m [JSValue m]
+mkTestArgs :: String -> Simulator SymbolicMonad [Value DagTerm]
 mkTestArgs tn = do
-  args <- newMultiArray (ArrayType (ClassType "java/lang/String")) [mkCInt (Wx 32) 1]
+  args <- newMultiArray (ArrayType (ClassType "java/lang/String")) [mkCInt 32 1]
   setArrayValue args (mkCInt 32 0) =<< (RValue <$> refFromString tn)
   return [RValue args]
 

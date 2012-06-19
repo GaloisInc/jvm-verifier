@@ -22,12 +22,7 @@ import Data.Int
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 
-import JavaParser (Type(..))
-import Simulation hiding (run)
 import Tests.Common
-import Utils
-
-import Verinf.Symbolic
 
 verb :: Int
 verb = 0
@@ -191,7 +186,7 @@ t13 cb =
     ins <- replicateM 2 $ IValue <$> freshInt sbe
     outVars <- runDefSimulator sbe cb $ do
       setVerbosity verb
-      outArr <- newMultiArray (ArrayType IntType) [mkCInt (Wx 32) 4]
+      outArr <- newMultiArray (ArrayType IntType) [mkCInt 32 4]
       [(pd, Terminated)] <-
         withoutExceptions <$>
           runStaticMethod "Trivial" "out_array" "(II[I)V"
@@ -248,7 +243,7 @@ ct2 cb =
                       [RValue s, IValue inp]
     evalFn <- concreteEvalFn V.empty
     outVal <- evalFn outVar
-    return [boolFromConst outVal]
+    return [outVal == mkCInt 32 1]
 
 --------------------------------------------------------------------------------
 -- floating point tests

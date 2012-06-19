@@ -16,12 +16,7 @@ import System.Process
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 
-import JavaParser
-import Simulation hiding (run)
 import Tests.Common
-import Utils
-
-import Verinf.Symbolic
 
 rc564Tests :: [(Args, Property)]
 rc564Tests =

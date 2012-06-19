@@ -11,8 +11,12 @@ Point-of-contact : jstanley
 {-# LANGUAGE TypeFamilies         #-}
 
 module Tests.Common 
-  ( module Tests.Common     
-  , module Verifier.Java.WordBackend 
+  ( module Tests.Common
+  , module Simulation
+  , module Verifier.Java.Parser
+  , module Verifier.Java.Utils
+  , module Verifier.Java.WordBackend
+  , BitEngine(..)
   ) where
 
 import Control.Monad
@@ -24,9 +28,10 @@ import Test.QuickCheck.Monadic
 import qualified Test.QuickCheck.Test as T
 
 import Execution.Codebase
-import Verifier.Java.Backend
+import Simulation hiding (run)
+import Verifier.Java.Parser
+import Verifier.Java.Utils
 import Verifier.Java.WordBackend
-import Verinf.Symbolic
 
 assertMsg :: Bool -> String -> PropertyM IO ()
 assertMsg b s = when (not b) (run $ putStrLn s) >> assert b
@@ -73,15 +78,6 @@ commonCB = run commonLoadCB
 
 commonLoadCB :: IO Codebase
 commonLoadCB = loadCodebase commonJars commonClassPaths
-
-{-
-runTest :: SymbolicMonad [Bool] -> PropertyM IO ()
-runTest m = do
- res <- run $ do
-   oc <- mkOpCache
-   runSymbolic oc m
- mapM_ assert res
--}
 
 runWithSymbolicMonadState :: (SymbolicMonadState -> IO [Bool]) ->  PropertyM IO ()
 runWithSymbolicMonadState f = do
