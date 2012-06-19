@@ -30,8 +30,6 @@ import Utils
 
 import Verinf.Symbolic
 
-type TestInput = [CValue]
-
 verb :: Int
 verb = 0
 
@@ -101,24 +99,6 @@ mkBinOpTest64 cb ms gnd inps = do
     dagEval <- run $ evalBinOp64 cb ms x y
     assert (dagEval == mkCInt 64 (fromIntegral (x `gnd` y)))
 
-mkTest :: (Value DagTerm -> DagTerm)
-          -> Codebase
-          -> MethodSpec                                             -- ^ method under test
-          -> (Backend SymbolicMonad -> IO [DagTerm])                -- ^ symbolic term creator
-          -> ([DagTerm] -> Simulator SymbolicMonad [Value DagTerm]) -- ^ function argument creator
-          -> (TestInput -> CValue -> Bool)                          -- ^ correct dag eval predicate
-          -> [TestInput]                                            -- ^ concrete inputs
-          -> PropertyM IO ()
-mkTest getRslt cb (cNm, mNm, sig) mkSyms mkArgs prDag inps = do
-  runSymTest $ \sbe -> do
-    syms <- mkSyms sbe
-    [(_,ReturnVal (getRslt -> rslt))] <- runDefSimulator sbe cb $ do
-      setVerbosity verb
-      (runStaticMethod cNm mNm sig =<< mkArgs syms)
-    forM inps $ \inp -> do
-      evalFn <- concreteEvalFn (V.fromList inp)
-      prDag inp <$> evalFn rslt
-
 t1 :: TrivialProp
 t1 cb = mkBinOpTest32 cb ("Trivial", "bool_f1", "(ZZ)Z") (.&.) [(0,0), (0,1), (1,0), (1,1)]
 
@@ -126,14 +106,18 @@ t2 :: TrivialProp
 t2 cb = mkBinOpTest32 cb ("Trivial", "int_f2", "(II)I") (+) [(0,0), (0,1), (1,0), (1,1), (8192,8192)]
 
 t3 :: TrivialProp
-t3 cb = mkTest unIValue cb ("Trivial", "byte_array_f3", "([B)B")
-  (\sbe -> replicateM 4 $ freshByte sbe)
-  (singletonArg RValue . newIntArray (ArrayType ByteType))
-  (chk intFromConst)
-  (map intInputs [[4,4,4,4], [1,2,3,4], [63,-42,1,1]])
-  where
-    chk :: (t -> Int32) -> [CValue] -> t -> Bool
-    chk cvt inp rslt = sum (map intFromConst inp) == cvt rslt
+t3 cb =  
+  runSymTest $ \sbe -> do
+    syms <- replicateM 4 $ freshByte sbe
+    [(_,ReturnVal (IValue rsltTerm))] <- runDefSimulator sbe cb $ do
+      setVerbosity verb
+      arr <- newIntArray (ArrayType ByteType) syms
+      runStaticMethod "Trivial" "byte_array_f3" "([B)B" [RValue arr]
+    let inps = [[4,4,4,4], [1,2,3,4], [63,-42,1,1]]
+    forM inps $ \inp -> do
+      evalFn <- concreteEvalFn (V.map constInt (V.fromList inp))
+      rslt   <- evalFn rsltTerm
+      return $ constInt (sum inp) == rslt
 
 t4 ::TrivialProp
 t4 cb = mkBinOpTest32 cb ("Trivial", "int_f4", "(II)I") (-)
@@ -148,25 +132,35 @@ t8 cb = mkBinOpTest64 cb ("Trivial", "long_f2", "(JJ)J") (+)
   [(0,0), (0,1), (1,0), (1,1), (8192,8192)]
 
 t9 :: TrivialProp
-t9 cb = mkTest unLValue cb ("Trivial", "long_array_f3", "([J)J")
-  (\sbe -> replicateM 4 $ freshLong sbe)
-  (singletonArg RValue . newLongArray)
-  (chk longFromConst)
-  (map longInputs [[1,1,1,1], [42,99,99,42], [39203,2033991,2930,2305843009213693951]])
-  where
-    chk :: (t -> Int64) -> [CValue] -> t -> Bool
-    chk cvt inp rslt = sum (map longFromConst inp) == cvt rslt
+t9 cb =
+  runSymTest $ \sbe -> do
+    syms <- replicateM 4 $ freshLong sbe
+    [(_,ReturnVal (LValue rsltTerm))] <- runDefSimulator sbe cb $ do
+      setVerbosity verb
+      arr <- newLongArray syms
+      runStaticMethod "Trivial" "long_array_f3" "([J)J" [RValue arr]
+    let inps = [[1,1,1,1], [42,99,99,42], [39203,2033991,2930,2305843009213693951]]
+    forM inps $ \inp -> do
+      evalFn <- concreteEvalFn (V.map constLong (V.fromList inp))
+      rslt <- evalFn rsltTerm
+      return $ constLong (sum inp) == rslt
 
 t12a :: TrivialProp
-t12a cb = mkTest unIValue cb ("Trivial", "fork_f1", "(Z)I")
-  (replicateM 1 . freshInt)
-  (return . map IValue)
-  (\(~[inp]) rslt -> intFromConst inp == intFromConst rslt)
-  (map intInputs [[0],[1]])
+t12a cb =
+  runSymTest $ \sbe -> do
+    sym <- freshInt sbe
+    [(_,ReturnVal (IValue rsltTerm))] <- runDefSimulator sbe cb $ do
+      setVerbosity verb
+      runStaticMethod "Trivial" "fork_f1" "(Z)I" [IValue sym]
+    let inps = [[0],[1]]
+    forM inps $ \[inp] -> do
+      evalFn <- concreteEvalFn (V.fromList [constInt inp])
+      rslt <- evalFn rsltTerm
+      return $ constInt inp == rslt
 
 t12cmn
   :: MethodSpec
-  -> (Int32 -> Int32 -> Int32 -> Bool)
+  -> (Int32 -> Int32 -> CValue -> Bool)
   -> TrivialProp
 t12cmn (cNm, mNm, sig) chk cb = do
   runSymTest $ \sbe -> do
@@ -174,18 +168,18 @@ t12cmn (cNm, mNm, sig) chk cb = do
     [(_,ReturnVal (IValue rslt))] <- runDefSimulator sbe cb $ do
       setVerbosity verb
       runStaticMethod cNm mNm sig syms
-    forM (map intInputs [[0,0],[1,0],[0,1],[1,1]]) $ \[b0,b1] -> do
-      evalFn <- concreteEvalFn (V.fromList [b0,b1])
+    forM [[0,0],[1,0],[0,1],[1,1]] $ \[b0,b1] -> do
+      evalFn <- concreteEvalFn (V.map constInt (V.fromList [b0, b1]))
       rsltVal <- evalFn rslt
-      return $ chk (intFromConst b0) (intFromConst b1) (intFromConst rsltVal)
+      return $ chk b0 b1 rsltVal
 
 t12b :: TrivialProp
 t12b cb = t12cmn ("Trivial", "fork_f2", "(ZZ)I") chk cb
-  where chk b0 b1 rslt = b0 .|. (b1 `shiftL` 1) == rslt
+  where chk b0 b1 rslt = constInt (b0 .|. (b1 `shiftL` 1)) == rslt
 
 t12c :: TrivialProp
 t12c cb = t12cmn ("Trivial", "fork_loop_f2", "(ZZ)I") chk cb
-  where chk b0 b1 rslt = (b0 .|. (b1 `shiftL` 1)) * 2 == rslt
+  where chk b0 b1 rslt = constInt ((b0 .|. (b1 `shiftL` 1)) * 2) == rslt
 
 t13 :: TrivialProp
 t13 cb =
@@ -372,15 +366,6 @@ evalBinOp64 cb (classNm, methodNm, sig) x y = do
     let args = V.map (mkCInt 64 . toInteger) (V.fromList [x, y])
     evalFn <- concreteEvalFn args
     evalFn rslt
-
-singletonArg :: Functor f => (a -> b) -> f a -> f [b]
-singletonArg ctor f = (\b -> [ctor b]) <$> f
-
-intInputs :: [Int32] -> TestInput
-intInputs = map constInt
-
-longInputs :: [Int64] -> TestInput
-longInputs = map constLong
 
 _containsExc :: Monad m => [FinalResult (MonadTerm m)] -> String -> m ()
 _containsExc frs s = flip CE.assert (return ()) $
