@@ -7,7 +7,7 @@ import Control.Monad.State
 import qualified Data.Map as M
 import qualified Data.Vector.Storable as SV
 
-import Simulation
+import Verifier.Java.Simulator
 
 -- | Register all predefined overrides for the com.galois.symbolic.Symbolic
 -- API.

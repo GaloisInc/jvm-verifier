@@ -58,16 +58,16 @@ library
   hs-source-dirs: src
 
   exposed-modules:
-    Execution
-    Execution.JavaSemantics
-    Simulation
     Verifier.Java.Backend
     Verifier.Java.Codebase
     Verifier.Java.Parser
+    Verifier.Java.Simulator
     Verifier.Java.Utils
     Verifier.Java.WordBackend
  
   other-modules:
+    Execution
+    Execution.JavaSemantics
     Execution.Stepper
     Verifier.Java.JarReader
     Verifier.Java.Parser.CFG
