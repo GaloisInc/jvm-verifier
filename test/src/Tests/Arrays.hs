@@ -9,6 +9,7 @@ module Tests.Arrays (arrayTests) where
 
 import Control.Applicative
 import Control.Monad
+import Data.Int
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 
@@ -39,7 +40,7 @@ sa1 cb =
             runStaticMethod "Arrays" "index" "(I[I)I" [idx, RValue inpArr]
         return rslt
       outIntLit <- toLsbf_lit <$> getVarLit sbe outVar
-      let getAt = fmap boolSeqToInt32
+      let getAt = fmap (boolSeqToValue :: [Bool] -> Int32)
                 . (\inp -> evalAig be inp outIntLit)
                 . intToBoolSeq
                 . constInt
@@ -54,7 +55,6 @@ sa2 cb =
   runWithSymbolicMonadState $ \sms -> do
     let sbe = symbolicBackend sms
     let be = smsBitEngine sms
-    let n = length arrayElems
     [idx, val]  <- replicateM 2 $ IValue <$> freshInt sbe
     rslt <- runDefSimulator sbe cb $ do
       let tint = mkCInt 32 . fromIntegral
@@ -66,7 +66,7 @@ sa2 cb =
       -- Overwrite a random index with 42 and check it
     rsltLits <- concatMap toLsbf_lit <$> mapM (getVarLit sbe) rslt
     ((:[]) . elem 42)
-      <$> outsToInts32 n
+      <$> (map (boolSeqToValue :: [Bool] -> Int32) . splitN 32)
       <$> evalAig be (evalAigArgs32 [overwriteIdx, 42]) rsltLits
 
 -- | Symbolic array update w/ concrete index and symbolic value
@@ -89,7 +89,7 @@ sa3 cb =
     -- Overwrite the last index with 42 and check it
     rsltLits <- concatMap toLsbf_lit <$> mapM (getVarLit sbe) rslt
     ((:[]) . (==) (replicate (n-1) fill ++ [42]))
-        <$> outsToInts32 n
+        <$> (map boolSeqToValue . splitN 32)
         <$> evalAig be (evalAigArgs32 (42 : replicate n fill)) rsltLits
 
 -- | Symbolic 2-dim array update w/ concrete index and value
@@ -116,8 +116,8 @@ sa4 cb =
       concat <$> (mapM (getIntArray pd) =<< getRefArray pd twodim)
     -- Overwrite the first index with 42 and check it
     rsltLits <- concatMap toLsbf_lit <$> mapM (getVarLit sbe) rslt
-    ((:[]) . (==) (42 : replicate (numElems - 1) (fromIntegral fill)))
-        <$> outsToInts32 (fromIntegral numElems)
+    ((:[]) . (==) ((42 :: Int32) : replicate (numElems - 1) (fromIntegral fill)))
+        <$> (map boolSeqToValue . splitN 32)
         <$> evalAig be (concatMap intToBoolSeq $ replicate numElems (mkCInt 32 fill)) rsltLits
 
 --------------------------------------------------------------------------------

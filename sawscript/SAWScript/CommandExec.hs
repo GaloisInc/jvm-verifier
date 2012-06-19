@@ -25,8 +25,7 @@ import System.FilePath
 import System.IO (hFlush, stdout)
 import Text.PrettyPrint.HughesPJ
 
-import qualified Execution.Codebase as JSS
-import Simulation (SimulatorExc, ppSimulatorExc)
+import qualified Simulation as JSS 
 import SAWScript.ErrorPlus
 import SAWScript.Utils
 import qualified SAWScript.MethodAST as AST
@@ -514,9 +513,9 @@ runProofs cb ssOpts files = do
   (errList,res) <-
     handle (\(ExecException absPos errorMsg resolution) ->
               return ([(absPos,errorMsg, resolution)], False)) $
-    handle (\(se::SimulatorExc DagTerm) ->
+    handle (\(se::JSS.SimulatorExc DagTerm) ->
               return ([( PosInternal "simulation"
-                       , text (ppSimulatorExc se)
+                       , text (JSS.ppSimulatorExc se)
                        , "")], False)) $ do
       (errList, ml) <- evalStateT (runErrorCollectorT action) initState
       case (errList,ml) of

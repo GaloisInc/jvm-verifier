@@ -7,7 +7,7 @@ Point-of-contact : jhendrix, jstanley
 
 {-# LANGUAGE FlexibleContexts #-}
 
-module Execution.Codebase
+module Verifier.Java.Codebase
   ( Codebase
   , isStrictSuper
   , isSubtype
@@ -22,14 +22,13 @@ module Execution.Codebase
 
 import Control.Applicative ((<$>))
 import Control.Monad
+import qualified Data.Map as M
 import Data.IORef
 import Data.Maybe
 import System.Directory
 import System.FilePath
 
-import qualified Data.Map as M
-
-import JarReader
+import Verifier.Java.JarReader
 import Verifier.Java.Parser
 
 -- | Collection of classes loaded by JVM.

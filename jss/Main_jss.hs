@@ -29,12 +29,9 @@ import System.FilePath
 import Text.ParserCombinators.Parsec
 import Prelude hiding (catch)
 
-import Execution
-import Overrides
 import Simulation
-import Verifier.Java.Parser
+import Overrides
 import Verifier.Java.WordBackend
-import Verifier.Java.Utils
 
 simExcHndlr' :: Bool -> String -> SomeException -> IO [Bool]
 simExcHndlr' suppressOutput failMsg exc = do

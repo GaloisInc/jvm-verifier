@@ -42,7 +42,6 @@ import System.Directory(doesFileExist)
 import System.FilePath (splitExtension, addExtension)
 import System.IO
 
-import qualified Execution.Codebase as JSS
 import qualified SAWScript.CongruenceClosure as CC
 import qualified SAWScript.TypeChecker as TC
 import qualified Simulation as JSS

@@ -80,23 +80,23 @@ module Simulation
   , ppFinalResult
   , ppSimulatorExc
   , ppValue
-  , setVerbosity
   , lookupStringRef
   , splitFinishedPaths
---  , verbosity
-  , withVerbosity
   , abort
   , runFrame
-  -- * Breakpoints
+    -- * Breakpoints
   , registerBreakpoints
   , resumeBreakpoint
+    -- * Re-exports
   , module Verifier.Java.Backend
+  , module Verifier.Java.Codebase
   , liftIO
+  , setVerbosity
   , withSBE
+  , withVerbosity
   , withoutExceptions
   , dbugM
-  )
-where
+  ) where
 
 import qualified Control.Arrow as CA
 import Control.Arrow (second)
@@ -121,11 +121,10 @@ import Data.Word
 import Prelude hiding (catch)
 import System.IO (hFlush, stdout)
 
-import Execution.JavaSemantics
 import Execution
-import Execution.Codebase
+import Execution.JavaSemantics
 import Verifier.Java.Backend
-import Verifier.Java.Utils
+import Verifier.Java.Codebase
 
 import Verinf.Utils.CatchMIO
 import Verinf.Utils.IOStateT
@@ -139,6 +138,16 @@ safeCast = impl minBound maxBound . toInteger
         impl minb maxb s
           | toInteger minb <= s && s <= toInteger maxb = fromInteger s
           | otherwise = error "internal: safeCast argument out of range"
+
+headf :: [a] -> (a -> a) -> [a]
+headf [] _     = error "headf: empty list"
+headf (x:xs) f = f x : xs
+
+floatRem :: (RealFrac a) => a -> a -> a
+floatRem x y = fromIntegral z
+  where z :: Integer
+        z = truncate x `rem` truncate y
+
 
 dbugM :: MonadIO m => String -> m ()
 dbugM = liftIO . putStrLn

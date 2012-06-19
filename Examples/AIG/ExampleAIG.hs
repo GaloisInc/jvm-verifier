@@ -17,11 +17,8 @@ import qualified Data.Vector.Storable as SV
 import System.CPUTime
 import Text.Printf
 
-import Execution
-import Verifier.Java.Parser
 import Simulation
 import Tests.Common
-import Utils
 import Verinf.Symbolic
 
 -- Helper methods {{{1

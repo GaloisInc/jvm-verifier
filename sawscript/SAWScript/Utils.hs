@@ -24,10 +24,9 @@ import System.Locale(defaultTimeLocale)
 import Text.PrettyPrint.HughesPJ
 import Numeric(showFFloat)
 
-import Verifier.Java.Parser (slashesToDots)
-import Verinf.Symbolic
+import qualified Verifier.Java.Codebase as JSS
 
-import qualified Execution.Codebase as JSS
+import Verinf.Symbolic
 
 data Pos = Pos !FilePath -- file
                !Int      -- line
@@ -141,7 +140,7 @@ lookupClass cb pos nm = do
   maybeCl <- JSS.tryLookupClass cb nm
   case maybeCl of
     Nothing -> do
-     let msg = ftext ("The Java class " ++ slashesToDots nm ++ " could not be found.")
+     let msg = ftext ("The Java class " ++ JSS.slashesToDots nm ++ " could not be found.")
          res = "Please check that the --classpath and --jars options are set correctly."
       in throwIOExecException pos msg res
     Just cl -> return cl
@@ -150,7 +149,7 @@ lookupClass cb pos nm = do
 -- Throws an ExecException if method could not be found or is ambiguous.
 findMethod :: JSS.Codebase -> Pos -> String -> JSS.Class -> IO (JSS.Class, JSS.Method)
 findMethod cb pos nm initClass = impl initClass
-  where javaClassName = slashesToDots (JSS.className initClass)
+  where javaClassName = JSS.slashesToDots (JSS.className initClass)
         methodMatches m = JSS.methodName m == nm && not (JSS.methodIsAbstract m)
         impl cl =
           case filter methodMatches (JSS.classMethods cl) of

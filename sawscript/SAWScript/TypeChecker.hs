@@ -62,8 +62,8 @@ import qualified Data.Set as Set
 import Text.PrettyPrint.HughesPJ
 
 import Verinf.Symbolic
+import qualified Verifier.Java.Codebase as JSS
 
-import qualified Execution.Codebase as JSS
 import qualified SAWScript.MethodAST as AST
 import qualified SAWScript.CongruenceClosure as CC
 import SAWScript.TIMonad

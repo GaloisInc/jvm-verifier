@@ -8,7 +8,9 @@ Point-of-contact : jhendrix, jstanley
 module Verifier.Java.Parser (
   -- * Basic types
     Type(..)
+  , isIValue
   , isPrimitiveType
+  , isRValue
   , stackWidth
   , isFloatType
   , isRefType

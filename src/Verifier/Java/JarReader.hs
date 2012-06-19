@@ -14,16 +14,13 @@ of fully-fledged unzip implementation!
 Info on the zip file format can be found at:
 http://www.pkware.com/documents/casestudies/APPNOTE.TXT
 -}
-
-
-module JarReader
+module Verifier.Java.JarReader
   ( JarReader
   , addJar
   , dumpJarReader
   , loadClassFromJar
   , newJarReader
-  )
-where
+  ) where
 
 import Control.Applicative
 import Control.Arrow
@@ -81,9 +78,6 @@ loadClassFromJar clNm jr = do
                  0x8 -> Zlib.decompress <$> hGet h compSz
                  _   -> compTypeNotSupported
       CE.assert (LBS.length bytes == fromIntegral uncompSz) $ return ()
-
---      LBS.writeFile "t.class" bytes
-
       let cl = runGet getClass bytes
       cl `seq` return (Just cl)
 
