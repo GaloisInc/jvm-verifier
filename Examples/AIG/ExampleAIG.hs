@@ -17,9 +17,10 @@ import qualified Data.Vector.Storable as SV
 import System.CPUTime
 import Text.Printf
 
-import Simulation
 import Tests.Common
+import Verifier.Java.Simulator (run)
 import Verinf.Symbolic
+
 
 -- Helper methods {{{1
 time :: t -> IO t

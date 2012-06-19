@@ -19,7 +19,7 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.Trans
 import Data.Char
-import System.Console.CmdArgs.Implicit hiding (verbosity)
+import System.Console.CmdArgs.Implicit hiding (verbosity, setVerbosity)
 import System.Directory
 import System.Environment (getArgs)
 import System.Environment.Executable (getExecutablePath)
@@ -29,9 +29,9 @@ import System.FilePath
 import Text.ParserCombinators.Parsec
 import Prelude hiding (catch)
 
-import Simulation
-import Overrides
+import Verifier.Java.Simulator
 import Verifier.Java.WordBackend
+import Overrides
 
 simExcHndlr' :: Bool -> String -> SomeException -> IO [Bool]
 simExcHndlr' suppressOutput failMsg exc = do
@@ -136,7 +136,7 @@ main = do
       go = withSymbolicMonadState oc $ \sms -> do
              runSimulator (symbolicBackend sms) fl cb $ do
                jssOverrides
-               Simulation.setVerbosity (dbug args')
+               setVerbosity (dbug args')
                rs <- runMain cname =<< do
                  jargs <- newMultiArray (ArrayType (ClassType "java/lang/String"))
                                         [mkCInt 32 $ fromIntegral $ length jopts]

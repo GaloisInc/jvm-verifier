@@ -20,7 +20,7 @@ Point-of-contact : jstanley
 {-# LANGUAGE UndecidableInstances       #-}
 {-# LANGUAGE ViewPatterns               #-}
 
-module Simulation
+module Verifier.Java.Simulator
   ( module Execution
   , SimulatorExc(..)
   , FinalResult(..)
@@ -1056,7 +1056,7 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   getResult = do
     rslts <- M.map (finalResult CA.&&& frames) <$> gets pathStates
     let rs = map (second fst) (M.assocs rslts)
-    when (all isRealExc $ map snd rs) $ Simulation.throwExternal (msgs rs) rslts
+    when (all isRealExc $ map snd rs) $ throwExternal (msgs rs) rslts
     return rs
     where
       isRealExc Exc{} = True
@@ -2337,7 +2337,7 @@ abort msg = do
     Right ps@PathState{ pathStSel = pss, frames = frms } -> do
       modify $ \s -> s{ pathStates = M.singleton pss ps{ finalResult = Aborted} }
       let showFrms = length frms > 0
-      Simulation.throwExternal
+      throwExternal
         (msg ++ "\n" ++ ppExcMsg showFrms pss (if showFrms then ppStk frms else ""))
         (M.singleton pss (Aborted, frms))
 

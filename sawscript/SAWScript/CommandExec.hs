@@ -25,7 +25,7 @@ import System.FilePath
 import System.IO (hFlush, stdout)
 import Text.PrettyPrint.HughesPJ
 
-import qualified Simulation as JSS 
+import qualified Verifier.Java.Simulator as JSS
 import SAWScript.ErrorPlus
 import SAWScript.Utils
 import qualified SAWScript.MethodAST as AST

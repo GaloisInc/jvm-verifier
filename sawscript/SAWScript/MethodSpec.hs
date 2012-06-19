@@ -44,11 +44,11 @@ import System.IO
 
 import qualified SAWScript.CongruenceClosure as CC
 import qualified SAWScript.TypeChecker as TC
-import qualified Simulation as JSS
 import SAWScript.Utils
 import SAWScript.MethodSpecIR
 import SAWScript.TypeChecker
 
+import qualified Verifier.Java.Simulator as JSS
 import Verifier.Java.WordBackend
 import Verinf.Symbolic
 import qualified Verinf.Symbolic.BLIF as Blif

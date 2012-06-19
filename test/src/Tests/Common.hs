@@ -12,8 +12,8 @@ Point-of-contact : atomb, jhendrix
 {-# LANGUAGE ViewPatterns         #-}
 module Tests.Common 
   ( module Tests.Common
-  , module Simulation
   , module Verifier.Java.Parser
+  , module Verifier.Java.Simulator
   , module Verifier.Java.Utils
   , module Verifier.Java.WordBackend
   , BitEngine(..)
@@ -27,7 +27,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import qualified Test.QuickCheck.Test as T
 
-import Simulation hiding (run)
+import Verifier.Java.Simulator hiding (run)
 import Verifier.Java.Parser
 import Verifier.Java.Utils
 import Verifier.Java.WordBackend
