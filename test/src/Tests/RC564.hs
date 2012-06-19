@@ -16,12 +16,7 @@ import System.Process
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 
-import JavaParser
-import Simulation hiding (run)
 import Tests.Common
-import Utils
-
-import Verinf.Symbolic
 
 rc564Tests :: [(Args, Property)]
 rc564Tests =
@@ -68,17 +63,16 @@ evalDagRC564 key input = do
 --   run $ putStrLn $ "Key    : " ++ key
 --   run $ putStrLn $ "Input  : " ++ input
 --   run $ putStrLn $ "Golden : " ++ golden
-  rslt <- run $ runSymbolic oc $ do
-    sbe <- getBackend
-    liftIO $ do
-      keyVars <- replicateM 16 $ freshByte sbe
-      inpVars <- replicateM 16 $ freshByte sbe
-      outVars <- runDefSimulator sbe cb $ runRC564 keyVars inpVars
-      let inpValues = V.map constInt
-                    $ V.fromList
-                    $ hexToByteSeq key ++ hexToByteSeq input
-      evalFn <- concreteEvalFn inpValues
-      byteSeqToHex <$> mapM evalFn outVars
+  rslt <- run $ withSymbolicMonadState oc $ \sms -> do
+    let sbe = symbolicBackend sms 
+    keyVars <- replicateM 16 $ freshByte sbe
+    inpVars <- replicateM 16 $ freshByte sbe
+    outVars <- runDefSimulator sbe cb $ runRC564 keyVars inpVars
+    let inpValues = V.map constInt
+                  $ V.fromList
+                  $ hexToByteSeq key ++ hexToByteSeq input
+    evalFn <- concreteEvalFn inpValues
+    byteSeqToHex <$> mapM evalFn outVars
   assert $ rslt == golden
 --   run $ putStrLn $ "Result : " ++ rslt
 
@@ -87,17 +81,16 @@ _makeAigerRC564 filepath = do
   cb <- commonLoadCB
   oc <- mkOpCache
   putStrLn "Simulating RC564"
-  runSymbolic oc $ do
-    sbe <- getBackend
-    be <- getBitEngine
-    liftIO $ do
-      keyVars <- replicateM 16 $ freshByte sbe
-      inpVars <- replicateM 16 $ freshByte sbe
-      outValues <- runDefSimulator sbe cb $ runRC564 keyVars inpVars
-      putStrLn "Creating RC564 aiger..."
-      outLits <- mapM (getVarLit sbe) outValues
-      putStrLn $ "Writing RC564 aiger to '" ++ filepath ++ "'"
-      writeAiger be filepath $ concat (map (take 8 . toLsbf_lit) outLits)
+  withSymbolicMonadState oc $ \sms -> do
+    let sbe = symbolicBackend sms
+    let be = smsBitEngine sms
+    keyVars <- replicateM 16 $ freshByte sbe
+    inpVars <- replicateM 16 $ freshByte sbe
+    outValues <- runDefSimulator sbe cb $ runRC564 keyVars inpVars
+    putStrLn "Creating RC564 aiger..."
+    outLits <- mapM (getVarLit sbe) outValues
+    putStrLn $ "Writing RC564 aiger to '" ++ filepath ++ "'"
+    writeAiger be filepath $ concat (map (take 8 . toLsbf_lit) outLits)
 
 runRC564 :: AigOps sym =>
             [MonadTerm sym] -> [MonadTerm sym] -> Simulator sym [MonadTerm sym]

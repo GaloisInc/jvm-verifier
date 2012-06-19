@@ -2,17 +2,17 @@
 Module           : $Header$
 Description      :
 Stability        : stable
-Point-of-contact : jhendrix, jstanley
+Point-of-contact : atomb, jhendrix
 -}
 
-module JavaParser.Common
-where
+module Verifier.Java.Parser.Common where
 
 import Data.Array
 import Data.Int
 import Data.Word
 
-import Utils.Common
+slashesToDots :: String -> String
+slashesToDots = map (\c -> if c == '/' then '.' else c)
 
 -- | JVM Type
 data Type

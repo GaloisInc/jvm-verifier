@@ -16,7 +16,6 @@ import Test.QuickCheck.Monadic as MQC
 
 import Verinf.SBV.Model
 import Verinf.SBV.Parser
-
 import Verinf.Symbolic
 
 sbvParserTests :: [(Args, Property)]
@@ -25,7 +24,6 @@ sbvParserTests =
     , label "testCPlus" testCPlus
     )
   ]
-
 
 testCPlus :: Property
 testCPlus = monadicIO $ do

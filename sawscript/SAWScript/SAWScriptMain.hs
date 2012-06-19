@@ -23,7 +23,7 @@ import System.Environment (getArgs)
 import System.Exit(exitFailure, exitSuccess, exitWith)
 import Text.ParserCombinators.Parsec(runParser, many1, noneOf, sepBy, char)
 
-import Execution.Codebase(Codebase, loadCodebase)
+import Execution.Codebase (Codebase, loadCodebase)
 
 import Paths_jvm_verifier(version)
 import SAWScript.MethodAST(SSPgm, SAWScriptCommand(DeclareMethodSpec),inpVal)

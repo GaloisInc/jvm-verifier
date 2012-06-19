@@ -23,12 +23,11 @@ import System.Time(TimeDiff(..), getClockTime, diffClockTimes, normalizeTimeDiff
 import System.Locale(defaultTimeLocale)
 import Text.PrettyPrint.HughesPJ
 import Numeric(showFFloat)
-import Utils.Common (slashesToDots)
 
+import Verifier.Java.Parser (slashesToDots)
 import Verinf.Symbolic
 
 import qualified Execution.Codebase as JSS
-import qualified JavaParser as JSS
 
 data Pos = Pos !FilePath -- file
                !Int      -- line

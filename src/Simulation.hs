@@ -81,8 +81,6 @@ module Simulation
   , ppSimulatorExc
   , ppValue
   , setVerbosity
-  , simExcHndlr
-  , simExcHndlr'
   , lookupStringRef
   , splitFinishedPaths
 --  , verbosity
@@ -93,10 +91,10 @@ module Simulation
   , registerBreakpoints
   , resumeBreakpoint
   , module Verifier.Java.Backend
-  , module Verifier.Java.WordBackend
   , liftIO
   , withSBE
   , withoutExceptions
+  , dbugM
   )
 where
 
@@ -121,23 +119,29 @@ import Data.Typeable hiding (typeOf)
 import qualified Data.Vector as V
 import Data.Word
 import Prelude hiding (catch)
-import System.IO (hFlush, hPutStr, stderr, stdout)
+import System.IO (hFlush, stdout)
 
 import Execution.JavaSemantics
-import Analysis.CFG (ppInst)
 import Execution
 import Execution.Codebase
-import JavaParser
-import JavaParser.Common
-import Utils
-import Utils.Common
 import Verifier.Java.Backend
-import Verifier.Java.WordBackend
+import Verifier.Java.Utils
 
-import Verinf.Symbolic hiding (defaultValue, (&&&), (|||))
 import Verinf.Utils.CatchMIO
 import Verinf.Utils.IOStateT
 import Verinf.Utils.LogMonad
+
+-- | Converts integral into bounded num class.
+-- TODO: Revisit error handling when integer is out of range.
+safeCast :: (Integral s, Bounded t, Integral t, Num t) => s -> t
+safeCast = impl minBound maxBound . toInteger
+  where impl :: Integral t => t -> t -> Integer -> t
+        impl minb maxb s
+          | toInteger minb <= s && s <= toInteger maxb = fromInteger s
+          | otherwise = error "internal: safeCast argument out of range"
+
+dbugM :: MonadIO m => String -> m ()
+dbugM = liftIO . putStrLn
 
 data InitializationStatus
   = Started
@@ -1946,20 +1950,6 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
 
 --------------------------------------------------------------------------------
 -- Misc utilities
-
-simExcHndlr' :: Bool -> String -> CE.SomeException -> IO [Bool]
-simExcHndlr' suppressOutput failMsg exc = do
-  let h :: Maybe (SimulatorExc DagTerm)
-      h = CE.fromException exc
-  case h of
-    Just (SimExtErr msg _ _) -> do
-      unless suppressOutput $ hPutStr stderr msg
-      return [False]
-    Just se -> error $ ppSimulatorExc se
-    _ -> error $ failMsg ++ ": " ++ show exc
-
-simExcHndlr :: String -> CE.SomeException -> IO [Bool]
-simExcHndlr = simExcHndlr' True
 
 _interactiveBreak :: MonadIO m => String -> m ()
 _interactiveBreak msg = liftIO $ do

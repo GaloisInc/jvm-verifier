@@ -16,7 +16,6 @@ import Control.Monad.State
 import Data.Int
 
 import Execution.Codebase
-import JavaParser
 
 data AtomicValue double float int long ref
   = DValue double

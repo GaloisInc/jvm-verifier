@@ -63,13 +63,11 @@ import Text.PrettyPrint.HughesPJ
 
 import Verinf.Symbolic
 
-import qualified JavaParser as JSS
 import qualified Execution.Codebase as JSS
 import qualified SAWScript.MethodAST as AST
 import qualified SAWScript.CongruenceClosure as CC
 import SAWScript.TIMonad
 import SAWScript.Utils
-import Utils.Common
 
 -- Typecheck DagType {{{1
 
@@ -348,7 +346,7 @@ isActualSubtype cb x y
   = JSS.isSubtype cb (jssTypeOfActual x) (jssTypeOfActual y)
 
 ppActualType :: JavaActualType -> String
-ppActualType (ClassInstance x) = slashesToDots (JSS.className x)
+ppActualType (ClassInstance x) = JSS.slashesToDots (JSS.className x)
 ppActualType (ArrayInstance l tp) = show tp ++ "[" ++ show l ++ "]"
 ppActualType (PrimitiveType tp) = show tp
 
