@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DoAndIfThenElse #-}
+{-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -8,22 +9,17 @@ module Verifier.Java.WordBackend where
 
 import Control.Applicative
 import Control.Exception (assert, bracket)
-import Control.Monad.Reader
 import Data.IORef
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
-import Data.Typeable
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 
 import Verinf.Symbolic.Common
 import Verinf.Symbolic
 import Verinf.Symbolic.Lit.Functional
-import Verinf.Utils.CatchMIO
 
 import Verifier.Java.Backend
-
-type Node = DagTerm
 
 data SymbolicMonadState = SMS {
     smsOpCache :: OpCache
@@ -55,15 +51,7 @@ mkSymbolicMonadState oc be de = do
              , smsBitBlastFn = bbFn
              }
 
-newtype SymbolicMonad a = SM (ReaderT SymbolicMonadState IO a)
-  deriving ( Applicative
-           , CatchMIO
-           , Functor
-           , Monad
-           , MonadIO
-           , Typeable
-           )
-
+data SymbolicMonad
 instance AigOps SymbolicMonad where
 type instance MonadTerm SymbolicMonad  = DagTerm
 
@@ -75,23 +63,6 @@ withSymbolicMonadState oc f =
   withBitEngine $ \be -> do
     de <- mkConstantFoldingDagEngine
     f =<< mkSymbolicMonadState oc be de
-
--- | Run symbolic monad in IO.
-runSymbolic :: OpCache -> SymbolicMonad a -> IO a
-runSymbolic oc (SM m) = withSymbolicMonadState oc (runReaderT m)
-  
-getSymState :: SymbolicMonad SymbolicMonadState
-getSymState = SM ask
-
-getDagEngine :: SymbolicMonad DagEngine
-getDagEngine = SM (asks smsDagEngine)
-
--- | Returns Bit engine used for literal computation inside monad.
-getBitEngine :: SymbolicMonad (BitEngine Lit)
-getBitEngine = SM (asks smsBitEngine)
-
-getBackend :: SymbolicMonad (Backend SymbolicMonad)
-getBackend = symbolicBackend <$> getSymState
 
 symbolicBackend :: SymbolicMonadState -> Backend SymbolicMonad
 symbolicBackend sms = do

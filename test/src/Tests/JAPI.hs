@@ -23,7 +23,6 @@ import Utils
 import Overrides
 
 import Verinf.Symbolic
-import Verinf.Utils.CatchMIO
 
 -- Test names match those found in PrimOps where possible.
 
@@ -51,13 +50,13 @@ mkTestArgs tn = do
   return [RValue args]
 
 doTest :: String -> TrivialProp
-doTest tn cb = runSymTest $ \sbe -> runDefSimulator sbe cb go 
-  where
-    failMsg = "Unexpected error caught in JAPI test: " ++ tn
-    go = do jssOverrides
-            rs <- runMain "JAPI" =<< mkTestArgs tn
-            CE.assert (length rs == 1) $ return [True]
-
+doTest tn cb =
+  runSymTest $ \sbe -> do
+    runDefSimulator sbe cb $ do
+      jssOverrides
+      rs <- runMain "JAPI" =<< mkTestArgs tn
+      CE.assert (length rs == 1) $ return [True]
+      
 -- --------------------------------------------------------------------------------
 -- -- Scratch
 
