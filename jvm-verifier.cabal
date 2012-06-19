@@ -64,7 +64,6 @@ library
     Verifier.Java.Backend
     Verifier.Java.Codebase
     Verifier.Java.Parser
-    Verifier.Java.Parser.CFG
     Verifier.Java.Utils
     Verifier.Java.WordBackend
  
