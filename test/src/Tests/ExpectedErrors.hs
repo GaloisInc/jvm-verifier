@@ -13,8 +13,6 @@ import Simulation hiding (run)
 import qualified Simulation as Sim
 import Tests.Common
 import Utils
-import Utils.Simulation
-
 import Verinf.Symbolic
 
 -- NB: REVISIT: The poorly named "runNegTest" is what grounds to the default
