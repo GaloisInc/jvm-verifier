@@ -25,6 +25,7 @@ import qualified Test.QuickCheck.Test as T
 
 import Execution.Codebase
 import Verifier.Java.Backend
+import Verifier.Java.WordBackend
 import Simulation (SimulatorExc(..), liftIO)
 
 import Verinf.Symbolic
@@ -76,10 +77,17 @@ commonLoadCB :: IO Codebase
 commonLoadCB = loadCodebase commonJars commonClassPaths
 
 runTest :: SymbolicMonad [Bool] -> PropertyM IO ()
-runTest m = run (mkOpCache >>= \oc -> runSymbolic oc m) >>= mapM_ assert
+runTest m = mapM_ assert =<< run (mkOpCache >>= \oc -> runSymbolic oc m) 
+
+runWithSymbolicMonadState :: (SymbolicMonadState -> IO [Bool]) ->  PropertyM IO ()
+runWithSymbolicMonadState f = do
+  res <- run $ do
+    oc <- mkOpCache
+    withSymbolicMonadState oc f
+  mapM_ assert res
 
 runSymTest :: (Backend SymbolicMonad -> IO [Bool]) -> PropertyM IO ()
-runSymTest m = runTest (getBackend >>= \sbe -> liftIO (m sbe))
+runSymTest m = runWithSymbolicMonadState (m . symbolicBackend)
 
 runNegTest :: SymbolicMonad [Bool] -> PropertyM IO ()
 runNegTest m = do

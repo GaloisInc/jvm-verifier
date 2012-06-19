@@ -52,6 +52,7 @@ import SAWScript.MethodSpecIR
 import SAWScript.TypeChecker
 import Utils.Common
 
+import Verifier.Java.WordBackend
 import Verinf.Symbolic
 import qualified Verinf.Symbolic.BLIF as Blif
 import qualified Verinf.Symbolic.QuickCheck as QuickCheck
@@ -834,11 +835,11 @@ data PathVC = PathVC {
 type PathVCGenerator = State PathVC
 
 -- | Add verification condition to list.
-pvcgAssertEq :: String -> Node -> Node -> PathVCGenerator ()
+pvcgAssertEq :: String -> DagTerm -> DagTerm -> PathVCGenerator ()
 pvcgAssertEq name jv sv  =
   modify $ \pvc -> pvc { pvcChecks = EqualityCheck name jv sv : pvcChecks pvc }
 
-pvcgAssert :: String -> Node -> PathVCGenerator ()
+pvcgAssert :: String -> DagTerm -> PathVCGenerator ()
 pvcgAssert nm v =
   modify $ \pvc -> pvc { pvcChecks = AssertionCheck nm v : pvcChecks pvc }
 
@@ -1110,17 +1111,15 @@ validateMethodSpec
   forM_ configs $ \(bs,cl) -> do
     when (verb >= 3) $
       putStrLn $ "Executing " ++ specName ir ++ " at PC " ++ show (bsPC bs) ++ "."
-    de <- mkConstantFoldingDagEngine
-    (esd,results) <-
-      runSymbolicWithDagEngine oc de $ do                
-        sbe <- JSS.getBackend
-        liftIO $ do
-          JSS.runDefSimulator sbe cb $ do
-            -- Create initial Java state and expected state definition.
-            esd <- initializeVerification de ir bs cl
-            res <- mkSpecVC de params esd
-            return (esd,res)
-    handler de esd results
+    withSymbolicMonadState oc $ \sms -> do
+      let de = smsDagEngine sms
+      let sbe = symbolicBackend sms
+      JSS.runDefSimulator sbe cb $ do
+        -- Create initial Java state and expected state definition.
+        esd <- initializeVerification de ir bs cl
+        -- Generate VC
+        res <- mkSpecVC de params esd
+        liftIO $ handler de esd res      
 
 data VerifyState = VState {
          vsVCName :: String
@@ -1144,12 +1143,12 @@ vsDagEngine = ecDagEngine . vsEvalContext
 
 type VerifyExecutor = StateT VerifyState IO
 
-runVerify :: VerifyState -> Node -> [VerifyCommand] -> IO ()
+runVerify :: VerifyState -> DagTerm -> [VerifyCommand] -> IO ()
 runVerify vs g cmds = evalStateT (applyTactics cmds g) vs
 
 -- runABC {{{2
 
-runABC :: Node -> VerifyExecutor ()
+runABC :: DagTerm -> VerifyExecutor ()
 runABC goal = do
   de <- gets vsDagEngine
   v <- gets vsVerbosity
@@ -1311,7 +1310,7 @@ announce msg = do
   v <- gets vsVerbosity
   when (v >= 3) $ liftIO (putStrLn msg)
 
-useSMTLIB :: Maybe Int -> Maybe String -> Node -> VerifyExecutor ()
+useSMTLIB :: Maybe Int -> Maybe String -> DagTerm -> VerifyExecutor ()
 useSMTLIB mbVer mbNm g = do
   de <- gets vsDagEngine
   ir <- gets vsMethodSpec
@@ -1356,7 +1355,7 @@ useSMTLIB mbVer mbNm g = do
 
 -- useYices {{{2
 
-useYices :: Maybe Int -> Node -> VerifyExecutor ()
+useYices :: Maybe Int -> DagTerm -> VerifyExecutor ()
 useYices mbTime g = do
   de <- gets vsDagEngine
   ir <- gets vsMethodSpec

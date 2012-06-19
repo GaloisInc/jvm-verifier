@@ -68,12 +68,11 @@ library
     Simulation
     Utils
     Utils.Common
-    Utils.Simulation
-
+    Verifier.Java.Backend
+    Verifier.Java.WordBackend
+ 
   other-modules:
     Execution.Stepper
-    Verifier.Java.Backend
-
 
   if !flag(build-library)
     buildable: False

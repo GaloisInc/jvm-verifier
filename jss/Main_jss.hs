@@ -30,10 +30,9 @@ import Prelude hiding (catch)
 
 import Execution
 import JavaParser.Common
+import Overrides
 import Simulation
 import Utils
-import Utils.Simulation
-import Overrides
 import Verinf.Symbolic
 
 data JSS = JSS

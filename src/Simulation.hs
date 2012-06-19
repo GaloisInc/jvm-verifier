@@ -31,7 +31,6 @@ module Simulation
   , Ref(..)
   , State, pathStates, backend
   , SimulationFlags(..)
-  , Node
   , Value
   , defaultSimFlags
   , dumpMergeFrames
@@ -94,8 +93,10 @@ module Simulation
   , registerBreakpoints
   , resumeBreakpoint
   , module Verifier.Java.Backend
+  , module Verifier.Java.WordBackend
   , liftIO
   , withSBE
+  , withoutExceptions
   )
 where
 
@@ -131,6 +132,7 @@ import JavaParser.Common
 import Utils
 import Utils.Common
 import Verifier.Java.Backend
+import Verifier.Java.WordBackend
 
 import Verinf.Symbolic hiding (defaultValue, (&&&), (|||))
 import Verinf.Utils.CatchMIO
@@ -2498,3 +2500,7 @@ instance PrettyTerm term => Show (PathState term) where
       "  starting PC    : " ++ show (startingPC st)
       ++
       "  instr count    : " ++ show (insnCount st)
+
+withoutExceptions :: [(PathDescriptor, FinalResult term)]
+                  -> [(PathDescriptor, FinalResult term)]
+withoutExceptions = filter (\r -> case snd r of Exc{} -> False ; _ -> True)

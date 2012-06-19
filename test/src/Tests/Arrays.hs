@@ -17,8 +17,6 @@ import JavaParser.Common
 import Simulation hiding (run)
 import Tests.Common
 import Utils
-import Utils.Simulation
-
 import Verinf.Symbolic
 
 arrayTests :: [(Args, Property)]

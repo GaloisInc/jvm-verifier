@@ -514,7 +514,7 @@ runProofs cb ssOpts files = do
   (errList,res) <-
     handle (\(ExecException absPos errorMsg resolution) ->
               return ([(absPos,errorMsg, resolution)], False)) $
-    handle (\(se::SimulatorExc Node) ->
+    handle (\(se::SimulatorExc DagTerm) ->
               return ([( PosInternal "simulation"
                        , text (ppSimulatorExc se)
                        , "")], False)) $ do

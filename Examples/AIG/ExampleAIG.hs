@@ -22,8 +22,6 @@ import JavaParser
 import Simulation
 import Tests.Common
 import Utils
-import Utils.Simulation
-
 import Verinf.Symbolic
 
 -- Helper methods {{{1

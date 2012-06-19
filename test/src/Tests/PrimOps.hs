@@ -16,7 +16,6 @@ module Tests.PrimOps (primOpTests) where
 import Control.Applicative
 import qualified Control.Exception as CE
 import Control.Monad
-import Control.Monad.State
 import Data.Bits
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
@@ -28,242 +27,171 @@ import JavaParser (Type(..))
 import Simulation hiding (run)
 import Tests.Common
 import Utils
-import Utils.Simulation
 
 import Verinf.Symbolic
 
 type TestInput = [CValue]
 
-type Test sym a =
-     Codebase
-  -> Maybe String                                               -- ^ aig filename to write, if any
-  -> MethodSpec                                                 -- ^ method under test
-  -> (Backend sym -> IO [MonadTerm sym])                                        -- ^ symbolic term creator
-  -> ([MonadTerm sym] -> Simulator sym [Value (MonadTerm sym)]) -- ^ function argument creator
-  -> (TestInput -> [Bool])                                      -- ^ concrete input => aig input
-  -> (TestInput -> CValue -> Bool)                              -- ^ correct dag eval predicate
-  -> (TestInput -> [Bool] -> Bool)                              -- ^ correct aig eval predicate
-  -> [TestInput]                                                -- ^ concrete inputs
-  -> PropertyM IO ()
-
-type RunIO sym c = sym (CValue, c) -> IO (CValue, c)
-type RunTest sym = sym [Bool] -> PropertyM IO ()
-
 verb :: Int
 verb = 0
-
--- A "symbolic backend testable" typeclass alias to clean up signatures a bit
-class AigOps sym => SBETestable sym
-instance SBETestable SymbolicMonad
 
 -- NB: This whole module could probably use a rewrite; with the move to type
 -- families and attempted support for multiple symbolic backends, it's become
 -- somewhat of a poster child for refactoring gone wrong. -- js 06 Jan 2011
 
-type RunSymTest a = (SymbolicMonad a -> IO a, SymbolicMonad [Bool] -> PropertyM IO ())
-
 primOpTests :: [(Args, Property)]
 primOpTests =
-  -- 32b tests over all symbolic backends, as configured below
-  (runBEs $ \(rio, rt) ->
-    [
-      test1 (t1 rio)            "32b int and"
-    , test1 (t2 rio)            "32b int add"
-    , test1 (t3 rt)             "byte array sum"
-    , test1 (t4 rio)            "32b int sub"
-    , test1 (t12a rt)           "data-dependent branch (simple)"
-    , test1 (t12b rt)           "data-dependent branch (nested)"
-    , test1 (t12c rt)           "data-dependent branch (loop)"
-    , test 10 False (qr32 rio)  "32b quotRem: dag and aig eval"
-    ]
-  )
-  ++
-  -- 64b tests over all symbolic backends, as configured below
-  (runBEs $ \(rio, rt) ->
-    [
-      test1 (t7 rio)            "64b int and"
-    , test1 (t8 rio)            "64b int add"
-    , test1 (t9 rt)             "64b int array sum"
-    , test 10 False (qr64 rio ) "64b quotRem: dag and aig eval"
-    ]
-  )
-  ++
-  [
-    test 10 False ct2                 "string instantiation & simple string ops"
-  , test1 t13                         "32b int array out parameter"
-  , test1 ct1                         "superclass field assignment from subclass method"
-  , test1 fp1                         "concrete double add"
-  , test1 fp2                         "concrete double sub"
-  , test1 fp3                         "concrete double mul"
-  , test1 fp4                         "concrete double div"
-  , test1 fp5                         "concrete float add"
-  , test1 fp6                         "concrete float sub"
-  , test1 fp7                         "concrete float mul"
-  , test1 fp8                         "concrete float div"
-  ]
+   [ -- 32b tests over all symbolic backends, as configured below
+     test1 t1                  "32b int and"
+   , test1 t2                  "32b int add"
+   , test1 t3                  "byte array sum"
+   , test1 t4                  "32b int sub"
+   , test1 t12a                "data-dependent branch (simple)"
+   , test1 t12b                "data-dependent branch (nested)"
+   , test1 t12c                "data-dependent branch (loop)"
+   , test 10 False qr32        "32b quotRem: dag and aig eval"
+     -- 64b tests over all symbolic backends, as configured below
+   , test1 t7                  "64b int and"
+   , test1 t8                  "64b int add"
+   , test1 t9                  "64b int array sum"
+   , test 10 False qr64        "64b quotRem: dag and aig eval"
+   , test 10 False ct2                 "string instantiation & simple string ops"
+   , test1 t13                         "32b int array out parameter"
+   , test1 ct1                         "superclass field assignment from subclass method"
+   , test1 fp1                         "concrete double add"
+   , test1 fp2                         "concrete double sub"
+   , test1 fp3                         "concrete double mul"
+   , test1 fp4                         "concrete double div"
+   , test1 fp5                         "concrete float add"
+   , test1 fp6                         "concrete float sub"
+   , test1 fp7                         "concrete float mul"
+   , test1 fp8                         "concrete float div"
+   ]
   where
-    -- NB: REVISIT: The poorly named "runTest" and "runSymbolic" functions are
-    -- what ground to the default symbolic backend; we'll want better names when
-    -- we support multiple symbolic backends (runSymbolicWordRep,
-    -- runSymbolicBitBlast or somesuch, perhaps, etc.)
-    runBEs :: forall a b. (RunSymTest a -> [b]) -> [b]
-    runBEs = (`concatMap` symbolicBackendRunFns)
-    --
-    symbolicBackendRunFns :: [RunSymTest a]
-    symbolicBackendRunFns = [(\m -> flip runSymbolic m =<< mkOpCache, runTest)]
-    --
-    qr32 runIO cb =
+    qr32 cb =
       chkQuotRem
-        cb
         ("Trivial", "int_f5", "(II)I") -- 32b quot java impl
         ("Trivial", "int_f6", "(II)I") -- 32b rem java impl
-        (evalInt32BinOp runIO "qr32" Nothing)
-    qr64 runIO cb =
+        (evalBinOp32 cb)
+    qr64 cb =
       chkQuotRem
-        cb
         ("Trivial", "long_f5", "(JJ)J") -- 64b quot java impl
         ("Trivial", "long_f6", "(JJ)J") -- 64b rem java impl
-        (evalInt64BinOp runIO "qr64" Nothing)
-
+        (evalBinOp64 cb)
 --------------------------------------------------------------------------------
 -- "trivial" tests
 
-mkBinOpTest :: Eq a =>
-               Codebase
-            -> MethodSpec
-            -> (a -> a -> a)
-            -> EvalBinOp a
-            -> (a -> CValue)
-            -> [(a, a)]
-            -> PropertyM IO ()
-mkBinOpTest cb ms gnd eval ctor inps = runTest $ do
-  forM inps $ \(i1,i2) -> do
-    (dagEval, aigEval) <- liftIO $ eval cb ms i1 i2
-    return (dagEval == ctor (i1 `gnd` i2) && aigEval == (i1 `gnd` i2))
+mkBinOpTest32 :: Codebase
+                 -> MethodSpec
+                 -> (Int32 -> Int32 -> Int32)
+                 -> [(Int32, Int32)]
+                 -> PropertyM IO ()
+mkBinOpTest32 cb ms gnd inps = do
+  forM_ inps $ \(x,y) -> do
+    dagEval <- run $ evalBinOp32 cb ms x y
+    assert (dagEval == mkCInt 32 (fromIntegral (x `gnd` y)))
+
+mkBinOpTest64 ::Codebase
+              -> MethodSpec
+              -> (Int64 -> Int64 -> Int64)
+              -> [(Int64, Int64)]
+              -> PropertyM IO ()
+mkBinOpTest64 cb ms gnd inps = do
+  forM_ inps $ \(x,y) -> do
+    dagEval <- run $ evalBinOp64 cb ms x y
+    assert (dagEval == mkCInt 64 (fromIntegral (x `gnd` y)))
 
 mkTest :: (Value DagTerm -> DagTerm)
-          -> RunTest SymbolicMonad
-          -> String
-          -> Test SymbolicMonad a
-mkTest getRslt runTest' _lbl cb maigNm (cNm, mNm, sig)
-       mkSyms mkArgs toAigInps prDag prAig inps =
-  runTest' $ do
-    sbe <- getBackend
-    be <- getBitEngine
-    liftIO $ do
-      syms       <- mkSyms sbe
-      [(_,ReturnVal (getRslt -> rslt))] <- runDefSimulator sbe cb $ do
-        setVerbosity verb
-        withoutExceptions <$>
-          (runStaticMethod cNm mNm sig =<< mkArgs syms)
-      outIntLit <- toLsbfV <$> getVarLit sbe rslt
-      chks0 <- forM inps $ \inp -> do
-        evalFn <- concreteEvalFn (V.fromList inp)
-        prDag inp <$> evalFn rslt
-      case maigNm of
-        Nothing -> return ()
-        Just nm -> beWriteAigerV be nm [outIntLit]
-      chks1 <- liftIO $ forM inps $ \inp ->
-        prAig inp . SV.toList
-          <$> beEvalAigV be (SV.fromList (toAigInps inp)) outIntLit
-      return (chks0 ++ chks1)
+          -> Codebase
+          -> MethodSpec                                             -- ^ method under test
+          -> (Backend SymbolicMonad -> IO [DagTerm])                -- ^ symbolic term creator
+          -> ([DagTerm] -> Simulator SymbolicMonad [Value DagTerm]) -- ^ function argument creator
+          -> (TestInput -> CValue -> Bool)                          -- ^ correct dag eval predicate
+          -> [TestInput]                                            -- ^ concrete inputs
+          -> PropertyM IO ()
+mkTest getRslt cb (cNm, mNm, sig) mkSyms mkArgs prDag inps = do
+  runSymTest $ \sbe -> do
+    syms <- mkSyms sbe
+    [(_,ReturnVal (getRslt -> rslt))] <- runDefSimulator sbe cb $ do
+      setVerbosity verb
+      (runStaticMethod cNm mNm sig =<< mkArgs syms)
+    forM inps $ \inp -> do
+      evalFn <- concreteEvalFn (V.fromList inp)
+      prDag inp <$> evalFn rslt
 
-mkIntTest :: RunTest SymbolicMonad -> String -> Test SymbolicMonad Int32
-mkIntTest runTest' s = mkTest unIValue runTest' s 
+t1 :: TrivialProp
+t1 cb = mkBinOpTest32 cb ("Trivial", "bool_f1", "(ZZ)Z") (.&.) [(0,0), (0,1), (1,0), (1,1)]
 
-mkLongTest :: RunTest SymbolicMonad -> String -> Test SymbolicMonad Int64
-mkLongTest runTest' s = mkTest unLValue runTest' s
+t2 :: TrivialProp
+t2 cb = mkBinOpTest32 cb ("Trivial", "int_f2", "(II)I") (+) [(0,0), (0,1), (1,0), (1,1), (8192,8192)]
 
-t1 :: RunIO SymbolicMonad Int32 -> TrivialProp
-t1 runIO cb = mkBinOpTest cb ("Trivial", "bool_f1", "(ZZ)Z") (.&.)
-  (evalInt32BinOp runIO "t1" $ Just "t1.aig")
-  constInt
-  [(0,0), (0,1), (1,0), (1,1)]
-
-t2 :: RunIO SymbolicMonad Int32 -> TrivialProp
-t2 runIO cb = mkBinOpTest cb ("Trivial", "int_f2", "(II)I") (+)
-  (evalInt32BinOp runIO "t2" $ Just "t2.aig")
-  constInt
-  [(0,0), (0,1), (1,0), (1,1), (8192,8192)]
-
-t3 :: RunTest SymbolicMonad -> TrivialProp
-t3 rt cb = mkIntTest rt "t3" cb (Just "t3.aig") ("Trivial", "byte_array_f3", "([B)B")
+t3 :: TrivialProp
+t3 cb = mkTest unIValue cb ("Trivial", "byte_array_f3", "([B)B")
   (\sbe -> replicateM 4 $ freshByte sbe)
   (singletonArg RValue . newIntArray (ArrayType ByteType))
-  (concatMap (take 8 . intToBoolSeq))
   (chk intFromConst)
-  (chk boolSeqToInt32)
   (map intInputs [[4,4,4,4], [1,2,3,4], [63,-42,1,1]])
   where
     chk :: (t -> Int32) -> [CValue] -> t -> Bool
     chk cvt inp rslt = sum (map intFromConst inp) == cvt rslt
 
-t4 :: RunIO SymbolicMonad Int32 -> TrivialProp
-t4 runIO cb = mkBinOpTest cb ("Trivial", "int_f4", "(II)I") (-)
-  (evalInt32BinOp runIO "t4" $ Just "t4.aig")
-  constInt
+t4 ::TrivialProp
+t4 cb = mkBinOpTest32 cb ("Trivial", "int_f4", "(II)I") (-)
   [(0,0), (0,1), (7,2), (-16, -5), (1 `shiftL` 31,1)]
 
-t7 :: RunIO SymbolicMonad Int64 -> TrivialProp
-t7 runIO cb = mkBinOpTest cb ("Trivial", "long_f1", "(JJ)J") (.&.)
-  (evalInt64BinOp runIO "t7" $ Just "t7.aig")
-  constLong
+t7 :: TrivialProp
+t7 cb = mkBinOpTest64 cb ("Trivial", "long_f1", "(JJ)J") (.&.)
   [(0,0), (0,1), (1,0), (1,1)]
 
-t8 :: RunIO SymbolicMonad Int64 -> TrivialProp
-t8 runIO cb = mkBinOpTest cb ("Trivial", "long_f2", "(JJ)J") (+)
-  (evalInt64BinOp runIO "t8" $ Just "t8.aig")
-  constLong
+t8 :: TrivialProp
+t8 cb = mkBinOpTest64 cb ("Trivial", "long_f2", "(JJ)J") (+)
   [(0,0), (0,1), (1,0), (1,1), (8192,8192)]
 
-t9 :: RunTest SymbolicMonad -> TrivialProp
-t9 rt cb = mkLongTest rt "t9" cb (Just "t9.aig") ("Trivial", "long_array_f3", "([J)J")
+t9 :: TrivialProp
+t9 cb = mkTest unLValue cb ("Trivial", "long_array_f3", "([J)J")
   (\sbe -> replicateM 4 $ freshLong sbe)
   (singletonArg RValue . newLongArray)
-  (concatMap intToBoolSeq)
   (chk longFromConst)
-  (chk boolSeqToInt64)
   (map longInputs [[1,1,1,1], [42,99,99,42], [39203,2033991,2930,2305843009213693951]])
   where
     chk :: (t -> Int64) -> [CValue] -> t -> Bool
     chk cvt inp rslt = sum (map longFromConst inp) == cvt rslt
 
-t12a :: RunTest SymbolicMonad -> TrivialProp
-t12a rt cb = mkIntTest rt "t12a" cb Nothing ("Trivial", "fork_f1", "(Z)I")
+t12a :: TrivialProp
+t12a cb = mkTest unIValue cb ("Trivial", "fork_f1", "(Z)I")
   (replicateM 1 . freshInt)
   (return . map IValue)
-  (concatMap intToBoolSeq)
   (\(~[inp]) rslt -> intFromConst inp == intFromConst rslt)
-  (\(~[inp]) rslt -> intFromConst inp == boolSeqToInt32 rslt)
   (map intInputs [[0],[1]])
 
 t12cmn
-  :: RunTest SymbolicMonad
-  -> String
-  -> MethodSpec
+  :: MethodSpec
   -> (Int32 -> Int32 -> Int32 -> Bool)
   -> TrivialProp
-t12cmn rt lbl ms chk cb = mkIntTest rt lbl cb Nothing ms
-  (\sbe -> replicateM 2 $ freshInt sbe)
-  (return . map IValue)
-  (concatMap intToBoolSeq)
-  (\(~[b0,b1]) rslt -> chk (intFromConst b0) (intFromConst b1) (intFromConst rslt))
-  (\(~[b0,b1]) rslt -> chk (intFromConst b0) (intFromConst b1) (boolSeqToInt32 rslt))
-  (map intInputs [[0,0],[1,0],[0,1],[1,1]])
+t12cmn (cNm, mNm, sig) chk cb = do
+  runSymTest $ \sbe -> do
+    syms <- replicateM 2 $ IValue <$> freshInt sbe
+    [(_,ReturnVal (IValue rslt))] <- runDefSimulator sbe cb $ do
+      setVerbosity verb
+      runStaticMethod cNm mNm sig syms
+    forM (map intInputs [[0,0],[1,0],[0,1],[1,1]]) $ \[b0,b1] -> do
+      evalFn <- concreteEvalFn (V.fromList [b0,b1])
+      rsltVal <- evalFn rslt
+      return $ chk (intFromConst b0) (intFromConst b1) (intFromConst rsltVal)
 
-t12b :: RunTest SymbolicMonad -> TrivialProp
-t12b rt cb = t12cmn rt "t12b" ("Trivial", "fork_f2", "(ZZ)I") chk cb
+t12b :: TrivialProp
+t12b cb = t12cmn ("Trivial", "fork_f2", "(ZZ)I") chk cb
   where chk b0 b1 rslt = b0 .|. (b1 `shiftL` 1) == rslt
 
-t12c :: RunTest SymbolicMonad -> TrivialProp
-t12c rt cb = t12cmn rt "t12c" ("Trivial", "fork_loop_f2", "(ZZ)I") chk cb
+t12c :: TrivialProp
+t12c cb = t12cmn ("Trivial", "fork_loop_f2", "(ZZ)I") chk cb
   where chk b0 b1 rslt = (b0 .|. (b1 `shiftL` 1)) * 2 == rslt
 
 t13 :: TrivialProp
-t13 cb = runTest $ do
-  sbe <- getBackend
-  be <- getBitEngine
-  liftIO $ do
+t13 cb =
+  runWithSymbolicMonadState $ \sms -> do
+    let sbe = symbolicBackend sms
+        be = smsBitEngine sms
     let n       = 4
         cInputs = [constInt 16, constInt 4]
         expect  = map constInt [4, 64, 4, 8]
@@ -272,12 +200,9 @@ t13 cb = runTest $ do
       setVerbosity verb
       outArr <- newMultiArray (ArrayType IntType) [mkCInt (Wx 32) 4]
       [(pd, Terminated)] <-
-        withoutExceptions
-          <$> (do q <- runStaticMethod "Trivial" "out_array" "(II[I)V"
-                         (ins ++ [RValue outArr])
-                  -- dbugM $ "t13 q = " ++ show q
-                  return q
-              )
+        withoutExceptions <$>
+          runStaticMethod "Trivial" "out_array" "(II[I)V"
+                          (ins ++ [RValue outArr])
       getIntArray pd outArr
     -- DAG eval
     evalFn <- concreteEvalFn (V.fromList cInputs)
@@ -326,9 +251,8 @@ ct2 cb =
     inp <- termInt sbe (fromIntegral (length str))
     [(_, ReturnVal (IValue outVar))] <- runDefSimulator sbe cb $ do
       s <- refFromString str
-      withoutExceptions <$>
-        runStaticMethod "Trivial" "stringCheck" "(Ljava/lang/String;I)Z"
-                        [RValue s, IValue inp]
+      runStaticMethod "Trivial" "stringCheck" "(Ljava/lang/String;I)Z"
+                      [RValue s, IValue inp]
     evalFn <- concreteEvalFn V.empty
     outVal <- evalFn outVar
     return [boolFromConst outVal]
@@ -348,7 +272,7 @@ testDoubleBin cb op method ty = do
     [(_,ReturnVal (DValue r))] <-
       runDefSimulator sbe cb $
         runStaticMethod "Trivial" method ty [DValue a, DValue b]
-    return [r == (op a b)]
+    return [r == op a b]
 
 testFloatBin :: Codebase
              -> (Float -> Float -> Float)
@@ -378,28 +302,24 @@ fp8 cb = testFloatBin  cb (/) "float_f4"  "(FF)F"
 -- quotRem tests
 
 type MethodSpec  = (String, String, String)
-type EvalBinOp a = Codebase -> MethodSpec -> a -> a -> IO (CValue, a)
 
-ssiToNum :: Num a => CValue -> a
-ssiToNum (getSVal -> Just c) = fromIntegral c
-ssiToNum _ = error $ "internal: Value type is not a num"
-
-chkQuotRem :: (Arbitrary a, Bounded a, Integral a, Num a, Ord a, Show a) =>
-              Codebase -> MethodSpec -> MethodSpec -> EvalBinOp a -> PropertyM IO ()
-chkQuotRem cb quotSpec remSpec eval = do
+chkQuotRem :: (Arbitrary a, Bounded a, Num a, Ord a, Show a)
+           => MethodSpec
+           -> MethodSpec
+           -> (MethodSpec -> a -> a -> IO CValue)
+           -> PropertyM IO ()
+chkQuotRem quotSpec remSpec eval = do
   forAllM arbitrary $ \d -> do
   forAllM (arbitrary `suchThat` (\v -> v /= 0)) $ \v -> do
-    (dagQuot, aigQuot) <- run $ eval cb quotSpec d v
-    (dagRem, aigRem)   <- run $ eval cb remSpec d v
-    let dq           = ssiToNum dagQuot
-        dr           = ssiToNum dagRem
+    dagQuot <- run $ eval quotSpec d v
+    dagRem   <- run $ eval remSpec d v
+    let Just dq = fromIntegral <$> getSVal dagQuot
+        Just dr = fromIntegral <$> getSVal dagRem
         sameSign     = (d >= 0 && v >= 0) || (d < 0 && v < 0)
         report s = s ++ ": "
                    ++ "d = " ++ show d ++ ", v = " ++ show v
                    ++ ", dq = " ++ show dq ++ ", dr = " ++ show dr
                    ++ ", dq * v + dr = " ++ show (dq * v + dr)
-    assertMsg (dq == aigQuot && dr == aigRem) $
-      report "FAIL: dag/aig eval result mismatch"
     assertMsg (d == dq * v + dr) $
       report "FAIL (aig eval): d == q * v + r violated"
     -- misc checks for alignment w/ JVM semantics
@@ -413,74 +333,48 @@ chkQuotRem cb quotSpec remSpec eval = do
 --------------------------------------------------------------------------------
 -- Misc utility functions
 
--- Yields dag eval and aiger eval for the provided integer 32b binop
-evalInt32BinOp
-  :: RunIO SymbolicMonad Int32
-  -> String
-  -> Maybe String
-  -> EvalBinOp Int32
-evalInt32BinOp runIO lbl maigNm cb =
-  evalBinOp runIO lbl cb (Wx 32) maigNm IValue
-            getIntegral freshInt (head . hexToIntSeq)
-  where getIntegral (IValue v) = v
-        getIntegral _          = error "evalInt32BinOp: invalid Value type"
-
-evalInt64BinOp
-  :: RunIO SymbolicMonad Int64
-  -> String
-  -> Maybe String
-  -> EvalBinOp Int64
-evalInt64BinOp runIO lbl maigNm cb =
-  evalBinOp runIO lbl cb (Wx 64) maigNm LValue
-            getIntegral freshLong (head . hexToLongSeq)
-  where getIntegral (LValue v) = v
-        getIntegral _          = error "evalInt64BinOp: invalid Value type"
-
 -- Yields dag eval and aiger eval for the provided binop
-evalBinOp :: Integral a
-  => (SymbolicMonad (CValue, c) -> IO (CValue, c))
-  -> String
-  -> Codebase
-  -> BitWidth
-  -> Maybe String -- aig filename
-  -> (b -> Value DagTerm)
-  -> (Value DagTerm -> DagTerm)
-  -> (Backend SymbolicMonad -> IO b)
-  -> ([Char] -> c)
-  -> MethodSpec
-  -> (a -> a -> IO (CValue, c))
-evalBinOp runIO _lbl cb w maigNm mkValue getSymIntegralFromValue newSymVar
-          hexToIntegral (classNm, methodNm, sig) x y = do
-  runIO $ do
-    sbe <- getBackend
-    be <- getBitEngine
-    liftIO $ do
-      a <- newSymVar sbe
-      b <- newSymVar sbe
-      [(_,ReturnVal val)] <- runDefSimulator sbe cb $ do
-        setVerbosity verb
-        withoutExceptions <$>
-          runStaticMethod classNm methodNm sig [mkValue a, mkValue b]
-      let rslt = getSymIntegralFromValue val
-      outIntLit <- toLsbf_lit <$> getVarLit sbe rslt
-      evalFn <- concreteEvalFn (V.map (mkCInt w . fromIntegral) $ V.fromList [x, y])
-      rsltVal <- evalFn rslt
-      let inputs = concatMap (intToBoolSeq . mkCInt w . fromIntegral) [x, y]
-      aigResult <- beEvalAigV be (SV.fromList inputs) (SV.fromList outIntLit)
-      case maigNm of
-        Nothing -> return ()
-        Just nm -> writeAiger be nm outIntLit
-      return ( rsltVal
-             , -- aiger eval
-               hexToIntegral
-               $ (\hs -> CE.assert (length hs == numBits w `div` 4) hs)
-               $ boolSeqToHex
-               $ SV.toList
-               $ aigResult
-             )
+evalBinOp32 :: Codebase
+            -> MethodSpec
+            -> Int32
+            -> Int32
+            -> IO CValue
+evalBinOp32 cb (classNm, methodNm, sig) x y = do
+  oc <- mkOpCache          
+  withSymbolicMonadState oc $ \sms -> do
+    let sbe = symbolicBackend sms
+    a <- IValue <$> freshInt sbe
+    b <- IValue <$> freshInt sbe
+    [(_,ReturnVal (IValue rslt))] <- runDefSimulator sbe cb $ do
+      setVerbosity verb
+      withoutExceptions <$>
+        runStaticMethod classNm methodNm sig [a, b]
+    let args = V.map (mkCInt 32 . toInteger) (V.fromList [x, y])
+    evalFn <- concreteEvalFn args
+    evalFn rslt
+
+-- Yields dag eval eval for the provided binop
+evalBinOp64 :: Codebase
+            -> MethodSpec
+            -> Int64
+            -> Int64
+            -> IO CValue
+evalBinOp64 cb (classNm, methodNm, sig) x y = do
+  oc <- mkOpCache          
+  withSymbolicMonadState oc $ \sms -> do
+    let sbe = symbolicBackend sms
+    a <- LValue <$> freshLong sbe
+    b <- LValue <$> freshLong sbe
+    [(_,ReturnVal (LValue rslt))] <- runDefSimulator sbe cb $ do
+      setVerbosity verb
+      withoutExceptions <$>
+        runStaticMethod classNm methodNm sig [a, b]
+    let args = V.map (mkCInt 64 . toInteger) (V.fromList [x, y])
+    evalFn <- concreteEvalFn args
+    evalFn rslt
 
 singletonArg :: Functor f => (a -> b) -> f a -> f [b]
-singletonArg ctor f = (:[]) . ctor <$> f
+singletonArg ctor f = (\b -> [ctor b]) <$> f
 
 intInputs :: [Int32] -> TestInput
 intInputs = map constInt

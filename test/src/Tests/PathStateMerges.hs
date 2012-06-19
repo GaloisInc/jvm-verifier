@@ -17,7 +17,6 @@ import JavaParser
 import Simulation hiding (run)
 import Tests.Common
 import Utils
-import Utils.Simulation
 
 import Verinf.Symbolic
 
