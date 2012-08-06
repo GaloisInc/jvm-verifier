@@ -1,7 +1,8 @@
 ABC=../../abcBridge
+JVM_PARSER=../../jvm-parser
 
 build:
-	cabal-dev install . ../Verinf $(ABC) --flags='build-tests build-jvmgraph'
+	cabal-dev install . ../Verinf $(ABC) $(JVM_PARSER) --flags='build-tests build-jvmgraph'
 
 test: build
 	dist/build/Tests/Tests

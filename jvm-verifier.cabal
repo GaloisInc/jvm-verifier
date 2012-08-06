@@ -48,6 +48,7 @@ library
     , executable-path
     , fingertree
     , filepath
+    , jvm-parser
     , mtl >= 2.1
     , pretty
     , vector >= 0.7
@@ -60,7 +61,6 @@ library
   exposed-modules:
     Verifier.Java.Backend
     Verifier.Java.Codebase
-    Verifier.Java.Parser
     Verifier.Java.Simulator
     Verifier.Java.Utils
     Verifier.Java.WordBackend
@@ -69,9 +69,6 @@ library
     Execution
     Execution.JavaSemantics
     Execution.Stepper
-    Verifier.Java.JarReader
-    Verifier.Java.Parser.CFG
-    Verifier.Java.Parser.Common
 
   if !flag(build-library)
     buildable: False
@@ -96,6 +93,7 @@ executable jss
     , executable-path
     , filepath
     , fingertree
+    , jvm-parser
     , jvm-verifier
     , mtl >= 2.1
     , parsec
@@ -120,6 +118,7 @@ executable jvmgraph
       base >= 4
     , cmdargs
     , pretty
+    , jvm-parser
     , jvm-verifier
    
   hs-source-dirs : jvmgraph
@@ -147,6 +146,7 @@ executable sawScript
     , fgl
     , filepath
     , fingertree
+    , jvm-parser
     , jvm-verifier
     , monadLib
     , mtl >= 2.1
@@ -200,6 +200,7 @@ executable Tests
     , executable-path
     , filepath
     , fingertree
+    , jvm-parser
     , mtl >= 2.1
     , pretty
     , process
@@ -231,6 +232,7 @@ executable ExampleAIG
     , executable-path
     , fingertree
     , filepath
+    , jvm-parser
     , mtl >= 2.1
     , pretty
     , random >= 1.0.1.0
