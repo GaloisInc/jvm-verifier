@@ -12,7 +12,7 @@ Point-of-contact : atomb, jhendrix
 {-# LANGUAGE ViewPatterns         #-}
 module Tests.Common 
   ( module Tests.Common
-  , module Verifier.Java.Parser
+  , module Language.JVM.Parser
   , module Verifier.Java.Simulator
   , module Verifier.Java.Utils
   , module Verifier.Java.WordBackend
@@ -27,8 +27,8 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import qualified Test.QuickCheck.Test as T
 
+import Language.JVM.Parser
 import Verifier.Java.Simulator hiding (run)
-import Verifier.Java.Parser
 import Verifier.Java.Utils
 import Verifier.Java.WordBackend
 

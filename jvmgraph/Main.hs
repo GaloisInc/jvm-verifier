@@ -11,7 +11,7 @@ import System.Console.CmdArgs
 import System.Exit
 import Text.PrettyPrint.HughesPJ
 
-import Verifier.Java.Parser
+import Language.JVM.Parser
 
 data JVMGraphOpts =
   JVMGraphOpts {
