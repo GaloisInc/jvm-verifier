@@ -206,7 +206,7 @@ executable Tests
     , random >= 1.0.1.0
     , vector >= 0.7
     , zlib
-    , QuickCheck >= 2.1.2
+    , QuickCheck >= 2.5
     , Verinf
 
   main-is          : Tests.hs
@@ -236,7 +236,7 @@ executable ExampleAIG
     , random >= 1.0.1.0
     , vector >= 0.7
     , zlib
-    , QuickCheck >= 2.1.2
+    , QuickCheck >= 2.5
     , Verinf
 
   main-is          : Examples/AIG/ExampleAIG.hs
