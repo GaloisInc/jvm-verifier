@@ -31,7 +31,6 @@ cp dist/build/jss/jss                          ${TARGET}/bin
 cp dist/build/sawScript/sawScript              ${TARGET}/bin
 cp support/galois.jar                          ${TARGET}/bin
 cp -r Examples/ECC                             ${TARGET}/examples/ecc
-rm ${TARGET}/examples/ecc/saw/Makefile
 rm ${TARGET}/examples/ecc/saw/proofs.org
 rm ${TARGET}/examples/ecc/saw/proofs-old.saw
 rm -rf ${TARGET}/examples/ecc/saw/sbv-old
