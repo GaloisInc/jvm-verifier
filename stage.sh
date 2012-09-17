@@ -1,6 +1,6 @@
 #!/bin/sh
 
-TARGET=beta-rc4
+TARGET=jss-beta-rc4
 
 NM=`uname`
 
