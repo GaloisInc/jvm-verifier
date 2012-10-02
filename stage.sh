@@ -1,6 +1,6 @@
 #!/bin/sh
 
-TARGET=beta-rc4
+TARGET=jss-beta-rc4
 
 NM=`uname`
 
@@ -11,7 +11,6 @@ mkdir -p ${TARGET}/examples
 
 if [ "${OS}" == "Windows_NT" ]; then
   EXEDIR=windows
-  cp cabal-dev/bin/abc.dll ${TARGET}/bin
 elif [ "${NM}" == "Darwin" ]; then
   EXEDIR=macosx  
 else
@@ -32,7 +31,6 @@ cp dist/build/jss/jss                          ${TARGET}/bin
 cp dist/build/sawScript/sawScript              ${TARGET}/bin
 cp support/galois.jar                          ${TARGET}/bin
 cp -r Examples/ECC                             ${TARGET}/examples/ecc
-rm ${TARGET}/examples/ecc/saw/Makefile
 rm ${TARGET}/examples/ecc/saw/proofs.org
 rm ${TARGET}/examples/ecc/saw/proofs-old.saw
 rm -rf ${TARGET}/examples/ecc/saw/sbv-old
