@@ -5,10 +5,6 @@ Maintainer:     jhendrix@galois.com, jstanley@galois.com
 Build-type:     Simple
 Cabal-version: >= 1.8
 
-Flag abc-backend
-  Description: Use the ABC backend for generating AIGs
-  Default: True
-
 Flag build-library
   description: Build the jvm-verifier library.
   default: True
@@ -34,9 +30,6 @@ Flag build-SAWScript
   default: True
 
 library
-  if flag(abc-backend)
-    cpp-options: -DUseABC
-
   build-depends:
       array
     , base >= 4
@@ -78,8 +71,6 @@ library
 executable jss
   if !flag(build-jss)
     buildable: False
-  if flag(abc-backend)
-    cpp-options: -DUseABC
 
   build-depends:
       array
@@ -129,8 +120,6 @@ executable jvmgraph
 executable sawScript
   if !flag(build-SAWScript)
     buildable: False
-  if flag(abc-backend)
-    cpp-options: -DUseABC
 
   build-depends:
       array
@@ -186,8 +175,6 @@ executable sawScript
 executable Tests
   if !flag(build-tests)
     buildable: False
-  if flag(abc-backend)
-    cpp-options: -DUseABC
 
   build-depends: 
       array
@@ -207,7 +194,7 @@ executable Tests
     , random >= 1.0.1.0
     , vector >= 0.7
     , zlib
-    , QuickCheck >= 2.1.2
+    , QuickCheck >= 2.4.1
     , Verinf
 
   main-is          : Tests.hs
@@ -218,8 +205,6 @@ executable Tests
 executable ExampleAIG
   if !flag(build-examples)
     buildable: False
-  if flag(abc-backend)
-    cpp-options: -DUseABC
 
   build-depends:
       array
@@ -238,7 +223,7 @@ executable ExampleAIG
     , random >= 1.0.1.0
     , vector >= 0.7
     , zlib
-    , QuickCheck >= 2.1.2
+    , QuickCheck >= 2.4.1
     , Verinf
 
   main-is          : Examples/AIG/ExampleAIG.hs
