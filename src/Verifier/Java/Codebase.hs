@@ -78,7 +78,7 @@ recurseDirectories paths = impl paths []
           if exists
             then do contents <- getDirectoryContents path
                     return
-                      $ map ((path ++ "/") ++)
+                      $ map (path </>)
                       $ filter (\path' -> path' `seq` (path' /= "." && path' /= ".."))
                       $ contents
             else return []

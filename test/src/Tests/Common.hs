@@ -22,6 +22,7 @@ module Tests.Common
 import Control.Monad
 import Data.Int
 import Prelude hiding (catch)
+import System.FilePath
 import System.Random
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
@@ -64,13 +65,13 @@ test n shouldFail f desc =
     msg         = FailMsg $ "Test failed: '" ++ desc ++ "'"
 
 commonJars :: [String]
-commonJars = [ "support/galois.jar"        -- primitives & symbolic API
-             , "jdk1.6/classes.jar"        -- jdk
-             , "user/bcprov-jdk16-145.jar" -- bouncy castle
+commonJars = [ "support" </> "galois.jar"        -- primitives & symbolic API
+             , "jdk1.6" </> "classes.jar"        -- jdk
+             , "user" </> "bcprov-jdk16-145.jar" -- bouncy castle
              ]
 
 commonClassPaths :: [String]
-commonClassPaths = ["test/src/support"]
+commonClassPaths = ["test" </> "src" </> "support"]
 
 commonCB :: PropertyM IO Codebase
 commonCB = run commonLoadCB
