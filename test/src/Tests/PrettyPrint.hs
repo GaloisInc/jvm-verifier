@@ -7,6 +7,7 @@ Point-of-contact : lerkok
 
 module Tests.PrettyPrint (prettyPrintTests) where
 
+import System.FilePath
 import Test.QuickCheck
 import Test.QuickCheck.Monadic as QC
 
@@ -23,16 +24,16 @@ mode = CHECK
 
 -- location of the support files; relative to top-level JavaVerifier directory
 testDir :: FilePath
-testDir = "test/src/support/ppSupport"
+testDir = "test" </> "src" </> "support" </> "ppSupport"
 
 testAction :: Int -> String -> PPConfig -> PropertyM IO ()
 testAction i what cfg = do res <- run $ do
                              oc <- mkOpCache
-                             let path = testDir ++ "/ppTest.sbv"
+                             let path = testDir </> "ppTest.sbv"
                              pgm <- SBV.loadSBV path
                              (_,node) <- SBV.parseSBV oc (\_ _ -> Nothing) "ppTest" pgm
                              return $ prettyTermWith cfg node
-                           let file = testDir ++ "/pp" ++ what ++ "." ++ show i ++ ".gold"
+                           let file = testDir </> ("pp" ++ what ++ "." ++ show i ++ ".gold")
                            case mode of
                               CREATE -> do run $ writeFile file res
                                            QC.assert True
