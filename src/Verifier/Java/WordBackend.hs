@@ -95,6 +95,7 @@ withSymbolicMonadState oc f =
 symbolicBackend :: SymbolicMonadState -> Backend SymbolicMonad
 symbolicBackend sms = do
   let ?be = smsBitEngine sms
+  let be = smsBitEngine sms
   let de = smsDagEngine sms
   let oc = smsOpCache sms
   let lr = smsInputLitRef sms 
@@ -208,6 +209,12 @@ symbolicBackend sms = do
           return (Just False)
         else
           return Nothing
+    , satTerm = \v -> do
+        LV lv <- getTermLit v
+        let l = assert (SV.length lv == 1) $ SV.head lv
+        case beCheckSat be of
+          Just f -> (/= UnSat) `fmap` f l
+          Nothing -> return True
     , evalAigIntegral = \f ins out -> do
         outLits <- getTermLit out
         bbits <- lEvalAig (SV.fromList (concatMap (f . intToBoolSeq . fromJust . termConst) ins))
