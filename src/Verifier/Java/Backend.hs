@@ -97,6 +97,8 @@ data Backend sym = Backend {
          -- | @applySetArrayValue arr i v@ returns value at @arr[i] = v@.
        , applySetArrayValue :: MonadTerm sym -> MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
        , blastTerm :: MonadTerm sym -> IO (Maybe Bool)
+        -- TODO: we may, at some point, want to get back a satisfying assignment
+       , satTerm :: MonadTerm sym -> IO Bool
          -- | @evalAigIntegral f ins out@ applies concrete inputs @ins@ to the 
          -- AIG at the given symbolic output term @out@, applying @f@ to the
          -- @ins@ bit sequence

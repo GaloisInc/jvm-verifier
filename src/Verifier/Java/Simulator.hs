@@ -1039,7 +1039,15 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
           case mb of 
             Just True -> trueM
             Just False -> falseM
-            Nothing -> splitPaths
+            Nothing -> do
+              v' <- bNot v
+              vSat <- liftIO $ satTerm sbe v
+              v'Sat <- liftIO $ satTerm sbe v'
+              case (vSat, v'Sat) of
+                (False, False) -> terminateCurrentPath False >> return ()
+                (False, True) -> falseM
+                (True, False) -> trueM
+                (True, True) -> splitPaths
         else
           splitPaths
   -- | Resolve the monadic condition to exactly one of its branches
