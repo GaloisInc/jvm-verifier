@@ -44,6 +44,7 @@ library
     , jvm-parser
     , mtl >= 2.1
     , pretty
+    , saw-core
     , vector >= 0.7
     , zlib
     , Verinf >= 0.2
@@ -56,6 +57,7 @@ library
     Verifier.Java.Codebase
     Verifier.Java.Simulator
     Verifier.Java.Utils
+    Verifier.Java.SAWBackend
     Verifier.Java.WordBackend
  
   other-modules:
