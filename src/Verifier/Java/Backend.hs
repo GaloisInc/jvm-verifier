@@ -23,8 +23,7 @@ type BinaryOp sym = MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
 -- | Returns term type associated with monad.
 type family MonadTerm m
 
-class ( Ord (MonadTerm m)
-      , PrettyTerm (MonadTerm m)
+class ( PrettyTerm (MonadTerm m)
       , Show (MonadTerm m)
       , Typeable (MonadTerm m)
       ) => AigOps m where
