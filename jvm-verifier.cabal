@@ -29,6 +29,10 @@ Flag build-SAWScript
   description: Build the SAWScript interface
   default: True
 
+Flag use-saw
+  description: Use SAW as the default term representation
+  default: False
+
 library
   build-depends:
       array
