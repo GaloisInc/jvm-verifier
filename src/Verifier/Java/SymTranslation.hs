@@ -1,12 +1,12 @@
 {- |
 Module           : $Header$
 Description      : Translation of JVM instructions to symbolic form
-Stability        : stable
+Stability        : experimental
 Point-of-contact : atomb
 -}
 
 module Verifier.Java.SymTranslation
-  ( liftInsn
+  (liftBB
   --, liftCFG
   , SymCond(..)
   , CmpType(..)
@@ -15,6 +15,8 @@ module Verifier.Java.SymTranslation
   , SymBlock(..)
   ) where
 
+import Control.Monad.State
+import qualified Data.List as L
 import Prelude hiding (EQ, LT, GT)
 
 import Language.JVM.CFG
@@ -55,18 +57,18 @@ data SymInstruction
   -- | @PushInvokeFrame s ty k pc@ pushes a invoke frame to the merge
   -- frame stack that will call @ty.k@. The calling method will resume
   -- execution at @pc@
-  = PushInvokeFrame InvokeType Type MethodKey PC
+  = PushInvokeFrame InvokeType Type MethodKey BlockId
   -- | @PushPostDominatorFrame pc@ pushes a new frame to the merge
   -- frame stack for a post-dominator at the given PC. This
   -- instruction is used when we jump into a block that has a
   -- different immediate post-dominator than its parent.
-  | PushPostDominatorFrame PC
+  | PushPostDominatorFrame BlockId
   -- | @MergePostDominator pc@ merges the current path state with the
   -- post-dominator return path under the given condition, and clears
   -- the current path state. N.B. The current state must be unchanged.
   -- However, the current block of the merged state must be the
   -- post-dominator block.
-  | MergePostDominator PC 
+  | MergePostDominator BlockId
   -- | @MergeReturn dc@ pops top call frame from path, merges (current
   -- path return value) with call frame, and clears current path.
   | MergeReturn
@@ -75,62 +77,148 @@ data SymInstruction
   -- constraint @c@.
   | PushPendingExecution SymCond
   -- | Sets the block to the given location.
-  | SetCurrentPC PC
+  | SetCurrentBlock BlockId
   -- | Any other non-control-flow instruction. Stepped normally.
   | OtherInsn Instruction
 
+type BlockId = Int
+
 data SymBlock = SymBlock {
-    sbPC :: PC
-  , sbInsns :: [(PC, SymInstruction)]
+    sbId :: BlockId
+  , sbInsns :: [(Maybe PC, SymInstruction)]
   }
 
---liftCFG :: CFG -> Map PC SymBlock
+type SymTrans a = State [SymBlock] a
 
-liftInsn :: CFG -> PC -> Instruction -> [SymInstruction]
-liftInsn cfg npc i =
-  case i of
-    Areturn -> [OtherInsn i, MergeReturn]
-    Dreturn -> [OtherInsn i, MergeReturn]
-    Freturn -> [OtherInsn i, MergeReturn]
-    Lreturn -> [OtherInsn i, MergeReturn]
-    Ireturn -> [OtherInsn i, MergeReturn]
-    Return -> [OtherInsn i, MergeReturn]
-    Invokeinterface n k ->
-      [PushInvokeFrame InvInterface (ClassType n) k npc]
-    Invokespecial t k ->
-      [PushInvokeFrame InvSpecial t k npc]
-    Invokestatic n k ->
-      [PushInvokeFrame InvStatic (ClassType n) k npc]
-    Invokevirtual t k ->
-      [PushInvokeFrame InvVirtual t k npc]
-    Goto pc -> [SetCurrentPC pc]
-    If_acmpeq pc -> br pc EQ
-    If_acmpne pc -> br pc NE
-    If_icmpeq pc -> br pc EQ
-    If_icmpne pc -> br pc NE
-    If_icmplt pc -> br pc LT
-    If_icmpge pc -> br pc GE
-    If_icmpgt pc -> br pc GT
-    If_icmple pc -> br pc LE
-    Ifeq pc -> cmpZero (If_icmpeq pc)
-    Ifne pc -> cmpZero (If_icmpne pc)
-    Iflt pc -> cmpZero (If_icmplt pc)
-    Ifge pc -> cmpZero (If_icmpge pc)
-    Ifgt pc -> cmpZero (If_icmpgt pc)
-    Ifle pc -> cmpZero (If_icmple pc)
-    Ifnonnull pc -> [PushPendingExecution NonNull]
-    Ifnull pc -> [PushPendingExecution Null]
-    {-
-    Lookupswitch d cs ->
-      (SetCurrentPC d, PushPendingExecution (NotConstValues (map fst cs))) :
-      map (\(i, pc) -> (SetCurrentPC pc, PushPendingExecution (ConstValue i))) cs
-    Tableswitch d l h cs ->
-      (SetCurrentPC d, PushPendingExecution (NotConstValues is)) :
-      map (\(i, pc) -> (SetCurrentPC pc, PushPendingExecution (ConstValue i))) (zip is cs)
-        where is = [l..h]
-    Jsr pc -> undefined
-    Ret -> undefined
-    -}
-    _ -> [OtherInsn i]
-    where cmpZero = (OtherInsn (Ldc (Integer 0)) :) . liftInsn cfg npc
-          br pc cmp = [SetCurrentPC pc, PushPendingExecution (Compare cmp)]
+bbToBlockId :: BBId -> BlockId
+bbToBlockId = fromEnum
+
+blockIdToBB :: BlockId -> BBId
+blockIdToBB = toEnum
+
+defineBlock :: BlockId -> [(Maybe PC, SymInstruction)] -> SymTrans ()
+defineBlock bid insns = modify (SymBlock bid insns :)
+
+{-
+liftCFG :: CFG -> [SymBlock]
+liftCFG = undefined
+-}
+
+liftBB :: CFG -> BBId -> SymTrans ()
+liftBB cfg bb = do
+  let blk = bbToBlockId bb
+      blk' = undefined -- normal successor
+      processInsns [] currId _ =
+        error $ "Block missing terminator: " ++ show currId
+      processInsns ((pc,i):is) currId il =
+        case i of
+          Areturn -> ret pc i currId il
+          Dreturn -> ret pc i currId il
+          Freturn -> ret pc i currId il
+          Lreturn -> ret pc i currId il
+          Ireturn -> ret pc i currId il
+          Return -> ret pc i currId il
+          Invokeinterface n k ->
+            defineBlock currId $ reverse
+            (si (PushInvokeFrame InvInterface (ClassType n) k blk') : il)
+          Invokespecial t k ->
+            defineBlock currId $ reverse
+            (si (PushInvokeFrame InvSpecial t k blk') : il)
+          Invokestatic n k ->
+            defineBlock currId $ reverse
+            (si (PushInvokeFrame InvStatic (ClassType n) k blk') : il)
+          Invokevirtual t k ->
+            defineBlock currId $ reverse
+            (si (PushInvokeFrame InvVirtual t k blk') : il)
+          Goto tgt ->
+            defineBlock currId $
+            reverse il ++ brSymInstrs cfg currId (getBlock tgt)
+          If_acmpeq tgt -> br tgt EQ
+          If_acmpne tgt -> br tgt NE
+          If_icmpeq tgt -> br tgt EQ
+          If_icmpne tgt -> br tgt NE
+          If_icmplt tgt -> br tgt LT
+          If_icmpge tgt -> br tgt GE
+          If_icmpgt tgt -> br tgt GT
+          If_icmple tgt -> br tgt LE
+          Ifeq tgt -> cmpZero pc (If_icmpeq tgt) currId is il
+          Ifne tgt -> cmpZero pc (If_icmpne tgt) currId is il
+          Iflt tgt -> cmpZero pc (If_icmplt tgt) currId is il
+          Ifge tgt -> cmpZero pc (If_icmpge tgt) currId is il
+          Ifgt tgt -> cmpZero pc (If_icmpgt tgt) currId is il
+          Ifle tgt -> cmpZero pc (If_icmple tgt) currId is il
+          {-
+          Ifnonnull pc -> [PushPendingExecution NonNull]
+          Ifnull pc -> [PushPendingExecution Null]
+          Lookupswitch d cs ->
+            (SetCurrentBlock d
+            , PushPendingExecution (NotConstValues (map fst cs))) :
+            map (\(i, pc) ->
+                   ( SetCurrentBlock pc
+                   , PushPendingExecution (ConstValue i))) cs
+          Tableswitch d l h cs ->
+            ( SetCurrentBlock d
+            , PushPendingExecution (NotConstValues is)) :
+            map (\(i, pc) ->
+                   ( SetCurrentBlock pc
+                   , PushPendingExecution (ConstValue i))) (zip is cs)
+              where is = [l..h]
+          Jsr pc -> undefined
+          Ret -> undefined
+          -}
+          _ -> processInsns is currId ((Just pc, OtherInsn i) : il)
+      getBlock pc = maybe
+                    (error $ "No block for PC: " ++ show pc)
+                    (bbToBlockId . bbId)
+                    (bbByPC cfg pc)
+      cmpZero pc i' currId is il =
+        processInsns ((pc, i'):is) currId
+          (si (OtherInsn (Ldc (Integer 0))) : il)
+      ret pc i currId il =
+        defineBlock currId $
+        reverse (si MergeReturn : (Just pc, OtherInsn i) : il)
+      br pc cmp = do
+        let suspendBlockID = undefined
+            currBlockID = undefined
+        -- Add pending execution for false branch, and execute true branch.
+        defineBlock currBlockID
+          ([ si (SetCurrentBlock suspendBlockID)
+           , si (PushPendingExecution (Compare cmp))
+           ] ++ brSymInstrs cfg currBlockID (getBlock pc))
+        -- Define block for suspended thread.
+        defineBlock suspendBlockID (brSymInstrs cfg suspendBlockID blk')
+  case bbById cfg bb of
+    Just basicBlock -> processInsns (bbInsts basicBlock) blk []
+    Nothing -> error $ "Block not found: " ++ show bb
+
+-- Derived from respective code in LSS.
+-- @brSymInstrs tgt@ returns the code for jumping to the target block.
+-- Observations:
+--  * A post-dominator of a post-dominator of the current block is itself
+--    the post-dominator of the current block.
+--    Consequently, branching to a post-dominator of the current block
+--    cannot result in new nodes being needed.
+-- Behavior:
+--   For unconditional branches to tgt, do the following:
+--     If tgt is the dominator
+--       Set current block in state to branch target.
+--       Merge this state with dominator state.
+--       Clear current execution
+--     Else
+--       Set current block in state to branch target.
+brSymInstrs :: CFG -> BlockId -> BlockId -> [(Maybe PC, SymInstruction)]
+brSymInstrs cfg curr tgt =
+  si (SetCurrentBlock tgt) :
+    (if isImmediatePostDominator cfg (blockIdToBB curr) (blockIdToBB tgt)
+     then [ si (MergePostDominator tgt) ]
+     else map (\d -> (si (PushPostDominatorFrame d)))
+              (newPostDominators cfg curr tgt))
+
+newPostDominators :: CFG -> BlockId -> BlockId -> [BlockId]
+newPostDominators cfg a b =
+  map bbToBlockId $
+  getPostDominators cfg (blockIdToBB a) L.\\
+  getPostDominators cfg (blockIdToBB b)
+
+si :: SymInstruction -> (Maybe PC, SymInstruction)
+si i = (Nothing, i)
