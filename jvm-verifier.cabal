@@ -41,7 +41,7 @@ library
     , executable-path
     , fingertree
     , filepath
-    , jvm-parser
+    , jvm-parser >= 0.2
     , mtl >= 2.1
     , pretty
     , vector >= 0.7
