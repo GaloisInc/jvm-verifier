@@ -7,7 +7,7 @@ Point-of-contact : atomb
 
 module Verifier.Java.SymTranslation
   (liftBB
-  --, liftCFG
+  , liftCFG
   , SymCond(..)
   , CmpType(..)
   , InvokeType(..)
@@ -81,7 +81,8 @@ data SymInstruction
   -- | Any other non-control-flow instruction. Stepped normally.
   | OtherInsn Instruction
 
-type BlockId = Int
+data BlockId = BlockId { blockId :: !BBId, blockN :: !Int }
+  deriving (Show)
 
 data SymBlock = SymBlock {
     sbId :: BlockId
@@ -91,27 +92,24 @@ data SymBlock = SymBlock {
 type SymTrans a = State [SymBlock] a
 
 bbToBlockId :: BBId -> BlockId
-bbToBlockId = fromEnum
-
-blockIdToBB :: BlockId -> BBId
-blockIdToBB = toEnum
+bbToBlockId bb = BlockId bb 0
 
 defineBlock :: BlockId -> [(Maybe PC, SymInstruction)] -> SymTrans ()
 defineBlock bid insns = modify (SymBlock bid insns :)
 
-{-
 liftCFG :: CFG -> [SymBlock]
-liftCFG = undefined
--}
+liftCFG cfg = execState (mapM_ (liftBB cfg) (map bbId (allBBs cfg))) []
 
 liftBB :: CFG -> BBId -> SymTrans ()
 liftBB cfg bb = do
   let blk = bbToBlockId bb
-      blk' = undefined -- normal successor
       processInsns [] currId _ =
         error $ "Block missing terminator: " ++ show currId
       processInsns ((pc,i):is) currId il =
-        case i of
+        let blk' = case nextPC cfg pc of
+                    Nothing -> error "no next PC"
+                    Just pc' -> getBlock pc'
+        in case i of
           Areturn -> ret pc i currId il
           Dreturn -> ret pc i currId il
           Freturn -> ret pc i currId il
@@ -133,14 +131,14 @@ liftBB cfg bb = do
           Goto tgt ->
             defineBlock currId $
             reverse il ++ brSymInstrs cfg currId (getBlock tgt)
-          If_acmpeq tgt -> br tgt EQ
-          If_acmpne tgt -> br tgt NE
-          If_icmpeq tgt -> br tgt EQ
-          If_icmpne tgt -> br tgt NE
-          If_icmplt tgt -> br tgt LT
-          If_icmpge tgt -> br tgt GE
-          If_icmpgt tgt -> br tgt GT
-          If_icmple tgt -> br tgt LE
+          If_acmpeq tgt -> br blk' tgt EQ
+          If_acmpne tgt -> br blk' tgt NE
+          If_icmpeq tgt -> br blk' tgt EQ
+          If_icmpne tgt -> br blk' tgt NE
+          If_icmplt tgt -> br blk' tgt LT
+          If_icmpge tgt -> br blk' tgt GE
+          If_icmpgt tgt -> br blk' tgt GT
+          If_icmple tgt -> br blk' tgt LE
           Ifeq tgt -> cmpZero pc (If_icmpeq tgt) currId is il
           Ifne tgt -> cmpZero pc (If_icmpne tgt) currId is il
           Iflt tgt -> cmpZero pc (If_icmplt tgt) currId is il
@@ -177,14 +175,13 @@ liftBB cfg bb = do
       ret pc i currId il =
         defineBlock currId $
         reverse (si MergeReturn : (Just pc, OtherInsn i) : il)
-      br pc cmp = do
-        let suspendBlockID = undefined
-            currBlockID = undefined
+      br blk' tgt cmp = do
+        let suspendBlockID = blk { blockN = blockN blk + 1 }
         -- Add pending execution for false branch, and execute true branch.
-        defineBlock currBlockID
+        defineBlock blk
           ([ si (SetCurrentBlock suspendBlockID)
            , si (PushPendingExecution (Compare cmp))
-           ] ++ brSymInstrs cfg currBlockID (getBlock pc))
+           ] ++ brSymInstrs cfg blk (getBlock tgt))
         -- Define block for suspended thread.
         defineBlock suspendBlockID (brSymInstrs cfg suspendBlockID blk')
   case bbById cfg bb of
@@ -209,7 +206,7 @@ liftBB cfg bb = do
 brSymInstrs :: CFG -> BlockId -> BlockId -> [(Maybe PC, SymInstruction)]
 brSymInstrs cfg curr tgt =
   si (SetCurrentBlock tgt) :
-    (if isImmediatePostDominator cfg (blockIdToBB curr) (blockIdToBB tgt)
+    (if isImmediatePostDominator cfg (blockId curr) (blockId tgt)
      then [ si (MergePostDominator tgt) ]
      else map (\d -> (si (PushPostDominatorFrame d)))
               (newPostDominators cfg curr tgt))
@@ -217,8 +214,8 @@ brSymInstrs cfg curr tgt =
 newPostDominators :: CFG -> BlockId -> BlockId -> [BlockId]
 newPostDominators cfg a b =
   map bbToBlockId $
-  getPostDominators cfg (blockIdToBB a) L.\\
-  getPostDominators cfg (blockIdToBB b)
+  getPostDominators cfg (blockId a) L.\\
+  getPostDominators cfg (blockId b)
 
 si :: SymInstruction -> (Maybe PC, SymInstruction)
 si i = (Nothing, i)
