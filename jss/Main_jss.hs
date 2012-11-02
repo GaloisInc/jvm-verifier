@@ -29,7 +29,9 @@ import System.FilePath
 import Text.ParserCombinators.Parsec
 import Prelude hiding (catch)
 
+import Verifier.Java.Codebase
 import Verifier.Java.Simulator
+import Verifier.Java.SymTranslation
 import Verifier.Java.WordBackend
 import Overrides
 
@@ -47,11 +49,26 @@ simExcHndlr' suppressOutput failMsg exc = do
 simExcHndlr :: String -> SomeException -> IO [Bool]
 simExcHndlr = simExcHndlr' True
 
+dumpSymASTs :: Codebase -> IO ()
+dumpSymASTs cb = mapM_ dumpClass =<< getClasses cb
+  where dumpClass = mapM_ dumpMethod . classMethods
+        dumpMethod m =
+          case methodBody m of
+            Code _ _ cfg _ _ _ _ -> do
+              putStrLn ""
+              putStrLn . show . methodKey $ m
+              mapM_ dumpBlock $ liftCFG cfg
+            _ -> return ()
+        dumpBlock b = do
+          putStrLn . show . sbId $ b
+          mapM_ (\i -> putStrLn $ "  " ++ show i) $ sbInsns b
+
 data JSS = JSS
   { classpath :: String
   , jars      :: String
   , opts      :: String
   , blast     :: Bool
+  , xlate     :: Bool
   , dbug      :: Int
   , mcname    :: Maybe String
   } deriving (Show, Data, Typeable)
@@ -84,6 +101,7 @@ main = do
 
         , blast  = def &= help "Always bitblast symbolic condition terms at branches (may force symbolic termination)"
         , dbug   = def &= opt "0" &= help "Debug verbosity level (0-5)"
+        , xlate  = def &= opt False &= help "Print the symbolic AST translation stdout and terminate"
         , mcname = def &= typ "MAIN CLASS NAME" &= args
         }
     &= summary ("Java Symbolic Simulator (jss) 0.1d Jan 2012. "
@@ -131,6 +149,9 @@ main = do
         return $ (exeDir </> "galois.jar") : jpaths
 
   cb <- loadCodebase jpaths' cpaths
+  when (xlate args') $ do
+    dumpSymASTs cb
+    exitSuccess
   oc <- mkOpCache
   let fl = defaultSimFlags{ alwaysBitBlastBranchTerms = blast args' }
       go = withSymbolicMonadState oc $ \sms -> do

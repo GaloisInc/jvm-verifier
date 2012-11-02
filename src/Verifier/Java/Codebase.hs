@@ -9,6 +9,7 @@ Point-of-contact : jhendrix, jstanley
 
 module Verifier.Java.Codebase
   ( Codebase
+  , getClasses
   , isStrictSuper
   , isSubtype
   , loadCodebase
@@ -120,6 +121,11 @@ lookupClass cb clNm = do
   case maybeCl of
     Just cl -> return cl
     Nothing -> error $ "Cannot find class " ++ slashesToDots clNm ++ " in codebase."
+
+getClasses :: Codebase -> IO [Class]
+getClasses (Codebase cbRef) = do
+  cb <- readIORef cbRef
+  return . M.elems . classMap $ cb
 
 -- | Adjusts the given field id to specify as its class the class in the
 -- superclass hierarchy that declares it
