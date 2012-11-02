@@ -55,6 +55,7 @@ library
     Verifier.Java.Backend
     Verifier.Java.Codebase
     Verifier.Java.Simulator
+    Verifier.Java.SymTranslation
     Verifier.Java.Utils
     Verifier.Java.WordBackend
  

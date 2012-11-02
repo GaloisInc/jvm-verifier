@@ -38,6 +38,7 @@ data SymCond
   -- | @Compare ty@ holds if the given comparison is true between the
   -- top element of the stack and the next-to-top element.
   | Compare CmpType
+    deriving (Show)
 
 data CmpType
   = EQ
@@ -46,12 +47,14 @@ data CmpType
   | GE
   | GT
   | LE
+    deriving (Show)
 
 data InvokeType
   = InvInterface
   | InvSpecial
   | InvStatic
   | InvVirtual
+    deriving (Show)
 
 data SymInstruction
   -- | @PushInvokeFrame s ty k pc@ pushes a invoke frame to the merge
@@ -80,6 +83,7 @@ data SymInstruction
   | SetCurrentBlock BlockId
   -- | Any other non-control-flow instruction. Stepped normally.
   | OtherInsn Instruction
+    deriving (Show)
 
 data BlockId = BlockId { blockId :: !BBId, blockN :: !Int }
   deriving (Show)
