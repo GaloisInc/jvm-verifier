@@ -107,8 +107,7 @@ liftCFG cfg = execState (mapM_ (liftBB cfg) (map bbId (allBBs cfg))) []
 liftBB :: CFG -> BBId -> SymTrans ()
 liftBB cfg bb = do
   let blk = bbToBlockId bb
-      processInsns [] currId _ =
-        error $ "Block missing terminator: " ++ show currId
+      processInsns [] currId il = defineBlock currId (reverse il)
       processInsns ((pc,i):is) currId il =
         let blk' = case nextPC cfg pc of
                     Nothing -> error "no next PC"
@@ -135,23 +134,23 @@ liftBB cfg bb = do
           Goto tgt ->
             defineBlock currId $
             reverse il ++ brSymInstrs cfg currId (getBlock tgt)
-          If_acmpeq tgt -> br blk' tgt EQ
-          If_acmpne tgt -> br blk' tgt NE
-          If_icmpeq tgt -> br blk' tgt EQ
-          If_icmpne tgt -> br blk' tgt NE
-          If_icmplt tgt -> br blk' tgt LT
-          If_icmpge tgt -> br blk' tgt GE
-          If_icmpgt tgt -> br blk' tgt GT
-          If_icmple tgt -> br blk' tgt LE
+          If_acmpeq tgt -> br blk' tgt (Compare EQ)
+          If_acmpne tgt -> br blk' tgt (Compare NE)
+          If_icmpeq tgt -> br blk' tgt (Compare EQ)
+          If_icmpne tgt -> br blk' tgt (Compare NE)
+          If_icmplt tgt -> br blk' tgt (Compare LT)
+          If_icmpge tgt -> br blk' tgt (Compare GE)
+          If_icmpgt tgt -> br blk' tgt (Compare GT)
+          If_icmple tgt -> br blk' tgt (Compare LE)
           Ifeq tgt -> cmpZero pc (If_icmpeq tgt) currId is il
           Ifne tgt -> cmpZero pc (If_icmpne tgt) currId is il
           Iflt tgt -> cmpZero pc (If_icmplt tgt) currId is il
           Ifge tgt -> cmpZero pc (If_icmpge tgt) currId is il
           Ifgt tgt -> cmpZero pc (If_icmpgt tgt) currId is il
           Ifle tgt -> cmpZero pc (If_icmple tgt) currId is il
+          Ifnonnull tgt -> br blk' tgt NonNull
+          Ifnull tgt -> br blk' tgt Null
           {-
-          Ifnonnull pc -> [PushPendingExecution NonNull]
-          Ifnull pc -> [PushPendingExecution Null]
           Lookupswitch d cs ->
             (SetCurrentBlock d
             , PushPendingExecution (NotConstValues (map fst cs))) :
@@ -184,7 +183,7 @@ liftBB cfg bb = do
         -- Add pending execution for false branch, and execute true branch.
         defineBlock blk
           ([ si (SetCurrentBlock suspendBlockID)
-           , si (PushPendingExecution (Compare cmp))
+           , si (PushPendingExecution cmp)
            ] ++ brSymInstrs cfg blk (getBlock tgt))
         -- Define block for suspended thread.
         defineBlock suspendBlockID (brSymInstrs cfg suspendBlockID blk')
