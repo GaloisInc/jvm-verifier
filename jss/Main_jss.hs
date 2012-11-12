@@ -29,6 +29,8 @@ import System.FilePath
 import Text.ParserCombinators.Parsec
 import Prelude hiding (catch)
 
+import Language.JVM.CFG
+
 import Verifier.Java.Codebase
 import Verifier.Java.Simulator
 import Verifier.Java.SymTranslation
@@ -57,6 +59,9 @@ dumpSymASTs cb = mapM_ dumpClass =<< getClasses cb
             Code _ _ cfg _ _ _ _ -> do
               putStrLn ""
               putStrLn . show . methodKey $ m
+              putStrLn ""
+              mapM_ print . concatMap bbInsts $ allBBs cfg
+              putStrLn ""
               mapM_ dumpBlock $ liftCFG cfg
             _ -> return ()
         dumpBlock b = do
@@ -101,7 +106,7 @@ main = do
 
         , blast  = def &= help "Always bitblast symbolic condition terms at branches (may force symbolic termination)"
         , dbug   = def &= opt "0" &= help "Debug verbosity level (0-5)"
-        , xlate  = def &= opt False &= help "Print the symbolic AST translation stdout and terminate"
+        , xlate  = def &= help "Print the symbolic AST translation stdout and terminate"
         , mcname = def &= typ "MAIN CLASS NAME" &= args
         }
     &= summary ("Java Symbolic Simulator (jss) 0.1d Jan 2012. "
