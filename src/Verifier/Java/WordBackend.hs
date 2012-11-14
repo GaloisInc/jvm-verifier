@@ -110,10 +110,6 @@ symbolicBackend sms = do
             | inputWidth >= resultWidth ->
               deApplyUnary de (truncOp oc iw resultWidth) t
           _ -> error "internal: illegal arguments to termTrunc"
-  let termBinaryIntOp opFn name x y =
-        case termType x of
-          SymInt w -> deApplyBinary de (opFn w) x y
-          _ -> error $ "internal: illegal value to " ++ name ++ ": " ++ show x
   let termShift opFn name w x y = do
         case (termType x, termType y) of
           (SymInt vw, SymInt sw@(widthConstant -> Just inputWidth))
@@ -121,6 +117,18 @@ symbolicBackend sms = do
                 y' <- deApplyUnary de (truncOp oc sw w) y
                 deApplyBinary de (opFn vw (constantWidth w)) x y'
           _ -> error $ "internal: illegal value to " ++ name ++ ": " ++ show x
+  let termIteFn typedIte b mt mf =
+        case getBool b of
+          Just True -> mt
+          Just False -> mf
+          Nothing -> do
+            t <- mt
+            f <- mf
+            case t == f of
+              True -> return t
+              False -> deApplyTernary de typedIte b t f
+  let w32 = constantWidth 32
+      w64 = constantWidth 64
   Backend {
       freshByte = do
         inputs <- SV.replicateM 7 lMkInput
@@ -150,32 +158,43 @@ symbolicBackend sms = do
     , termNot  = deApplyUnary de bNotOp
     , termAnd  = deApplyBinary de bAndOp
     , termEq   = \x y -> deApplyBinary de (eqOp (termType x)) x y
-    , termIte  = \b t f ->
-        case getBool b of
-          Just True -> return t
-          Just False -> return f
-          Nothing | t == f -> return t
-                  | otherwise -> deApplyTernary de (iteOp (termType t)) b t f
-    , termIAnd  = termBinaryIntOp iAndOp "termIAnd"
-    , termIOr   = termBinaryIntOp iOrOp  "termIOr"
-    , termIXor  = termBinaryIntOp iXorOp "termIXor"
+    , termIte  = \b t f -> termIteFn (iteOp (termType t)) b (return t) (return f)
+    , termILeq  = deApplyBinary de (signedLeqOp w32)
+    , termIAnd  = deApplyBinary de (iAndOp w32)
+    , termIOr   = deApplyBinary de (iOrOp w32)
+    , termIXor  = deApplyBinary de (iXorOp w32)
     , termIShl  = termShift shlOp  "termIShl"  5 
     , termIShr  = termShift shrOp  "termIShr"  5
     , termIUshr = termShift ushrOp "termIUshr" 5 
+    , termINeg  = deApplyUnary de (negOp w32)
+    , termIAdd  = deApplyBinary de (addOp w32)
+    , termISub  = deApplyBinary de (subOp w32)
+    , termIMul  = deApplyBinary de (mulOp w32)
+    , termIDiv  = deApplyBinary de (signedDivOp w32)
+    , termIRem  = deApplyBinary de (signedRemOp w32)
+
+    , termLCompare = \x y -> do
+        eqXY   <- deApplyBinary de (eqOp int64Type) x y
+        let ite = termIteFn (iteOp int32Type)
+        ite eqXY
+            (return (mkCInt 32 0))
+            (do ltXY <- deApplyBinary de (signedLtOp (constantWidth 64)) x y
+                ite ltXY
+                    (return (mkCInt 32 (negate 1)))
+                    (return (mkCInt 32 1)))
+    , termLAnd  = deApplyBinary de (iAndOp w64)
+    , termLOr   = deApplyBinary de (iOrOp w64)
+    , termLXor  = deApplyBinary de (iXorOp w64)
     , termLShl  = termShift shlOp  "termLShl"  6
     , termLShr  = termShift shrOp  "termLShr"  6
     , termLUshr = termShift ushrOp "termLUshr" 6
-    , termLeq = termBinaryIntOp signedLeqOp "termLeq"
-    , termLt  = termBinaryIntOp signedLtOp  "termLt"
-    , termNeg = \x ->
-        case termType x of
-          SymInt w -> deApplyUnary de (negOp w) x
-          _ -> error "internal: illegal value to termNeg"
-    , termAdd = termBinaryIntOp addOp "termAdd"
-    , termSub = termBinaryIntOp subOp "termSub"
-    , termMul = termBinaryIntOp mulOp "termMul"
-    , termDiv = termBinaryIntOp signedDivOp "termDiv"
-    , termRem = termBinaryIntOp signedRemOp "termRem"
+    , termLNeg  = deApplyUnary de (negOp w64)
+    , termLAdd  = deApplyBinary de (addOp w64)
+    , termLSub  = deApplyBinary de (subOp w64)
+    , termLMul  = deApplyBinary de (mulOp w64)
+    , termLDiv  = deApplyBinary de (signedDivOp w64)
+    , termLRem  = deApplyBinary de (signedRemOp w64)
+
     , termIntArray = \l ->
         case fromIntegral <$> getSVal l of
           Just c ->

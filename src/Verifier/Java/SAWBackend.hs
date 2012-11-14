@@ -1,7 +1,7 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE TypeFamilies #-}
 module Verifier.Java.SAWBackend
-  ( mkDagEngine
+  ( mkSharedContext
   , sawBackend
   ) where
 
@@ -10,72 +10,128 @@ import Control.Applicative
 import Verifier.SAW
 import Verifier.Java.Backend
 
-instance PrettyTerm (DagTerm s) where
-instance Show (DagTerm s) where
-instance Typeable (DagTerm s) where
+instance PrettyTerm (SharedTerm s) where
+instance Show (SharedTerm s) where
+instance Typeable (SharedTerm s) where
 
-instance AigOps (DagEngine s) where
+instance AigOps (SharedContext s) where
 
-type instance MonadTerm (DagEngine s) = DagTerm s
+type instance MonadTerm (SharedContext s) = SharedTerm s
 
-sawBackend :: DagEngine s -> IO (Backend (DagEngine s))
-sawBackend de = do
-  let ?de = de
-  int8  <- deInteger  8
-  int32 <- deInteger 32
-  int64 <- deInteger 64
-  signed8  <- deGroundSignedType  8
-  signed32 <- deGroundSignedType 32
-  signed64 <- deGroundSignedType 64
-  trueCtor <- deBuiltin TrueCtor
-  falseCtor <- deBuiltin FalseCtor
-  intFn  <- deGroundSignedValueFn 32
-  longFn <- deGroundSignedValueFn 64
-  Just s2sFn <- deGlobal signedToSignedIdent
-  atomicProof <- deBuiltin AtomicProof
-  byteFromIntFn <- deApplyAll s2sFn [ int32, int8, atomicProof ]
-  longFromIntFn <- deApplyAll s2sFn [ int32, int64, atomicProof ]
-  intFromLongFn <- deApplyAll s2sFn [ int64, int32, atomicProof ]
-  let fAsBool :: TermF (DagTerm s) -> Maybe Bool
-      fAsBool (BuiltinLit TrueCtor)  = Just True
-      fAsBool (BuiltinLit FalseCtor) = Just False
-      fAsBool _ = Nothing
-  let fAsNum :: Num i => TermF (DagTerm s) -> Maybe i
-      fAsNum (IntegerLit i) = Just (fromInteger i)
-      fAsNum _ = Nothing
-  return Backend { freshByte = deFreshGlobal "_" signed8
-                 , freshInt  = deFreshGlobal "_" signed32
-                 , freshLong = deFreshGlobal "_" signed64
-                 , asBool = \t -> fAsBool $ deProject t
-                 , asInt  = \t -> fAsNum  $ deProject t
-                 , asLong = \t -> fAsNum  $ deProject t
+sawBackend :: SharedContext s -> IO (Backend (SharedContext s))
+sawBackend sc = do
+  let ?sc = sc
+  let apply2 op x y   = scApplyAll op [x,y]
+      apply3 op x y z = scApplyAll op [x,y,z]
+      apply4 op w x y z = scApplyAll op [w,x,y,z]
+  boolType  <- scBuiltin BoolType
+  trueCtor  <- scBuiltin TrueCtor
+  falseCtor <- scBuiltin FalseCtor
+  iteOp <- scBuiltin IteFn
+
+  int8  <- scInteger  8
+  int32 <- scInteger 32
+  int64 <- scInteger 64
+
+  signedType <- scBuiltin SignedType
+  signed8  <- scApply signedType int8
+  signed32 <- scApply signedType int32
+  signed64 <- scApply signedType int64
+
+  intToSigned <- scBuiltin IntegerToSigned
+  intToSigned32 <- scApply intToSigned int32
+  intToSigned64 <- scApply intToSigned int64
+
+  atomicProof <- scBuiltin AtomicProof
+  resizeSignedOp <- scBuiltin ResizeSigned
+  byteFromIntFn <- apply3 resizeSignedOp int32 int8  atomicProof
+  longFromIntFn <- apply3 resizeSignedOp int32 int64 atomicProof
+  intFromLongFn <- apply3 resizeSignedOp int64 int32 atomicProof
+
+  notOp <- scBuiltin NotFn
+  andOp <- scBuiltin AndFn
+  orOp  <- scBuiltin OrFn
+  xorOp <- scBuiltin XorFn
+  shlOp <- scBuiltin ShlFn
+  shrOp <- scBuiltin ShrFn
+  
+  boolBitsInstance <- scBuiltin BoolBitsInstance
+  boolNotOp <- apply2 notOp boolType boolBitsInstance
+  boolAndOp <- apply2 andOp boolType boolBitsInstance
+ 
+  signedOrdInstance <- scBuiltin SignedOrdInstance
+  int32OrdInstance <- scApply signedOrdInstance int32  
+ 
+  eqOp <- scBuiltin EqFn
+
+  leqOp <- scBuiltin LeqFn
+  int32LeqOp <- apply2 leqOp signed32 int32OrdInstance
+
+  signedBitsInstance <- scBuiltin SignedBitsInstance
+  int32BitsInstance <- scApply signedBitsInstance int32
+  int64BitsInstance <- scApply signedBitsInstance int64
+
+  int32AndOp <- apply2 andOp int32 int32BitsInstance
+  int32OrOp  <- apply2 orOp  int32 int32BitsInstance
+  int32XorOp <- apply2 xorOp int32 int32BitsInstance
+  int32ShlOp <- apply2 shlOp int32 int32BitsInstance
+  int32ShrOp <- apply2 shrOp int32 int32BitsInstance
+ 
+
+  int64AndOp <- apply2 andOp int64 int64BitsInstance
+  int64OrOp  <- apply2 orOp  int64 int64BitsInstance
+  int64XorOp <- apply2 xorOp int64 int64BitsInstance
+
+  return Backend { freshByte = scFreshGlobal (mkIdent "_") signed8
+                 , freshInt  = scFreshGlobal (mkIdent "_") signed32
+                 , freshLong = scFreshGlobal (mkIdent "_") signed64
+                 , asBool = scViewAsBool
+                 , asInt  = \t -> fmap fromIntegral $ scViewAsNum t
+                 , asLong = \t -> fmap fromIntegral $ scViewAsNum t
                  , termBool = \b -> return $ if b then trueCtor else falseCtor
-                 , termInt = intFn . toInteger
-                 , termLong = longFn . toInteger
-                 , termByteFromInt = deApply byteFromIntFn 
-                 , termLongFromInt = deApply longFromIntFn
-                 , termIntFromLong = deApply intFromLongFn
-                 , termNot   = \_ ->   undefined
-                 , termAnd   = \_ _ -> undefined
-                 , termEq    = \_ _ -> undefined
-                 , termIte   = \_ _ _ -> undefined
-                 , termIAnd  = \_ _ -> undefined
-                 , termIOr   = \_ _ -> undefined
-                 , termIXor  = \_ _ -> undefined
-                 , termIShl  = \_ _ -> undefined
-                 , termIShr  = \_ _ -> undefined
+                 , termInt  = \w -> scApply intToSigned32 =<< scInteger (toInteger w)
+                 , termLong = \w -> scApply intToSigned64 =<< scInteger (toInteger w)
+                 , termByteFromInt = scApply byteFromIntFn 
+                 , termLongFromInt = scApply longFromIntFn
+                 , termIntFromLong = scApply intFromLongFn
+
+                 , termNot   = scApply boolNotOp
+                 , termAnd   = apply2 boolAndOp
+
+                 , termEq    = \x y -> do
+                     xTp <- scTypeOf x
+                     apply3 eqOp xTp x y
+                 , termIte   = \b x y -> do
+                     tp <- scTypeOf x
+                     apply4 iteOp tp b x y
+                 , termILeq  = apply2 int32LeqOp
+                 , termIAnd  = apply2 int32AndOp
+                 , termIOr   = apply2 int32OrOp
+                 , termIXor  = apply2 int32XorOp
+                 , termIShl  = apply2 int32ShlOp
+                 , termIShr  = apply2 int32ShrOp
                  , termIUshr = \_ _ -> undefined
+                 , termINeg  = \_   -> undefined
+                 , termIAdd  = \_ _ -> undefined
+                 , termISub  = \_ _ -> undefined
+                 , termIMul  = \_ _ -> undefined
+                 , termIDiv  = \_ _ -> undefined
+                 , termIRem  = \_ _ -> undefined
+
+                 , termLCompare = \_ _ -> undefined
+                 , termLAnd  = \_ _ -> undefined
+                 , termLOr   = \_ _ -> undefined
+                 , termLXor  = \_ _ -> undefined
                  , termLShl  = \_ _ -> undefined
                  , termLShr  = \_ _ -> undefined
                  , termLUshr = \_ _ -> undefined
-                 , termLeq   = \_ _ -> undefined
-                 , termLt    = \_ _ -> undefined
-                 , termNeg   = \_ -> undefined
-                 , termAdd   = \_ _ -> undefined
-                 , termSub   = \_ _ -> undefined
-                 , termMul   = \_ _ -> undefined
-                 , termDiv   = \_ _ -> undefined
-                 , termRem   = \_ _ -> undefined
+                 , termLNeg  = \_ -> undefined
+                 , termLAdd  = \_ _ -> undefined
+                 , termLSub  = \_ _ -> undefined
+                 , termLMul  = \_ _ -> undefined
+                 , termLDiv  = \_ _ -> undefined
+                 , termLRem  = \_ _ -> undefined
+
                  , termIntArray  = \_ -> undefined
                  , termLongArray = \_ -> undefined
                  , applyGetArrayValue = \_ _ -> undefined
