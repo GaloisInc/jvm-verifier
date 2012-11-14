@@ -1258,47 +1258,39 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   fSub  x y = return $ x - y
 
   -- Integer functions {{{1
-  iAdd  x y = withSBE $ \sbe -> termAdd sbe x y
+  iAdd  x y = withSBE $ \sbe -> termIAdd sbe x y
   iAnd  x y = withSBE $ \sbe -> termIAnd sbe x y
   iConst v  = withSBE $ \sbe -> termInt sbe v
-  iDiv  x y = withSBE $ \sbe -> termDiv sbe x y
+  iDiv  x y = withSBE $ \sbe -> termIDiv sbe x y
   iEq   x y = withSBE $ \sbe -> termEq sbe x y
-  iLeq  x y = withSBE $ \sbe -> termLeq sbe x y
-  iMul  x y = withSBE $ \sbe -> termMul sbe x y
-  iNeg  x   = withSBE $ \sbe -> termNeg sbe x
+  iLeq  x y = withSBE $ \sbe -> termILeq sbe x y
+  iMul  x y = withSBE $ \sbe -> termIMul sbe x y
+  iNeg  x   = withSBE $ \sbe -> termINeg sbe x
   iOr   x y = withSBE $ \sbe -> termIOr sbe x y
-  iRem  x y = withSBE $ \sbe -> termRem   sbe x y
+  iRem  x y = withSBE $ \sbe -> termIRem   sbe x y
   iShl  x y = withSBE $ \sbe -> termIShl  sbe x y
   iShr  x y = withSBE $ \sbe -> termIShr  sbe x y
-  iSub  x y = withSBE $ \sbe -> termSub   sbe x y  
+  iSub  x y = withSBE $ \sbe -> termISub  sbe x y  
   iUshr x y = withSBE $ \sbe -> termIUshr sbe x y
   iXor  x y = withSBE $ \sbe -> termIXor  sbe x y 
 
   ------------------------------------------------------------------------------
   -- operations on longs
-  lAdd x y = withSBE $ \sbe -> termAdd sbe x y
-  lAnd x y = withSBE $ \sbe -> termIAnd sbe x y
-  lCmp x y = do
-    sbe <- gets backend
-    liftIO $ do
-      eqXY   <- termEq sbe x y
-      ltXY   <- termLt sbe x y
-      negVal <- termInt sbe (-1)
-      posVal <- termInt sbe 1
-      zeroVal <- termInt sbe 0
-      termIte sbe eqXY zeroVal =<< termIte sbe ltXY negVal posVal
+  lAdd x y = withSBE $ \sbe -> termLAdd sbe x y
+  lAnd x y = withSBE $ \sbe -> termLAnd sbe x y
+  lCmp x y = withSBE $ \sbe -> termLCompare sbe x y
   lConst v  = withSBE $ \sbe -> termLong sbe v
   lEq x y   = withSBE $ \sbe -> termEq sbe x y
-  lDiv x y  = withSBE $ \sbe -> termDiv sbe x y
-  lMul x y  = withSBE $ \sbe -> termMul sbe x y
-  lNeg x    = withSBE $ \sbe -> termNeg sbe x
-  lOr   x y = withSBE $ \sbe -> termIOr sbe x y
-  lRem  x y = withSBE $ \sbe -> termRem sbe x y
+  lDiv x y  = withSBE $ \sbe -> termLDiv sbe x y
+  lMul x y  = withSBE $ \sbe -> termLMul sbe x y
+  lNeg x    = withSBE $ \sbe -> termLNeg sbe x
+  lOr   x y = withSBE $ \sbe -> termLOr sbe x y
+  lRem  x y = withSBE $ \sbe -> termLRem sbe x y
   lShl  x y = withSBE $ \sbe -> termLShl sbe x y
   lShr  x y = withSBE $ \sbe -> termLShr sbe x y
-  lSub  x y = withSBE $ \sbe -> termSub sbe x y
+  lSub  x y = withSBE $ \sbe -> termLSub sbe x y
   lUshr x y = withSBE $ \sbe -> termLUshr sbe x y
-  lXor  x y = withSBE $ \sbe -> termIXor sbe x y
+  lXor  x y = withSBE $ \sbe -> termLXor sbe x y
 
   --------------------------------------------------------------------------------
   -- Conversions
