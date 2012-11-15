@@ -3,6 +3,7 @@
 module Verifier.Java.SAWBackend
   ( mkSharedContext
   , sawBackend
+  , withFreshBackend
   ) where
 
 import Control.Applicative
@@ -19,6 +20,9 @@ instance Typeable (SharedTerm s) where
 instance AigOps (SharedContext s) where
 
 type instance MonadTerm (SharedContext s) = SharedTerm s
+
+withFreshBackend :: (Backend (SharedContext s) -> IO a) -> IO a
+withFreshBackend _f = undefined
 
 sawBackend :: SharedContext s
               -- Maps symbol names to the term.
@@ -136,17 +140,18 @@ sawBackend sc preludeSyms = do
   let mkArray eltType eltValue l = do
         il <- scApply signed32ToInt l
         Just <$> apply4 replicateOp il atomicProof eltType eltValue
+
   getOp <- getBuiltin "get"
   let getArray eltType l a i = do
         lint <- scApply signed32ToInt l
         iint <- scApply signed32ToInt i
         scApplyAll getOp [lint,eltType,a,iint,atomicProof]
+
   setOp <- getBuiltin "set"
   let setArray eltType l a i v = do
         lint <- scApply signed32ToInt l
         iint <- scApply signed32ToInt i
         scApplyAll setOp [lint,eltType,a,iint,atomicProof,v]
-
   return Backend { freshByte = scFreshGlobal (mkIdent "_") signed8
                  , freshInt  = scFreshGlobal (mkIdent "_") signed32
                  , freshLong = scFreshGlobal (mkIdent "_") signed64

@@ -30,22 +30,36 @@ import Text.ParserCombinators.Parsec
 import Prelude hiding (catch)
 
 import Verifier.Java.Simulator
-import Verifier.Java.WordBackend
 import Overrides
 
-simExcHndlr' :: Bool -> String -> SomeException -> IO [Bool]
-simExcHndlr' suppressOutput failMsg exc = do
-  let h :: Maybe (SimulatorExc DagTerm)
-      h = fromException exc
-  case h of
+#ifdef UseSAW
+import Verifier.Java.SAWBackend
+#else
+import Verifier.Java.WordBackend
+#endif
+
+
+asSimulatorExc :: (Show (MonadTerm m), Typeable (MonadTerm m))
+               => Backend m
+               -> SomeException
+               -> Maybe (SimulatorExc (MonadTerm m))
+asSimulatorExc _ = fromException
+
+
+simExcHndlr' :: (Show (MonadTerm m), Typeable (MonadTerm m)) 
+             => Backend m -> Bool -> String -> SomeException -> IO [Bool]
+simExcHndlr' sbe suppressOutput failMsg exc =
+  case asSimulatorExc sbe exc of
     Just (SimExtErr msg _ _) -> do
       unless suppressOutput $ hPutStr stderr msg
       return [False]
     Just se -> error $ ppSimulatorExc se
     _ -> error $ failMsg ++ ": " ++ show exc
 
+{-
 simExcHndlr :: String -> SomeException -> IO [Bool]
 simExcHndlr = simExcHndlr' True
+-}
 
 data JSS = JSS
   { classpath :: String
@@ -131,25 +145,26 @@ main = do
         return $ (exeDir </> "galois.jar") : jpaths
 
   cb <- loadCodebase jpaths' cpaths
-  oc <- mkOpCache
-  let fl = defaultSimFlags{ alwaysBitBlastBranchTerms = blast args' }
-      go = withSymbolicMonadState oc $ \sms -> do
-             runSimulator (symbolicBackend sms) fl cb $ do
-               jssOverrides
-               setVerbosity (dbug args')
-               rs <- runMain cname =<< do
-                 jargs <- newMultiArray (ArrayType (ClassType "java/lang/String"))
-                                        [mkCInt 32 $ fromIntegral $ length jopts]
-                 forM_ ([0..length jopts - 1] `zip` jopts) $ \(i,s) ->
-                   setArrayValue jargs (mkCInt 32 . fromIntegral $ i)
-                     =<< RValue <$> refFromString s
-                 return [RValue jargs]
-               when (length (withoutExceptions rs) > 1) $
-                 -- As long as we filter out exception paths and our merging is working,
-                 -- this warning shouldn't fire.
-                 liftIO $ putStrLn $ "Warning: Simulator could not merge all paths."
-    in go `catch` \e -> do
-        case fromException e of
-          Just ExitSuccess     -> exitSuccess
-          Just c@ExitFailure{} -> exitWith c
-          _ -> simExcHndlr' False "jss" e >> (exitWith $ ExitFailure 1)
+  withFreshBackend $ \sbe -> do
+    let go = do 
+          let fl = defaultSimFlags{ alwaysBitBlastBranchTerms = blast args' }
+          tl <- termInt sbe (fromIntegral (length jopts))
+          runSimulator sbe fl cb $ do
+            jssOverrides
+            setVerbosity (dbug args')
+            rs <- runMain cname =<< do
+              jargs <- newMultiArray (ArrayType (ClassType "java/lang/String")) [tl]
+              forM_ ([0..length jopts - 1] `zip` jopts) $ \(i,s) -> do
+                r <- RValue <$> refFromString s
+                ti <- liftIO $ termInt sbe (fromIntegral i)
+                setArrayValue jargs ti r
+              return [RValue jargs]
+            when (length (withoutExceptions rs) > 1) $
+              -- As long as we filter out exception paths and our merging is working,
+              -- this warning shouldn't fire.
+              liftIO $ putStrLn $ "Warning: Simulator could not merge all paths."
+    go `catch` \e -> do
+      case fromException e of
+        Just ExitSuccess     -> exitSuccess
+        Just c@ExitFailure{} -> exitWith c
+        _ -> simExcHndlr' sbe False "jss" e >> (exitWith $ ExitFailure 1)

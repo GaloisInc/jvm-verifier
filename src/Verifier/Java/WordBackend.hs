@@ -25,6 +25,7 @@ module Verifier.Java.WordBackend
          -- * Backend Exports
        , SymbolicMonad
        , withSymbolicMonadState
+       , withFreshBackend
        , SymbolicMonadState(..)
        , symbolicBackend
        , evalAigArgs8
@@ -85,6 +86,15 @@ type instance MonadTerm SymbolicMonad  = DagTerm
 
 withBitEngine :: (BitEngine Lit -> IO a) -> IO a
 withBitEngine = bracket createBitEngine beFree
+
+-- | Create a fresh symbolic backend with a new op cache, and execute it.
+withFreshBackend :: (Backend SymbolicMonad -> IO a) -> IO a
+withFreshBackend f = do
+  oc <- mkOpCache
+  withBitEngine $ \be -> do
+    de <- mkConstantFoldingDagEngine
+    sms <- mkSymbolicMonadState oc be de
+    f (symbolicBackend sms)
 
 withSymbolicMonadState :: OpCache -> (SymbolicMonadState -> IO a) -> IO a
 withSymbolicMonadState oc f =
