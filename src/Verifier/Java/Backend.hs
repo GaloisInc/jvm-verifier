@@ -115,10 +115,30 @@ data Backend sym = Backend {
        , termIntArray :: MonadTerm sym -> IO (Maybe (MonadTerm sym))
          -- | @termLongArray l@ returns a long array of zeros with length @l@.
        , termLongArray :: MonadTerm sym -> IO (Maybe (MonadTerm sym))
-         -- | @applyGetArrayValue arr i@ returns value at @arr[i]@.
-       , applyGetArrayValue :: BinaryOp sym
-         -- | @applySetArrayValue arr i v@ returns value at @arr[i] = v@.
-       , applySetArrayValue :: MonadTerm sym -> MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
+         -- | @termGetIntArray l arr i@ returns value at @arr[i]@.  The length is
+         -- the expected length of the array.  The length is passed in case the backend
+         -- needs it.
+       , termGetIntArray :: MonadTerm sym -- ^ length
+                         -> MonadTerm sym -- ^ array
+                         -> MonadTerm sym -- ^ index
+                         -> IO (MonadTerm sym)
+         -- | @termGetLongArray l arr i@ returns value at @arr[i]@.
+       , termGetLongArray :: MonadTerm sym -- ^ length
+                          -> MonadTerm sym -- ^ array
+                          -> MonadTerm sym -- ^ index
+                          -> IO (MonadTerm sym)
+         -- | @termSetIntArray l arr i v@ returns value at @arr[i] = v@.
+       , termSetIntArray :: MonadTerm sym -- ^ length
+                         -> MonadTerm sym -- ^ array
+                         -> MonadTerm sym -- ^ index
+                         -> MonadTerm sym -- ^ value
+                         -> IO (MonadTerm sym)
+         -- | @termSetLongArray l arr i v@ returns value at @arr[i] = v@.
+       , termSetLongArray :: MonadTerm sym -- ^ length
+                          -> MonadTerm sym -- ^ array
+                          -> MonadTerm sym -- ^ index
+                          -> MonadTerm sym -- ^ value
+                          -> IO (MonadTerm sym)
          -- | @blastTerm t@ bitblasts the Boolean term @t@ and returns a maybe value indicating
          -- if it is equivalent to the constant true or false.
        , blastTerm :: MonadTerm sym -> IO (Maybe Bool)
