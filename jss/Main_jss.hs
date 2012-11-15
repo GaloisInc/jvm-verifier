@@ -56,11 +56,6 @@ simExcHndlr' sbe suppressOutput failMsg exc =
     Just se -> error $ ppSimulatorExc se
     _ -> error $ failMsg ++ ": " ++ show exc
 
-{-
-simExcHndlr :: String -> SomeException -> IO [Bool]
-simExcHndlr = simExcHndlr' True
--}
-
 data JSS = JSS
   { classpath :: String
   , jars      :: String
