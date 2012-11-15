@@ -229,7 +229,7 @@ data PathState term = PathState {
   , staticFields    :: !(Map FieldId (Value term))
   , instanceFields  :: !(Map InstanceFieldRef (Value term))
   -- | Maps integer and long array to current value.
-  , arrays          :: !(Map Ref (Int32, term))
+  , arrays          :: !(Map Ref (term, term))
   -- | Maps reference array to current value.
   , refArrays       :: !(Map Ref (Array Int32 Ref))
     -- | Facts that may be assumed to be true in this path.
@@ -1300,8 +1300,8 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   -- (arrayLength ref) return length of array at ref.
   arrayLength ref = do
     pd  <- getPSS
-    l <- getArrayLength pd ref
-    withSBE $ \sbe -> termInt sbe l
+    getArrayLength pd ref
+
 
   -- (newMultiArray tp len) returns a reference to a multidimentional array with
   -- type tp and len = [len1, len2, ...] where len1 equals length of first
@@ -1312,18 +1312,16 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   newMultiArray tp@(ArrayType eltType) [l]
     | isIValue eltType || (eltType == LongType) = do
       sbe <- gets backend
-      case asInt sbe l of
+      ref <- genRef tp
+      let arrayFn | eltType == LongType = termLongArray
+                  | otherwise           = termIntArray
+      ma <- liftIO $ arrayFn sbe l
+      case ma of
         Nothing -> abort "Cannot create array with symbolic size"
-        Just cnt -> do
-          ref <- genRef tp
-          Just arr <- liftIO $
-            if eltType == LongType then
-              termLongArray sbe l
-            else
-              termIntArray sbe l
+        Just a ->
           modifyPathState $ \ps ->
-            ps { arrays = M.insert ref (fromIntegral cnt, arr) (arrays ps) }
-          return ref
+            ps { arrays = M.insert ref (l, a) (arrays ps) }
+      return ref
   newMultiArray (ArrayType DoubleType) _ =
     abort "Floating point arrays (e.g., double) are not supported"
   newMultiArray (ArrayType FloatType) _ =
@@ -1454,10 +1452,10 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
     val <- getArrayValue pd r idx
     pushValue val
 
-  setArrayValue r idx (IValue val) = updateSymbolicArray r $ \sbe arr ->
-    applySetArrayValue sbe arr idx val
-  setArrayValue r idx (LValue val) = updateSymbolicArray r $ \sbe arr ->
-    applySetArrayValue sbe arr idx val
+  setArrayValue r idx (IValue val) = updateSymbolicArray r $ \sbe l a ->
+    termSetIntArray  sbe l a idx val
+  setArrayValue r idx (LValue val) = updateSymbolicArray r $ \sbe l a ->
+    termSetLongArray sbe l a idx val
   setArrayValue r idx (RValue v) = do
     sbe <- gets backend
     ps <- getPathState
@@ -1798,7 +1796,7 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
     pathConds           = return (psAssumptions from) ||| return (psAssumptions to)
     mergeRefArrays      = return $ refArrays from `M.union` refArrays to
     mergeArrays         = arrays `mergeBy` \(l1,a1) (l2,a2) -> do
-                            CE.assert (l1 == l2) $ (,) l1 <$> a1 <-> a2
+                            liftM2 (,) (l1 <-> l2) (a1 <-> a2)
     mergeInstanceFields = instanceFields `mergeBy` mergeV
     mergeStaticFields   = staticFields `mergeBy` mergeV
     mergeFrms           = do
@@ -1878,16 +1876,10 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
       $ (\xs -> case xs of [] -> Nothing ; _ -> Just xs)
       $ map fst . filter (not . snd)
       $
-      [ -- 1) The array maps in the intersection of the path states have the
-        -- same length (pairwise).
-        ( ArraySizesMatch
-        , DF.and $ M.intersectionWith (\x y  -> fst x == fst y)
-                     (arrays from) (arrays to)
-        )
-
-        -- 2) The refArray maps in the intersection of the path states are the
+      [
+        -- 1) The refArray maps in the intersection of the path states are the
         -- same
-      , ( RefArraysEqual
+        ( RefArraysEqual
           -- NB: Since we don't support symbolic references, we don't permit the
           -- contents of arrays of references to differ over branches.  E.g., if
           -- 'b' is symbolic, then
@@ -2102,14 +2094,16 @@ newSymbolicArray :: Type -> Int32 -> MonadTerm sym -> Simulator sym Ref
 newSymbolicArray tp@(ArrayType eltType) cnt arr =
   CE.assert ((isIValue eltType || eltType == LongType) && cnt >= 0) $ do
     r <- genRef tp
+    sbe <- gets backend
+    tcnt <- liftIO $ termInt sbe cnt
     modifyPathState $ \ps ->
-      ps { arrays = M.insert r (cnt, arr) (arrays ps) }
+      ps { arrays = M.insert r (tcnt, arr) (arrays ps) }
     return r
 newSymbolicArray _ _ _ = error "internal: newSymbolicArray called with invalid type"
 
 -- | Returns length and symbolic value associated with array reference,
 -- and nothing if this is not an array reference.
-getSymbolicArray :: Ref -> Simulator sym (Maybe (Int32, MonadTerm sym))
+getSymbolicArray :: Ref -> Simulator sym (Maybe (MonadTerm sym, MonadTerm sym))
 getSymbolicArray r = do
   ps <- getPathState
   return $ M.lookup r (arrays ps)
@@ -2117,19 +2111,19 @@ getSymbolicArray r = do
 -- | Sets integer or long array to use using given update function.
 -- TODO: Revisit what error should be thrown if ref is not an array reference.
 setSymbolicArray :: Ref -> MonadTerm sym -> Simulator sym ()
-setSymbolicArray r arr = updateSymbolicArray r (\_ _ -> return arr)
+setSymbolicArray r arr = updateSymbolicArray r (\_ _ _ -> return arr)
 
 -- | Updates integer or long array using given update function.
 -- TODO: Revisit what error should be thrown if ref is not an array refence.
 updateSymbolicArray :: Ref
-                    -> (Backend sym -> MonadTerm sym -> IO (MonadTerm sym))
+                    -> (Backend sym -> MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym))
                     -> Simulator sym ()
 updateSymbolicArray r modFn = do
   ps <- getPathState
   let (len,arr) = maybe (error "internal: reference is not a symbolic array") id
                       $ M.lookup r (arrays ps)
   sbe <- gets backend
-  newArr <- liftIO $ modFn sbe arr
+  newArr <- liftIO $ modFn sbe len arr
   putPathState ps{ arrays = M.insert r (len, newArr) (arrays ps) }
 
 -- | @newIntArray arTy terms@ produces a reference to a new array of type
@@ -2144,7 +2138,7 @@ newIntArray tp@(ArrayType eltType) values
       Just a0 <- termIntArray sbe l
       let fn a i = do
             ti <- termInt sbe (fromIntegral i)
-            applySetArrayValue sbe a ti (v V.! i)
+            termSetIntArray sbe l a ti (v V.! i)
       V.foldM fn a0 (V.enumFromN 0 (V.length v))
     newSymbolicArray tp (safeCast (length values)) arr
 newIntArray _ _ = error "internal: newIntArray called with invalid type"
@@ -2160,22 +2154,22 @@ newLongArray values = do
     Just a0 <- termLongArray sbe l
     let fn a i = do
           ti <- termInt sbe (fromIntegral i)
-          applySetArrayValue sbe a ti (v V.! i)
+          termSetLongArray sbe l a ti (v V.! i)
     V.foldM fn a0 (V.enumFromN 0 (V.length v))
   newSymbolicArray (ArrayType LongType) (safeCast (length values)) arr
 
 -- | Returns array length at given index in path.
-getArrayLength :: AigOps sym => PathDescriptor -> Ref -> Simulator sym Int32
+getArrayLength :: AigOps sym => PathDescriptor -> Ref -> Simulator sym (MonadTerm sym)
 getArrayLength pd ref = do
   ps <- getPathStateByName pd
   ArrayType tp <- getType ref
-  return $
-    if isRValue tp then
-      let Just arr = M.lookup ref (refArrays ps)
-      in 1 + snd (bounds arr)
-    else
-      let Just (len,_) = M.lookup ref (arrays ps)
-      in len
+  if isRValue tp then do
+    sbe <- gets backend
+    let Just arr = M.lookup ref (refArrays ps)
+    liftIO $ termInt sbe (1 + snd (bounds arr))
+  else do
+    let Just (len,_) = M.lookup ref (arrays ps)
+    return len
 
 -- | Returns value in array at given index.
 getArrayValue :: AigOps sym
@@ -2192,13 +2186,15 @@ getArrayValue pd r idx = do
     case asInt sbe idx of
       Just i -> return $ RValue (arr ! fromIntegral i)
       _ -> abort "Not supported: symbolic indexing into arrays of references."
-  else if tp == LongType then do
-    let Just (_,rslt) = M.lookup r (arrays ps)
-    liftIO $ LValue <$> applyGetArrayValue sbe rslt idx
+  else if tp == LongType then
+    liftIO $ do
+      let Just (l,rslt) = M.lookup r (arrays ps)
+      LValue <$> termGetLongArray sbe l rslt idx
   else do
-    CE.assert (isIValue tp) $ return ()
-    let Just (_,rslt) = M.lookup r (arrays ps)
-    liftIO $ IValue <$> applyGetArrayValue sbe rslt idx
+    liftIO $ do
+      CE.assert (isIValue tp) $ return ()
+      let Just (l,rslt) = M.lookup r (arrays ps)
+      IValue <$> termGetIntArray sbe l rslt idx
 
 -- | Returns values in an array at a given reference, passing them through the
 -- given projection
@@ -2210,8 +2206,11 @@ getArray :: AigOps sym
 getArray f pd ref = do
   sbe <- gets backend
   len <- getArrayLength pd ref
-  forM [0..len-1] $ \i -> do
-    liftM f . getArrayValue pd ref =<< liftIO (termInt sbe i)
+  case asInt sbe len of
+    Nothing -> abort "Not supported: getArray called on array with symbolic length"
+    Just l ->
+      forM [0..l-1] $ \i -> do
+        liftM f . getArrayValue pd ref =<< liftIO (termInt sbe i)
 
 -- | Returns values in byte array at given reference.
 getByteArray :: AigOps sym =>
@@ -2471,7 +2470,8 @@ instance PrettyTerm term => Show (PathState term) where
       "  arrays         : "
       ++ (if M.null $ arrays st
             then "(none)\n"
-            else arrays st `dispMapBy` \(k,(l,v)) -> show k ++ " : " ++ show l ++ " = " ++ prettyTerm v
+            else arrays st `dispMapBy` \(k,(l,v)) -> 
+                   show k ++ " : " ++ prettyTerm l ++ " = " ++ prettyTerm v
          )
       ++
       "  refArrays      : "

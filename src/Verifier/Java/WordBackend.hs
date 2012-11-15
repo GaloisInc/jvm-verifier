@@ -129,6 +129,17 @@ symbolicBackend sms = do
               False -> deApplyTernary de typedIte b t f
   let w32 = constantWidth 32
       w64 = constantWidth 64
+  let getArray _ a i =
+        case termType a of
+          SymArray len eltType ->
+            deApplyBinary de (getArrayValueOp len w32 eltType) a i
+          _ -> error $ "internal: illegal arguments to getArray "
+                        ++ prettyTerm a ++ "\n" ++ show (termType a)
+  let setArray _ a i v =
+        case termType a of
+          SymArray len eltType ->
+            deApplyTernary de (setArrayValueOp len w32 eltType) a i v
+          _ -> error "internal: illegal arguments to setArray"
   Backend {
       freshByte = do
         inputs <- SV.replicateM 7 lMkInput
@@ -207,17 +218,10 @@ symbolicBackend sms = do
             Just <$> deApplyOp de (mkArrayOp oc c int64Type)
                        (V.replicate c (mkCInt 64 0))  
           Nothing -> return Nothing
-    , applyGetArrayValue = \a i ->
-        case (termType a, termType i) of
-          (SymArray len eltType, SymInt idxType) ->
-            deApplyBinary de (getArrayValueOp len idxType eltType) a i
-          _ -> error $ "internal: illegal arguments to applyGetArrayValue "
-                        ++ prettyTerm a ++ "\n" ++ show (termType a)
-    , applySetArrayValue = \a i v ->
-        case (termType a,termType i) of
-          (SymArray len eltType, SymInt idxType) ->
-            deApplyTernary de (setArrayValueOp len idxType eltType) a i v
-          _ -> error "internal: illegal arguments to applySetArrayValue"
+    , termGetIntArray  = getArray
+    , termGetLongArray = getArray
+    , termSetIntArray  = setArray
+    , termSetLongArray = setArray
     , blastTerm = \v -> do
         LV lv <- getTermLit v
         let l = assert (SV.length lv == 1) $ SV.head lv
