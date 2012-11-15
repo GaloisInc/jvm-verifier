@@ -48,11 +48,10 @@ library
     , jvm-parser
     , mtl >= 2.1
     , pretty
-    , saw-core
     , vector >= 0.7
     , zlib
-    , Verinf >= 0.2
     , random
+    , Verinf >= 0.2
 
   hs-source-dirs: src
 
@@ -61,13 +60,21 @@ library
     Verifier.Java.Codebase
     Verifier.Java.Simulator
     Verifier.Java.Utils
-    Verifier.Java.SAWBackend
-    Verifier.Java.WordBackend
  
   other-modules:
     Execution
     Execution.JavaSemantics
     Execution.Stepper
+
+  if flag(use-saw)
+    build-depends:
+      saw-core
+    exposed-modules:
+      Verifier.Java.SAWBackend
+  else
+    exposed-modules:
+      Verifier.Java.WordBackend
+
 
   if !flag(build-library)
     buildable: False
@@ -101,7 +108,10 @@ executable jss
 
   other-modules:
     Overrides
-    
+  
+  if flag(use-saw)
+    cpp-options   : -DUseSAW
+
   hs-source-dirs   : jss
   main-is          : Main_jss.hs
   ghc-options      : -O2 -Wall -fno-ignore-asserts
@@ -125,6 +135,8 @@ executable jvmgraph
 
 executable sawScript
   if !flag(build-SAWScript)
+    buildable: False
+  if flag(use-saw)
     buildable: False
 
   build-depends:
