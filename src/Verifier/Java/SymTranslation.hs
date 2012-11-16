@@ -134,37 +134,27 @@ liftBB cfg bb = do
           Goto tgt ->
             defineBlock currId $
             reverse il ++ brSymInstrs cfg currId (getBlock tgt)
-          If_acmpeq tgt -> br blk' tgt (Compare EQ)
-          If_acmpne tgt -> br blk' tgt (Compare NE)
-          If_icmpeq tgt -> br blk' tgt (Compare EQ)
-          If_icmpne tgt -> br blk' tgt (Compare NE)
-          If_icmplt tgt -> br blk' tgt (Compare LT)
-          If_icmpge tgt -> br blk' tgt (Compare GE)
-          If_icmpgt tgt -> br blk' tgt (Compare GT)
-          If_icmple tgt -> br blk' tgt (Compare LE)
+          If_acmpeq tgt -> br currId il (getBlock tgt) blk' (Compare EQ)
+          If_acmpne tgt -> br currId il (getBlock tgt) blk' (Compare NE)
+          If_icmpeq tgt -> br currId il (getBlock tgt) blk' (Compare EQ)
+          If_icmpne tgt -> br currId il (getBlock tgt) blk' (Compare NE)
+          If_icmplt tgt -> br currId il (getBlock tgt) blk' (Compare LT)
+          If_icmpge tgt -> br currId il (getBlock tgt) blk' (Compare GE)
+          If_icmpgt tgt -> br currId il (getBlock tgt) blk' (Compare GT)
+          If_icmple tgt -> br currId il (getBlock tgt) blk' (Compare LE)
           Ifeq tgt -> cmpZero pc (If_icmpeq tgt) currId is il
           Ifne tgt -> cmpZero pc (If_icmpne tgt) currId is il
           Iflt tgt -> cmpZero pc (If_icmplt tgt) currId is il
           Ifge tgt -> cmpZero pc (If_icmpge tgt) currId is il
           Ifgt tgt -> cmpZero pc (If_icmpgt tgt) currId is il
           Ifle tgt -> cmpZero pc (If_icmple tgt) currId is il
-          Ifnonnull tgt -> br blk' tgt NonNull
-          Ifnull tgt -> br blk' tgt Null
+          Ifnonnull tgt -> br currId il blk' (getBlock tgt) NonNull
+          Ifnull tgt -> br currId il blk' (getBlock tgt) Null
+          Lookupswitch d cs -> switch currId il d (map fst cs) cs
+          Tableswitch d l h cs -> switch currId il d vs (zip vs cs)
+            where vs = [l..h]
           {-
-          Lookupswitch d cs ->
-            (SetCurrentBlock d
-            , PushPendingExecution (NotConstValues (map fst cs))) :
-            map (\(i, pc) ->
-                   ( SetCurrentBlock pc
-                   , PushPendingExecution (ConstValue i))) cs
-          Tableswitch d l h cs ->
-            ( SetCurrentBlock d
-            , PushPendingExecution (NotConstValues is)) :
-            map (\(i, pc) ->
-                   ( SetCurrentBlock pc
-                   , PushPendingExecution (ConstValue i))) (zip is cs)
-              where is = [l..h]
-          Jsr pc -> undefined
+          Jsr tgt -> br blk' tgt TrueSymCond
           Ret -> undefined
           -}
           _ -> processInsns is currId ((Just pc, OtherInsn i) : il)
@@ -178,15 +168,32 @@ liftBB cfg bb = do
       ret pc i currId il =
         defineBlock currId $
         reverse (si MergeReturn : (Just pc, OtherInsn i) : il)
-      br blk' tgt cmp = do
-        let suspendBlockID = blk { blockN = blockN blk + 1 }
+      switch currId il d is cs = do
+        defineBlock currId $ reverse il ++ cases
+        mapM_ (uncurry defineBlock) caseDefs
+          where cases = concatMap mkCase caseConds ++ brSymInstrs cfg currId (getBlock d)
+                caseBlockIds = map (getBlock . snd) cs
+                caseBlockIds' = map (\b -> b { blockN = 1 }) caseBlockIds
+                casePairs = zip caseBlockIds' cs
+                caseDefs = map
+                           (\(b', (_, pc)) ->
+                              (b', brSymInstrs cfg currId (getBlock pc)))
+                           casePairs
+                caseConds = zip caseBlockIds' (map fromIntegral is)
+                mkCase (cblk, v) = [ si (SetCurrentBlock cblk)
+                                   , si (PushPendingExecution (HasConstValue v))
+                                   ]
+      br currBlk il thenBlk elseBlk cmp = do
+        let suspendBlk = currBlk { blockN = 1 }
         -- Add pending execution for false branch, and execute true branch.
-        defineBlock blk
-          ([ si (SetCurrentBlock suspendBlockID)
-           , si (PushPendingExecution cmp)
-           ] ++ brSymInstrs cfg blk (getBlock tgt))
+        defineBlock currBlk $
+          reverse il ++
+          [ si (SetCurrentBlock suspendBlk)
+          , si (PushPendingExecution cmp)
+          ] ++
+          brSymInstrs cfg currBlk thenBlk
         -- Define block for suspended thread.
-        defineBlock suspendBlockID (brSymInstrs cfg suspendBlockID blk')
+        defineBlock suspendBlk (brSymInstrs cfg suspendBlk elseBlk)
   case bbById cfg bb of
     Just basicBlock -> processInsns (bbInsts basicBlock) blk []
     Nothing -> error $ "Block not found: " ++ show bb
