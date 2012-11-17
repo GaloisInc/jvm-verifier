@@ -53,11 +53,12 @@ simExcHndlr = simExcHndlr' True
 
 dumpSymASTs :: Codebase -> IO ()
 dumpSymASTs cb = mapM_ dumpClass =<< getClasses cb
-  where dumpClass = mapM_ dumpMethod . classMethods
-        dumpMethod m =
+  where dumpClass c = mapM_ (dumpMethod c) $ classMethods c
+        dumpMethod c m =
           case methodBody m of
             Code _ _ cfg _ _ _ _ -> do
               putStrLn ""
+              putStrLn . className $ c
               putStrLn . show . methodKey $ m
               putStrLn ""
               mapM_ print . concatMap bbInsts $ allBBs cfg

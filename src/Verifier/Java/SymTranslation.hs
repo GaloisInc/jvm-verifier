@@ -15,8 +15,10 @@ module Verifier.Java.SymTranslation
   , SymBlock(..)
   ) where
 
+import Control.Monad.Error
 import Control.Monad.State
 import qualified Data.List as L
+import Data.Maybe
 import Prelude hiding (EQ, LT, GT)
 
 import Language.JVM.CFG
@@ -102,16 +104,28 @@ defineBlock :: BlockId -> [(Maybe PC, SymInstruction)] -> SymTrans ()
 defineBlock bid insns = modify (SymBlock bid insns :)
 
 liftCFG :: CFG -> [SymBlock]
-liftCFG cfg = execState (mapM_ (liftBB cfg) (map bbId (allBBs cfg))) []
+liftCFG cfg =
+  initBlock :
+  execState (mapM_ (liftBB cfg) (map bbId (allBBs cfg))) []
+    where initBlock =  SymBlock {
+                         sbId = eid { blockN = 1 }
+                       , sbInsns = [ si (PushPostDominatorFrame (bbToBlockId dom))
+                                   | dom <- getPostDominators cfg BBIdEntry
+                                   ] ++ [ si (SetCurrentBlock eid) ]
+                       }
+          eid = bbToBlockId BBIdEntry
 
 liftBB :: CFG -> BBId -> SymTrans ()
 liftBB cfg bb = do
   let blk = bbToBlockId bb
-      processInsns [] currId il = defineBlock currId (reverse il)
+      processInsns [] currId [] = defineBlock currId []
+      processInsns [] currId il@((mpc, _) : _) =
+        defineBlock currId 
+          (reverse il ++
+           maybe [] (brSymInstrs cfg blk . bbToBlockId . BBId) (join $ nextPC cfg `fmap` mpc))
       processInsns ((pc,i):is) currId il =
-        let blk' = case nextPC cfg pc of
-                    Nothing -> error "no next PC"
-                    Just pc' -> getBlock pc'
+        let blk' = fromMaybe (bbToBlockId BBIdExit) $ nextBlk pc
+            blk'' = blk { blockN = blockN blk + 1 }
         in case i of
           Areturn -> ret pc i currId il
           Dreturn -> ret pc i currId il
@@ -119,18 +133,22 @@ liftBB cfg bb = do
           Lreturn -> ret pc i currId il
           Ireturn -> ret pc i currId il
           Return -> ret pc i currId il
-          Invokeinterface n k ->
+          Invokeinterface n k -> do
             defineBlock currId $ reverse
-            (si (PushInvokeFrame InvInterface (ClassType n) k blk') : il)
-          Invokespecial t k ->
+              (si (PushInvokeFrame InvInterface (ClassType n) k blk'') : il)
+            processInsns is blk'' []
+          Invokespecial t k -> do
             defineBlock currId $ reverse
-            (si (PushInvokeFrame InvSpecial t k blk') : il)
-          Invokestatic n k ->
+              (si (PushInvokeFrame InvSpecial t k blk'') : il)
+            processInsns is blk'' []
+          Invokestatic n k -> do
             defineBlock currId $ reverse
-            (si (PushInvokeFrame InvStatic (ClassType n) k blk') : il)
-          Invokevirtual t k ->
+              (si (PushInvokeFrame InvStatic (ClassType n) k blk'') : il)
+            processInsns is blk'' []
+          Invokevirtual t k -> do
             defineBlock currId $ reverse
-            (si (PushInvokeFrame InvVirtual t k blk') : il)
+              (si (PushInvokeFrame InvVirtual t k blk'') : il)
+            processInsns is blk'' []
           Goto tgt ->
             defineBlock currId $
             reverse il ++ brSymInstrs cfg currId (getBlock tgt)
@@ -153,15 +171,17 @@ liftBB cfg bb = do
           Lookupswitch d cs -> switch currId il d (map fst cs) cs
           Tableswitch d l h cs -> switch currId il d vs (zip vs cs)
             where vs = [l..h]
-          {-
-          Jsr tgt -> br blk' tgt TrueSymCond
-          Ret -> undefined
-          -}
+          Jsr _ -> error "jsr not supported"
+          Ret _ -> error "ret not supported"
           _ -> processInsns is currId ((Just pc, OtherInsn i) : il)
       getBlock pc = maybe
                     (error $ "No block for PC: " ++ show pc)
                     (bbToBlockId . bbId)
                     (bbByPC cfg pc)
+      nextBlk pc =
+        case nextPC cfg pc of
+          Nothing -> Just $ bbToBlockId BBIdExit
+          Just pc' -> Just $ getBlock pc'
       cmpZero pc i' currId is il =
         processInsns ((pc, i'):is) currId
           (si (OtherInsn (Ldc (Integer 0))) : il)
@@ -171,29 +191,30 @@ liftBB cfg bb = do
       switch currId il d is cs = do
         defineBlock currId $ reverse il ++ cases
         mapM_ (uncurry defineBlock) caseDefs
-          where cases = concatMap mkCase caseConds ++ brSymInstrs cfg currId (getBlock d)
-                caseBlockIds = map (getBlock . snd) cs
-                caseBlockIds' = map (\b -> b { blockN = 1 }) caseBlockIds
-                casePairs = zip caseBlockIds' cs
+          where cases = concatMap mkCase caseConds ++
+                        brSymInstrs cfg currId (getBlock d)
+                caseBlockIds = map ((\b -> b { blockN = 1 }) . getBlock . snd) cs
+                casePairs = zip caseBlockIds cs
                 caseDefs = map
-                           (\(b', (_, pc)) ->
-                              (b', brSymInstrs cfg currId (getBlock pc)))
+                           (\(b, (_, pc)) ->
+                              (b, brSymInstrs cfg currId (getBlock pc)))
                            casePairs
-                caseConds = zip caseBlockIds' (map fromIntegral is)
+                caseConds = zip caseBlockIds (map fromIntegral is)
                 mkCase (cblk, v) = [ si (SetCurrentBlock cblk)
                                    , si (PushPendingExecution (HasConstValue v))
                                    ]
       br currBlk il thenBlk elseBlk cmp = do
         let suspendBlk = currBlk { blockN = 1 }
-        -- Add pending execution for false branch, and execute true branch.
+        -- Add pending execution for true branch, and execute false branch.
+        -- If we want to do it the other way, we can negate the condition
         defineBlock currBlk $
           reverse il ++
           [ si (SetCurrentBlock suspendBlk)
           , si (PushPendingExecution cmp)
           ] ++
-          brSymInstrs cfg currBlk thenBlk
+          brSymInstrs cfg currBlk elseBlk
         -- Define block for suspended thread.
-        defineBlock suspendBlk (brSymInstrs cfg suspendBlk elseBlk)
+        defineBlock suspendBlk (brSymInstrs cfg suspendBlk thenBlk)
   case bbById cfg bb of
     Just basicBlock -> processInsns (bbInsts basicBlock) blk []
     Nothing -> error $ "Block not found: " ++ show bb
