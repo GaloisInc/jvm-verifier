@@ -13,6 +13,8 @@ module Verifier.Java.SymTranslation
   , InvokeType(..)
   , SymInstruction(..)
   , SymBlock(..)
+  , ppSymInst
+  , ppBlockId
   ) where
 
 import Control.Monad.Error
@@ -23,6 +25,7 @@ import Prelude hiding (EQ, LT, GT)
 
 import Language.JVM.CFG
 import Language.JVM.Common
+import Language.JVM.Parser
 
 data SymCond
   -- | @HasConstValue i@ holds if the top element on the stack
@@ -106,14 +109,13 @@ defineBlock bid insns = modify (SymBlock bid insns :)
 liftCFG :: CFG -> [SymBlock]
 liftCFG cfg =
   initBlock :
-  execState (mapM_ (liftBB cfg) (map bbId (allBBs cfg))) []
+  execState (mapM_ (liftBB cfg) (filter isNormal (map bbId (allBBs cfg)))) []
     where initBlock =  SymBlock {
-                         sbId = eid { blockN = 1 }
+                         sbId = bbToBlockId BBIdEntry
                        , sbInsns = [ si (PushPostDominatorFrame (bbToBlockId dom))
-                                   | dom <- getPostDominators cfg BBIdEntry
-                                   ] ++ [ si (SetCurrentBlock eid) ]
+                                   | dom <- getPostDominators' cfg (BBId 0)
+                                   ] ++ [ si (SetCurrentBlock (BlockId (BBId 0) 0)) ]
                        }
-          eid = bbToBlockId BBIdEntry
 
 liftBB :: CFG -> BBId -> SymTrans ()
 liftBB cfg bb = do
@@ -245,8 +247,50 @@ brSymInstrs cfg curr tgt =
 newPostDominators :: CFG -> BlockId -> BlockId -> [BlockId]
 newPostDominators cfg a b =
   map bbToBlockId $
-  getPostDominators cfg (blockId a) L.\\
-  getPostDominators cfg (blockId b)
+  getPostDominators' cfg (blockId a) L.\\
+  getPostDominators' cfg (blockId b)
+
+getPostDominators' :: CFG -> BBId -> [BBId]
+getPostDominators' cfg = filter isNormal . getPostDominators cfg
+
+isNormal :: BBId -> Bool
+isNormal (BBId _) = True
+isNormal _ = False
 
 si :: SymInstruction -> (Maybe PC, SymInstruction)
 si i = (Nothing, i)
+
+ppBlockId :: BlockId -> String
+ppBlockId (BlockId (BBId pc) n) = "%" ++ show pc ++ "." ++ show n
+ppBlockId (BlockId BBIdEntry n) = "%entry." ++ show n
+ppBlockId (BlockId BBIdExit n) = "%exit." ++ show n
+
+ppSymCond :: SymCond -> String
+ppSymCond (HasConstValue v) = "== " ++ show v
+ppSymCond (NotConstValues vs) = "!= " ++ show vs
+ppSymCond Null = "== null"
+ppSymCond NonNull = "!= null"
+ppSymCond TrueSymCond = "true"
+ppSymCond (Compare cmp) = ppCmpType cmp
+
+ppCmpType :: CmpType -> String
+ppCmpType EQ = "=="
+ppCmpType NE = "!="
+ppCmpType LT = "<"
+ppCmpType GE = ">="
+ppCmpType GT = ">"
+ppCmpType LE = ">="
+
+ppSymInst :: SymInstruction -> String
+ppSymInst (PushInvokeFrame ity ty key bid) =
+  "pushInvokeFrame " ++ show ity ++ " " ++
+  show ty ++ " " ++ unparseMethodDescriptor key ++ " " ++
+  ppBlockId bid
+ppSymInst (PushPostDominatorFrame bid) =
+  "pushPostDominatorFrame " ++ ppBlockId bid
+ppSymInst (MergePostDominator bid) = "mergePostDominator " ++ ppBlockId bid
+ppSymInst MergeReturn = "mergeReturn"
+ppSymInst (PushPendingExecution cond) =
+  "pushPendingExecution (" ++ ppSymCond cond ++ ")"
+ppSymInst (SetCurrentBlock bid) = "setCurrentBlock " ++ ppBlockId bid
+ppSymInst (OtherInsn insn) = ppInst insn
