@@ -51,9 +51,15 @@ simExcHndlr' suppressOutput failMsg exc = do
 simExcHndlr :: String -> SomeException -> IO [Bool]
 simExcHndlr = simExcHndlr' True
 
-dumpSymASTs :: Codebase -> IO ()
-dumpSymASTs cb = mapM_ dumpClass =<< getClasses cb
-  where dumpClass c = mapM_ (dumpMethod c) $ classMethods c
+dumpSymASTs :: Codebase -> String -> IO ()
+dumpSymASTs cb cname = do
+  mc <- tryLookupClass cb cname
+  case mc of
+    Just c -> mapM_ (dumpMethod c) $ classMethods c
+    Nothing -> putStrLn $ "Main class " ++ cname ++ " not found."
+  where ppInst' (pc, i) = show pc ++ ": " ++ ppInst i
+        ppSymInst' (mpc, i) =
+          maybe "" (\pc -> show pc ++ ": ") mpc ++ ppSymInst i
         dumpMethod c m =
           case methodBody m of
             Code _ _ cfg _ _ _ _ -> do
@@ -61,13 +67,13 @@ dumpSymASTs cb = mapM_ dumpClass =<< getClasses cb
               putStrLn . className $ c
               putStrLn . show . methodKey $ m
               putStrLn ""
-              mapM_ print . concatMap bbInsts $ allBBs cfg
+              mapM_ (putStrLn . ppInst') . concatMap bbInsts $ allBBs cfg
               putStrLn ""
               mapM_ dumpBlock $ liftCFG cfg
             _ -> return ()
         dumpBlock b = do
-          putStrLn . show . sbId $ b
-          mapM_ (\i -> putStrLn $ "  " ++ show i) $ sbInsns b
+          putStrLn . ppBlockId . sbId $ b
+          mapM_ (\i -> putStrLn $ "  " ++ ppSymInst' i) $ sbInsns b
 
 data JSS = JSS
   { classpath :: String
@@ -156,7 +162,7 @@ main = do
 
   cb <- loadCodebase jpaths' cpaths
   when (xlate args') $ do
-    dumpSymASTs cb
+    dumpSymASTs cb cname
     exitSuccess
   oc <- mkOpCache
   let fl = defaultSimFlags{ alwaysBitBlastBranchTerms = blast args' }
