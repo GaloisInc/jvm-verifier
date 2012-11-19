@@ -23,8 +23,7 @@ type BinaryOp sym = MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
 -- | Returns term type associated with monad.
 type family MonadTerm m
 
-class ( Ord (MonadTerm m)
-      , PrettyTerm (MonadTerm m)
+class ( PrettyTerm (MonadTerm m)
       , Show (MonadTerm m)
       , Typeable (MonadTerm m)
       ) => AigOps m where
@@ -52,9 +51,12 @@ data Backend sym = Backend {
        , termEq :: BinaryOp sym
          -- | Form if-then-else comparing arguments.
        , termIte :: MonadTerm sym -> MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
-         -- | Bitwise and of arguments.
+
+         -- | Take two 32-bit integers, and return true if first is less than second.
+       , termILeq :: BinaryOp sym
+         -- | Bitwise and of two 32bit integers.
        , termIAnd :: BinaryOp sym
-         -- | Bitwise or of arguments.
+         -- | Bitwise or of two 32bit integers.
        , termIOr  :: BinaryOp sym
          -- | Bitwise exclusive or of arguments.
        , termIXor :: BinaryOp sym
@@ -64,46 +66,91 @@ data Backend sym = Backend {
        , termIShr  :: BinaryOp sym
          -- | Java unsigned shift-right on int values.
        , termIUshr :: BinaryOp sym
+         -- | Negates 32bit integer argument
+       , termINeg :: UnaryOp sym
+         -- | Adds two 32bit integer arguments.
+       , termIAdd :: BinaryOp sym
+         -- | Subtracts one 32bit integer from another.
+       , termISub :: BinaryOp sym
+         -- | Multiplies two 32bit integers.
+       , termIMul :: BinaryOp sym
+         -- | Returns signed division of two 32bit integers.
+       , termIDiv :: BinaryOp sym
+         -- | Returns signed remainder of two 32bit integers.
+       , termIRem :: BinaryOp sym
+
+         -- | Compare two 64bit integers (x & y), and return one of three 32-bit integers:
+         -- if x < y then return -1
+         -- if x == y then return 0
+         -- if x > y then return 1
+       , termLCompare :: BinaryOp sym
+         -- | Bitwise and of two 32bit integers.
+       , termLAnd  :: BinaryOp sym
+         -- | Bitwise or of two 32bit integers.
+       , termLOr   :: BinaryOp sym
+         -- | Bitwise exclusive or of arguments.
+       , termLXor  :: BinaryOp sym
          -- | Java shift-left on long values.
        , termLShl  :: BinaryOp sym
          -- | Java signed shift-right on long values.
        , termLShr  :: BinaryOp sym
          -- | Java unsigned shift-right on long values.
        , termLUshr :: BinaryOp sym
-         -- | Less than or equal.
-       , termLeq :: BinaryOp sym
-         -- |Less than
-       , termLt :: BinaryOp sym
-         -- | Negates argument
-       , termNeg :: UnaryOp sym
-         -- | Adds two arguments.
-       , termAdd :: BinaryOp sym
-         -- | Subtracts two integer arguments.
-       , termSub :: BinaryOp sym
-         -- | Multiplies two arguments.
-       , termMul :: BinaryOp sym
-         -- | Returns signed division of two arguments.
-       , termDiv :: BinaryOp sym 
-         -- | Returns signed remainder of two arguments.
-       , termRem :: BinaryOp sym
+         -- | Negates 64bit integer.
+       , termLNeg :: UnaryOp sym
+         -- | Adds two 64bit integers.
+       , termLAdd :: BinaryOp sym
+         -- | Subtracts one 64bit integer from another.
+       , termLSub :: BinaryOp sym
+         -- | Multiplies two 64bit integers.
+       , termLMul :: BinaryOp sym
+         -- | Returns signed division of two 64bit integers.
+       , termLDiv :: BinaryOp sym
+         -- | Returns signed remainder of two 64bit integers.
+       , termLRem :: BinaryOp sym
+
          -- | @termIntArray l@ returns an integer array of zeros with length
          -- @l@.  Will return @Nothing@ is operation cannot be performed because
          -- length is symbolic and symbolic lengths are unsupported. 
        , termIntArray :: MonadTerm sym -> IO (Maybe (MonadTerm sym))
          -- | @termLongArray l@ returns a long array of zeros with length @l@.
        , termLongArray :: MonadTerm sym -> IO (Maybe (MonadTerm sym))
-         -- | @applyGetArrayValue arr i@ returns value at @arr[i]@.
-       , applyGetArrayValue :: BinaryOp sym
-         -- | @applySetArrayValue arr i v@ returns value at @arr[i] = v@.
-       , applySetArrayValue :: MonadTerm sym -> MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
+         -- | @termGetIntArray l arr i@ returns value at @arr[i]@.  The length is
+         -- the expected length of the array.  The length is passed in case the backend
+         -- needs it.
+       , termGetIntArray :: MonadTerm sym -- ^ length
+                         -> MonadTerm sym -- ^ array
+                         -> MonadTerm sym -- ^ index
+                         -> IO (MonadTerm sym)
+         -- | @termGetLongArray l arr i@ returns value at @arr[i]@.
+       , termGetLongArray :: MonadTerm sym -- ^ length
+                          -> MonadTerm sym -- ^ array
+                          -> MonadTerm sym -- ^ index
+                          -> IO (MonadTerm sym)
+         -- | @termSetIntArray l arr i v@ returns value at @arr[i] = v@.
+       , termSetIntArray :: MonadTerm sym -- ^ length
+                         -> MonadTerm sym -- ^ array
+                         -> MonadTerm sym -- ^ index
+                         -> MonadTerm sym -- ^ value
+                         -> IO (MonadTerm sym)
+         -- | @termSetLongArray l arr i v@ returns value at @arr[i] = v@.
+       , termSetLongArray :: MonadTerm sym -- ^ length
+                          -> MonadTerm sym -- ^ array
+                          -> MonadTerm sym -- ^ index
+                          -> MonadTerm sym -- ^ value
+                          -> IO (MonadTerm sym)
+         -- | @blastTerm t@ bitblasts the Boolean term @t@ and returns a maybe value indicating
+         -- if it is equivalent to the constant true or false.
        , blastTerm :: MonadTerm sym -> IO (Maybe Bool)
         -- TODO: we may, at some point, want to get back a satisfying assignment
        , satTerm :: MonadTerm sym -> IO Bool
          -- | @evalAigIntegral f ins out@ applies concrete inputs @ins@ to the 
          -- AIG at the given symbolic output term @out@, applying @f@ to the
          -- @ins@ bit sequence
-       , evalAigIntegral :: ([Bool] -> [Bool]) -> [MonadTerm sym] 
-                             -> MonadTerm sym -> IO (MonadTerm sym)
+       , evalAigIntegral :: ([Bool] -> [Bool])
+                         -> [MonadTerm sym] 
+                         -> MonadTerm sym
+                         -> IO (MonadTerm sym)
          -- | @evalAigArray w ins outs@ applies concrete inputs @ins@ to the
          -- AIG at the given symbolic output terms @outs@.  Each output is
          -- assumed to be w bits.  If @ins@ is not a constant, then this fails.

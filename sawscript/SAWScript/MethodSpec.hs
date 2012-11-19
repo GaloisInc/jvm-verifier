@@ -28,7 +28,6 @@ import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.Error (ErrorT, runErrorT, throwError)
 import Control.Monad.State
-import Data.Int
 import Data.List (foldl', intercalate, intersperse)
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -105,11 +104,11 @@ setInstanceFieldValue r f v ps =
 
 -- | Set value bound to array in path state.
 -- Assumes value is an array with a ground length.
-setArrayValue :: TypedTerm n => JSS.Ref -> n -> JSS.PathState n
-              -> JSS.PathState n
-setArrayValue r v ps = do
+setArrayValue :: JSS.Ref -> DagTerm -> JSS.PathState DagTerm
+              -> JSS.PathState DagTerm
+setArrayValue r v ps =
   let SymArray (widthConstant -> Just (Wx w)) _ = termType v
-   in ps { JSS.arrays = Map.insert r (fromIntegral w, v) (JSS.arrays ps) }
+   in ps { JSS.arrays = Map.insert r (mkCInt 32 (toInteger w), v) (JSS.arrays ps) }
 
 -- | Returns value constructor from node.
 mkJSSValue :: JSS.Type -> n -> JSS.Value n
@@ -486,7 +485,7 @@ data ExpectedStateDef = ESD {
          -- be arbitrary.
        , esdInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe (JSS.Value DagTerm))
          -- | Maps reference to expected node, or Nothing if value may be arbitrary.
-       , esdArrays :: Map JSS.Ref (Maybe (Int32, DagTerm))
+       , esdArrays :: Map JSS.Ref (Maybe (DagTerm, DagTerm))
        }
 
 esdRefName :: JSS.Ref -> ExpectedStateDef -> String
@@ -507,7 +506,7 @@ data ESGState = ESGState {
        , esInitialPathState :: DagPathState
        , esReturnValue :: Maybe DagJavaValue
        , esInstanceFields :: Map (JSS.Ref, JSS.FieldId) (Maybe DagJavaValue)
-       , esArrays :: Map JSS.Ref (Maybe (Int32, DagTerm))
+       , esArrays :: Map JSS.Ref (Maybe (DagTerm, DagTerm))
        }
 
 -- | Monad used to execute statements in a behavior specification for a method
@@ -617,7 +616,8 @@ esSetLogicValues cl tp lrhs = do
        refs <- forM cl $ \expr -> do
                  JSS.RValue ref <- esEval $ evalJavaExpr expr
                  return ref
-       let insertValue r m = Map.insert r (fromIntegral l, value) m
+       let len = mkCInt 32 (toInteger l) 
+       let insertValue r m = Map.insert r (len, value) m
        esModifyInitialPathState $ \ps -> ps {
            JSS.arrays = foldr insertValue (JSS.arrays ps) refs
          }
@@ -680,16 +680,14 @@ esStep (EnsureArray _pos lhsExpr rhsExpr) = do
   de <- gets esDagEngine
   -- Check if array has already been assigned value.
   aMap <- gets esArrays
+  let newLen = mkCInt 32 (toInteger l) 
   case Map.lookup ref aMap of
-    Just (Just (oldLen, prev))
-      | oldLen == fromIntegral l ->
-        esAddEqAssertion de (show lhsExpr) prev value
-        -- TODO: Check to make sure this error is avoidable.
-        -- Need to make sure
-      | otherwise -> error "internal: Incompatible values assigned to array."
+    Just (Just (oldLen, prev)) -> do
+      esAddEqAssertion de (show lhsExpr) oldLen newLen
+      esAddEqAssertion de (show lhsExpr) prev   value
     _ -> return ()
   -- Define instance field post condition.
-  modify $ \es -> es { esArrays = Map.insert ref (Just (fromIntegral l, value)) (esArrays es) }
+  modify $ \es -> es { esArrays = Map.insert ref (Just (newLen, value)) (esArrays es) }
 esStep (ModifyArray refExpr _) = do
   ref <- esEval $ evalJavaRefExpr refExpr
   es <- get
@@ -912,10 +910,9 @@ generateVC ir esd (ps, endPC, res) = do
           case Map.lookup ref (esdArrays esd) of
             Nothing -> pvcgFail $ ftext $ "Allocates an array."
             Just Nothing -> return ()
-            Just (Just (slen, sval))
-              | jlen == slen -> pvcgAssertEq (esdRefName ref esd) jval sval
-              | otherwise ->
-                  pvcgFail $ ftext $ "Assigns an unexpected size to an array."
+            Just (Just (slen, sval))  -> do
+              pvcgAssertEq (esdRefName ref esd) jlen slen
+              pvcgAssertEq (esdRefName ref esd) jval sval
         -- Check ref arrays
         when (not (Map.null (JSS.refArrays ps))) $ do
           pvcgFail $ ftext "Modifies references arrays."
