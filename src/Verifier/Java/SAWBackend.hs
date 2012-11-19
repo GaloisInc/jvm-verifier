@@ -21,8 +21,13 @@ instance AigOps (SharedContext s) where
 
 type instance MonadTerm (SharedContext s) = SharedTerm s
 
+standardPrelude :: Module
+standardPrelude = 
+
 withFreshBackend :: (Backend (SharedContext s) -> IO a) -> IO a
-withFreshBackend _f = undefined
+withFreshBackend f = do 
+  mkSharedContext
+  f undefined
 
 sawBackend :: SharedContext s
               -- Maps symbol names to the term.
@@ -211,7 +216,7 @@ sawBackend sc preludeSyms = do
                  , termGetLongArray   = getArray signed64
                  , termSetIntArray    = setArray signed32
                  , termSetLongArray   = setArray signed64
-                 , blastTerm          = \_ -> undefined
+                 , blastTerm          = \_ -> return Nothing
                  , evalAigIntegral    = \_ _ _ -> undefined
                  , evalAigArray       = \_ _ _ -> undefined
                  , writeAigToFile     = \_ _ -> undefined
