@@ -16,7 +16,7 @@ import Numeric
 
 import Verinf.Symbolic
 
-boolSeqToValue :: (Bits a) => [Bool] -> a
+boolSeqToValue :: (Bits a, Num a) => [Bool] -> a
 boolSeqToValue bs = foldl' (.|.) 0  $ zipWith (\b i -> if b then bit i else 0) bs [0..]
 
 splitN :: Int -> [a] -> [[a]]
@@ -61,7 +61,7 @@ hexToByteSeq (x : y : r)
 hexToByteSeq [] = []
 hexToByteSeq _ = error "internal: hexToByteSeq: invalid input string"
 
-hexToNumSeq :: (Bits a) => Int -> String -> [a]
+hexToNumSeq :: (Bits a, Num a) => Int -> String -> [a]
 hexToNumSeq n = reverse . impl
   where impl xs | length xs >= n =
           foldr (+) 0 [ dToNum xi `shiftL` bi
