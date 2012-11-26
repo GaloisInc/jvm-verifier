@@ -24,7 +24,7 @@ type instance MonadTerm (SharedContext s) = SharedTerm s
 
 withFreshBackend :: (Backend (SharedContext s) -> IO a) -> IO a
 withFreshBackend f =
-  f =<< uncurry sawBackend =<< mkSharedContext prelude
+  f =<< uncurry sawBackend =<< mkSharedContext preludeModule
 
 sawBackend :: SharedContext s
               -- Maps symbol names to the term.
