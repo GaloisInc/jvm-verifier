@@ -5,6 +5,8 @@ Stability        : stable
 Point-of-contact : atomb
 -}
 
+{-# OPTIONS_GHC -Wall #-}
+
 module Verifier.Java.SymStepper
   ( step
   ) where
@@ -19,5 +21,5 @@ step (PushPostDominatorFrame pc) = return () -- TODO!
 step (MergePostDominator pc) = return () -- TODO!
 step (MergeReturn) = return () -- TODO!
 step (PushPendingExecution c) = return () -- TODO!
-step (SetCurrentPC pc) = return () -- TODO!
+step (SetCurrentBlock blockId) = return ()
 step (OtherInsn i) = Step.step i

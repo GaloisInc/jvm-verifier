@@ -10,7 +10,6 @@ Point-of-contact : jstanley
 {-# LANGUAGE DoAndIfThenElse            #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE FunctionalDependencies     #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE RankNTypes                 #-}
@@ -29,7 +28,7 @@ module Verifier.Java.Simulator
   , InstanceFieldRef
   , PathDescriptor
   , Ref(..)
-  , State, pathStates, backend
+  , State(instanceOverrides), pathStates, backend
   , SimulationFlags(..)
   , Value
   , defaultSimFlags
@@ -56,25 +55,7 @@ module Verifier.Java.Simulator
   , withPathState
   -- * Path splitting.
   , ResumeAction(..)
-  , onCurrPath
-  , onNewPath
-  -- * Generic reference operations
-  , genRef
-  , getType
-  -- * Array operations
-  , getArrayLength
-  , getArrayValue
-  , getByteArray
-  , getIntArray
-  , getLongArray
-  , getRefArray
-  , getSymbolicArray
-  , newIntArray
-  , newLongArray
-  , newSymbolicArray
-  , setSymbolicArray
-  , updateSymbolicArray
-  -- * Misc
+  , pushCallFrame
   , overrideInstanceMethod
   , overrideStaticMethod
   , ppFinalResult
