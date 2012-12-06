@@ -14,6 +14,7 @@ Point-of-contact : jstanley
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeSynonymInstances       #-}
 {-# LANGUAGE UndecidableInstances       #-}
@@ -84,6 +85,7 @@ import Control.Arrow (second)
 import Control.Applicative
 import qualified Control.Exception as CE
 import Control.Exception (Exception)
+import Control.Lens hiding (Path)
 import Control.Monad
 import Control.Monad.Reader
 import Data.Array
@@ -106,6 +108,7 @@ import Execution
 import Execution.JavaSemantics
 import Verifier.Java.Backend
 import Verifier.Java.Codebase
+import Verifier.Java.Common
 
 import Verinf.Utils.CatchMIO
 import Verinf.Utils.IOStateT
@@ -133,48 +136,23 @@ floatRem x y = fromIntegral z
 dbugM :: MonadIO m => String -> m ()
 dbugM = liftIO . putStrLn
 
-data InitializationStatus
-  = Started
-  | Erroneous
-  | Initialized
-  deriving (Eq, Ord, Show)
+mergedState :: MergeFrame sym -> MergedState sym
+mergedState ExitMergeFrame    mf = efMergedState mf
+mergedState PostdomMergeFrame mf = pdfMergedState mf
+mergedState ReturnMergeFrame  mf = rfNormalState mf
 
--- Address in heap
-data Ref
-  = NullRef
-  | Ref !Word32 !Type
-  deriving (Show)
+setMergedState :: MergeFrame sym -> MergedState sym -> MergeFrame sym
+setMergedState ExitMergeFrame    mf ms' = ExitMergeFrame    $ mf { efMergedState  = ms' }
+setMergedState PostdomMergeFrame mf ms' = PostdomMergeFrame $ mf { pdfMergedState = ms' }
+setMergedState ReturnMergeFrame  mf ms' = ReturnMergeFrame  $ mf { rfNormalState  = ms' }
 
-type Value term = AtomicValue Double Float term term Ref
-type Value' sym = JSValue (Simulator sym)
+pendingPaths :: MergeFrame sym -> [SymPath sym]
+pendingPaths ExitMergeFrame    mf = efPending mf
+pendingPaths PostdomMergeFrame mf = pdfPending mf
+pendingPaths ReturnMergeFrame  mf = rfPending mf
 
-data Frame term
-  = Call {
-      frmClass  :: !String                               -- Name of current class that
-                                                         -- we are in.
-    , frmMethod :: !Method                               -- Method we are running in
-    , frmPC     :: !PC                                   -- Current PC
-    , frmLocals :: !(Map LocalVariableIndex (Value term)) -- Local variable map
-    , frmOpds   :: ![Value term]                          -- Operand stack
-    }
-    deriving (Eq, Show)
-
--- | @MergeFrame@s help track nested breakpoints and execution/merging of paths.
-data MergeFrame sym
-  = MergeFrame {
-      finishedPaths :: ![PathDescriptor]
-      -- ^ Paths in this frame that have either terminated (i.e., returned
-      -- normally or raised an exception) or have hit a breakpoint
-    , nextPaths     :: ![(PathDescriptor, ResumeAction sym)]
-      -- ^ Paths in this frame that are still being executed; the current path
-      -- is always the head of nextPaths.  The second tuple component is the
-      -- "resume" action along the associated path -- if Nothing, normal
-      -- execution along the path occurs starting at the path state's current
-      -- PC.  If Just, that action occurs when the path begins (or resumes)
-      -- execution.  This is how we deal with "partial execution" of JVM
-      -- instructions.
-    , breakpoint    :: Breakpoint
-    }
+setPendingPaths :: MergeFrame sym -> [SymPath sym] -> MergeFrame sym
+setPendingPaths = undefined
 
 data Breakpoint
   = CallExit
@@ -192,108 +170,6 @@ instance Show (ResumeAction sym) where
   show NextInst          = "(RA: next inst)"
   show (CustomRA desc _) = desc
 
-type InstanceFieldRef = (Ref, FieldId)
-
-data FinalResult term
-  = ReturnVal !(Value term)
-  | Breakpoint !PC
-  | Exc !(SimulatorExc term)
-  | Terminated
-  | Aborted
-  | Unassigned
-  deriving (Eq, Show)
-
-data PathState term = PathState {
-    frames          :: ![Frame term]
-  , finalResult     :: !(FinalResult term)
-  , initialization  :: !(Map String InitializationStatus)
-  , staticFields    :: !(Map FieldId (Value term))
-  , instanceFields  :: !(Map InstanceFieldRef (Value term))
-  -- | Maps integer and long array to current value.
-  , arrays          :: !(Map Ref (term, term))
-  -- | Maps reference array to current value.
-  , refArrays       :: !(Map Ref (Array Int32 Ref))
-    -- | Facts that may be assumed to be true in this path.
-  , psAssumptions   :: !term
-    -- | Facts that are asserted to be true in this path (in reverse order).
-  , psAssertions    :: ![(String,term)]
-  , pathStSel       :: !PathDescriptor
-  , classObjects    :: !(Map String Ref)
-  -- | The program counter where this path state started.
-  , startingPC      :: !PC
-  , breakpoints     :: !(Set (String, MethodKey, PC))
-  -- ^ Breakpoint locations. REVISIT: might want to have a map in
-  -- state from (String, MethodKey) to Map PC (..., ...), and then
-  -- this map could just be Map PC (..., ...), and would get set every
-  -- time we modify the frame list.
-  , insnCount       :: !Int
-  -- ^ The number of instructions executed so far on this path.
-  }
-
-type SymPathState sym = PathState (MonadTerm sym)
-
-data State sym = State {
-    codebase          :: !Codebase
-  , instanceOverrides :: !(Map (String, MethodKey) (Ref -> [Value' sym] -> Simulator sym ()))
-    -- ^ Maps instance method identifiers to a function for executing them.
-  , staticOverrides   :: !(Map (String, MethodKey) ([Value' sym] -> Simulator sym ()))
-    -- ^ Maps static method identifiers to a function for executing them.
-  , pathStates        :: !(Map PathDescriptor (SymPathState sym))
-    -- ^ Simulation state for each distinct control flow path
-  , mergeFrames       :: ![MergeFrame sym]
-    -- ^ Auxiliary data structures for tracking execution and merging of
-    -- multiple paths within a single frame.  Currently, there is a 1-1
-    -- correspondence between each MergeFrame and its corresponding Frame (i.e.,
-    -- the Java activation record).
-  , nextPSS           :: PathDescriptor
-    -- ^ Name supply for unique path state selectors
-  , strings           :: !(Map String Ref)
-  , nextRef           :: !Word32 -- ^ Next index for constant ref.
-  , verbosity         :: Int
-  , simulationFlags   :: SimulationFlags
-  , backend           :: Backend sym
-  }
-
--- | Our exception data structure; used to track errors intended to be exposed
--- to the user (via the SimExtErr ctor) as well as tracking and propagating Java
--- exceptions.
-data SimulatorExc term
-  = SimExtErr
-    { simExtErrMsg       :: String
-    , simExtErrVerbosity :: Int -- ^ simulator verbosity @ raise point
-    , simExtErrResults   :: Map PathDescriptor (FinalResult term, [Frame term])
-    }
-  | JavaException
-    { excRef    :: Ref          -- ^ the java.lang.Exception instance
-    , excFrames :: [Frame term] -- ^ stack trace @ raise point
-    }
-  deriving (Show,Typeable)
-
-instance Eq (SimulatorExc m) where
-  e1@JavaException{} == e2@JavaException{} = excRef e1 == excRef e2
-  _ == _ = False
-
--- | Allow SimulatorM exceptions to be raised via Control.Exception.throw
-instance (Show term, Typeable term) => Exception (SimulatorExc term)
-
--- A Simulator is a monad transformer around a symbolic backend m
-newtype Simulator sym a = SM { runSM :: StateT (State sym) IO a }
-  deriving (CatchMIO, Functor, Monad, MonadIO, MonadState (State sym))
-
-instance LogMonad (Simulator sym) where
-  getVerbosity   = gets verbosity
-  setVerbosity v = modify $ \s -> s { verbosity = v}
-
-instance Applicative (Simulator sym) where
-  pure      = return
-  af <*> aa = af >>= flip (<$>) aa
-
-data SimulationFlags =
-  SimulationFlags { alwaysBitBlastBranchTerms :: Bool }
-  deriving Show
-
-defaultSimFlags :: SimulationFlags
-defaultSimFlags = SimulationFlags { alwaysBitBlastBranchTerms = False }
 
 -- | Execute a simulation action; propagate any exceptions that occur so that
 -- clients can deal with them however they wish.
@@ -326,34 +202,34 @@ newSimState :: SimulationFlags -> Codebase -> Backend sym -> IO (State sym)
 newSimState flags cb sbe = do
   true <- termBool sbe True
   let ps = PathState
-             { frames          = []
-             , finalResult     = Unassigned
-             , initialization  = M.empty
-             , staticFields    = M.empty
-             , instanceFields  = M.empty
-             , arrays          = M.empty
-             , refArrays       = M.empty
-             , psAssumptions   = true
-             , psAssertions    = []
-             , pathStSel       = PSS 0
-             , classObjects    = M.empty
-             , startingPC      = 0
-             , breakpoints     = S.empty
-             , insnCount       = 0
+             { _frames          = []
+             , _finalResult     = Unassigned
+             , _initialization  = M.empty
+             , _staticFields    = M.empty
+             , _instanceFields  = M.empty
+             , _arrays          = M.empty
+             , _refArrays       = M.empty
+             , _psAssumptions   = true
+             , _psAssertions    = []
+             , _pathStSel       = PSS 0
+             , _classObjects    = M.empty
+             , _startingPC      = 0
+             , _breakpoints     = S.empty
+             , _insnCount       = 0
              }
   return State
-    { codebase          = cb
-    , instanceOverrides = M.empty
-    , staticOverrides   = M.empty
+    { _codebase          = cb
+    , _instanceOverrides = M.empty
+    , _staticOverrides   = M.empty
       -- NB: Always start with one path state; startNewPath adds more
-    , pathStates        = M.singleton (PSS 0) ps
-    , mergeFrames = [mergeFrame [(PSS 0, NextInst)]]
-    , nextPSS         = PSS 1
-    , strings         = M.empty
-    , nextRef         = 1
-    , verbosity       = 1
-    , simulationFlags = flags
-    , backend = sbe
+    , _pathStates        = M.singleton (PSS 0) ps
+    , _mergeFrames = [mergeFrame [(PSS 0, NextInst)]]
+    , _nextPSS         = PSS 1
+    , _strings         = M.empty
+    , _nextRef         = 1
+    , _verbosity       = 1
+    , _simulationFlags = flags
+    , _backend = sbe
     }
 
 -- | Override behavior of simulator when it encounters a specific instance
@@ -612,10 +488,6 @@ stdOverrides = do
 --------------------------------------------------------------------------------
 -- PathState and State selector functions
 
--- | A "path state selector" (exported as opaque PathDescriptor)
-newtype PSS a       = PSS{ unPSS :: a } deriving (Bounded, Eq, Functor, Ord, Show)
-type PathDescriptor = PSS Int
-
 onCurrPath :: ResumeAction sym -> Simulator sym ()
 onCurrPath ra = modifyMF $ \mf ->
   CE.assert (not (null (nextPaths mf)))
@@ -649,7 +521,7 @@ onNewPath ra = do
   return ()
 
 onResumedPath :: (PrettyTerm (MonadTerm sym)) =>
-                 SymPathState sym -> ResumeAction sym -> Simulator sym ()
+                 SymPath sym -> ResumeAction sym -> Simulator sym ()
 onResumedPath ps ra = do
   newPSS <- gets nextPSS
   case frames ps of
@@ -704,7 +576,7 @@ getPSS = pathStSel <$> getPathState
 -- descriptor.  Assumes that no paths are already finished and that the given
 -- path is the only path upon which execution of the computation occurs.
 withPathState :: PathDescriptor
-              -> (SymPathState sym -> Simulator sym a)
+              -> (SymPath sym -> Simulator sym a)
               -> Simulator sym a
 withPathState pd f = do
   oldMergeFrames <- gets mergeFrames
@@ -713,7 +585,7 @@ withPathState pd f = do
   modify $ \s -> s{ mergeFrames = oldMergeFrames }
   return rslt
 
-getPathState :: Simulator sym (SymPathState sym)
+getPathState :: Simulator sym (SymPath sym)
 getPathState = do
   mf <- getMergeFrame
   let getIt pss = getPathStateByName pss >>= \ps ->
@@ -742,39 +614,29 @@ getMergeFrame = do
     []     -> error "getMergeFrame: no merge frames"
     (mf:_) -> return mf
 
--- | Returns the number of nextPaths remaining; if @collapseOnAllFinished@ is
--- True, then if there are no nextPaths remaining, all finished paths will
--- migrate into the previous merge frame and the current merge frame is popped.
-terminateCurrentPath :: Bool -> Simulator sym Int
-terminateCurrentPath collapseOnAllFinished = do
-  pss <- getPSS
-  mf' <- getMergeFrame
+-- | Returns the number of nextPaths remaining after merging the current path state
+terminateCurrentPath :: Simulator sym Int
+terminateCurrentPath = do
+  mf <- getMergeFrame
+  let mps = headMay . pendingPaths $ mf
 
   whenVerbosity (>=5) $ do
-    dbugM $ "Terminating path " ++ show pss ++ " in current MF, and dumping merge frames:"
+    dbugM $ "Terminating path " ++ show mps ++ " in current MF, and dumping merge frames:"
     dumpMergeFrames
 
-  CE.assert (let (ps,_):_ = nextPaths mf' in ps == pss) $ return ()
-  CE.assert ((elem pss $ map fst (nextPaths mf'))
-             && not (elem pss $ finishedPaths mf')) $ return ()
+  mergeCurrentPath
 
-  -- Move the current PSS from 'nextPaths' to 'finishedPaths'
-  modifyMF $ \mf ->
-    mf{ finishedPaths = pss : finishedPaths mf
-      , nextPaths     = drop 1 $ nextPaths mf
-      }
-
-  remaining <- length . nextPaths <$> getMergeFrame
+  remaining <- length . pendingPaths <$> getMergeFrame
 
   when (collapseOnAllFinished && remaining == 0) $ modify $ \s ->
-    s{ mergeFrames = case mergeFrames s of
-      [_]      -> mergeFrames s
-      (mf:mfs) -> CE.assert (null (nextPaths mf)) $
+    s{ ctrlStk = case mergeFrames . ctrlStk $ s of
+      [_]      -> ctrlStk s
+      (mf:mfs) -> CE.assert (null (pendingPaths mf)) $
                     CE.assert (not (null mfs)) $
-                      headf mfs $ \mf'' ->
-                        mf''{ finishedPaths = finishedPaths mf
-                                              ++ finishedPaths mf''
-                          }
+                      headf mfs $ \mf'' -> undefined                       
+                        -- mf''{ finishedPaths = finishedPaths mf
+                        --                       ++ finishedPaths mf''
+                        --   }
       _ -> error "Empty MergeFrame list in terminateCurrentPath"
      }
   return remaining
@@ -816,11 +678,11 @@ handleBreakpoints = do
     _ -> return ()
 
 resumeBreakpoint :: PrettyTerm (MonadTerm sym)
-                 => SymPathState sym
+                 => SymPath sym
                  -> Simulator sym ()
 resumeBreakpoint ps = onResumedPath ps NextInst
 
-getPathStateByName :: PathDescriptor -> Simulator sym (SymPathState sym)
+getPathStateByName :: PathDescriptor -> Simulator sym (SymPath sym)
 getPathStateByName n = do
   mps <- lookupPathStateByName n
   case mps of
@@ -828,17 +690,17 @@ getPathStateByName n = do
     Just ps -> return ps
 
 lookupPathStateByName :: PathDescriptor
-                      -> Simulator sym (Maybe (SymPathState sym))
+                      -> Simulator sym (Maybe (SymPath sym))
 lookupPathStateByName n = M.lookup n . pathStates <$> get
 
-putPathState :: SymPathState sym -> Simulator sym ()
+putPathState :: SymPath sym -> Simulator sym ()
 putPathState ps = ps `seq` do
   pss <- getPSS
   -- never permit selector tweaking
   CE.assert (pathStSel ps == pss) $ return ()
   modify $ \s -> s{ pathStates = M.insert pss ps (pathStates s) }
 
-modifyPathState :: (SymPathState sym -> SymPathState sym)
+modifyPathState :: (SymPath sym -> SymPath sym)
                 -> Simulator sym ()
 modifyPathState f = f <$> getPathState >>= putPathState
 
@@ -918,8 +780,8 @@ setInitializationStatus cName status =
   modifyPathState $ \ps ->
     ps { initialization = M.insert cName status (initialization ps) }
 
-setFinalResult :: FinalResult term -> PathState term -> PathState term
-setFinalResult fr ps = ps { finalResult = fr }
+setFinalResult :: FinalResult term -> Path term -> Path term
+setFinalResult = set finalResult
 
 popFrameImpl :: Bool -> Simulator sym ()
 popFrameImpl isNormalReturn = do
@@ -998,7 +860,9 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
 
   getCodebase    = gets codebase
 
-  isFinished = and . map isPathFinished . M.elems . pathStates <$> get
+  isFinished = do mfs <- use ctrlStk.mergeFrames
+                  case mfs of
+                    [ExitMergeFrame ef] -> return (ef^.efPending.to null)
 
   fork v trueM falseM = do
     sbe <- gets backend
@@ -1043,7 +907,8 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
   -- Returns one result per control flow path ; if all paths yielded Java
   -- exceptions, we die and inform the user.
   getResult = do
-    rslts <- M.map (finalResult CA.&&& frames) <$> gets pathStates
+    mf <- getMergeFrame
+    rslts <- M.map (finalResult CA.&&& frames) <$> gets 
     let rs = map (second fst) (M.assocs rslts)
     when (all isRealExc $ map snd rs) $ throwExternal (msgs rs) rslts
     return rs
@@ -1596,12 +1461,11 @@ stepCommon onOK onException = do
     dbugM $ "Executing (" ++ show pss ++ ") " ++ show pc ++ ": " ++ ppInst inst
 
   do mf <- getMergeFrame
-     case mf of
-       MergeFrame _ paths _ -> case paths of
-         [] -> error "stepCommon: no next path in merge frame"
-         ((_,ra):_) -> case ra of
-           NextInst           -> step inst >> count -- Run normally
-           CustomRA _desc act -> onCurrPath =<< act -- Run overridden sequence
+     case pendingPaths mf of
+       [] -> error "stepCommon: no next path in merge frame"
+       ((_,ra):_) -> case ra of
+         NextInst           -> step inst >> count -- Run normally
+         CustomRA _desc act -> onCurrPath =<< act -- Run overridden sequence
      dbugFrm
      onOK
   `catchMIO` \e ->
@@ -1616,103 +1480,39 @@ stepCommon onOK onException = do
 
 doMerge :: AigOps sym => String -> String -> Simulator sym ()
 doMerge _clNm _methNm = do
+  mergeCurrentPath
   topMF <- getMergeFrame
-  case breakpoint topMF of
-    CallExit -> do
-      remainingPaths <- terminateCurrentPath False
-                 -- (above) don't collpase frames, because we need to continue
-                 -- execution on the merged path
-      when (remainingPaths == 0) $ do
-        mergeFinishedPaths
-
-        -- Set the current path of the previous merge frame to the merged path
-        -- of the active merge frame, and pop the active merge frame.  We expect
-        -- that there should be only one finished path (that didn't raise an
-        -- exception or hit a breakpoint) in the active merge frame.  This
-        -- happens so that execution continues on the merged path.
-        (excbps, finished) <- splitFinishedPaths
-        case finished of
-          [path] -> do
-            modify $ \s ->
-              s { mergeFrames = case mergeFrames s of
-                    (_:mfs) ->
-                      CE.assert (not (null mfs)) $
-                        headf mfs $ \mf ->
-                          mf{ finishedPaths = excbps ++ finishedPaths mf
-                            , nextPaths     = (path, NextInst) : nextPaths mf
-                            }
-                    _ -> error "doMerge: malformed merge frame stack"
+  case mergedState topMF of
+    PathState path -> do
+      modify $ \s ->
+          s { mergeFrames = CtrlStk $ case mergeFrames . ctrlStk $ s of
+                (_:mfs) ->
+                    CE.assert (not (null mfs)) $
+                      headf mfs $ \mf ->
+                          setPendingPaths mf (path, NextInst) : pendingPaths mf
+                _ -> error "doMerge: malformed merge frame stack"
                 }
---             -- DBUG
---             pathCond <- psAssumptions <$> getPathState
---             dbugM $ "Finished merging " ++ clNm ++ "." ++ methNm
---             dbugM $ "Final merged path condition is: " ++ ppSymTermDflt pathCond
---             dumpPathStates
---             -- DBUG
-          _ -> error $ "doMerge: expected top merge frame "
-                     ++ "to have exactly one (non-exception/bp) finished path"
-        whenVerbosity (>=5) $ do
-          dbugM $ "doMerge: post-merge merge frames:"
-          dumpMergeFrames
+      whenVerbosity (>=5) $ do
+        dbugM $ "doMerge: post-merge merge frames:"
+        dumpMergeFrames
     _ -> error "doMerge: unsupported breakpoint type"
 
-mergeFinishedPaths :: AigOps sym => Simulator sym ()
-mergeFinishedPaths = do
-  topMF <- getMergeFrame
-  when (length (nextPaths topMF) > 0) $ do
-    error "mergeFinishedPaths: not all paths have finished executing"
-
-  case finishedPaths topMF of
-    []    -> error "mergeFinishedPaths: no finished paths"
-    [_]   -> return ()
-    _paths -> do
-      -- Paths that have thrown an exception or are at a breakpoint are never
-      -- merge candidates, so they are partitioned out here before attempting
-      -- any merging.
-      (excbps, paths')      <- splitFinishedPaths
-      (unmergable, mmerged) <- foldM mrg ([], Nothing) paths'
-      if null unmergable
-        then do
-          case mmerged of
-            Nothing -> -- This should be unreachable
-              error "mfp: no unmergable states and no merged states?"
-            Just merged ->
-              modifyMF $ \mf ->
-                mf { finishedPaths = merged : excbps }
-        else do
-          -- Any paths that were merged should no longer be present in the
-          -- finished paths list of the active merge frame, save the single
-          -- merged state.  Unmergable states (and exception states) remain
-          -- there.
-          modifyMF $ \mf ->
-            mf{ finishedPaths = unmergable ++ excbps ++ maybe [] (:[]) mmerged }
-      return ()
-  where
-    -- Merge the path state given by pss0 into the path state given by pss1.
-    mrg :: AigOps sym
-        => ([PSS Int], Maybe (PSS Int))
-        -> PSS Int
-        -> Simulator sym ([PSS Int], Maybe (PSS Int))
-    mrg (unmergable, mpss1) pss0 =
-      case mpss1 of
-        Nothing   -> return (unmergable, Just pss0)
-        Just pss1 -> do
-          s0  <- getPathStateByName pss0
-          s1  <- getPathStateByName pss1
-          ms2 <- merge s0 s1
-          case ms2 of
-            Nothing -> return (pss0 : pss1 : unmergable, Nothing)
-            Just s2 -> do
-              CE.assert (pathStSel s1 == pathStSel s2) $ return ()
-              whenVerbosity (>=3) $ do
-                dbugM $ "Merging " ++ show pss0 ++ " and " ++ show pss1
-              -- Update the path state map with the merged path state
-              modify $ \s ->
-                s{ pathStates = M.update (const $ Just s2) pss1
-                              $ M.delete pss0
-                              $ pathStates s
-                 }
-              return (unmergable, Just $ pathStSel s2)
+mergeCurrentPath :: AigOps sym => Simulator sym ()
+mergeCurrentPath = do
+  mf <- getMergeFrame
+  case pendingPaths mf of
+    []     -> error "mergeCurrentPaths: no paths"
+    (p:ps) -> do
+        modifyMF $ \mf -> setPendingPaths ps
+        mms <- case mergedState mf of
+                 Nothing -> return . Just . PathState p
+                 Just (PathState p') -> merge p' p
+        case mms of
+          Nothing -> modify $ \s -> s { errorPaths = EP p : errorPaths s }
+          Just ms' -> do
+            modifyMF $ \mf -> setMergedState ms'
+            whenVerbosity (>=3) $ do
+              dbugM $ "Merging " ++ show p
 
 data MergePrecond
   = ArraySizesMatch
@@ -1721,9 +1521,9 @@ data MergePrecond
     deriving Show
 
 merge :: forall sym . AigOps sym
-      => SymPathState sym
-      -> SymPathState sym
-      -> Simulator sym (Maybe (SymPathState sym))
+      => SymPath sym
+      -> SymPath sym
+      -> Simulator sym (Maybe (SymPath sym))
 merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } = do
   -- A path that has thrown an exception should not have been identified as a
   -- merge candidate!
@@ -1742,12 +1542,10 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
   if mergeOK
     then do
       whenVerbosity (>=4) $ do
-        cnt <- gets $ M.size . pathStates
         dbugM $ "merge: "
-                ++ show (unPSS $ pathStSel from)
+                ++ show $ pathStSel from
                 ++ " => "
-                ++ show (unPSS $ pathStSel to)
-                ++ " (" ++ show cnt ++ " states before merge)"
+                ++ show $ pathStSel to
         whenVerbosity (>=5) $ do
           dbugM $ "From state:" ++ show from
           dbugM $ "To state:" ++ show to
@@ -1842,7 +1640,7 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
     -- states via the given action 'mrg', and then union in elements unique to
     -- each state as well (via the left-biased map union operator)
     mergeBy :: forall k a. (Ord k)
-            => (SymPathState sym -> Map k a)
+            => (SymPath sym -> Map k a)
             -> (a -> a -> Simulator sym a)
             -> Simulator sym (Map k a)
     mergeBy sel mrg = leftUnion <$> merged
@@ -1953,20 +1751,6 @@ _isNormal Terminated  = True
 _isNormal ReturnVal{} = True
 _isNormal _           = False
 
--- | Partition the top merge frame's finished paths into those paths which are
--- in either an exception or breakpoint state, and those which are not
-splitFinishedPaths :: Simulator sym ([PathDescriptor], [PathDescriptor])
-splitFinishedPaths = partitionMFOn ((\r -> isExc r || isBkpt r) . finalResult)
-
--- | Partition the top merge frame's finished paths into those paths which match
--- a predicate and those which do not.
-partitionMFOn :: (SymPathState sym -> Bool)
-              -> Simulator sym ([PathDescriptor], [PathDescriptor])
-partitionMFOn f = do
-  psts <- gets pathStates
-  let passes p = maybe (error "expected PSS entry") f (M.lookup p psts)
-  partition passes . finishedPaths <$> getMergeFrame
-
 -- | Modify the active merge frame
 modifyMF :: (MergeFrame sym -> MergeFrame sym) -> Simulator sym ()
 modifyMF f =
@@ -1975,8 +1759,8 @@ modifyMF f =
       s{ mergeFrames = headf (mergeFrames s) f }
 
 -- | Create a new merge frame
-mergeFrame :: [(PathDescriptor, ResumeAction sym)] -> MergeFrame sym
-mergeFrame paths = MergeFrame [] paths CallExit
+-- mergeFrame :: [(PathDescriptor, ResumeAction sym)] -> MergeFrame sym
+-- mergeFrame paths = MergeFrame [] paths CallExit
 
 newString :: AigOps sym => String -> Simulator sym Ref
 newString s = do
@@ -2276,16 +2060,18 @@ defaultValue sbe ShortType       = IValue <$> termInt sbe 0
 
 dumpPathStates :: (PrettyTerm (MonadTerm sym)) => Simulator sym ()
 dumpPathStates = do
-  psts <- gets pathStates
-  dbugM "-- begin pathstates --"
-  forM_ (M.elems psts) $ \ps -> dbugM (show ps)
-  dbugM "-- end pathstates --"
-  dumpMergeFrames
+  error "not implemented"
+  -- psts <- gets pathStates
+  -- dbugM "-- begin pathstates --"
+  -- forM_ (M.elems psts) $ \ps -> dbugM (show ps)
+  -- dbugM "-- end pathstates --"
+  -- dumpMergeFrames
 
 dumpPathStateCount :: Simulator sym ()
 dumpPathStateCount = do
-  (sz, mx) <- gets ((M.size CA.&&& foldr max minBound . M.keys) . pathStates)
-  dbugM $ "pathstates size is: " ++ show sz ++ ", max pss is: " ++ show mx
+  error "not implemented"
+--  (sz, mx) <- gets ((M.size CA.&&& foldr max minBound . M.keys) . pathStates)
+--  dbugM $ "pathstates size is: " ++ show sz ++ ", max pss is: " ++ show mx
 
 dumpMergeFrames :: Simulator sym ()
 dumpMergeFrames = do
@@ -2296,9 +2082,8 @@ dumpMergeFrames = do
 
 _dumpFrameInfo :: Simulator sym ()
 _dumpFrameInfo = do
-  psts <- gets pathStates
-  dbugM $ "frame info: # pathstates = " ++ show (M.size psts) ++ ", max depth = "
-        ++ show (foldr max 0 $ map (length . frames) (M.elems psts))
+  mfs <- mergeFrames <$> gets ctrlStk
+  dbugM $ "frame info: # mergeframes = " ++ show . length mfs
 
 -- | Fatal error: kill all paths but the offending path (for exception
 -- propagation) and provide some additional information to the user.
@@ -2315,171 +2100,27 @@ abort msg = do
   case mps of
     Left _gpsExcStr -> error msg
     Right ps@PathState{ pathStSel = pss, frames = frms } -> do
-      modify $ \s -> s{ pathStates = M.singleton pss ps{ finalResult = Aborted} }
-      let showFrms = length frms > 0
+      modify $ \s -> s{ ctrlStk = CtrlStk []
+                      , errorPaths = ps : errorPaths s}
       throwExternal
-        (msg ++ "\n" ++ ppExcMsg showFrms pss (if showFrms then ppStk frms else ""))
-        (M.singleton pss (Aborted, frms))
+        (msg ++ "\n" ++ ppExcMsg pss (ppStk frms))
+
 
 throwExternal ::
   AigOps sym
   => String
-  -> Map PathDescriptor (FinalResult (MonadTerm sym), [Frame (MonadTerm sym)])
   -> Simulator sym a
-throwExternal msg rslts = do
+throwExternal msg = do
   v <- gets verbosity
+  rslts <- gets errorPaths
   CE.throw $ SimExtErr msg v rslts
 
-ppExcMsg :: Bool -> PathDescriptor -> String -> String
-ppExcMsg showPathId (PSS n) s =
-  (if showPathId then "(On path " ++ show n ++ "):\n" else "") ++  s
+ppExcMsg :: PathDescriptor -> String -> String
+ppExcMsg n s = "(On path " ++ show n ++ "):\n" ++ s
 
---------------------------------------------------------------------------------
--- Pretty printers
-
-ppStk :: [Frame term] -> String
-ppStk [] = "(empty stack)"
-ppStk fs = concatMap ((\s -> "  at " ++ s ++ "\n") . ppFrameSrcLoc) fs
-
-ppSimulatorExc :: SimulatorExc term -> String
-ppSimulatorExc (JavaException (Ref _ (ClassType nm)) frms) =
-  "Exception of type " ++ slashesToDots nm ++ "\n" ++ ppStk frms
-ppSimulatorExc (SimExtErr msg _ _) = msg
-ppSimulatorExc JavaException{}     = error "Malformed SimulatorExc"
-
-ppFinalResult :: PrettyTerm term => FinalResult term -> String
-ppFinalResult (ReturnVal rv)  = ppValue rv
-ppFinalResult (Breakpoint pc) = "breakpoint{" ++ show pc ++ "}"
-ppFinalResult (Exc exc)       = ppSimulatorExc exc
-ppFinalResult Terminated      = "(void)"
-ppFinalResult Aborted         = "Aborted"
-ppFinalResult Unassigned      = "Unassigned"
-
-ppFrame :: PrettyTerm term => Frame term -> String
-ppFrame (Call c me pc lvars stack) =
-  "Frame (" ++ c ++ "." ++ (methodKeyName $ methodKey me) ++ "): PC " ++ show pc
-      ++ "\n      Ls:\n        "
-        ++ intercalate "\n        "
-             (map (\(l,v) -> "Local #" ++ show l ++ ": " ++ ppValue v) $ M.assocs lvars)
-      ++ "\n      Stk:\n        "
-        ++ intercalate "\n        "
-             (map ppValue stack)
-
-ppFrameSrcLoc :: Frame term -> String
-ppFrameSrcLoc (Call c me pc _vars _stack) =
-  c ++ "." ++ mn ++ "(" ++ c ++ ".java:" ++ maybe "?" show mloc ++ ")"
-  where
-    (mloc, mn) = (`sourceLineNumberOrPrev` pc) CA.&&& methodName $ me
-
-ppValue :: PrettyTerm term => Value term -> String
-ppValue (IValue st) = prettyTerm st
-ppValue (LValue st) = prettyTerm st
-ppValue (RValue r)  = show r
-ppValue (FValue f)  = show f
-ppValue (DValue d)  = show d
-ppValue (AValue a)  = "Address " ++ show a
-
-ppRef :: Ref -> String
-ppRef NullRef    = "null"
-ppRef (Ref n ty) = show n ++ "::" ++ show ty
-
-ppRefId :: Ref -> String
-ppRefId NullRef   = "null"
-ppRefId (Ref n _) = show n
-
-ppPSS :: PathDescriptor -> String
-ppPSS (PSS n) = "Path #" ++ show n
-
-ppMergeFrame :: MergeFrame sym -> String
-ppMergeFrame MergeFrame{ finishedPaths = fp, nextPaths = np } =
-  "MergeFrame{ finishedPaths = " ++ show fp
-  ++ ", nextPaths = " ++ show np
-  ++ "}"
 
 --------------------------------------------------------------------------------
 -- Instances
-
-instance Eq Ref where
-  NullRef == NullRef = True
-  (Ref x _) == (Ref y _) = x == y
-  _ == _ = False
-
-instance Ord Ref where
-  NullRef `compare` NullRef = EQ
-  NullRef `compare` _ = LT
-  _ `compare` NullRef = GT
-  (Ref x _) `compare` (Ref y _) = x `compare` y
-
-instance (PrettyTerm (MonadTerm sym)) => Show (State sym) where
-  show s = intercalate "\n" (["{ begin pathstates: "] ++ (map show $ M.elems $ pathStates s) ++ ["end pathstates }"])
-             ++ "\nNext Ref: " ++ show (nextRef s)
-
-instance PrettyTerm term => Show (PathState term) where
-  show st =
-    let dispMapBy :: (forall k a. Map k a -> ((k, a) -> String) -> String)
-        x `dispMapBy` showItem = (multi . map showItem . M.toList)  x
-        x `dispBy` showItem    = (multi . map showItem . DF.toList) x
-        multi lns              = pad ++ intercalate pad lns ++ "\n"
-        pad                    = "\n" ++ replicate 4 ' '
-    in
-      ppPSS (pathStSel st) ++ ":\n"
-      ++
-      "  frames         : "
-      ++ (if null $ frames st
-            then "(none)\n"
-            else frames st `dispBy` ppFrame
-         )
-      ++
-      "  instance fields: "
-      ++ (if M.null $ instanceFields st
-            then "(none)\n"
-            else instanceFields st `dispMapBy` \((r, fldId), v) ->
-                   "(" ++ ppRefId r
-                   ++ "::"
-                   ++ fieldIdClass fldId
-                   ++ ")."
-                   ++ fieldIdName fldId
-                   ++ " => "
-                   ++ ppValue v
-         )
-      ++
-      "  static fields  : "
-      ++ (if M.null (staticFields st)
-            then "(none)\n"
-            else
-              let f (fldId, v) = fieldIdClass fldId
-                                 ++ "."
-                                 ++ fieldIdName fldId
-                                 ++ " => "
-                                 ++ ppValue v
-              in
-                staticFields st `dispMapBy` f
-         )
-      ++
-      "  arrays         : "
-      ++ (if M.null $ arrays st
-            then "(none)\n"
-            else arrays st `dispMapBy` \(k,(l,v)) -> 
-                   show k ++ " : " ++ prettyTerm l ++ " = " ++ prettyTerm v
-         )
-      ++
-      "  refArrays      : "
-      ++ (if M.null $ refArrays st
-            then "(none)\n"
-            else refArrays st `dispMapBy` \(r,rs) ->
-                   ppRef r
-                   ++ " => [ "
-                   ++ intercalate ", " (map ppRefId $ elems rs)
-                   ++ " ]"
-         )
-      ++
-  --    "  assumptions    : " ++ ppSymTerm (psAssumptions state) ++ "\n"
-  --    ++
-      "  finalResult    : " ++ ppFinalResult (finalResult st)
-      ++
-      "  starting PC    : " ++ show (startingPC st)
-      ++
-      "  instr count    : " ++ show (insnCount st)
 
 withoutExceptions :: [(PathDescriptor, FinalResult term)]
                   -> [(PathDescriptor, FinalResult term)]
