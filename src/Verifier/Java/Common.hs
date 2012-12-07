@@ -15,12 +15,17 @@ Point-of-contact : acfoltzer
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 module Verifier.Java.Common where
 
 import Control.Applicative (Applicative, (<$>), pure, (<*>))
 import qualified Control.Arrow as CA
+import Control.Error hiding (catch)
+import qualified Control.Error as Err
 import Control.Exception (Exception)
 import Control.Lens hiding (Path)
+import Control.Monad.State hiding (State)
 
 import Data.Array (Array, elems)
 import qualified Data.Foldable as DF
@@ -39,12 +44,26 @@ import Verifier.Java.Backend (Backend, MonadTerm, PrettyTerm(..))
 import Verifier.Java.Codebase (Codebase, FieldId(..), LocalVariableIndex, Method(..), MethodKey(..), PC, Type(..), methodName, slashesToDots, sourceLineNumberOrPrev)
 
 import Verinf.Utils.CatchMIO
-import Verinf.Utils.IOStateT
 import Verinf.Utils.LogMonad
 
 -- A Simulator is a monad transformer around a symbolic backend m
-newtype Simulator sym a = SM { runSM :: StateT (State sym) IO a }
-  deriving (CatchMIO, Functor, Monad, MonadIO, MonadState (State sym))
+newtype Simulator sym a = 
+  SM { runSM :: EitherT (InternalExc sym) (StateT (State sym) IO) a }
+  deriving (Functor, Monad, MonadIO, MonadState (State sym))
+
+-- | Informative synonym for 'SM'
+liftEitherT :: EitherT (InternalExc sym) (StateT (State sym) IO) a
+            -> Simulator sym a
+liftEitherT = SM
+
+catch :: Simulator sym a 
+      -> (InternalExc sym -> Simulator sym a)
+      -> Simulator sym a
+m `catch` f = liftEitherT $ runSM m `catchT` (runSM . f)
+
+instance (MonadState s m) => MonadState s (EitherT e m) where
+  get = lift get
+  put = lift . put
 
 instance Applicative (Simulator sym) where
   pure      = return
@@ -94,35 +113,33 @@ data SimulationFlags =
 defaultSimFlags :: SimulationFlags
 defaultSimFlags = SimulationFlags { alwaysBitBlastBranchTerms = False }
 
-newtype ErrorPath sym = EP { epPath :: SymPath sym }
-
 type SymPath sym = Path (MonadTerm sym)
 
 data Path term = Path {
-    _frames          :: ![Frame term]
-  , _finalResult     :: !(FinalResult term)
-  , _pathException   :: !(Maybe term)
-  , _initialization  :: !(Map String InitializationStatus)
-  , _staticFields    :: !(Map FieldId (Value term))
-  , _instanceFields  :: !(Map InstanceFieldRef (Value term))
+    _frame          :: !(Frame term)
+  , _finalResult    :: !(FinalResult term)
+  , _pathException  :: !(Maybe term)
+  , _initialization :: !(Map String InitializationStatus)
+  , _staticFields   :: !(Map FieldId (Value term))
+  , _instanceFields :: !(Map InstanceFieldRef (Value term))
   -- | Maps integer and long array to current value.
-  , _arrays          :: !(Map Ref (term, term))
+  , _arrays         :: !(Map Ref (term, term))
   -- | Maps reference array to current value.
-  , _refArrays       :: !(Map Ref (Array Int32 Ref))
+  , _refArrays      :: !(Map Ref (Array Int32 Ref))
     -- | Facts that may be assumed to be true in this path.
-  , _psAssumptions   :: !term
+  , _psAssumptions  :: !term
     -- | Facts that are asserted to be true in this path (in reverse order).
-  , _psAssertions    :: ![(String,term)]
-  , _pathStSel       :: !PathDescriptor
-  , _classObjects    :: !(Map String Ref)
+  , _psAssertions   :: ![(String,term)]
+  , _pathStSel      :: !PathDescriptor
+  , _classObjects   :: !(Map String Ref)
   -- | The program counter where this path state started.
-  , _startingPC      :: !PC
-  , _breakpoints     :: !(Set (String, MethodKey, PC))
+  , _startingPC     :: !PC
+  , _breakpoints    :: !(Set (String, MethodKey, PC))
   -- ^ Breakpoint locations. REVISIT: might want to have a map in
   -- state from (String, MethodKey) to Map PC (..., ...), and then
   -- this map could just be Map PC (..., ...), and would get set every
   -- time we modify the frame list.
-  , _insnCount       :: !Int
+  , _insnCount      :: !Int
   -- ^ The number of instructions executed so far on this path.
   }
 
@@ -165,15 +182,6 @@ data Frame term
     }
     deriving (Eq, Show)
 
-data FinalResult term
-  = ReturnVal !(Value term)
-  | Breakpoint !PC
-  | Exc !(SimulatorExc term)
-  | Terminated
-  | Aborted
-  | Unassigned
-  deriving (Eq, Show)
-
 data InitializationStatus
   = Started
   | Erroneous
@@ -182,27 +190,45 @@ data InitializationStatus
 
 type InstanceFieldRef = (Ref, FieldId)
 
--- | Our exception data structure; used to track errors intended to be exposed
--- to the user (via the SimExtErr ctor) as well as tracking and propagating Java
--- exceptions.
-data SimulatorExc term
-  = SimExtErr
-    { simExtErrMsg       :: String
-    , simExtErrVerbosity :: Int -- ^ simulator verbosity @ raise point
-    , simExtErrResults   :: Map PathDescriptor (FinalResult term, [Frame term])
-    }
-  | JavaException
-    { excRef    :: Ref          -- ^ the java.lang.Exception instance
-    , excFrames :: [Frame term] -- ^ stack trace @ raise point
+data FailRsn       = FailRsn String deriving (Show)
+data ErrorPath sym = EP { _epRsn :: FailRsn, _epPath :: Path sym }
+
+-- | The exception type for errors that are both thrown and caught within the
+-- simulator.
+data InternalExc sym
+  = ErrorPathExc FailRsn (State sym)
+  | UnknownExc (Maybe FailRsn)
+
+errRsn :: String -> InternalExc sym
+errRsn = UnknownExc . Just . FailRsn
+
+simErrRsn :: String -> Simulator sym a
+simErrRsn = liftEitherT . Err.left . errRsn
+
+assert :: Bool -> Simulator sym ()
+assert = liftEitherT . tryAssert (errRsn "assertion failed")
+
+data FinalResult term
+  = ReturnVal !(Value term)
+  | Breakpoint !PC
+  | Exc !(JavaException term)
+  | Terminated
+  | Aborted
+  | Unassigned
+  deriving (Eq, Show)
+
+data JavaException term =
+  JavaException
+    { _excRef    :: Ref          -- ^ the java.lang.Exception instance
+    , _excFrames :: [Frame term] -- ^ stack trace @ raise point
     }
   deriving (Show,Typeable)
 
-instance Eq (SimulatorExc m) where
-  e1@JavaException{} == e2@JavaException{} = excRef e1 == excRef e2
-  _ == _ = False
+instance Eq (JavaException term) where
+  e1@JavaException{} == e2@JavaException{} = _excRef e1 == _excRef e2
 
 -- | Allow SimulatorM exceptions to be raised via Control.Exception.throw
-instance (Show term, Typeable term) => Exception (SimulatorExc term)
+instance (Show term, Typeable term) => Exception (JavaException term)
 
 
 instance Eq Ref where
@@ -223,6 +249,8 @@ makeLenses ''State
 makeLenses ''CtrlStk
 makeLenses ''Path
 makeLenses ''Frame
+makeLenses ''ErrorPath
+makeLenses ''JavaException
 
 --------------------------------------------------------------------------------
 -- Pretty printers
@@ -296,15 +324,15 @@ instance PrettyTerm term => Show (Path term) where
       "  instr count    : " ++ show (insnCount st)
 -}
 
-ppStk :: [Frame term] -> String
-ppStk [] = "(empty stack)"
-ppStk fs = concatMap ((\s -> "  at " ++ s ++ "\n") . ppFrameSrcLoc) fs
+ppStk :: [Frame term] -> Doc
+ppStk [] = text "(empty stack)"
+ppStk fs = vcat . map ppFrameSrcLoc $ fs
 
-ppSimulatorExc :: SimulatorExc term -> String
-ppSimulatorExc (JavaException (Ref _ (ClassType nm)) frms) =
-  "Exception of type " ++ slashesToDots nm ++ "\n" ++ ppStk frms
-ppSimulatorExc (SimExtErr msg _ _) = msg
-ppSimulatorExc JavaException{}     = error "Malformed SimulatorExc"
+ppJavaException :: JavaException term -> Doc
+ppJavaException (JavaException (Ref _ (ClassType nm)) frms) =
+  text "Exception of type" <+> text (slashesToDots nm)
+  $+$ ppStk frms
+ppSimulatorExc JavaException{}     = error "Malformed JavaException"
 
 ppFinalResult :: PrettyTerm term => FinalResult term -> String
 ppFinalResult (ReturnVal rv)  = ppValue rv
@@ -328,9 +356,9 @@ ppFrame (Call c me pc lvars stack) =
         ++ intercalate "\n        "
              (map ppValue stack)
 
-ppFrameSrcLoc :: Frame term -> String
+ppFrameSrcLoc :: Frame term -> Doc
 ppFrameSrcLoc (Call c me pc _vars _stack) =
-  c ++ "." ++ mn ++ "(" ++ c ++ ".java:" ++ maybe "?" show mloc ++ ")"
+  text c <> text "." <> text mn <> parens (text c <> text ".java:" <> text (maybe "?" show mloc))
   where
     (mloc, mn) = (`sourceLineNumberOrPrev` pc) CA.&&& methodName $ me
 

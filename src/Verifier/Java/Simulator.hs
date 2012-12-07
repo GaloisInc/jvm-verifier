@@ -83,11 +83,12 @@ module Verifier.Java.Simulator
 import qualified Control.Arrow as CA
 import Control.Arrow (second)
 import Control.Applicative
-import qualified Control.Exception as CE
-import Control.Exception (Exception)
+import Control.Error
+import qualified Control.Error as Err
 import Control.Lens hiding (Path)
 import Control.Monad
 import Control.Monad.Reader
+import Control.Monad.State hiding (State)
 import Data.Array
 import qualified Data.Foldable as DF
 import Data.Char
@@ -109,9 +110,8 @@ import Execution.JavaSemantics
 import Verifier.Java.Backend
 import Verifier.Java.Codebase
 import Verifier.Java.Common
+import Verifier.Java.MergeFrame
 
-import Verinf.Utils.CatchMIO
-import Verinf.Utils.IOStateT
 import Verinf.Utils.LogMonad
 
 -- | Converts integral into bounded num class.
@@ -135,24 +135,6 @@ floatRem x y = fromIntegral z
 
 dbugM :: MonadIO m => String -> m ()
 dbugM = liftIO . putStrLn
-
-mergedState :: MergeFrame sym -> MergedState sym
-mergedState ExitMergeFrame    mf = efMergedState mf
-mergedState PostdomMergeFrame mf = pdfMergedState mf
-mergedState ReturnMergeFrame  mf = rfNormalState mf
-
-setMergedState :: MergeFrame sym -> MergedState sym -> MergeFrame sym
-setMergedState ExitMergeFrame    mf ms' = ExitMergeFrame    $ mf { efMergedState  = ms' }
-setMergedState PostdomMergeFrame mf ms' = PostdomMergeFrame $ mf { pdfMergedState = ms' }
-setMergedState ReturnMergeFrame  mf ms' = ReturnMergeFrame  $ mf { rfNormalState  = ms' }
-
-pendingPaths :: MergeFrame sym -> [SymPath sym]
-pendingPaths ExitMergeFrame    mf = efPending mf
-pendingPaths PostdomMergeFrame mf = pdfPending mf
-pendingPaths ReturnMergeFrame  mf = rfPending mf
-
-setPendingPaths :: MergeFrame sym -> [SymPath sym] -> MergeFrame sym
-setPendingPaths = undefined
 
 data Breakpoint
   = CallExit
@@ -739,7 +721,7 @@ pushFrame call = do
       case nextPaths currMF of
         ((currPath,_):rest) ->
           mergeFrame [(currPath, NextInst)]
-          : currMF{ nextPaths = rest }
+          :currMF{ nextPaths = rest }
           : mfs
         _ -> error "pushFrame: no current path"
     pushMF _ = error "pushFrame: empty MergeFrame stack"
@@ -1460,20 +1442,11 @@ stepCommon onOK onException = do
     pss <- getPSS
     dbugM $ "Executing (" ++ show pss ++ ") " ++ show pc ++ ": " ++ ppInst inst
 
-  do mf <- getMergeFrame
-     case pendingPaths mf of
-       [] -> error "stepCommon: no next path in merge frame"
-       ((_,ra):_) -> case ra of
-         NextInst           -> step inst >> count -- Run normally
-         CustomRA _desc act -> onCurrPath =<< act -- Run overridden sequence
-     dbugFrm
-     onOK
-  `catchMIO` \e ->
-    case CE.fromException e of
-      Just e' -> do
-        -- The stepper has thrown an exception, so mark this path terminated
-        modifyPathState (setFinalResult $ Exc e') >> onException
-      _ -> CE.throw e
+  withTopPending $ \path -> do
+    step inst
+    count
+    dbugFrm
+    onOK
 
 --------------------------------------------------------------------------------
 -- Path state merging
@@ -1481,36 +1454,28 @@ stepCommon onOK onException = do
 doMerge :: AigOps sym => String -> String -> Simulator sym ()
 doMerge _clNm _methNm = do
   mergeCurrentPath
-  topMF <- getMergeFrame
-  case mergedState topMF of
+  mf <- popMF
+  case mf^.mergedState of
     PathState path -> do
-      modify $ \s ->
-          s { mergeFrames = CtrlStk $ case mergeFrames . ctrlStk $ s of
-                (_:mfs) ->
-                    CE.assert (not (null mfs)) $
-                      headf mfs $ \mf ->
-                          setPendingPaths mf (path, NextInst) : pendingPaths mf
-                _ -> error "doMerge: malformed merge frame stack"
-                }
+      modifyMF $ pending %~ ((path, NextInst) :)
       whenVerbosity (>=5) $ do
         dbugM $ "doMerge: post-merge merge frames:"
         dumpMergeFrames
-    _ -> error "doMerge: unsupported breakpoint type"
+    _ -> simErrRsn "doMerge: unsupported breakpoint type"
 
 mergeCurrentPath :: AigOps sym => Simulator sym ()
-mergeCurrentPath = do
-  mf <- getMergeFrame
-  case pendingPaths mf of
-    []     -> error "mergeCurrentPaths: no paths"
+mergeCurrentPath = withTopMF $ \mf ->
+  case mf^.pending of
+    []     -> simErrRsn "mergeCurrentPaths: no paths"
     (p:ps) -> do
-        modifyMF $ \mf -> setPendingPaths ps
+        modifyMF $ pending .~ ps
         mms <- case mergedState mf of
                  Nothing -> return . Just . PathState p
                  Just (PathState p') -> merge p' p
         case mms of
           Nothing -> modify $ \s -> s { errorPaths = EP p : errorPaths s }
           Just ms' -> do
-            modifyMF $ \mf -> setMergedState ms'
+            modifyMF $ mergedState .~ ms'
             whenVerbosity (>=3) $ do
               dbugM $ "Merging " ++ show p
 
@@ -1527,7 +1492,7 @@ merge :: forall sym . AigOps sym
 merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } = do
   -- A path that has thrown an exception should not have been identified as a
   -- merge candidate!
-  CE.assert (not (isExc fromFR) && not (isExc toFR)) $ return ()
+  assert (not (isExc fromFR) && not (isExc toFR))
 
   mviols  <- checkPreconds
   mergeOK <- case mviols of
@@ -1550,23 +1515,13 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
           dbugM $ "From state:" ++ show from
           dbugM $ "To state:" ++ show to
 
-      -- Actually do the merge
-      (\fr pc ar rar iflds sflds frms ->
-         Just to{ finalResult    = fr
-                , psAssumptions  = pc
-                , arrays         = ar
-                , refArrays      = rar
-                , instanceFields = iflds
-                , staticFields   = sflds
-                , frames         = frms
-                }
-       ) <$> mergeRVs
-         <*> pathConds
-         <*> mergeArrays
-         <*> mergeRefArrays
-         <*> mergeInstanceFields
-         <*> mergeStaticFields
-         <*> mergeFrms
+      Just <$> to & finalResult   %%~ const mergeRVs
+                >>= psAssumptions %%~ const pathConds
+                >>= arrays        %%~ const mergeArrays
+                >>= refArrays     %%~ const mergeRefArrays
+                >>= instanceFields %%~ const mergeInstanceFields
+                >>= staticFields %%~ const mergeStaticFields
+                >>= frame %%~ const mergeFrm
     else do
       return Nothing
   where
@@ -1586,19 +1541,18 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
                             liftM2 (,) (l1 <-> l2) (a1 <-> a2)
     mergeInstanceFields = instanceFields `mergeBy` mergeV
     mergeStaticFields   = staticFields `mergeBy` mergeV
-    mergeFrms           = do
+    mergeFrm            = do
       -- Merge the top frame of both states.
-      case (frames from, frames to) of
-        ([], [])                -> return []
-        (frm1 : rest, frm2 : _) -> do
-          locals <- ((\(f:_) -> frmLocals f) . frames) `mergeBy` mergeV
-          opds   <- mapM (uncurry mergeV) (frmOpds frm1 `zip` frmOpds frm2)
-          return $ frm2{ frmLocals = locals, frmOpds = opds} : rest
-        _ -> error "frame mismatch (uncaught merge precondition violation?)"
+      case (from^.frame, to^.frame) of
+        (frm1, frm2) -> do
+          locals <- view (frame.frmLocals) `mergeBy` mergeV
+          opds   <- zipWithM mergeV (frmOpds frm1) (frmOpds frm2)
+          return $ frm2 & frmLocals .~ locals & frmOpds .~ opds
+        _ -> simErrRsn "frame mismatch (uncaught merge precondition violation?)"
     --
-    mergeRVs =
-      CE.assert (not (isBkpt fromFR || isBkpt toFR)) $
-      maybe (finalResult to) id
+    mergeRVs = do
+      assert (not (isBkpt fromFR || isBkpt toFR))
+      fromMaybe (finalResult to)
       <$> case (fromFR, toFR) of
             (ReturnVal v1, ReturnVal v2) ->
               Just . ReturnVal <$> (v1 `mergeV` v2)
@@ -1626,7 +1580,7 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
     mergeV x@(RValue (Ref r1 ty1)) y@(RValue (Ref r2 ty2)) = do
       when (r1 /= r2) $
         abort $ "References differ when merging: " ++ show x ++ " and " ++ show y
-      CE.assert (ty1 == ty2) $ return ()
+      assert (ty1 == ty2)
       return x
 
     mergeV x y =
@@ -1702,29 +1656,26 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
         , DF.and $ refArrays `intersectBy` (==)
         )
 
-      , -- 3) Both PathStates have the same sequence of stack frames (same
+      , -- 3) Both PathStates have the same stack frame (same
         -- method, PC, operand stack, etc.)
         ( StackFramesAlign
-        , and [ same (length . frames)
-              , let opdTypesMatch DValue{} DValue{} = True
-                    opdTypesMatch FValue{} FValue{} = True
-                    opdTypesMatch IValue{} IValue{} = True
-                    opdTypesMatch LValue{} LValue{} = True
-                    opdTypesMatch RValue{} RValue{} = True
-                    opdTypesMatch AValue{} AValue{} = True
-                    opdTypesMatch _ _ = False
-                in
-                  and $ (`map` (frames from `zip` frames to)) $
-                    \(Call c1 m1 pc1 _ opds1, Call c2 m2 pc2 _ opds2) ->
+        , let opdTypesMatch DValue{} DValue{} = True
+              opdTypesMatch FValue{} FValue{} = True
+              opdTypesMatch IValue{} IValue{} = True
+              opdTypesMatch LValue{} LValue{} = True
+              opdTypesMatch RValue{} RValue{} = True
+              opdTypesMatch AValue{} AValue{} = True
+              opdTypesMatch _ _ = False
+          in case (from^.frame, to^.frame) of
+               (Call c1 m1 pc1 _ opds1, Call c2 m2 pc2 _ opds2) ->
                       and [ c1 == c2
                           , methodKey m1 == methodKey m2
                           , pc1 == pc2
                             -- (above) PCs differ -> both frames at a return instruction
                           , length opds1 == length opds2
-                          , and $ map (uncurry opdTypesMatch) $
+                          , all (uncurry opdTypesMatch) $
                               opds1 `zip` opds2
                           ]
-              ]
         )
       ]
 
@@ -1750,13 +1701,6 @@ _isNormal :: FinalResult term -> Bool
 _isNormal Terminated  = True
 _isNormal ReturnVal{} = True
 _isNormal _           = False
-
--- | Modify the active merge frame
-modifyMF :: (MergeFrame sym -> MergeFrame sym) -> Simulator sym ()
-modifyMF f =
-  modify $ \s ->
-    CE.assert (not (null (mergeFrames s))) $
-      s{ mergeFrames = headf (mergeFrames s) f }
 
 -- | Create a new merge frame
 -- mergeFrame :: [(PathDescriptor, ResumeAction sym)] -> MergeFrame sym
@@ -1796,7 +1740,7 @@ newString s = do
 drefString :: AigOps sym => Ref -> Simulator sym String
 drefString strRef = do
   Just ty       <- typeOf strRef
-  CE.assert (ty == stringTy) $ return ()
+  assert (ty == stringTy)
 
   iflds <- instanceFields <$> getPathState
   let lkup   = (`M.lookup` iflds) . (,) strRef
@@ -1864,15 +1808,15 @@ lookupStringRef r =
 -- TODO: Identify appropriate error to throw if type is not an array of IValues or
 -- LValues or cnt is negative.
 newSymbolicArray :: Type -> Int32 -> MonadTerm sym -> Simulator sym Ref
-newSymbolicArray tp@(ArrayType eltType) cnt arr =
-  CE.assert ((isIValue eltType || eltType == LongType) && cnt >= 0) $ do
-    r <- genRef tp
-    sbe <- gets backend
-    tcnt <- liftIO $ termInt sbe cnt
-    modifyPathState $ \ps ->
-      ps { arrays = M.insert r (tcnt, arr) (arrays ps) }
-    return r
-newSymbolicArray _ _ _ = error "internal: newSymbolicArray called with invalid type"
+newSymbolicArray tp@(ArrayType eltType) cnt arr = do
+  assert ((isIValue eltType || eltType == LongType) && cnt >= 0)
+  r <- genRef tp
+  sbe <- gets backend
+  tcnt <- liftIO $ termInt sbe cnt
+  modifyPathState $ \ps ->
+    ps { arrays = M.insert r (tcnt, arr) (arrays ps) }
+  return r
+newSymbolicArray _ _ _ = simErrRsn "internal: newSymbolicArray called with invalid type"
 
 -- | Returns length and symbolic value associated with array reference,
 -- and nothing if this is not an array reference.
@@ -1964,8 +1908,8 @@ getArrayValue pd r idx = do
       let Just (l,rslt) = M.lookup r (arrays ps)
       LValue <$> termGetLongArray sbe l rslt idx
   else do
+    assert (isIValue tp)
     liftIO $ do
-      CE.assert (isIValue tp) $ return ()
       let Just (l,rslt) = M.lookup r (arrays ps)
       IValue <$> termGetIntArray sbe l rslt idx
 
@@ -2036,9 +1980,9 @@ getStaticFieldValue pd fldId = do
     cl <- lookupClass cb (fieldIdClass fldId)
     case M.lookup fldId (staticFields ps) of
       Just v  -> return v
-      Nothing -> 
-        CE.assert (validStaticField cl) $
-          defaultValue sbe (fieldIdType fldId)
+      Nothing -> do
+        assert (validStaticField cl) 
+        defaultValue sbe (fieldIdType fldId)
   where
     validStaticField cl =
       maybe False (\f -> fieldIsStatic f && fieldType f == fieldIdType fldId)
@@ -2091,19 +2035,7 @@ _dumpFrameInfo = do
 abort :: AigOps sym => String -> Simulator sym a
 abort msg = do
   whenVerbosity (>=5) $ dbugM $ "abort invoked w/ msg:\n--\n" ++ msg ++ "\n--\n"
-  -- TODO: For debugging, save info about other paths states here, and report
-
-  -- It's possible that getPathState can fail here, but report the abort message
-  -- anyway instead of reporting the getPathState failure.
-  mps <- Right `fmap` getPathState `catchMIO` \(e :: CE.SomeException) ->
-           return $ Left $ show e
-  case mps of
-    Left _gpsExcStr -> error msg
-    Right ps@PathState{ pathStSel = pss, frames = frms } -> do
-      modify $ \s -> s{ ctrlStk = CtrlStk []
-                      , errorPaths = ps : errorPaths s}
-      throwExternal
-        (msg ++ "\n" ++ ppExcMsg pss (ppStk frms))
+  throwExternal msg
 
 
 throwExternal ::
@@ -2111,9 +2043,7 @@ throwExternal ::
   => String
   -> Simulator sym a
 throwExternal msg = do
-  v <- gets verbosity
-  rslts <- gets errorPaths
-  CE.throw $ SimExtErr msg v rslts
+  liftEitherT . Err.left . ErrorPathExc (FailRsn msg) <$> get
 
 ppExcMsg :: PathDescriptor -> String -> String
 ppExcMsg n s = "(On path " ++ show n ++ "):\n" ++ s
