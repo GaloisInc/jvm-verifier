@@ -13,18 +13,14 @@ Point-of-contact : acfoltzer
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE UndecidableInstances #-}
-
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Verifier.Java.Common where
 
 import Control.Applicative (Applicative, (<$>), pure, (<*>))
 import qualified Control.Arrow as CA
-import Control.Error hiding (catch)
-import qualified Control.Error as Err
 import Control.Exception (Exception)
 import Control.Lens hiding (Path)
+import Control.Monad.Error
 import Control.Monad.State hiding (State)
 
 import Data.Array (Array, elems)
@@ -43,27 +39,12 @@ import Execution (AtomicValue(..), JSValue(..))
 import Verifier.Java.Backend (Backend, MonadTerm, PrettyTerm(..))
 import Verifier.Java.Codebase (Codebase, FieldId(..), LocalVariableIndex, Method(..), MethodKey(..), PC, Type(..), methodName, slashesToDots, sourceLineNumberOrPrev)
 
-import Verinf.Utils.CatchMIO
 import Verinf.Utils.LogMonad
 
--- A Simulator is a monad transformer around a symbolic backend m
+-- A Simulator is a monad transformer around a symbolic backend
 newtype Simulator sym a = 
-  SM { runSM :: EitherT (InternalExc sym) (StateT (State sym) IO) a }
-  deriving (Functor, Monad, MonadIO, MonadState (State sym))
-
--- | Informative synonym for 'SM'
-liftEitherT :: EitherT (InternalExc sym) (StateT (State sym) IO) a
-            -> Simulator sym a
-liftEitherT = SM
-
-catch :: Simulator sym a 
-      -> (InternalExc sym -> Simulator sym a)
-      -> Simulator sym a
-m `catch` f = liftEitherT $ runSM m `catchT` (runSM . f)
-
-instance (MonadState s m) => MonadState s (EitherT e m) where
-  get = lift get
-  put = lift . put
+  SM { runSM :: ErrorT (InternalExc sym) (StateT (State sym) IO) a }
+  deriving (Functor, Monad, MonadIO, MonadState (State sym), MonadError (InternalExc sym))
 
 instance Applicative (Simulator sym) where
   pure      = return
@@ -196,17 +177,15 @@ data ErrorPath sym = EP { _epRsn :: FailRsn, _epPath :: Path sym }
 -- | The exception type for errors that are both thrown and caught within the
 -- simulator.
 data InternalExc sym
-  = ErrorPathExc FailRsn (State sym)
+  = ErrorPathExc FailRsn (Path sym)
   | UnknownExc (Maybe FailRsn)
 
-errRsn :: String -> InternalExc sym
-errRsn = UnknownExc . Just . FailRsn
-
-simErrRsn :: String -> Simulator sym a
-simErrRsn = liftEitherT . Err.left . errRsn
+instance Error (InternalExc sym) where
+  noMsg  = UnknownExc Nothing
+  strMsg = UnknownExc . Just . FailRsn
 
 assert :: Bool -> Simulator sym ()
-assert = liftEitherT . tryAssert (errRsn "assertion failed")
+assert b = unless b . throwError $ strMsg "assertion failed"
 
 data FinalResult term
   = ReturnVal !(Value term)
