@@ -83,10 +83,9 @@ module Verifier.Java.Simulator
 import qualified Control.Arrow as CA
 import Control.Arrow (second)
 import Control.Applicative
-import Control.Error
-import qualified Control.Error as Err
 import Control.Lens hiding (Path)
 import Control.Monad
+import Control.Monad.Error
 import Control.Monad.Reader
 import Control.Monad.State hiding (State)
 import Data.Array
@@ -123,96 +122,13 @@ safeCast = impl minBound maxBound . toInteger
           | toInteger minb <= s && s <= toInteger maxb = fromInteger s
           | otherwise = error "internal: safeCast argument out of range"
 
-headf :: [a] -> (a -> a) -> [a]
-headf [] _     = error "headf: empty list"
-headf (x:xs) f = f x : xs
-
 floatRem :: (RealFrac a) => a -> a -> a
 floatRem x y = fromIntegral z
   where z :: Integer
         z = truncate x `rem` truncate y
 
-
 dbugM :: MonadIO m => String -> m ()
 dbugM = liftIO . putStrLn
-
-data Breakpoint
-  = CallExit
-  | Unsupported
-  deriving (Eq, Show)
-
-data ResumeAction sym
-  = NextInst
-  | CustomRA
-    { _craDesc :: String
-    , _craAct  :: Simulator sym (ResumeAction sym)
-    }
-
-instance Show (ResumeAction sym) where
-  show NextInst          = "(RA: next inst)"
-  show (CustomRA desc _) = desc
-
-
--- | Execute a simulation action; propagate any exceptions that occur so that
--- clients can deal with them however they wish.
-runSimulator ::
-  forall sym a . AigOps sym
-  => Backend sym -> SimulationFlags -> Codebase -> Simulator sym a -> IO a
-runSimulator sbe flags cb m = do
-    s <- newSimState flags cb sbe
-    evalStateT (runSM (stdOverrides >> m)) s `CE.catch` hsome sbe
-  where
-    hsome _ (e :: CE.SomeException) = do
-      let h :: (Show t, Typeable t, t ~ MonadTerm sym) => Maybe (SimulatorExc t)
-          h = CE.fromException e
-      case h of
-        Just (e'@(SimExtErr msg _ _)) -> do
-          CE.throw $
-            e'{ simExtErrMsg =
-                  "An error has occurred in the symbolic simulator:\n"
-                  ++ msg
-                  -- TODO: put some contact info here?
-              }
-        Just e'@(JavaException{}) -> do
-          error $ "runSimulator internal: uncaught Java exception: " ++ show (excRef e')
-        _ -> CE.throw e
-
-runDefSimulator :: AigOps sym => Backend sym -> Codebase -> Simulator sym a -> IO a
-runDefSimulator sbe cb m = runSimulator sbe defaultSimFlags cb m
-
-newSimState :: SimulationFlags -> Codebase -> Backend sym -> IO (State sym)
-newSimState flags cb sbe = do
-  true <- termBool sbe True
-  let ps = PathState
-             { _frames          = []
-             , _finalResult     = Unassigned
-             , _initialization  = M.empty
-             , _staticFields    = M.empty
-             , _instanceFields  = M.empty
-             , _arrays          = M.empty
-             , _refArrays       = M.empty
-             , _psAssumptions   = true
-             , _psAssertions    = []
-             , _pathStSel       = PSS 0
-             , _classObjects    = M.empty
-             , _startingPC      = 0
-             , _breakpoints     = S.empty
-             , _insnCount       = 0
-             }
-  return State
-    { _codebase          = cb
-    , _instanceOverrides = M.empty
-    , _staticOverrides   = M.empty
-      -- NB: Always start with one path state; startNewPath adds more
-    , _pathStates        = M.singleton (PSS 0) ps
-    , _mergeFrames = [mergeFrame [(PSS 0, NextInst)]]
-    , _nextPSS         = PSS 1
-    , _strings         = M.empty
-    , _nextRef         = 1
-    , _verbosity       = 1
-    , _simulationFlags = flags
-    , _backend = sbe
-    }
 
 -- | Override behavior of simulator when it encounters a specific instance
 -- method to perform a user-definable action.
@@ -240,9 +156,9 @@ overrideStaticMethod ::
 overrideStaticMethod cName mKey action = do
   s <- get
   let key = (cName, mKey)
-  when (key `M.member` staticOverrides s) $ do
+  when (key `M.member` staticOverrides s) $
     abort $ "Method " ++ cName ++ "." ++ methodKeyName mKey ++ " is already overridden."
-  put s { staticOverrides = M.insert key action (staticOverrides s) }
+  staticOverrides %= M.insert key action
 
 -- | Register all predefined overrides for builtin native implementations.
 stdOverrides :: AigOps sym => Simulator sym ()
@@ -467,266 +383,7 @@ stdOverrides = do
             runInstanceMethodCall cn meth this [RValue sr]
         )
 
---------------------------------------------------------------------------------
--- PathState and State selector functions
-
-onCurrPath :: ResumeAction sym -> Simulator sym ()
-onCurrPath ra = modifyMF $ \mf ->
-  CE.assert (not (null (nextPaths mf)))
-    mf { nextPaths = headf (nextPaths mf) $ \(path, _) -> (path, ra) }
-
--- | Split the current path (by duplicating it from the current path state), and
--- set the new path to be the next path executed after the current path.
-onNewPath :: (PrettyTerm (MonadTerm sym)) =>
-             ResumeAction sym -> Simulator sym ()
-onNewPath ra = do
-  ps     <- getPathState
-  mf     <- getMergeFrame
-  when (null (nextPaths mf)) $
-    CE.assert (case finalResult ps of Breakpoint{} -> True ; _ -> False) $ return ()
-  newPSS <- gets nextPSS
-  let newPS = ps{ finalResult = Unassigned
-                , pathStSel   = newPSS
-                , insnCount   = 0
-                }
-  newPS `seq`
-    modify $ \s ->
-      CE.assert (not (null (mergeFrames s))) $
-        s { nextPSS     = succ <$> newPSS
-          , pathStates  = M.insert newPSS newPS (pathStates s)
-          , mergeFrames = headf (mergeFrames s) $ \mf' ->
-              mf'{ nextPaths = nextPaths mf' ++ [(newPSS, ra)] }
-          }
-  whenVerbosity (>3) $ do
-    dbugM $ "Generated new path state: " ++ show newPSS
-    dumpPathStates
-  return ()
-
-onResumedPath :: (PrettyTerm (MonadTerm sym)) =>
-                 SymPath sym -> ResumeAction sym -> Simulator sym ()
-onResumedPath ps ra = do
-  newPSS <- gets nextPSS
-  case frames ps of
-    f : _ -> do
-      let newPS = ps { finalResult = Unassigned
-                     , pathStSel   = newPSS
-                     , startingPC  = frmPC f
-                     , insnCount   = 0
-                     }
-      newPS `seq`
-        modify $ \s ->
-          CE.assert (not (null (mergeFrames s))) $
-            s { nextPSS     = succ <$> newPSS
-              , pathStates  = M.insert newPSS newPS (pathStates s)
-              -- Note: there may be an issue here that the mergeFrames
-              -- at the time of resumption is not compatible with what
-              -- it was when encountering the breakpoint.
-              , mergeFrames = headf (mergeFrames s) $ \mf ->
-                  mf{ nextPaths = nextPaths mf ++ [(newPSS, ra)] }
-              }
-      whenVerbosity (>3) $ do
-        dbugM $ "Generated new path state: " ++ show newPSS
-        dumpPathStates
-      return ()
-    _ -> error "onResumedPath called on PathState with empty call stack"
-
-isPathFinished :: PathState m -> Bool
-isPathFinished ps =
-  case frames ps of
-    [] -> True
-    (f : _) -> S.member (frmClass f, methodKey (frmMethod f), frmPC f)
-                 (breakpoints ps) &&
-               -- Because breakpoints are typically used to cut loops,
-               -- a path involing a breakpoint may start and end at
-               -- the same instruction. So we don\'t want to terminate
-               -- it as soon as it starts.
-               (insnCount ps /= 0)
-  || case finalResult ps of
-       Unassigned -> False
-       _          -> True
-
--- | Add assumption to current path.
-assume :: AigOps sym => MonadTerm sym -> Simulator sym ()
-assume v = do
-  v' <- return v &&& psAssumptions <$> getPathState
-  modifyPathState $ \ps -> ps{ psAssumptions = v' }
-
-getPSS :: Simulator sym PathDescriptor
-getPSS = pathStSel <$> getPathState
-
--- | Run the given computation using the path referent of the given path
--- descriptor.  Assumes that no paths are already finished and that the given
--- path is the only path upon which execution of the computation occurs.
-withPathState :: PathDescriptor
-              -> (SymPath sym -> Simulator sym a)
-              -> Simulator sym a
-withPathState pd f = do
-  oldMergeFrames <- gets mergeFrames
-  modifyMF $ \mf -> mf{ finishedPaths = [], nextPaths = [(pd, NextInst)]}
-  rslt <- f =<< getPathState
-  modify $ \s -> s{ mergeFrames = oldMergeFrames }
-  return rslt
-
-getPathState :: Simulator sym (SymPath sym)
-getPathState = do
-  mf <- getMergeFrame
-  let getIt pss = getPathStateByName pss >>= \ps ->
-                    CE.assert (pathStSel ps == pss) (return ps)
-  case mf of
-    MergeFrame _ paths _ -> case paths of
-      [] -> do
-        -- Support access to path states on already-terminated paths, as our
-        -- test driver code does in some places, but ensure that the
-        -- finished path is unambiguous (i.e., there's only one after
-        -- filtering out exception paths).
-
-        finished <- snd <$> splitFinishedPaths
-        case finished of
-          [pss] -> getIt pss
-          []    -> error $ "getPathState: no next path or finished paths "
-                         ++ "in the active merge frame"
-          _     -> error $ "getPathState: no next path and have multiple "
-                         ++ " finished paths (merge failure?)"
-      ((pss,_):_) -> getIt pss
-
-getMergeFrame :: Simulator sym (MergeFrame sym)
-getMergeFrame = do
-  mfs <- gets mergeFrames
-  case mfs of
-    []     -> error "getMergeFrame: no merge frames"
-    (mf:_) -> return mf
-
--- | Returns the number of nextPaths remaining after merging the current path state
-terminateCurrentPath :: Simulator sym Int
-terminateCurrentPath = do
-  mf <- getMergeFrame
-  let mps = headMay . pendingPaths $ mf
-
-  whenVerbosity (>=5) $ do
-    dbugM $ "Terminating path " ++ show mps ++ " in current MF, and dumping merge frames:"
-    dumpMergeFrames
-
-  mergeCurrentPath
-
-  remaining <- length . pendingPaths <$> getMergeFrame
-
-  when (collapseOnAllFinished && remaining == 0) $ modify $ \s ->
-    s{ ctrlStk = case mergeFrames . ctrlStk $ s of
-      [_]      -> ctrlStk s
-      (mf:mfs) -> CE.assert (null (pendingPaths mf)) $
-                    CE.assert (not (null mfs)) $
-                      headf mfs $ \mf'' -> undefined                       
-                        -- mf''{ finishedPaths = finishedPaths mf
-                        --                       ++ finishedPaths mf''
-                        --   }
-      _ -> error "Empty MergeFrame list in terminateCurrentPath"
-     }
-  return remaining
-    <* (getMergeFrame >>= \_mf ->
-          whenVerbosity (>=4) $ do
-            dbugM $ "terminateCurrentPath (post): dumping merge frames"
-            dumpMergeFrames
-       )
-
--- | Register breakpoints at each of a list of (class, method, PC)
--- tuples.
-registerBreakpoints :: AigOps sym
-                    => [(String, MethodKey, PC)]
-                    -> Simulator sym ()
-registerBreakpoints bkpts = do
-  bkpts' <- mapM updateBreakpoint bkpts
-  modifyPathState (\ps -> ps { breakpoints = S.fromList bkpts' })
-  where updateBreakpoint (cl, mk, pc) = do
-          cb <- getCodebase
-          cls <- liftIO $ findVirtualMethodsByRef cb cl mk cl
-          case cls of
-            (cl' : _) -> return (cl', mk, pc)
-            [] -> error $
-                  "internal: method " ++ show (methodKeyName mk) ++
-                  "not found"
-
--- | Set the appropriate finalResult if we've stopped at a breakpoint.
--- assertion.
-handleBreakpoints :: Simulator sym ()
-handleBreakpoints = do
-  ps <- getPathState
-  case frames ps of
-    f : _ -> do
-      let pc = frmPC f
-      let meth = methodKey (frmMethod f)
-      when (S.member (frmClass f, meth, pc) (breakpoints ps)) $ do
-        whenVerbosity (>= 2) $ dbugM $ "Breaking at PC = " ++ show pc
-        modifyPathState (setFinalResult . Breakpoint $ pc)
-    _ -> return ()
-
-resumeBreakpoint :: PrettyTerm (MonadTerm sym)
-                 => SymPath sym
-                 -> Simulator sym ()
-resumeBreakpoint ps = onResumedPath ps NextInst
-
-getPathStateByName :: PathDescriptor -> Simulator sym (SymPath sym)
-getPathStateByName n = do
-  mps <- lookupPathStateByName n
-  case mps of
-    Nothing -> error $ "internal: pss not in pathstate list: " ++ show n
-    Just ps -> return ps
-
-lookupPathStateByName :: PathDescriptor
-                      -> Simulator sym (Maybe (SymPath sym))
-lookupPathStateByName n = M.lookup n . pathStates <$> get
-
-putPathState :: SymPath sym -> Simulator sym ()
-putPathState ps = ps `seq` do
-  pss <- getPSS
-  -- never permit selector tweaking
-  CE.assert (pathStSel ps == pss) $ return ()
-  modify $ \s -> s{ pathStates = M.insert pss ps (pathStates s) }
-
-modifyPathState :: (SymPath sym -> SymPath sym)
-                -> Simulator sym ()
-modifyPathState f = f <$> getPathState >>= putPathState
-
--- | (updateFrame fn) replaces the top frame (head f) in the current
--- path state with (fn (head f)).
-updateFrame :: (Frame (MonadTerm sym) -> Frame (MonadTerm sym))
-            -> Simulator sym ()
-updateFrame fn = {-# SCC "uF" #-} do
-  ps <- getPathState
-  case frames ps of
-    top : rest -> do
-      let newTop = fn top
-          ps' = newTop `seq` ps{ frames = newTop : rest }
-      ps' `seq` putPathState ps'
-    _ -> error "internal: updateFrame: frame list is empty"
-
-pushFrame :: Frame (MonadTerm sym) -> Simulator sym ()
-pushFrame call = do
-  -- Allow an unambiguous finished path to be "reactivated" whenever a new frame
-  -- is pushed.
---   dumpFrameInfo
-  modifyMF $ \mf ->
-    case (nextPaths mf, finishedPaths mf) of
-      ([], [unambig]) -> mf { finishedPaths = []
-                            , nextPaths     = [(unambig, NextInst)]
-                            }
-      _ -> mf
-  -- Push the new Java frame record
-  modifyPathState $ \ps -> ps{ frames = call : frames ps }
-  -- Push the "merge frame" record
-  modify $ \s -> s { mergeFrames = pushMF (mergeFrames s) }
-  where
-    pushMF (currMF:mfs) =
-      -- Migrate the currently executing path out of the active merge frame and
-      -- and onto the merge frame for the new call.
-      case nextPaths currMF of
-        ((currPath,_):rest) ->
-          mergeFrame [(currPath, NextInst)]
-          :currMF{ nextPaths = rest }
-          : mfs
-        _ -> error "pushFrame: no current path"
-    pushMF _ = error "pushFrame: empty MergeFrame stack"
-
-
+{-
 -- (pushCallFrame st m vals) pushes frame to the stack for PC 0.
 pushCallFrame :: String
               -> Method
@@ -739,6 +396,7 @@ pushCallFrame name method vals = pushFrame call
     setupLocal (n, acc) v@LValue{} = (n + 2, (n, v) : acc)
     setupLocal (n, acc) v@DValue{} = (n + 2, (n, v) : acc)
     setupLocal (n, acc) v          = (n + 1, (n, v) : acc)
+-}
 
 -- | Returns a new reference value with the given type, but does not
 -- initialize and fields or array elements.
@@ -1427,57 +1085,8 @@ instance (AigOps sym) => JavaSemantics (Simulator sym) where
         pushStaticMethodCall (className cl) method args
       [] -> error $ "Could not find static method " ++ show key ++ " in " ++ cName
 
-stepCommon :: AigOps sym => Simulator sym a -> Simulator sym a -> Simulator sym a
-stepCommon onOK onException = do
-  method <- getCurrentMethod
-  pc     <- getPc
-  let inst    = lookupInstruction method pc
-      dbugFrm = whenVerbosity (>=5) $ do
-                  frms <- frames <$> getPathState
-                  case frms of
-                    []      -> dbugM $ "  (no frame)"
-                    (frm:_) -> dbugM ("  " ++ ppFrame frm)
-      count = modifyPathState $ \ps -> ps { insnCount = insnCount ps + 1 }
-  whenVerbosity (>=2) $ do
-    pss <- getPSS
-    dbugM $ "Executing (" ++ show pss ++ ") " ++ show pc ++ ": " ++ ppInst inst
-
-  withTopPending $ \path -> do
-    step inst
-    count
-    dbugFrm
-    onOK
-
 --------------------------------------------------------------------------------
 -- Path state merging
-
-doMerge :: AigOps sym => String -> String -> Simulator sym ()
-doMerge _clNm _methNm = do
-  mergeCurrentPath
-  mf <- popMF
-  case mf^.mergedState of
-    PathState path -> do
-      modifyMF $ pending %~ ((path, NextInst) :)
-      whenVerbosity (>=5) $ do
-        dbugM $ "doMerge: post-merge merge frames:"
-        dumpMergeFrames
-    _ -> simErrRsn "doMerge: unsupported breakpoint type"
-
-mergeCurrentPath :: AigOps sym => Simulator sym ()
-mergeCurrentPath = withTopMF $ \mf ->
-  case mf^.pending of
-    []     -> simErrRsn "mergeCurrentPaths: no paths"
-    (p:ps) -> do
-        modifyMF $ pending .~ ps
-        mms <- case mergedState mf of
-                 Nothing -> return . Just . PathState p
-                 Just (PathState p') -> merge p' p
-        case mms of
-          Nothing -> modify $ \s -> s { errorPaths = EP p : errorPaths s }
-          Just ms' -> do
-            modifyMF $ mergedState .~ ms'
-            whenVerbosity (>=3) $ do
-              dbugM $ "Merging " ++ show p
 
 data MergePrecond
   = ArraySizesMatch
@@ -1548,7 +1157,7 @@ merge from@PathState{ finalResult = fromFR } to@PathState{ finalResult = toFR } 
           locals <- view (frame.frmLocals) `mergeBy` mergeV
           opds   <- zipWithM mergeV (frmOpds frm1) (frmOpds frm2)
           return $ frm2 & frmLocals .~ locals & frmOpds .~ opds
-        _ -> simErrRsn "frame mismatch (uncaught merge precondition violation?)"
+        _ -> fail "frame mismatch (uncaught merge precondition violation?)"
     --
     mergeRVs = do
       assert (not (isBkpt fromFR || isBkpt toFR))
@@ -1742,15 +1351,16 @@ drefString strRef = do
   Just ty       <- typeOf strRef
   assert (ty == stringTy)
 
-  iflds <- instanceFields <$> getPathState
-  let lkup   = (`M.lookup` iflds) . (,) strRef
+  p <- peekPending "drefString"
+  let iflds  = p^.instanceFields
+      lkup   = (`M.lookup` iflds) . (,) strRef
       fldIds = [ FieldId "java/lang/String" "value"  (ArrayType CharType)
                , FieldId "java/lang/String" "count"  IntType
                , FieldId "java/lang/String" "offset" IntType
                ]
   case mapMaybe lkup fldIds of
     [RValue arrRef, IValue cnt, IValue off] -> do
-      chars <- getPSS >>= \pd -> getIntArray pd arrRef
+      chars <- getIntArray p arrRef
       sbe <- gets backend
       when (any (not . isJust . asInt sbe) $ cnt:off:chars) $
         abort "Unable to dereference symbolic strings"
@@ -1774,8 +1384,8 @@ newClass cname = do
 -- @Class@
 getClassName :: AigOps sym => Ref -> Simulator sym String
 getClassName classRef@(Ref _ (ClassType "java/lang/Class")) = do
-  pd <- getPSS
-  drefString =<< unRValue <$> getInstanceFieldValue pd classRef
+  p <- peekPending "getClassName"
+  drefString =<< unRValue <$> getInstanceFieldValue p classRef
                                 (FieldId "java/lang/Class" "name" stringTy)
 getClassName _ = error "getClassName: wrong argument type"
 
@@ -1813,17 +1423,14 @@ newSymbolicArray tp@(ArrayType eltType) cnt arr = do
   r <- genRef tp
   sbe <- gets backend
   tcnt <- liftIO $ termInt sbe cnt
-  modifyPathState $ \ps ->
-    ps { arrays = M.insert r (tcnt, arr) (arrays ps) }
+  modifyPending $ arrays %~ M.insert r (tcnt, arr)
   return r
-newSymbolicArray _ _ _ = simErrRsn "internal: newSymbolicArray called with invalid type"
+newSymbolicArray _ _ _ = fail "internal: newSymbolicArray called with invalid type"
 
 -- | Returns length and symbolic value associated with array reference,
 -- and nothing if this is not an array reference.
 getSymbolicArray :: Ref -> Simulator sym (Maybe (MonadTerm sym, MonadTerm sym))
-getSymbolicArray r = do
-  ps <- getPathState
-  return $ M.lookup r (arrays ps)
+getSymbolicArray r = M.lookup r . view arrays <$> peekPending
 
 -- | Sets integer or long array to use using given update function.
 -- TODO: Revisit what error should be thrown if ref is not an array reference.
@@ -1836,12 +1443,12 @@ updateSymbolicArray :: Ref
                     -> (Backend sym -> MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym))
                     -> Simulator sym ()
 updateSymbolicArray r modFn = do
-  ps <- getPathState
-  let (len,arr) = maybe (error "internal: reference is not a symbolic array") id
-                      $ M.lookup r (arrays ps)
-  sbe <- gets backend
-  newArr <- liftIO $ modFn sbe len arr
-  putPathState ps{ arrays = M.insert r (len, newArr) (arrays ps) }
+  withPoppedPending_ "updateSymbolicArray" $ \ps -> do
+    let (len,arr) = maybe (error "internal: reference is not a symbolic array") id
+                        $ M.lookup r (arrays ps)
+    sbe <- gets backend
+    newArr <- liftIO $ modFn sbe len arr
+    return $ ps & arrays %~ M.insert r (len, newArr)
 
 -- | @newIntArray arTy terms@ produces a reference to a new array of type
 -- @arTy@ and populated with given @terms@.
@@ -1876,41 +1483,39 @@ newLongArray values = do
   newSymbolicArray (ArrayType LongType) (safeCast (length values)) arr
 
 -- | Returns array length at given index in path.
-getArrayLength :: AigOps sym => PathDescriptor -> Ref -> Simulator sym (MonadTerm sym)
-getArrayLength pd ref = do
-  ps <- getPathStateByName pd
+getArrayLength :: AigOps sym => SymPath sym -> Ref -> Simulator sym (MonadTerm sym)
+getArrayLength p ref = do
   ArrayType tp <- getType ref
   if isRValue tp then do
     sbe <- gets backend
-    let Just arr = M.lookup ref (refArrays ps)
+    let Just arr = M.lookup ref (refArrays p)
     liftIO $ termInt sbe (1 + snd (bounds arr))
   else do
-    let Just (len,_) = M.lookup ref (arrays ps)
+    let Just (len,_) = M.lookup ref (arrays p)
     return len
 
 -- | Returns value in array at given index.
 getArrayValue :: AigOps sym
-              => PathDescriptor
+              => SymPath sym
               -> Ref
               -> MonadTerm sym
               -> Simulator sym (Value' sym)
-getArrayValue pd r idx = do
-  ps <- getPathStateByName pd
+getArrayValue p r idx = do
   ArrayType tp <- getType r
   sbe <- gets backend
   if isRValue tp then do
-    let Just arr = M.lookup r (refArrays ps)
+    let Just arr = M.lookup r (refArrays p)
     case asInt sbe idx of
       Just i -> return $ RValue (arr ! fromIntegral i)
       _ -> abort "Not supported: symbolic indexing into arrays of references."
   else if tp == LongType then
     liftIO $ do
-      let Just (l,rslt) = M.lookup r (arrays ps)
+      let Just (l,rslt) = M.lookup r (arrays p)
       LValue <$> termGetLongArray sbe l rslt idx
   else do
     assert (isIValue tp)
     liftIO $ do
-      let Just (l,rslt) = M.lookup r (arrays ps)
+      let Just (l,rslt) = M.lookup r (arrays p)
       IValue <$> termGetIntArray sbe l rslt idx
 
 -- | Returns values in an array at a given reference, passing them through the
@@ -1958,27 +1563,25 @@ getType :: AigOps sym => Ref -> Simulator sym Type
 getType NullRef    = throwNullPtrExc
 getType (Ref _ tp) = return tp
 
-getInstanceFieldValue :: PathDescriptor
+getInstanceFieldValue :: SymPath
                       -> Ref
                       -> FieldId
                       -> Simulator sym (Value (MonadTerm sym))
-getInstanceFieldValue pd ref fldId = do
-  ps <- getPathStateByName pd
-  case M.lookup (ref, fldId) (instanceFields ps) of
+getInstanceFieldValue p ref fldId = do
+  case M.lookup (ref, fldId) (instanceFields p) of
     Just v   -> return v
-    Nothing  -> error $ "getInstanceFieldValue: instance field " ++
-                        show fldId ++ " does not exist"
+    Nothing  -> fail $ "getInstanceFieldValue: instance field " ++
+                       show fldId ++ " does not exist"
 
 getStaticFieldValue :: AigOps sym
-                    => PathDescriptor
+                    => SymPath sym
                     -> FieldId
                     -> Simulator sym (Value (MonadTerm sym))
-getStaticFieldValue pd fldId = do
-  ps <- getPathStateByName pd
+getStaticFieldValue p fldId = do
   cb <- getCodebase
   withSBE $ \sbe -> do
     cl <- lookupClass cb (fieldIdClass fldId)
-    case M.lookup fldId (staticFields ps) of
+    case M.lookup fldId (staticFields p) of
       Just v  -> return v
       Nothing -> do
         assert (validStaticField cl) 
@@ -2035,15 +1638,7 @@ _dumpFrameInfo = do
 abort :: AigOps sym => String -> Simulator sym a
 abort msg = do
   whenVerbosity (>=5) $ dbugM $ "abort invoked w/ msg:\n--\n" ++ msg ++ "\n--\n"
-  throwExternal msg
-
-
-throwExternal ::
-  AigOps sym
-  => String
-  -> Simulator sym a
-throwExternal msg = do
-  liftEitherT . Err.left . ErrorPathExc (FailRsn msg) <$> get
+  throwError . strMsg $ msg
 
 ppExcMsg :: PathDescriptor -> String -> String
 ppExcMsg n s = "(On path " ++ show n ++ "):\n" ++ s
