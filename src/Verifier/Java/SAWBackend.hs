@@ -13,6 +13,7 @@ import qualified Data.Map as Map
 import Verifier.SAW
 import Verifier.Java.Backend
 
+
 instance PrettyTerm (SharedTerm s) where
 instance Show (SharedTerm s) where
 instance Typeable (SharedTerm s) where
@@ -21,13 +22,9 @@ instance AigOps (SharedContext s) where
 
 type instance MonadTerm (SharedContext s) = SharedTerm s
 
-standardPrelude :: Module
-standardPrelude = 
-
 withFreshBackend :: (Backend (SharedContext s) -> IO a) -> IO a
-withFreshBackend f = do 
-  mkSharedContext
-  f undefined
+withFreshBackend f =
+  f =<< uncurry sawBackend =<< mkSharedContext preludeModule
 
 sawBackend :: SharedContext s
               -- Maps symbol names to the term.
