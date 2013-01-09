@@ -37,20 +37,12 @@ library
   build-depends:
       array
     , base >= 4
-    , binary
-    , bytestring
     , containers
-    , data-binary-ieee754
     , directory
-    , executable-path
-    , fingertree
     , filepath
     , jvm-parser >= 0.2
     , mtl >= 2.1
-    , pretty
     , vector >= 0.7
-    , zlib
-    , random
     , Verinf >= 0.2
     , lens >= 3.6
 
@@ -90,23 +82,15 @@ executable jss
   build-depends:
       array
     , base >= 4
-    , binary
-    , bytestring
     , cmdargs >= 0.6.1
     , containers
-    , data-binary-ieee754
     , directory
     , executable-path
     , filepath
-    , fingertree
-    , jvm-parser
     , jvm-verifier
     , mtl >= 2.1
     , parsec
-    , pretty
     , vector >= 0.7
-    , zlib
-    , Verinf
 
   other-modules:
     Overrides
@@ -128,7 +112,6 @@ executable jvmgraph
     , cmdargs
     , pretty
     , jvm-parser
-    , jvm-verifier
    
   hs-source-dirs : jvmgraph
   main-is : Main.hs
@@ -142,32 +125,22 @@ executable sawScript
     buildable: False
 
   build-depends:
-      array
-    , base >= 4
-    , binary
-    , bytestring
+      base >= 4
+    , array
     , cmdargs >= 0.6.1
     , containers
-    , data-binary-ieee754
     , deepseq >= 1.1.0.2
     , directory
-    , executable-path
     , fgl
     , filepath
-    , fingertree
-    , jvm-parser
     , jvm-verifier
-    , monadLib
     , mtl >= 2.1
     , old-locale >= 1.0.0.2
     , old-time >= 1.0.0.3
     , parsec
-    , process
     , pretty
-    , random
     , smtLib
     , vector >= 0.7
-    , zlib
     , Verinf
 
   build-tools:
@@ -197,23 +170,16 @@ executable Tests
     buildable: False
 
   build-depends: 
-      array
-    , base >= 4
-    , binary
-    , bytestring
+       base >= 4
+    , array
     , containers
-    , data-binary-ieee754
     , directory
-    , executable-path
     , filepath
-    , fingertree
     , jvm-parser
     , mtl >= 2.1
-    , pretty
     , process
     , random >= 1.0.1.0
     , vector >= 0.7
-    , zlib
     , QuickCheck >= 2.4.1
     , Verinf
 
@@ -227,22 +193,15 @@ executable ExampleAIG
     buildable: False
 
   build-depends:
-      array
-    , base >= 4
-    , binary
-    , bytestring
+      base >= 4
+    , array
     , containers
-    , data-binary-ieee754
     , directory
-    , executable-path
-    , fingertree
     , filepath
     , jvm-parser
     , mtl >= 2.1
-    , pretty
     , random >= 1.0.1.0
     , vector >= 0.7
-    , zlib
     , QuickCheck >= 2.4.1
     , Verinf
 
