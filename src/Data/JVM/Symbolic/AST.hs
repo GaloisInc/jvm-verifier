@@ -15,8 +15,14 @@ import qualified Language.JVM.Parser as J
 
 data BlockId = BlockId { blockId :: !CFG.BBId, blockN :: !Int }
 
+ppPC :: J.PC -> Doc
+ppPC = int . fromIntegral
+
 ppBlockId :: BlockId -> Doc
-ppBlockId (BlockId b n) = CFG.ppBBId b <> "." <> int n
+ppBlockId (BlockId bbid n) = case bbid of
+    CFG.BBId pc   -> "%" <> ppPC pc <> "." <> int n
+    CFG.BBIdEntry -> "%entry." <> int n
+    CFG.BBIdExit  -> "%exit." <> int n
 
 -- | Different types of invocations
 data InvokeType
@@ -36,7 +42,7 @@ ppInvokeType it = case it of
 type MergeLocation = Maybe BlockId
 
 -- | Symbolic instructions
-data SymStmt
+data SymInsn
   -- | @PushInvokeFrame it ty key pc@ pushes a invoke frame to the merge
   -- frame stack that will call @ty.k@. The calling method will resume
   -- execution at @pc@
@@ -53,7 +59,7 @@ data SymStmt
   -- control stack, and the false branch (@elseStmts@) are
   -- executed. @ml@ is the control point where the branched paths
   -- should merge.
-  | PushPendingExecution BlockId SymCond MergeLocation [SymStmt]
+  | PushPendingExecution BlockId SymCond MergeLocation [(Maybe J.PC, SymInsn)]
   -- | Sets the block to the given location. This may trigger a merge
   -- if the location is a @MergeLocation@.
   | SetCurrentBlock BlockId
@@ -62,8 +68,8 @@ data SymStmt
   -- | Any other non-control-flow instruction. Stepped normally.
   | NormalInsn J.Instruction
 
-ppSymStmt :: SymStmt -> Doc
-ppSymStmt stmt = case stmt of
+ppSymInsn :: SymInsn -> Doc
+ppSymInsn stmt = case stmt of
     PushInvokeFrame it ty key bid -> 
         "pushInvokeFrame" <+> ppInvokeType it
         <+> J.ppType ty <> "." <> J.ppMethodKey key
@@ -75,7 +81,7 @@ ppSymStmt stmt = case stmt of
     PushPendingExecution bid c ml elseStmts ->
         "pushPendingExecution" <+> ppBlockId bid <+> ppSymCond c
         <+> "merge" <+> maybe "return" ppBlockId ml
-        $+$ vcat (map ppSymStmt elseStmts)
+        $+$ vcat (map (ppSymInsn . snd) elseStmts)
     SetCurrentBlock bid ->
         "setCurrentBlock" <+> ppBlockId bid
     BadInsn insn ->
