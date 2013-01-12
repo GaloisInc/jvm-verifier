@@ -41,18 +41,19 @@ library
     , directory
     , filepath
     , jvm-parser >= 0.2
+    , lens >= 3.6
     , mtl >= 2.1
     , vector >= 0.7
     , Verinf >= 0.2
-    , lens >= 3.6
 
   hs-source-dirs: src
 
   exposed-modules:
+    Data.JVM.Symbolic.AST
+    Data.JVM.Symbolic.Translation
     Verifier.Java.Backend
     Verifier.Java.Codebase
     Verifier.Java.Simulator
-    Verifier.Java.SymTranslation
     Verifier.Java.Utils
  
   other-modules:
