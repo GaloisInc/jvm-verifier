@@ -40,6 +40,10 @@ data SymBlock = SymBlock {
     sbId :: BlockId
   , sbInsns :: [(Maybe PC, SymInsn)]
   }
+  deriving (Eq)
+
+instance Ord SymBlock where
+  compare (SymBlock { sbId = x }) (SymBlock { sbId = y }) = compare x y
 
 ppSymBlock :: SymBlock -> Doc
 ppSymBlock SymBlock { sbId, sbInsns } =
