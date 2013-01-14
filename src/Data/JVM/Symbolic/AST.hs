@@ -79,9 +79,9 @@ ppSymInsn stmt = case stmt of
     ReturnVal ->
         "returnVal"
     PushPendingExecution bid c ml elseStmts ->
-        "pushPendingExecution" <+> ppBlockId bid <+> ppSymCond c
-        <+> "merge" <+> maybe "return" ppBlockId ml
-        $+$ vcat (map (ppSymInsn . snd) elseStmts)
+        "pushPendingExecution" <+> ppBlockId bid <+> brackets (ppSymCond c)
+        <+> brackets ("merge at" <+> maybe "return" ppBlockId ml)
+        $+$ nest 2 (brackets . commas . map (ppSymInsn . snd) $ elseStmts)
     SetCurrentBlock bid ->
         "setCurrentBlock" <+> ppBlockId bid
     BadInsn insn ->

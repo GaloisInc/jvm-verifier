@@ -5,6 +5,7 @@ Stability        : experimental
 Point-of-contact : atomb, acfoltzer
 -}
 
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Data.JVM.Symbolic.Translation
   ( liftBB
@@ -39,6 +40,14 @@ data SymBlock = SymBlock {
     sbId :: BlockId
   , sbInsns :: [(Maybe PC, SymInsn)]
   }
+
+ppSymBlock :: SymBlock -> Doc
+ppSymBlock SymBlock { sbId, sbInsns } =
+    ppBlockId sbId <> colon $+$ nest 2 insns
+  where insns = foldr ($+$) mempty 
+                  [ maybe "%" ppPC pc <> colon <+> ppSymInsn insn 
+                  | (pc, insn) <- sbInsns 
+                  ]
 
 type SymTransWarning = Doc
 
