@@ -14,6 +14,7 @@ import qualified Language.JVM.Common as J
 import qualified Language.JVM.Parser as J
 
 data BlockId = BlockId { blockId :: !CFG.BBId, blockN :: !Int }
+  deriving (Eq, Ord)
 
 ppPC :: J.PC -> Doc
 ppPC = int . fromIntegral
@@ -30,6 +31,7 @@ data InvokeType
   | InvSpecial
   | InvStatic
   | InvVirtual
+  deriving (Eq)
 
 ppInvokeType :: InvokeType -> Doc
 ppInvokeType it = case it of
@@ -67,6 +69,7 @@ data SymInsn
   | BadInsn J.Instruction
   -- | Any other non-control-flow instruction. Stepped normally.
   | NormalInsn J.Instruction
+  deriving (Eq)
 
 ppSymInsn :: SymInsn -> Doc
 ppSymInsn stmt = case stmt of
@@ -106,6 +109,7 @@ data SymCond
   -- | @Compare ty@ holds if the given comparison is true between the
   -- top element of the stack and the next-to-top element.
   | Compare CmpType
+  deriving (Eq)
 
 ppSymCond :: SymCond -> Doc
 ppSymCond c = case c of 
@@ -126,6 +130,7 @@ data CmpType
   | GE
   | GT
   | LE
+  deriving (Eq)
 
 ppCmpType :: CmpType -> Doc
 ppCmpType cmp = case cmp of
