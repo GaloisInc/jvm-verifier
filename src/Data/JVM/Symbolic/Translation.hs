@@ -96,11 +96,11 @@ liftBB cfg bb = do
                 is' -> warn $ "instructions remain after" <+> ppInstruction i
                        $+$ (brackets . commas . map (ppInstruction . snd) $ is)
         in case i of
-          Areturn -> retVal pc i currId il
-          Dreturn -> retVal pc i currId il
-          Freturn -> retVal pc i currId il
-          Lreturn -> retVal pc i currId il
-          Ireturn -> retVal pc i currId il
+          Areturn -> retVal pc currId il
+          Dreturn -> retVal pc currId il
+          Freturn -> retVal pc currId il
+          Lreturn -> retVal pc currId il
+          Ireturn -> retVal pc currId il
           Return -> retVoid pc currId il
           Invokeinterface n k -> do
             defineBlock currId $ reverse
@@ -158,9 +158,8 @@ liftBB cfg bb = do
           (si (NormalInsn (Ldc (Integer 0))) : il)
       -- return instructions are still there to push the value on the stack,
       -- but do the ReturnVal actually pops the frame
-      retVal pc i currId il =
-        defineBlock currId $
-        reverse (si ReturnVal : (Just pc, NormalInsn i) : il)
+      retVal pc currId il =
+        defineBlock currId $ reverse (si ReturnVal : il)
       retVoid pc currId il =
         defineBlock currId $ reverse (si ReturnVoid : il)
       switch :: BlockId 
