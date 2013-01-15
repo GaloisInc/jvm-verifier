@@ -154,34 +154,6 @@ data Path term = Path {
   -- ^ The number of instructions executed so far on this path.
   }
 
-data MergeFrame sbe
-  = ExitMergeFrame (ExitFrame sbe)
-  | PostdomMergeFrame (PostdomFrame sbe)
-  | ReturnMergeFrame (ReturnFrame sbe)
-
-data ExitFrame sbe = ExitFrame {
-       _efMergedState  :: MergedState sbe
-     , _efPending      :: [SymPath sbe]     
-     }  
-
-data PostdomFrame sbe = PostdomFrame { 
-       _pdfMergedState :: MergedState sbe
-     , _pdfPending     :: [SymPath sbe]
-     , _pdfMethod      :: Method
-     }
-
-data ReturnFrame sbe = ReturnFrame {
-       _rfMethod        :: Method
-     , _rfFrame         :: Frame sbe        -- ^ Call frame for path when it arrives.
-     , _rfIsVoid        :: Bool             -- ^ Whether to store a return value afterwards
-     , _rfNormalState   :: MergedState sbe  -- ^ Merged state after function call return.
-     , _rfPending       :: [SymPath sbe]
-     }
-
-data MergedState sbe 
-  = EmptyState sbe
-  | PathState (SymPath sbe)
-
 data Frame term
   = Call {
       _frmClass  :: !String                               -- Name of current class that
@@ -251,9 +223,6 @@ instance Ord Ref where
   _ `compare` NullRef = GT
   (Ref x _) `compare` (Ref y _) = x `compare` y
 
-makeLenses ''ExitFrame
-makeLenses ''PostdomFrame
-makeLenses ''ReturnFrame
 makeLenses ''State
 makeLenses ''Path
 makeLenses ''Frame
@@ -392,31 +361,6 @@ ppPSS n = "Path #" ++ show n
 ppMethod :: Method -> Doc
 ppMethod = text . methodKeyName . methodKey
 
--- TODO: better pretty-printing
-ppMergeFrame :: forall sbe. MergeFrame sbe -> Doc
-ppMergeFrame mf = case mf of
-  ExitMergeFrame ef ->
-    text "MF(Exit):"
-    $+$ nest 2 (ef^.efPending.to ppPendingPaths)
-  PostdomMergeFrame pdf ->
-    text "MF(Pdom|" <> pdf^.pdfMethod.to ppMethod <> text "):"
-    $+$ nest 2 (pdf^.pdfMergedState.to (mpath ""))
-    $+$ nest 2 (pdf^.pdfPending.to ppPendingPaths)
-  ReturnMergeFrame rf ->
-    text "MF(Retn):" $+$ nest 2 rest
-      where
-        rest = text "Normal" <+> text "~>" <+> rf^.rfMethod.to ppMethod <> colon
-               $+$ nest 2 (rf^.rfNormalState.to (mpath "no normal-return merged state set"))
-               $+$ rf^.rfPending.to ppPendingPaths
-  where
-    mpath :: String -> MergedState sbe -> Doc
-    mpath str (EmptyState _) = parens $ text ("Merged: " ++ str)
-    mpath _ (PathState p) = ppPath p
-    ppPendingPaths :: [Path term] -> Doc
-    ppPendingPaths pps =
-      text "Pending paths:"
-      $+$ nest 2 (if null pps then text "(none)" else vcat (map ppPath pps))
-
 instance LogMonad (Simulator sbe m) where
   getVerbosity = use verbosity
   setVerbosity = assign verbosity
@@ -427,54 +371,5 @@ ppState s = hang (text "state" <+> lbrace) 2 (s^.ctrlStk.to ppCS) $+$ rbrace
 ppCS :: CS sbe -> Doc
 ppCS cs = undefined
 
-
 ppPath :: Path term -> Doc
 ppPath = undefined
-
-{-
-instance (PrettyTerm (MonadTerm sbe)) => Show (State sbe) where
-  show s = intercalate "\n" (["{ begin ctrlstk "] ++ (map ppMergeFrame . mergeFrames $ ctrlStk s) ++ ["end pathstates }"])
-             ++ "\nNext Ref: " ++ show (nextRef s)
--}
-
-mfGetting e _ _ (ExitMergeFrame ef)     = view e ef
-mfGetting _ p _ (PostdomMergeFrame pdf) = view p pdf
-mfGetting _ _ r (ReturnMergeFrame rf)   = view r rf
-
-mfSetting e _ _ (ExitMergeFrame ef)     v = ExitMergeFrame    (set e v ef)
-mfSetting _ p _ (PostdomMergeFrame pdf) v = PostdomMergeFrame (set p v pdf)
-mfSetting _ _ r (ReturnMergeFrame rf)   v = ReturnMergeFrame  (set r v rf)
-
-class HasPending t s | t -> s where
-  pending :: Simple Lens t [SymPath s]
-
-instance HasPending (ExitFrame sbe) sbe where
-  pending = efPending
-
-instance HasPending (PostdomFrame sbe) sbe where
-  pending = pdfPending
-
-instance HasPending (ReturnFrame sbe) sbe where
-  pending = rfPending
-
-instance HasPending (MergeFrame sbe) sbe where
-  pending = lens view' set'
-    where view' = mfGetting pending pending pending
-          set'  = mfSetting pending pending pending
-
-class HasMergedState t s | t -> s where
-  mergedState :: Simple Lens t (MergedState s)
-
-instance HasMergedState (ExitFrame sbe) sbe where
-  mergedState = efMergedState
-
-instance HasMergedState (PostdomFrame sbe) sbe where
-  mergedState = pdfMergedState
-
-instance HasMergedState (ReturnFrame sbe) sbe where
-  mergedState = rfNormalState
-
-instance HasMergedState (MergeFrame sbe) sbe where
-  mergedState = lens view' set'
-    where view' = mfGetting mergedState mergedState mergedState
-          set'  = mfSetting mergedState mergedState mergedState
