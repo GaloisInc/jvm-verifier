@@ -11,6 +11,7 @@ Point-of-contact : acfoltzer
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -42,24 +43,29 @@ import Verifier.Java.Codebase (Codebase, FieldId(..), LocalVariableIndex, Method
 import Verinf.Utils.LogMonad
 
 -- A Simulator is a monad transformer around a symbolic backend
-newtype Simulator sym m a = 
-  SM { runSM :: ErrorT (InternalExc sym m) (StateT (State sym m) IO) a }
+newtype Simulator sbe m a = 
+  SM { runSM :: ErrorT (InternalExc sbe m) (StateT (State sbe m) IO) a }
   deriving 
     ( Functor
     , Applicative
     , Monad
     , MonadIO
-    , MonadState (State sym m)
-    , MonadError (InternalExc sym m)
+    , MonadState (State sbe m)
+    , MonadError (InternalExc sbe m)
     )
 
-data State sym m = State {
+-- | Overrides for instance methods
+type InstanceOverride sbe m = Ref -> [Value' sbe m] -> Simulator sbe m ()
+-- | Overrides for static methods
+type StaticOverride sbe m = [Value' sbe m] -> Simulator sbe m ()
+
+data State sbe m = State {
     _codebase          :: !Codebase
-  , _instanceOverrides :: !(Map (String, MethodKey) (Ref -> [Value' sym m] -> Simulator sym m ()))
+  , _instanceOverrides :: !(Map (String, MethodKey) (InstanceOverride sbe m))
     -- ^ Maps instance method identifiers to a function for executing them.
-  , _staticOverrides   :: !(Map (String, MethodKey) ([Value' sym m] -> Simulator sym m ()))
+  , _staticOverrides   :: !(Map (String, MethodKey) (StaticOverride sbe m))
     -- ^ Maps static method identifiers to a function for executing them.
-  , _ctrlStk           :: CtrlStk sym
+  , _ctrlStk           :: CS sbe
     -- ^ Auxiliary data structures for tracking execution and merging of
     -- multiple paths within a single frame.  Currently, there is a 1-1
     -- correspondence between each MergeFrame and its corresponding Frame (i.e.,
@@ -70,12 +76,12 @@ data State sym m = State {
   , _nextRef           :: !Word32 -- ^ Next index for constant ref.
   , _verbosity         :: Int
   , _simulationFlags   :: SimulationFlags
-  , _backend           :: Backend sym
-  , _errorPaths        :: [ErrorPath sym]
+  , _backend           :: Backend sbe
+  , _errorPaths        :: [ErrorPath sbe]
   }
 
 type Value term   = AtomicValue Double Float term term Ref
-type Value' sym m = JSValue (Simulator sym m)
+type Value' sbe m = JSValue (Simulator sbe m)
 
 -- Address in heap
 data Ref
@@ -83,10 +89,31 @@ data Ref
   | Ref !Word32 !Type
   deriving (Show)
 
-newtype CtrlStk sym = CtrlStk { _mergeFrames :: [MergeFrame sym] }
+-- | First-order continuations for the symbolic simulation.
+data SimCont sbe
+  -- | Empty continuation: there are no remaining paths to run
+  = EmptyCont
+  -- | Continuation after finishing a path for the @else@ of a branch;
+  -- starts running the @then@ branch
+  | BranchRunTrue (MonadTerm sbe) -- ^ Branch condition
+                  (Path sbe)      -- ^ Path to run for @then@ branch
+                  (SimCont sbe)   -- ^ Next continuation
+  -- Continuation after finishing a path for the @then@ of a branch;
+  -- merges with finished @else@ path
+  | BranchMerge   (MonadTerm sbe) -- ^ Assertions before merge
+                  (MonadTerm sbe) -- ^ Branch condition
+                  (Path sbe)      -- ^ Completed @else@ branch
+                  (SimCont sbe)   -- ^ Next continuation
 
-emptyCtrlStk :: CtrlStk sym
-emptyCtrlStk = CtrlStk []
+-- | A control stack 'CS' is a stack of first-order continuations. It
+-- represents either a computation with no work remaining, or a pair
+-- of the current path and its continuation.
+data CS sbe 
+  -- | A completed computation, potentially with a successful result path
+  = CompletedCS (Maybe (Path sbe))
+  -- | An active computation with remaining continuations
+  | ActiveCS (Path sbe)    -- ^ The active path
+             (SimCont sbe) -- ^ Continuation once current path finishes
 
 type PathDescriptor = Integer
 
@@ -97,7 +124,7 @@ data SimulationFlags =
 defaultSimFlags :: SimulationFlags
 defaultSimFlags = SimulationFlags { alwaysBitBlastBranchTerms = False }
 
-type SymPath sym = Path (MonadTerm sym)
+type SymPath sbe = Path (MonadTerm sbe)
 
 data Path term = Path {
     _frame          :: !(Frame term)
@@ -127,33 +154,33 @@ data Path term = Path {
   -- ^ The number of instructions executed so far on this path.
   }
 
-data MergeFrame sym
-  = ExitMergeFrame (ExitFrame sym)
-  | PostdomMergeFrame (PostdomFrame sym)
-  | ReturnMergeFrame (ReturnFrame sym)
+data MergeFrame sbe
+  = ExitMergeFrame (ExitFrame sbe)
+  | PostdomMergeFrame (PostdomFrame sbe)
+  | ReturnMergeFrame (ReturnFrame sbe)
 
-data ExitFrame sym = ExitFrame {
-       _efMergedState  :: MergedState sym
-     , _efPending      :: [SymPath sym]     
+data ExitFrame sbe = ExitFrame {
+       _efMergedState  :: MergedState sbe
+     , _efPending      :: [SymPath sbe]     
      }  
 
-data PostdomFrame sym = PostdomFrame { 
-       _pdfMergedState :: MergedState sym
-     , _pdfPending     :: [SymPath sym]
+data PostdomFrame sbe = PostdomFrame { 
+       _pdfMergedState :: MergedState sbe
+     , _pdfPending     :: [SymPath sbe]
      , _pdfMethod      :: Method
      }
 
-data ReturnFrame sym = ReturnFrame {
+data ReturnFrame sbe = ReturnFrame {
        _rfMethod        :: Method
-     , _rfFrame         :: Frame sym        -- ^ Call frame for path when it arrives.
+     , _rfFrame         :: Frame sbe        -- ^ Call frame for path when it arrives.
      , _rfIsVoid        :: Bool             -- ^ Whether to store a return value afterwards
-     , _rfNormalState   :: MergedState sym  -- ^ Merged state after function call return.
-     , _rfPending       :: [SymPath sym]
+     , _rfNormalState   :: MergedState sbe  -- ^ Merged state after function call return.
+     , _rfPending       :: [SymPath sbe]
      }
 
-data MergedState sym 
-  = EmptyState sym
-  | PathState (SymPath sym)
+data MergedState sbe 
+  = EmptyState sbe
+  | PathState (SymPath sbe)
 
 data Frame term
   = Call {
@@ -175,19 +202,19 @@ data InitializationStatus
 type InstanceFieldRef = (Ref, FieldId)
 
 data FailRsn       = FailRsn String deriving (Show)
-data ErrorPath sym = EP { _epRsn :: FailRsn, _epPath :: Path sym }
+data ErrorPath sbe = EP { _epRsn :: FailRsn, _epPath :: Path sbe }
 
 -- | The exception type for errors that are both thrown and caught within the
 -- simulator.
-data InternalExc sym m
-  = ErrorPathExc FailRsn (State sym m)
+data InternalExc sbe m
+  = ErrorPathExc FailRsn (State sbe m)
   | UnknownExc (Maybe FailRsn)
 
-instance Error (InternalExc sym m) where
+instance Error (InternalExc sbe m) where
   noMsg  = UnknownExc Nothing
   strMsg = UnknownExc . Just . FailRsn
 
-assert :: Bool -> Simulator sym m ()
+assert :: Bool -> Simulator sbe m ()
 assert b = unless b . throwError $ strMsg "assertion failed"
 
 data FinalResult term
@@ -228,7 +255,6 @@ makeLenses ''ExitFrame
 makeLenses ''PostdomFrame
 makeLenses ''ReturnFrame
 makeLenses ''State
-makeLenses ''CtrlStk
 makeLenses ''Path
 makeLenses ''Frame
 makeLenses ''ErrorPath
@@ -367,7 +393,7 @@ ppMethod :: Method -> Doc
 ppMethod = text . methodKeyName . methodKey
 
 -- TODO: better pretty-printing
-ppMergeFrame :: forall sym. MergeFrame sym -> Doc
+ppMergeFrame :: forall sbe. MergeFrame sbe -> Doc
 ppMergeFrame mf = case mf of
   ExitMergeFrame ef ->
     text "MF(Exit):"
@@ -383,7 +409,7 @@ ppMergeFrame mf = case mf of
                $+$ nest 2 (rf^.rfNormalState.to (mpath "no normal-return merged state set"))
                $+$ rf^.rfPending.to ppPendingPaths
   where
-    mpath :: String -> MergedState sym -> Doc
+    mpath :: String -> MergedState sbe -> Doc
     mpath str (EmptyState _) = parens $ text ("Merged: " ++ str)
     mpath _ (PathState p) = ppPath p
     ppPendingPaths :: [Path term] -> Doc
@@ -391,23 +417,22 @@ ppMergeFrame mf = case mf of
       text "Pending paths:"
       $+$ nest 2 (if null pps then text "(none)" else vcat (map ppPath pps))
 
-instance LogMonad (Simulator sym m) where
+instance LogMonad (Simulator sbe m) where
   getVerbosity = use verbosity
   setVerbosity = assign verbosity
 
-ppState :: State sym m -> Doc
-ppState s = hang (text "state" <+> lbrace) 2 (s^.ctrlStk.to ppCtrlStk) $+$ rbrace
+ppState :: State sbe m -> Doc
+ppState s = hang (text "state" <+> lbrace) 2 (s^.ctrlStk.to ppCS) $+$ rbrace
 
-ppCtrlStk :: CtrlStk sym -> Doc
-ppCtrlStk cs =
-  hang (text "CS" <+> lbrace) 2 (vcat (map ppMergeFrame (cs^.mergeFrames))) $+$ rbrace
+ppCS :: CS sbe -> Doc
+ppCS cs = undefined
 
 
 ppPath :: Path term -> Doc
 ppPath = undefined
 
 {-
-instance (PrettyTerm (MonadTerm sym)) => Show (State sym) where
+instance (PrettyTerm (MonadTerm sbe)) => Show (State sbe) where
   show s = intercalate "\n" (["{ begin ctrlstk "] ++ (map ppMergeFrame . mergeFrames $ ctrlStk s) ++ ["end pathstates }"])
              ++ "\nNext Ref: " ++ show (nextRef s)
 -}
@@ -423,16 +448,16 @@ mfSetting _ _ r (ReturnMergeFrame rf)   v = ReturnMergeFrame  (set r v rf)
 class HasPending t s | t -> s where
   pending :: Simple Lens t [SymPath s]
 
-instance HasPending (ExitFrame sym) sym where
+instance HasPending (ExitFrame sbe) sbe where
   pending = efPending
 
-instance HasPending (PostdomFrame sym) sym where
+instance HasPending (PostdomFrame sbe) sbe where
   pending = pdfPending
 
-instance HasPending (ReturnFrame sym) sym where
+instance HasPending (ReturnFrame sbe) sbe where
   pending = rfPending
 
-instance HasPending (MergeFrame sym) sym where
+instance HasPending (MergeFrame sbe) sbe where
   pending = lens view' set'
     where view' = mfGetting pending pending pending
           set'  = mfSetting pending pending pending
@@ -440,16 +465,16 @@ instance HasPending (MergeFrame sym) sym where
 class HasMergedState t s | t -> s where
   mergedState :: Simple Lens t (MergedState s)
 
-instance HasMergedState (ExitFrame sym) sym where
+instance HasMergedState (ExitFrame sbe) sbe where
   mergedState = efMergedState
 
-instance HasMergedState (PostdomFrame sym) sym where
+instance HasMergedState (PostdomFrame sbe) sbe where
   mergedState = pdfMergedState
 
-instance HasMergedState (ReturnFrame sym) sym where
+instance HasMergedState (ReturnFrame sbe) sbe where
   mergedState = rfNormalState
 
-instance HasMergedState (MergeFrame sym) sym where
+instance HasMergedState (MergeFrame sbe) sbe where
   mergedState = lens view' set'
     where view' = mfGetting mergedState mergedState mergedState
           set'  = mfSetting mergedState mergedState mergedState
