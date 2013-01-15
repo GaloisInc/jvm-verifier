@@ -42,19 +42,22 @@ import Verifier.Java.Codebase (Codebase, FieldId(..), LocalVariableIndex, Method
 import Verinf.Utils.LogMonad
 
 -- A Simulator is a monad transformer around a symbolic backend
-newtype Simulator sym a = 
-  SM { runSM :: ErrorT (InternalExc sym) (StateT (State sym) IO) a }
-  deriving (Functor, Monad, MonadIO, MonadState (State sym), MonadError (InternalExc sym))
+newtype Simulator sym m a = 
+  SM { runSM :: ErrorT (InternalExc sym m) (StateT (State sym m) IO) a }
+  deriving 
+    ( Functor
+    , Applicative
+    , Monad
+    , MonadIO
+    , MonadState (State sym m)
+    , MonadError (InternalExc sym m)
+    )
 
-instance Applicative (Simulator sym) where
-  pure      = return
-  af <*> aa = af >>= flip (<$>) aa
-
-data State sym = State {
+data State sym m = State {
     _codebase          :: !Codebase
-  , _instanceOverrides :: !(Map (String, MethodKey) (Ref -> [Value' sym] -> Simulator sym ()))
+  , _instanceOverrides :: !(Map (String, MethodKey) (Ref -> [Value' sym m] -> Simulator sym m ()))
     -- ^ Maps instance method identifiers to a function for executing them.
-  , _staticOverrides   :: !(Map (String, MethodKey) ([Value' sym] -> Simulator sym ()))
+  , _staticOverrides   :: !(Map (String, MethodKey) ([Value' sym m] -> Simulator sym m ()))
     -- ^ Maps static method identifiers to a function for executing them.
   , _ctrlStk           :: CtrlStk sym
     -- ^ Auxiliary data structures for tracking execution and merging of
@@ -71,8 +74,8 @@ data State sym = State {
   , _errorPaths        :: [ErrorPath sym]
   }
 
-type Value term = AtomicValue Double Float term term Ref
-type Value' sym = JSValue (Simulator sym)
+type Value term   = AtomicValue Double Float term term Ref
+type Value' sym m = JSValue (Simulator sym m)
 
 -- Address in heap
 data Ref
@@ -176,15 +179,15 @@ data ErrorPath sym = EP { _epRsn :: FailRsn, _epPath :: Path sym }
 
 -- | The exception type for errors that are both thrown and caught within the
 -- simulator.
-data InternalExc sym
-  = ErrorPathExc FailRsn (Path sym)
+data InternalExc sym m
+  = ErrorPathExc FailRsn (State sym m)
   | UnknownExc (Maybe FailRsn)
 
-instance Error (InternalExc sym) where
+instance Error (InternalExc sym m) where
   noMsg  = UnknownExc Nothing
   strMsg = UnknownExc . Just . FailRsn
 
-assert :: Bool -> Simulator sym ()
+assert :: Bool -> Simulator sym m ()
 assert b = unless b . throwError $ strMsg "assertion failed"
 
 data FinalResult term
@@ -388,11 +391,11 @@ ppMergeFrame mf = case mf of
       text "Pending paths:"
       $+$ nest 2 (if null pps then text "(none)" else vcat (map ppPath pps))
 
-instance LogMonad (Simulator sym) where
+instance LogMonad (Simulator sym m) where
   getVerbosity = use verbosity
   setVerbosity = assign verbosity
 
-ppState :: State sym -> Doc
+ppState :: State sym m -> Doc
 ppState s = hang (text "state" <+> lbrace) 2 (s^.ctrlStk.to ppCtrlStk) $+$ rbrace
 
 ppCtrlStk :: CtrlStk sym -> Doc
