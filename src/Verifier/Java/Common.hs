@@ -11,6 +11,9 @@ Point-of-contact : acfoltzer
 
 module Verifier.Java.Common where
 
+import Prelude hiding (EQ, GT, LT)
+import qualified Prelude as P
+
 import Control.Applicative (Applicative, (<$>), pure, (<*>))
 import qualified Control.Arrow as CA
 import Control.Exception (Exception)
@@ -31,6 +34,7 @@ import Data.Word (Word32)
 
 import Text.PrettyPrint
 
+import Data.JVM.Symbolic.AST
 import Execution (AtomicValue(..), JSValue(..))
 import Verifier.Java.Backend
 import Verifier.Java.Codebase (Codebase, FieldId(..), LocalVariableIndex, Method(..), MethodKey(..), PC, Type(..), methodName, slashesToDots, sourceLineNumberOrPrev)
@@ -84,21 +88,35 @@ data Ref
   | Ref !Word32 !Type
   deriving (Show)
 
--- | First-order continuations for the symbolic simulation.
-data SimCont sbe
-  -- | Empty continuation: there are no remaining paths to run
-  = EmptyCont
+-- | A point in the control flow of a program where a branched
+-- computation merges
+data MergePoint
+  = ReturnValPoint Int
+  | ReturnVoidPoint Int
+  | PostdomPoint Int BlockId
+
+-- | Actions to take when a path reaches the merge point of a branched
+-- computation. This type is essentially the environment of the
+-- 'SimCont' "closure".
+data BranchAction sbe
   -- | Continuation after finishing a path for the @else@ of a branch;
   -- starts running the @then@ branch
-  | BranchRunTrue (MonadTerm sbe) -- ^ Branch condition
+  = BranchRunTrue (MonadTerm sbe) -- ^ Branch condition
                   (Path sbe)      -- ^ Path to run for @then@ branch
-                  (SimCont sbe)   -- ^ Next continuation
-  -- Continuation after finishing a path for the @then@ of a branch;
+  -- | Continuation after finishing a path for the @then@ of a branch;
   -- merges with finished @else@ path
   | BranchMerge   (MonadTerm sbe) -- ^ Assertions before merge
                   (MonadTerm sbe) -- ^ Branch condition
                   (Path sbe)      -- ^ Completed @else@ branch
-                  (SimCont sbe)   -- ^ Next continuation
+
+-- | First-order continuations for the symbolic simulation.
+data SimCont sbe
+  -- | Empty continuation: there are no remaining paths to run
+  = EmptyCont
+  -- | Handle part of a branch, then continue
+  | HandleBranch MergePoint         -- ^ merge point of this branch
+                 (BranchAction sbe) -- ^ action to take at merge point
+                 (SimCont sbe)      -- ^ next continuation
 
 -- | A control stack 'CS' is a stack of first-order continuations. It
 -- represents either a computation with no work remaining, or a pair
@@ -147,7 +165,7 @@ data Path' term = Path {
     -- ^ the current JVM call stack
   , _pathStackHt        :: !Int
     -- ^ the current call frames count
-  , _pathException      :: !(Maybe term)
+  , _pathException      :: !(Maybe (JavaException term))
     -- ^ the exception thrown on this path, if any  
   --- TODO: These fields should probably be extracted into a memory type like in LSS
   , _pathInitialization :: !(Map String InitializationStatus)
@@ -220,15 +238,6 @@ instance Error (InternalExc sbe m) where
 assert :: Bool -> Simulator sbe m ()
 assert b = unless b . throwError $ strMsg "assertion failed"
 
-data FinalResult term
-  = ReturnVal !(Value term)
-  | Breakpoint !PC
-  | Exc !(JavaException term)
-  | Terminated
-  | Aborted
-  | Unassigned
-  deriving (Eq, Show)
-
 data JavaException term =
   JavaException
     { _excRef   :: Ref          -- ^ the java.lang.Exception instance
@@ -246,9 +255,9 @@ instance Eq Ref where
   _ == _ = False
 
 instance Ord Ref where
-  NullRef `compare` NullRef = EQ
-  NullRef `compare` _ = LT
-  _ `compare` NullRef = GT
+  NullRef `compare` NullRef = P.EQ
+  NullRef `compare` _ = P.LT
+  _ `compare` NullRef = P.GT
   (Ref x _) `compare` (Ref y _) = x `compare` y
 
 makeLenses ''State
@@ -260,7 +269,43 @@ makeLenses ''JavaException
 -- | Manipulate the control stack
 modifyCS :: (CS sbe -> CS sbe) -> (State sbe m -> State sbe m)
 modifyCS = over ctrlStk
-
+{-
+returnMerge :: Backend sbe
+            -> Path sbe
+            -> SimCont sbe
+            -> IO (CS sbe)
+returnMerge _ p EmptyCont | pathStackHt p == 0 =
+  return (CompletedCS (Just p))
+returnMerge sbe p (Branch info@(ReturnInfo n mr) act h) | n == pathStackHt p =
+  case act of
+    BARunFalse c tp -> do
+      true <- sbeRunIO sbe $ termBool sbe True
+      let tp' = tp { pathAssertions = true }
+      let act' = BAFalseComplete (pathAssertions tp) c p
+      return $ ActiveCS tp' (BranchHandler info act' h)
+    BAFalseComplete a c pf -> do
+      -- Merge return value
+      mergedRegs <-
+        case mr of
+          Nothing -> return (pathRegs p)
+          Just r -> do
+            let Just (Typed tp vt) = M.lookup r (pathRegs p)
+            let Just (Typed _ vf)  = M.lookup r (pathRegs pf)
+            v <- sbeRunIO sbe $ applyIte sbe tp c vt vf
+            return $ M.insert r (Typed tp v) (pathRegs p)
+      -- Merge memory
+      mergedMemory <- sbeRunIO sbe $ memMerge sbe c (pathMem p) (pathMem pf)
+      -- Merge assertions
+      mergedAssertions <- sbeRunIO sbe $
+        applyIte sbe i1 c (pathAssertions p) (pathAssertions pf)
+      a' <- sbeRunIO sbe $ applyAnd sbe a mergedAssertions
+      let p' = p { pathRegs = mergedRegs
+                 , pathMem = mergedMemory
+                 , pathAssertions = a'
+                 }
+      returnMerge sbe p' h
+returnMerge _ p h = return (ActiveCS p h)
+-}
 --------------------------------------------------------------------------------
 -- Pretty printers
 
@@ -343,14 +388,6 @@ ppJavaException (JavaException (Ref _ (ClassType nm)) frms) =
   $+$ ppStk frms
 
 ppSimulatorExc JavaException{}     = error "Malformed JavaException"
-
-ppFinalResult :: PrettyTerm term => FinalResult term -> String
-ppFinalResult (ReturnVal rv)  = ppValue rv
-ppFinalResult (Breakpoint pc) = "breakpoint{" ++ show pc ++ "}"
-ppFinalResult (Exc exc)       = ppSimulatorExc exc
-ppFinalResult Terminated      = "(void)"
-ppFinalResult Aborted         = "Aborted"
-ppFinalResult Unassigned      = "Unassigned"
 
 ppPathException :: Maybe term -> String
 ppPathException Nothing = "no exception"
