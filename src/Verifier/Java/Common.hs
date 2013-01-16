@@ -5,13 +5,7 @@ Stability        : stable
 Point-of-contact : acfoltzer
 -}
 
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -31,18 +25,19 @@ import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Set (Set)
+import qualified Data.Set as S
 import Data.Typeable (Typeable)
 import Data.Word (Word32)
 
 import Text.PrettyPrint
 
 import Execution (AtomicValue(..), JSValue(..))
-import Verifier.Java.Backend (Backend, MonadTerm, PrettyTerm(..))
+import Verifier.Java.Backend
 import Verifier.Java.Codebase (Codebase, FieldId(..), LocalVariableIndex, Method(..), MethodKey(..), PC, Type(..), methodName, slashesToDots, sourceLineNumberOrPrev)
 
 import Verinf.Utils.LogMonad
 
--- A Simulator is a monad transformer around a symbolic backend
+-- | A Simulator is a monad transformer around a symbolic backend
 newtype Simulator sbe m a = 
   SM { runSM :: ErrorT (InternalExc sbe m) (StateT (State sbe m) IO) a }
   deriving 
@@ -68,7 +63,7 @@ data State sbe m = State {
   , _ctrlStk           :: CS sbe
     -- ^ Auxiliary data structures for tracking execution and merging of
     -- multiple paths within a single frame.  Currently, there is a 1-1
-    -- correspondence between each MergeFrame and its corresponding Frame (i.e.,
+    -- correspondence between each MergeFrame and its corresponding CallFrame (i.e.,
     -- the Java activation record).
   , _nextPSS           :: PathDescriptor
     -- ^ Name supply for unique path state selectors
@@ -115,6 +110,27 @@ data CS sbe
   | ActiveCS (Path sbe)    -- ^ The active path
              (SimCont sbe) -- ^ Continuation once current path finishes
 
+initialCtrlStk :: Backend sbe -> IO (CS sbe)
+initialCtrlStk sbe = do
+  true <- termBool sbe True
+  let p = Path { _pathStack = []
+               , _pathStackHt = 0
+               , _pathException = Nothing
+               , _pathInitialization = M.empty
+               , _pathStaticFields = M.empty
+               , _pathInstanceFields = M.empty
+               , _pathScalarArrays = M.empty
+               , _pathRefArrays = M.empty
+               , _pathClassObjects = M.empty
+               , _pathAssumptions = true
+               , _pathAssertions = []
+               , _pathName = 0
+               , _pathStartingPC = 0
+               , _pathBreakpoints = S.empty
+               , _pathInsnCount = 0
+               }
+  return $ CompletedCS (Just p)
+
 type PathDescriptor = Integer
 
 data SimulationFlags =
@@ -124,44 +140,59 @@ data SimulationFlags =
 defaultSimFlags :: SimulationFlags
 defaultSimFlags = SimulationFlags { alwaysBitBlastBranchTerms = False }
 
-type SymPath sbe = Path (MonadTerm sbe)
+type Path sbe = Path' (MonadTerm sbe)
 
-data Path term = Path {
-    _frame          :: !(Frame term)
-  , _finalResult    :: !(FinalResult term)
-  , _pathException  :: !(Maybe term)
-  , _initialization :: !(Map String InitializationStatus)
-  , _staticFields   :: !(Map FieldId (Value term))
-  , _instanceFields :: !(Map InstanceFieldRef (Value term))
-  -- | Maps integer and long array to current value.
-  , _arrays         :: !(Map Ref (term, term))
-  -- | Maps reference array to current value.
-  , _refArrays      :: !(Map Ref (Array Int32 Ref))
-    -- | Facts that may be assumed to be true in this path.
-  , _psAssumptions  :: !term
-    -- | Facts that are asserted to be true in this path (in reverse order).
-  , _psAssertions   :: ![(String,term)]
-  , _pathStSel      :: !PathDescriptor
-  , _classObjects   :: !(Map String Ref)
-  -- | The program counter where this path state started.
-  , _startingPC     :: !PC
-  , _breakpoints    :: !(Set (String, MethodKey, PC))
+data Path' term = Path {
+    _pathStack          :: ![CallFrame term]
+    -- ^ the current JVM call stack
+  , _pathStackHt        :: !Int
+    -- ^ the current call frames count
+  , _pathException      :: !(Maybe term)
+    -- ^ the exception thrown on this path, if any  
+  --- TODO: These fields should probably be extracted into a memory type like in LSS
+  , _pathInitialization :: !(Map String InitializationStatus)
+    -- ^ the initialization status of classes on this path
+  , _pathStaticFields   :: !(Map FieldId (Value term))
+    -- ^ static field values on this path
+  , _pathInstanceFields :: !(Map InstanceFieldRef (Value term))
+    -- ^ instance field values on this path
+  , _pathScalarArrays   :: !(Map Ref (term, term))
+    -- ^ integer and long array values (floating point not supported)
+  , _pathRefArrays      :: !(Map Ref (Array Int32 Ref))
+    -- ^ reference array values
+  , _pathClassObjects   :: !(Map String Ref)
+    -- ^ java.lang.Class objects for this path
+  --- end TODO
+  , _pathAssumptions    :: !term
+    -- ^ facts assumed to be true on this path
+  , _pathAssertions     :: ![(String,term)]
+    -- ^ facts that are asserted to be true in this path (in reverse order).
+  , _pathName           :: !PathDescriptor
+    -- ^ a unique name for this path
+  , _pathStartingPC     :: !PC
+    -- ^ the program counter where this path began (TODO: this might not make sense with new branching)
+  , _pathBreakpoints    :: !(Set (String, MethodKey, PC))
   -- ^ Breakpoint locations. REVISIT: might want to have a map in
   -- state from (String, MethodKey) to Map PC (..., ...), and then
   -- this map could just be Map PC (..., ...), and would get set every
   -- time we modify the frame list.
-  , _insnCount      :: !Int
+  , _pathInsnCount      :: !Int
   -- ^ The number of instructions executed so far on this path.
   }
 
-data Frame term
-  = Call {
-      _frmClass  :: !String                               -- Name of current class that
-                                                          -- we are in.
-    , _frmMethod :: !Method                               -- Method we are running in
-    , _frmPC     :: !PC                                   -- Current PC
-    , _frmLocals :: !(Map LocalVariableIndex (Value term)) -- Local variable map
-    , _frmOpds   :: ![Value term]                          -- Operand stack
+-- | A JVM call frame
+data CallFrame term
+  = CallFrame {
+      _cfClass  :: !String                               
+      -- ^ Name of the class containing the current method
+    , _cfMethod :: !Method                               
+      -- ^ The current method
+    , _cfPC     :: !PC
+      -- ^ The current program counter
+    , _cfLocals :: !(Map LocalVariableIndex (Value term)) 
+      -- ^ The current local variables (<http://docs.oracle.com/javase/specs/jvms/se7/html/jvms-2.html#jvms-2.6.1>)
+    , _cfOpds   :: ![Value term]                          
+      -- ^ The current operand stack
     }
     deriving (Eq, Show)
 
@@ -200,16 +231,13 @@ data FinalResult term
 
 data JavaException term =
   JavaException
-    { _excRef    :: Ref          -- ^ the java.lang.Exception instance
-    , _excFrames :: [Frame term] -- ^ stack trace @ raise point
+    { _excRef   :: Ref          -- ^ the java.lang.Exception instance
+    , _excStack :: [CallFrame term] -- ^ stack trace @ raise point
     }
-  deriving (Show,Typeable)
+  deriving (Show)
 
 instance Eq (JavaException term) where
   e1@JavaException{} == e2@JavaException{} = _excRef e1 == _excRef e2
-
--- | Allow SimulatorM exceptions to be raised via Control.Exception.throw
-instance (Show term, Typeable term) => Exception (JavaException term)
 
 
 instance Eq Ref where
@@ -224,10 +252,14 @@ instance Ord Ref where
   (Ref x _) `compare` (Ref y _) = x `compare` y
 
 makeLenses ''State
-makeLenses ''Path
-makeLenses ''Frame
+makeLenses ''Path'
+makeLenses ''CallFrame
 makeLenses ''ErrorPath
 makeLenses ''JavaException
+
+-- | Manipulate the control stack
+modifyCS :: (CS sbe -> CS sbe) -> (State sbe m -> State sbe m)
+modifyCS = over ctrlStk
 
 --------------------------------------------------------------------------------
 -- Pretty printers
@@ -301,14 +333,15 @@ instance PrettyTerm term => Show (Path term) where
       "  instr count    : " ++ show (insnCount st)
 -}
 
-ppStk :: [Frame term] -> Doc
+ppStk :: [CallFrame term] -> Doc
 ppStk [] = text "(empty stack)"
-ppStk fs = vcat . map ppFrameSrcLoc $ fs
+ppStk fs = vcat . map ppCallFrameSrcLoc $ fs
 
 ppJavaException :: JavaException term -> Doc
 ppJavaException (JavaException (Ref _ (ClassType nm)) frms) =
   text "Exception of type" <+> text (slashesToDots nm)
   $+$ ppStk frms
+
 ppSimulatorExc JavaException{}     = error "Malformed JavaException"
 
 ppFinalResult :: PrettyTerm term => FinalResult term -> String
@@ -323,9 +356,9 @@ ppPathException :: Maybe term -> String
 ppPathException Nothing = "no exception"
 ppPathException exc     = undefined -- ppSimulatorExc <$> exc
 
-ppFrame :: PrettyTerm term => Frame term -> String
-ppFrame (Call c me pc lvars stack) =
-  "Frame (" ++ c ++ "." ++ (methodKeyName $ methodKey me) ++ "): PC " ++ show pc
+ppCallFrame :: PrettyTerm term => CallFrame term -> String
+ppCallFrame (CallFrame c me pc lvars stack) =
+  "CallFrame (" ++ c ++ "." ++ (methodKeyName $ methodKey me) ++ "): PC " ++ show pc
       ++ "\n      Ls:\n        "
         ++ intercalate "\n        "
              (map (\(l,v) -> "Local #" ++ show l ++ ": " ++ ppValue v) $ M.assocs lvars)
@@ -333,8 +366,8 @@ ppFrame (Call c me pc lvars stack) =
         ++ intercalate "\n        "
              (map ppValue stack)
 
-ppFrameSrcLoc :: Frame term -> Doc
-ppFrameSrcLoc (Call c me pc _vars _stack) =
+ppCallFrameSrcLoc :: CallFrame term -> Doc
+ppCallFrameSrcLoc (CallFrame c me pc _vars _stack) =
   text c <> text "." <> text mn <> parens (text c <> text ".java:" <> text (maybe "?" show mloc))
   where
     (mloc, mn) = (`sourceLineNumberOrPrev` pc) CA.&&& methodName $ me
