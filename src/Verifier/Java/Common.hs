@@ -6,6 +6,8 @@ Point-of-contact : acfoltzer
 -}
 
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -42,7 +44,7 @@ import Verifier.Java.Codebase (Codebase, FieldId(..), LocalVariableIndex, Method
 import Verinf.Utils.LogMonad
 
 -- | A Simulator is a monad transformer around a symbolic backend
-newtype Simulator sbe m a = 
+newtype Simulator sbe (m :: * -> *) a = 
   SM { runSM :: ErrorT (InternalExc sbe m) (StateT (State sbe m) IO) a }
   deriving 
     ( Functor
@@ -91,8 +93,10 @@ data Ref
 -- | A point in the control flow of a program where a branched
 -- computation merges
 data MergePoint
-  = ReturnValPoint Int
-  | ReturnVoidPoint Int
+  -- | Merge at any @return@ statement at the given stack height; flag
+  -- specifies whether the function returns a value.
+  = ReturnPoint Int Bool
+  -- | Merge at the given postdominator node at the given stack height.
   | PostdomPoint Int BlockId
 
 -- | Actions to take when a path reaches the merge point of a branched
@@ -140,8 +144,7 @@ initialCtrlStk sbe = do
                , _pathScalarArrays = M.empty
                , _pathRefArrays = M.empty
                , _pathClassObjects = M.empty
-               , _pathAssumptions = true
-               , _pathAssertions = []
+               , _pathAssertions = true
                , _pathName = 0
                , _pathStartingPC = 0
                , _pathBreakpoints = S.empty
@@ -181,10 +184,8 @@ data Path' term = Path {
   , _pathClassObjects   :: !(Map String Ref)
     -- ^ java.lang.Class objects for this path
   --- end TODO
-  , _pathAssumptions    :: !term
+  , _pathAssertions     :: !term
     -- ^ facts assumed to be true on this path
-  , _pathAssertions     :: ![(String,term)]
-    -- ^ facts that are asserted to be true in this path (in reverse order).
   , _pathName           :: !PathDescriptor
     -- ^ a unique name for this path
   , _pathStartingPC     :: !PC
@@ -269,24 +270,27 @@ makeLenses ''JavaException
 -- | Manipulate the control stack
 modifyCS :: (CS sbe -> CS sbe) -> (State sbe m -> State sbe m)
 modifyCS = over ctrlStk
-{-
+
 returnMerge :: Backend sbe
             -> Path sbe
             -> SimCont sbe
             -> IO (CS sbe)
-returnMerge _ p EmptyCont | pathStackHt p == 0 =
+returnMerge _ p EmptyCont | 0 == p^.pathStackHt =
   return (CompletedCS (Just p))
-returnMerge sbe p (Branch info@(ReturnInfo n mr) act h) | n == pathStackHt p =
+
+returnMerge sbe p (HandleBranch info@(ReturnPoint n hasVal) act h) 
+    | n == p^.pathStackHt =
   case act of
-    BARunFalse c tp -> do
-      true <- sbeRunIO sbe $ termBool sbe True
-      let tp' = tp { pathAssertions = true }
-      let act' = BAFalseComplete (pathAssertions tp) c p
-      return $ ActiveCS tp' (BranchHandler info act' h)
-    BAFalseComplete a c pf -> do
-      -- Merge return value
-      mergedRegs <-
-        case mr of
+    BranchRunTrue c tp -> do
+      true <- termBool sbe True
+      undefined 
+      let tp' = tp & pathAssertions .~ true
+      let act' = BranchMerge (tp^.pathAssertions) c p
+      return $ ActiveCS tp' (HandleBranch info act' h) 
+{-    BranchMerge a c pf -> do
+      -- Merge operand stack
+      mergedOpds <- zipWithM
+        case hasVal of
           Nothing -> return (pathRegs p)
           Just r -> do
             let Just (Typed tp vt) = M.lookup r (pathRegs p)
@@ -303,9 +307,46 @@ returnMerge sbe p (Branch info@(ReturnInfo n mr) act h) | n == pathStackHt p =
                  , pathMem = mergedMemory
                  , pathAssertions = a'
                  }
-      returnMerge sbe p' h
+      returnMerge sbe p' h-}
 returnMerge _ p h = return (ActiveCS p h)
--}
+
+
+mergeValues :: MonadIO m 
+            => MonadTerm sbe 
+            -> Value (MonadTerm sbe) 
+            -> Value (MonadTerm sbe) 
+            -> Simulator sbe m (Value (MonadTerm sbe)) 
+mergeValues assumptions x y = mergeV x y
+  where abort = fail . render
+        t1 <-> t2 = do 
+          sbe <- use backend
+          liftIO $ termIte sbe assumptions t1 t2
+        mergeV (IValue v1) (IValue v2)             = IValue <$> v1 <-> v2
+        mergeV (LValue v1) (LValue v2)             = LValue <$> v1 <-> v2
+        mergeV x@(FValue v1) y@(FValue v2) = do
+          if (isNaN v1 && isNaN v2 || v1 == v2)
+            then return x
+            else abort $ "Attempt to merge two concrete non-NaN unequal floats:"
+                 <+> ppValue' x <+> "and" <+> ppValue' y
+        mergeV x@(DValue v1) y@(DValue v2) = do
+          if (isNaN v1 && isNaN v2 || v1 == v2)
+            then return x
+            else abort $ "Attempt to merge two concrete non-NaN unequal doubles: "
+                 <+> ppValue' x <+> "and" <+> ppValue' y
+        mergeV x@(RValue NullRef) (RValue NullRef) = return x
+        mergeV x@(RValue (Ref r1 ty1)) y@(RValue (Ref r2 ty2)) = do
+          when (r1 /= r2) $
+            abort $ "References differ when merging:" 
+            <+> ppValue' x <+> "and" <+> ppValue' y
+          assert (ty1 == ty2)
+          return x
+        mergeV x y = 
+          abort $ "Unsupported or mismatched type when merging values:"
+          <+> ppValue' x <+> "and" <+> ppValue' y
+
+-- FIXME with rest of pretty printers
+ppValue' = undefined
+
 --------------------------------------------------------------------------------
 -- Pretty printers
 
