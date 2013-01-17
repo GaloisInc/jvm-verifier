@@ -282,14 +282,30 @@ currentCallFrame p = p^.pathStack^?_head
 currentOpds :: Path' term -> Maybe [Value term]
 currentOpds p = view cfOpds <$> currentCallFrame p
 
-returnMerge :: forall sbe m . MonadIO m
+-- | Called at symbolic return instructions to check whether it is
+-- time to merge a path and move on to the next continuation. There
+-- are three cases:
+-- 
+--   * There are no more call frames on the stack, and the
+--   continuation is empty. This leaves us with a completed control
+--   stack containing the current path.
+-- 
+--   * The current path's 'MergePoint' matches the current stack
+--   height, so the current continuation is complete. Depending on the
+--   type of continuation, we either move on to a different path, or
+--   merge the current path with an already-finished path before
+--   continuing.
+-- 
+--   * The current path's merge point does not indicate the current
+--   location, so we continue with the same path and continuation.
+returnMerge :: MonadIO m
             => Backend sbe
             -> Path sbe
             -> SimCont sbe
             -> Simulator sbe m (CS sbe)
 returnMerge _ p EmptyCont | 0 == p^.pathStackHt =
   return (CompletedCS (Just p))
-
+-
 returnMerge sbe p (HandleBranch info@(ReturnPoint n hasVal) act h) 
     | n == p^.pathStackHt =
   case act of
@@ -312,6 +328,7 @@ returnMerge sbe p (HandleBranch info@(ReturnPoint n hasVal) act h)
                  & pathMemory      .~ mergedMemory
                  & pathAssertions  .~ a'
       returnMerge sbe p' h
+-
 returnMerge _ p h = return (ActiveCS p h)
 
 
