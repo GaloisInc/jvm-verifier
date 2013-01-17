@@ -1,11 +1,22 @@
 {- |
 Module           : $Header$
-Description      :
+Description      : Utility functions for execution of JVM Symbolic programs
 Stability        : provisional
-Point-of-contact : jhendrix
+Point-of-contact : acfoltzer
 -}
+
 {-# LANGUAGE ViewPatterns #-}
-module Verifier.Java.Utils where
+module Verifier.Java.Utils
+  ( module Verinf.Utils.LogMonad
+  , banners
+  , banners'
+  , dbugM
+  , dbugM'
+  , dbugV
+  , headf
+  , safeHead
+  )
+where
 
 import Data.Bits
 import Data.Char
@@ -15,6 +26,35 @@ import Data.Word
 import Numeric
 
 import Verinf.Symbolic
+
+import Data.Maybe          (listToMaybe)
+import Control.Monad.Trans
+import Verinf.Utils.LogMonad
+
+headf :: [a] -> (a -> a) -> [a]
+headf [] _     = error "headf: empty list"
+headf (x:xs) f = f x : xs
+
+dbugM :: MonadIO m => String -> m ()
+dbugM = liftIO . putStrLn
+
+dbugM' :: (LogMonad m, MonadIO m) => Int -> String -> m ()
+dbugM' lvl = whenVerbosity (>=lvl) . dbugM
+
+dbugV :: (MonadIO m, Show a) => String -> a -> m ()
+dbugV desc v = dbugM $ desc ++ ": " ++ show v
+
+banners :: MonadIO m => String -> m ()
+banners msg = do
+  dbugM $ replicate 80 '-'
+  dbugM msg
+  dbugM $ replicate 80 '-'
+
+banners' :: (LogMonad m, MonadIO m) => Int -> String -> m ()
+banners' lvl = whenVerbosity (>=lvl) . banners
+
+safeHead :: [a] -> Maybe a
+safeHead = listToMaybe
 
 boolSeqToValue :: (Bits a, Num a) => [Bool] -> a
 boolSeqToValue bs = foldl' (.|.) 0  $ zipWith (\b i -> if b then bit i else 0) bs [0..]
