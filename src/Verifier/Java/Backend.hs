@@ -1,8 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 module Verifier.Java.Backend 
-  ( PrettyTerm(..)
-  , Typeable
+  ( Typeable
   , UnaryOp
   , BinaryOp
   , SBETerm
@@ -14,6 +13,7 @@ module Verifier.Java.Backend
 import Data.Int
 import Data.Typeable
 import qualified Data.Vector.Storable as SV
+import Text.PrettyPrint (Doc)
 
 import Verinf.Symbolic (BitWidth, PrettyTerm(..), Lit, LitResult, toLsbfV)
 
@@ -159,4 +159,5 @@ data Backend sbe = Backend {
          -- | Returns lit vector associated with given term, or fails
          -- if term cannot be bitblasted.
        , getVarLit :: SBETerm sbe -> IO (LitResult Lit)
+       , prettyTermD :: SBETerm sbe -> Doc
        }

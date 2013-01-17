@@ -31,6 +31,7 @@ module Verifier.Java.Common
   -- , lssOpts
   -- , pathCounter
   -- , aigOutputs
+  , ppState
   , modifyCS
 
   , CS
@@ -59,10 +60,16 @@ module Verifier.Java.Common
   -- , addPathAssertion
   -- , ppPath
   -- , ppPathLoc
-  
+
+  , CallFrame
+  , currentCallFrame
+  , ppCallFrameSrcLoc  
 
   , FailRsn(FailRsn)
   -- , ppFailRsn
+
+  , JavaException
+  , ppJavaException
 
   -- , ErrorPath(EP, epRsn, epPath)
   , InternalExc(ErrorPathExc, UnknownExc)
@@ -101,10 +108,11 @@ import Data.Word (Word32)
 
 import Text.PrettyPrint
 
+import Language.JVM.Common (ppType)
 import Data.JVM.Symbolic.AST
-import Execution (AtomicValue(..), JSValue(..))
+import Execution (AtomicValue(..), JSValue)
 import Verifier.Java.Backend
-import Verifier.Java.Codebase (Codebase, FieldId(..), LocalVariableIndex, Method(..), MethodKey(..), PC, Type(..), methodName, slashesToDots, sourceLineNumberOrPrev)
+import Verifier.Java.Codebase 
 import Verifier.Java.Utils
 
 -- | A Simulator is a monad transformer around a symbolic backend
@@ -368,15 +376,14 @@ mergeNextCont :: MonadIO m
 mergeNextCont _ p EmptyCont | 0 == p^.pathStackHt =
   return (CompletedCS (Just p))
 -- 2.
-mergeNextCont sbe p (HandleBranch point act h) 
+mergeNextCont sbe p (HandleBranch point ba h) 
   | p `atMergePoint` point =
-  case act of
+  case ba of
     BranchRunTrue c tp -> do
       true <- liftIO $ termBool sbe True
-      undefined 
       let tp' = tp & pathAssertions .~ true
-      let act' = BranchMerge (tp^.pathAssertions) c p
-      return $ ActiveCS tp' (HandleBranch point act' h) 
+      let ba' = BranchMerge (tp^.pathAssertions) c p
+      return $ ActiveCS tp' (HandleBranch point ba' h) 
     BranchMerge a c pf -> do
       let assertions = p^.pathAssertions 
           (Just cf1, Just cf2) = (currentCallFrame p, currentCallFrame pf)
@@ -417,8 +424,8 @@ mergeMemories assertions mem1 mem2 = do
       mergeTup (i1, v1) (i2, v2) = 
         (,) <$> (liftIO $ termIte sbe assertions i1 i2)
             <*> (liftIO $ termIte sbe assertions v1 v2)
-  mergedSFields <- mergeBy (mergeValues assertions) sFields1 sFields2
-  mergedIFields <- mergeBy (mergeValues assertions) iFields1 iFields2
+  mergedSFields <- mergeBy (mergeValues sbe assertions) sFields1 sFields2
+  mergedIFields <- mergeBy (mergeValues sbe assertions) iFields1 iFields2
   mergedScArrays <- mergeBy mergeTup scArrays1 scArrays2
   return $ mem2 & memInitialization .~ mergedInit
                 & memStaticFields   .~ mergedSFields
@@ -433,13 +440,14 @@ mergeCallFrames :: MonadIO m
                 -> CallFrame (SBETerm sbe)
                 -> Simulator sbe m (CallFrame (SBETerm sbe))
 mergeCallFrames assertions cf1 cf2 = do
-  let CallFrame class1 method1 bb1 pc1 locals1 opds1 = cf1
-      CallFrame class2 method2 bb2 pc2 locals2 opds2 = cf2
+  sbe <- use backend
+  let CallFrame class1 method1 _bb1 _pc1 locals1 opds1 = cf1
+      CallFrame class2 method2 _bb2 _pc2 locals2 opds2 = cf2
   assert (class1  == class2)
   assert (method1 == method2)
   -- pcs may differ if paths merge at different return insts
-  mergedLocals <- mergeBy (mergeValues assertions) locals1 locals2
-  mergedOpds <- zipWithM (mergeValues assertions) opds1 opds2
+  mergedLocals <- mergeBy (mergeValues sbe assertions) locals1 locals2
+  mergedOpds <- zipWithM (mergeValues sbe assertions) opds1 opds2
   return $ cf2 & cfLocals .~ mergedLocals
                & cfOpds   .~ mergedOpds
 
@@ -466,112 +474,39 @@ mergeBy mrg m1 m2 = leftUnion <$> merged
 
 -- | Merge the two symbolic values under the given assertions
 mergeValues :: MonadIO m 
-            => SBETerm sbe 
+            => Backend sbe
+            -> SBETerm sbe 
             -> Value (SBETerm sbe) 
             -> Value (SBETerm sbe) 
             -> Simulator sbe m (Value (SBETerm sbe)) 
-mergeValues assertions x y = mergeV x y
+mergeValues sbe assertions x y = mergeV x y
   where abort = fail . render
-        t1 <-> t2 = do 
-          sbe <- use backend
-          liftIO $ termIte sbe assertions t1 t2
+        t1 <-> t2 = liftIO $ termIte sbe assertions t1 t2
         mergeV (IValue v1) (IValue v2)             = IValue <$> v1 <-> v2
         mergeV (LValue v1) (LValue v2)             = LValue <$> v1 <-> v2
         mergeV (FValue v1) (FValue v2) = do
           if (isNaN v1 && isNaN v2 || v1 == v2)
             then return x
             else abort $ "Attempt to merge two concrete non-NaN unequal floats:"
-                 <+> ppValue' x <+> "and" <+> ppValue' y
+                 <+> ppValue sbe x <+> "and" <+> ppValue sbe y
         mergeV (DValue v1) (DValue v2) = do
           if (isNaN v1 && isNaN v2 || v1 == v2)
             then return x
             else abort $ "Attempt to merge two concrete non-NaN unequal doubles: "
-                 <+> ppValue' x <+> "and" <+> ppValue' y
+                 <+> ppValue sbe x <+> "and" <+> ppValue sbe y
         mergeV (RValue NullRef) (RValue NullRef) = return x
         mergeV (RValue (Ref r1 ty1)) (RValue (Ref r2 ty2)) = do
           when (r1 /= r2) $
             abort $ "References differ when merging:" 
-            <+> ppValue' x <+> "and" <+> ppValue' y
+            <+> ppValue sbe x <+> "and" <+> ppValue sbe y
           assert (ty1 == ty2)
           return x
         mergeV _ _ = 
           abort $ "Unsupported or mismatched type when merging values:"
-          <+> ppValue' x <+> "and" <+> ppValue' y
-
--- FIXME with rest of pretty printers
-ppValue' = undefined
+          <+> ppValue sbe x <+> "and" <+> ppValue sbe y
 
 --------------------------------------------------------------------------------
 -- Pretty printers
-
-{-
-instance PrettyTerm term => Show (Path term) where
-  show st =
-    let dispMapBy :: Map k a -> ((k, a) -> String) -> String
-        x `dispMapBy` showItem = (multi . map showItem . M.toList)  x
-        x `dispBy` showItem    = (multi . map showItem . DF.toList) x
-        multi lns              = pad ++ intercalate pad lns ++ "\n"
-        pad                    = "\n" ++ replicate 4 ' '
-    in
-      ppPSS (pathStSel st) ++ ":\n"
-      ++
-      "  frames         : "
-      ++ (if null $ frames st
-            then "(none)\n"
-            else frames st `dispBy` ppFrame
-         )
-      ++
-      "  instance fields: "
-      ++ (if M.null $ instanceFields st
-            then "(none)\n"
-            else instanceFields st `dispMapBy` \((r, fldId), v) ->
-                   "(" ++ ppRefId r
-                   ++ "::"
-                   ++ fieldIdClass fldId
-                   ++ ")."
-                   ++ fieldIdName fldId
-                   ++ " => "
-                   ++ ppValue v
-         )
-      ++
-      "  static fields  : "
-      ++ (if M.null (staticFields st)
-            then "(none)\n"
-            else
-              let f (fldId, v) = fieldIdClass fldId
-                                 ++ "."
-                                 ++ fieldIdName fldId
-                                 ++ " => "
-                                 ++ ppValue v
-              in
-                staticFields st `dispMapBy` f
-         )
-      ++
-      "  arrays         : "
-      ++ (if M.null $ arrays st
-            then "(none)\n"
-            else arrays st `dispMapBy` \(k,(l,v)) -> 
-                   show k ++ " : " ++ prettyTerm l ++ " = " ++ prettyTerm v
-         )
-      ++
-      "  refArrays      : "
-      ++ (if M.null $ refArrays st
-            then "(none)\n"
-            else refArrays st `dispMapBy` \(r,rs) ->
-                   ppRef r
-                   ++ " => [ "
-                   ++ intercalate ", " (map ppRefId $ elems rs)
-                   ++ " ]"
-         )
-      ++
-  --    "  assumptions    : " ++ ppSymTerm (psAssumptions state) ++ "\n"
-  --    ++
-      "  pathException  : " ++ ppPathException (pathException st)
-      ++
-      "  starting PC    : " ++ show (startingPC st)
-      ++
-      "  instr count    : " ++ show (insnCount st)
--}
 
 ppStk :: [CallFrame term] -> Doc
 ppStk [] = text "(empty stack)"
@@ -579,49 +514,29 @@ ppStk fs = vcat . map ppCallFrameSrcLoc $ fs
 
 ppJavaException :: JavaException term -> Doc
 ppJavaException (JavaException (Ref _ (ClassType nm)) frms) =
-  text "Exception of type" <+> text (slashesToDots nm)
+  "Exception of type" <+> text (slashesToDots nm)
+  $+$ ppStk frms
+ppJavaException (JavaException r frms) =
+  "Unknown exception type" <+> ppRef r
   $+$ ppStk frms
 
-ppSimulatorExc JavaException{}     = error "Malformed JavaException"
-
-ppPathException :: Maybe term -> String
-ppPathException Nothing = "no exception"
-ppPathException exc     = undefined -- ppSimulatorExc <$> exc
-
-ppCallFrame :: PrettyTerm term => CallFrame term -> String
-ppCallFrame (CallFrame c me bb pc lvars stack) =
-  "CallFrame (" ++ c ++ "." ++ (methodKeyName $ methodKey me) ++ "): PC " ++ show pc
-      ++ "\n      Ls:\n        "
-        ++ intercalate "\n        "
-             (map (\(l,v) -> "Local #" ++ show l ++ ": " ++ ppValue v) $ M.assocs lvars)
-      ++ "\n      Stk:\n        "
-        ++ intercalate "\n        "
-             (map ppValue stack)
-
 ppCallFrameSrcLoc :: CallFrame term -> Doc
-ppCallFrameSrcLoc (CallFrame c me bb pc _vars _stack) =
+ppCallFrameSrcLoc (CallFrame c me _bb pc _vars _stack) =
   text c <> text "." <> text mn <> parens (text c <> text ".java:" <> text (maybe "?" show mloc))
   where
     (mloc, mn) = (`sourceLineNumberOrPrev` pc) CA.&&& methodName $ me
 
-ppValue :: PrettyTerm term => Value term -> String
-ppValue (IValue st) = prettyTerm st
-ppValue (LValue st) = prettyTerm st
-ppValue (RValue r)  = show r
-ppValue (FValue f)  = show f
-ppValue (DValue d)  = show d
-ppValue (AValue a)  = "Address " ++ show a
+ppValue :: Backend sbe -> Value (SBETerm sbe) -> Doc
+ppValue sbe (IValue st) = prettyTermD sbe st
+ppValue sbe (LValue st) = prettyTermD sbe st
+ppValue _   (RValue r)  = ppRef r
+ppValue _   (FValue f)  = float f
+ppValue _   (DValue d)  = double d
+ppValue _   (AValue a)  = "Address" <+> ppPC a
 
-ppRef :: Ref -> String
+ppRef :: Ref -> Doc
 ppRef NullRef    = "null"
-ppRef (Ref n ty) = show n ++ "::" ++ show ty
-
-ppRefId :: Ref -> String
-ppRefId NullRef   = "null"
-ppRefId (Ref n _) = show n
-
-ppPSS :: PathDescriptor -> String
-ppPSS n = "Path #" ++ show n
+ppRef (Ref n ty) = integer (fromIntegral n) <> "::" <> ppType ty
 
 ppMethod :: Method -> Doc
 ppMethod = text . methodKeyName . methodKey
@@ -631,13 +546,31 @@ instance LogMonad (Simulator sbe m) where
   setVerbosity = assign verbosity
 
 ppState :: State sbe m -> Doc
-ppState s = hang (text "state" <+> lbrace) 2 (s^.ctrlStk.to ppCS) $+$ rbrace
-
-ppCS :: CS sbe -> Doc
-ppCS cs = undefined
+ppState s = hang (text "state" <+> lbrace) 2 (ppCtrlStk (s^.backend) (s^.ctrlStk)) $+$ rbrace
 
 ppPath :: Backend sbe -> Path sbe -> Doc
-ppPath = undefined
+ppPath sbe p =
+  case currentCallFrame p of
+    Just cf -> 
+      text "Path #"
+      <>  integer (p^.pathName)
+      <>  brackets ( text (cf^.cfClass) <> "." <> ppMethod (cf^.cfMethod)
+                   <> "/" <> ppBlockId (cf^.cfBlockId)
+                   )
+      <>  colon
+      $+$ nest 2 (text "Locals:"   $+$ nest 2 (ppLocals sbe (cf^.cfLocals)))
+      $+$ nest 2 (text "Operands:" $+$ nest 2 (ppOpds sbe (cf^.cfOpds)))
+    Nothing ->
+      text "Path #" <> integer (p^.pathName) <> colon <+> "stopped"
+
+ppLocals :: Backend sbe 
+         -> Map LocalVariableIndex (Value (SBETerm sbe))
+         -> Doc
+ppLocals sbe = braces . commas . M.elems . M.mapWithKey ppPair
+  where ppPair idx val = int (fromIntegral idx) <+> "=>" <+> ppValue sbe val
+
+ppOpds :: Backend sbe -> [Value (SBETerm sbe)] -> Doc
+ppOpds sbe = brackets . commas . map (ppValue sbe)
 
 ppCtrlStk :: Backend sbe -> CS sbe -> Doc
 ppCtrlStk sbe (CompletedCS mp) =
@@ -647,7 +580,26 @@ ppCtrlStk sbe (ActiveCS p k) =
   ppPath sbe p $$
   ppSimCont sbe k
 
-ppSimCont = undefined
+ppSimCont :: Backend sbe -> SimCont sbe -> Doc
+ppSimCont sbe (HandleBranch point ba h) = 
+  text "on" <+> ppMergePoint point <+> text "do" $$
+  nest 2 (ppBranchAction sbe ba) $$
+  ppSimCont sbe h
+ppSimCont _ EmptyCont = text "stop"
+
+ppBranchAction :: Backend sbe -> BranchAction sbe -> Doc
+ppBranchAction sbe (BranchRunTrue c p) = 
+  text "runTrue" <+> prettyTermD sbe c $$
+  nest 2 (ppPath sbe p)
+ppBranchAction sbe (BranchMerge a c p) =
+  text "mergeBranch" <+> prettyTermD sbe c $$
+  nest 2 (text "assumptions:" <+> prettyTermD sbe a) $$
+  nest 2 (ppPath sbe p)
+
+ppMergePoint :: MergePoint -> Doc
+ppMergePoint (ReturnPoint n) = text "return" <> parens (int n)
+ppMergePoint (PostdomPoint n b) =
+    text "postdom" <> parens (int n <+> ppBlockId b)
 
 dumpCtrlStk :: (MonadIO m) => Simulator sbe m ()
 dumpCtrlStk = do
