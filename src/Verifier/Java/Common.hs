@@ -12,7 +12,70 @@ Point-of-contact : acfoltzer
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Verifier.Java.Common where
+module Verifier.Java.Common
+  ( Simulator(SM)
+  , runSM
+  , dumpCtrlStk
+
+  -- , LSSOpts(LSSOpts, optsErrorPathDetails)
+  -- , defaultLSSOpts
+
+  , State(State)
+  , codebase
+  , backend
+  , ctrlStk
+  -- , fnOverrides
+  , verbosity
+  -- , evHandlers
+  , errorPaths
+  -- , lssOpts
+  -- , pathCounter
+  -- , aigOutputs
+  , modifyCS
+
+  , CS
+  , initialCtrlStk
+  -- , isFinished
+  -- , getCurrentPath
+  -- , modifyPath
+  -- , modifyCurrentPathM
+  -- , pushCallFrame
+  -- , addCtrlBranch
+  -- , jumpCurrentPath
+  -- , returnCurrentPath
+  -- , markCurrentPathAsError
+
+
+  , BlockId
+
+  , Path
+  , Path'
+  -- , pathFuncSym
+  -- , pathCB
+  -- , pathName
+  -- , pathRegs
+  -- , pathMem
+  -- , pathAssertions
+  -- , addPathAssertion
+  -- , ppPath
+  -- , ppPathLoc
+  
+
+  , FailRsn(FailRsn)
+  -- , ppFailRsn
+
+  -- , ErrorPath(EP, epRsn, epPath)
+  , InternalExc(ErrorPathExc, UnknownExc)
+  -- , SEH( SEH
+  --      , onPostOverrideReg
+  --      , onPreStep
+  --      , onPostStep
+  --      , onMkGlobTerm
+  --      , onPreGlobInit
+  --      , onPostGlobInit
+  --      )
+  -- , ppTuple
+  ) where
 
 import Prelude hiding (EQ, GT, LT)
 import qualified Prelude as P
@@ -42,8 +105,7 @@ import Data.JVM.Symbolic.AST
 import Execution (AtomicValue(..), JSValue(..))
 import Verifier.Java.Backend
 import Verifier.Java.Codebase (Codebase, FieldId(..), LocalVariableIndex, Method(..), MethodKey(..), PC, Type(..), methodName, slashesToDots, sourceLineNumberOrPrev)
-
-import Verinf.Utils.LogMonad
+import Verifier.Java.Utils
 
 -- | A Simulator is a monad transformer around a symbolic backend
 newtype Simulator sbe (m :: * -> *) a = 
@@ -106,12 +168,12 @@ data MergePoint
 data BranchAction sbe
   -- | Continuation after finishing a path for the @else@ of a branch;
   -- starts running the @then@ branch
-  = BranchRunTrue (MonadTerm sbe) -- ^ Branch condition
+  = BranchRunTrue (SBETerm sbe) -- ^ Branch condition
                   (Path sbe)      -- ^ Path to run for @then@ branch
   -- | Continuation after finishing a path for the @then@ of a branch;
   -- merges with finished @else@ path
-  | BranchMerge   (MonadTerm sbe) -- ^ Assertions before merge
-                  (MonadTerm sbe) -- ^ Branch condition
+  | BranchMerge   (SBETerm sbe) -- ^ Assertions before merge
+                  (SBETerm sbe) -- ^ Branch condition
                   (Path sbe)      -- ^ Completed @else@ branch
 
 -- | First-order continuations for the symbolic simulation.
@@ -157,7 +219,7 @@ data SimulationFlags =
 defaultSimFlags :: SimulationFlags
 defaultSimFlags = SimulationFlags { alwaysBitBlastBranchTerms = False }
 
-type Path sbe = Path' (MonadTerm sbe)
+type Path sbe = Path' (SBETerm sbe)
 
 data Path' term = Path {
     _pathStack          :: ![CallFrame term]
@@ -331,6 +393,7 @@ mergeNextCont sbe p (HandleBranch point act h)
 -- 3.
 mergeNextCont _ p h = return (ActiveCS p h)
 
+-- | Is the given path at its 'MergePoint'?
 atMergePoint :: Path' term -> MergePoint -> Bool
 p `atMergePoint` point = case point of
   ReturnPoint n -> n == p^.pathStackHt
@@ -338,10 +401,10 @@ p `atMergePoint` point = case point of
     n == p^.pathStackHt && Just b == (view cfBlockId <$> currentCallFrame p)
 
 mergeMemories :: MonadIO m
-              => MonadTerm sbe
-              -> Memory (MonadTerm sbe)
-              -> Memory (MonadTerm sbe)
-              -> Simulator sbe m (Memory (MonadTerm sbe))
+              => SBETerm sbe
+              -> Memory (SBETerm sbe)
+              -> Memory (SBETerm sbe)
+              -> Simulator sbe m (Memory (SBETerm sbe))
 mergeMemories assertions mem1 mem2 = do
   sbe <- use backend
   let Memory init1 sFields1 iFields1 scArrays1 rArrays1 cObjs1 = mem1
@@ -365,10 +428,10 @@ mergeMemories assertions mem1 mem2 = do
                 & memClassObjects   .~ mergedCObjs
 
 mergeCallFrames :: MonadIO m
-                => MonadTerm sbe
-                -> CallFrame (MonadTerm sbe)
-                -> CallFrame (MonadTerm sbe)
-                -> Simulator sbe m (CallFrame (MonadTerm sbe))
+                => SBETerm sbe
+                -> CallFrame (SBETerm sbe)
+                -> CallFrame (SBETerm sbe)
+                -> Simulator sbe m (CallFrame (SBETerm sbe))
 mergeCallFrames assertions cf1 cf2 = do
   let CallFrame class1 method1 bb1 pc1 locals1 opds1 = cf1
       CallFrame class2 method2 bb2 pc2 locals2 opds2 = cf2
@@ -403,10 +466,10 @@ mergeBy mrg m1 m2 = leftUnion <$> merged
 
 -- | Merge the two symbolic values under the given assertions
 mergeValues :: MonadIO m 
-            => MonadTerm sbe 
-            -> Value (MonadTerm sbe) 
-            -> Value (MonadTerm sbe) 
-            -> Simulator sbe m (Value (MonadTerm sbe)) 
+            => SBETerm sbe 
+            -> Value (SBETerm sbe) 
+            -> Value (SBETerm sbe) 
+            -> Simulator sbe m (Value (SBETerm sbe)) 
 mergeValues assertions x y = mergeV x y
   where abort = fail . render
         t1 <-> t2 = do 
@@ -573,5 +636,21 @@ ppState s = hang (text "state" <+> lbrace) 2 (s^.ctrlStk.to ppCS) $+$ rbrace
 ppCS :: CS sbe -> Doc
 ppCS cs = undefined
 
-ppPath :: Path term -> Doc
+ppPath :: Backend sbe -> Path sbe -> Doc
 ppPath = undefined
+
+ppCtrlStk :: Backend sbe -> CS sbe -> Doc
+ppCtrlStk sbe (CompletedCS mp) =
+  maybe (text "All paths failed") (ppPath sbe) mp
+ppCtrlStk sbe (ActiveCS p k) =
+  text "Active path:" $$
+  ppPath sbe p $$
+  ppSimCont sbe k
+
+ppSimCont = undefined
+
+dumpCtrlStk :: (MonadIO m) => Simulator sbe m ()
+dumpCtrlStk = do
+  (sbe, cs) <- (,) <$> use backend <*> use ctrlStk
+  banners $ show $ ppCtrlStk sbe cs
+

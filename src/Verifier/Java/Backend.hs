@@ -5,7 +5,7 @@ module Verifier.Java.Backend
   , Typeable
   , UnaryOp
   , BinaryOp
-  , MonadTerm
+  , SBETerm
   , AigOps
   , Backend(..)
   , toLsbfV
@@ -17,146 +17,146 @@ import qualified Data.Vector.Storable as SV
 
 import Verinf.Symbolic (BitWidth, PrettyTerm(..), Lit, LitResult, toLsbfV)
 
-type UnaryOp sym = MonadTerm sym -> IO (MonadTerm sym)
-type BinaryOp sym = MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
+type UnaryOp sbe = SBETerm sbe -> IO (SBETerm sbe)
+type BinaryOp sbe = SBETerm sbe -> SBETerm sbe -> IO (SBETerm sbe)
 
 -- | Returns term type associated with monad.
-type family MonadTerm m
+type family SBETerm (sbe :: * -> *)
 
-class ( PrettyTerm (MonadTerm m)
-      , Show (MonadTerm m)
-      , Typeable (MonadTerm m)
+class ( PrettyTerm (SBETerm m)
+      , Show (SBETerm m)
+      , Typeable (SBETerm m)
       ) => AigOps m where
  
-data Backend sym = Backend {
+data Backend sbe = Backend {
           -- | Allocates a fresh variable where the 8 low-order bits are fresh
           -- lits and the upper bits are zero.
-         freshByte :: IO (MonadTerm sym)
-       , freshInt  :: IO (MonadTerm sym)
-       , freshLong :: IO (MonadTerm sym)
-       , asBool :: MonadTerm sym -> Maybe Bool
-       , asInt :: MonadTerm sym -> Maybe Int32
-       , asLong :: MonadTerm sym -> Maybe Int64
-       , termBool :: Bool  -> IO (MonadTerm sym)  
-       , termInt  :: Int32 -> IO (MonadTerm sym)
-       , termLong :: Int64 -> IO (MonadTerm sym)
-       , termByteFromInt :: UnaryOp sym
-       , termLongFromInt :: UnaryOp sym
-       , termIntFromLong :: UnaryOp sym
+         freshByte :: IO (SBETerm sbe)
+       , freshInt  :: IO (SBETerm sbe)
+       , freshLong :: IO (SBETerm sbe)
+       , asBool :: SBETerm sbe -> Maybe Bool
+       , asInt :: SBETerm sbe -> Maybe Int32
+       , asLong :: SBETerm sbe -> Maybe Int64
+       , termBool :: Bool  -> IO (SBETerm sbe)  
+       , termInt  :: Int32 -> IO (SBETerm sbe)
+       , termLong :: Int64 -> IO (SBETerm sbe)
+       , termByteFromInt :: UnaryOp sbe
+       , termLongFromInt :: UnaryOp sbe
+       , termIntFromLong :: UnaryOp sbe
          -- | Complement argument.
-       , termNot :: UnaryOp sym
+       , termNot :: UnaryOp sbe
          -- | Return conjunction of two arguments. 
-       , termAnd :: BinaryOp sym
+       , termAnd :: BinaryOp sbe
          -- | Compare equality of arguments.
-       , termEq :: BinaryOp sym
+       , termEq :: BinaryOp sbe
          -- | Form if-then-else comparing arguments.
-       , termIte :: MonadTerm sym -> MonadTerm sym -> MonadTerm sym -> IO (MonadTerm sym)
+       , termIte :: SBETerm sbe -> SBETerm sbe -> SBETerm sbe -> IO (SBETerm sbe)
 
          -- | Take two 32-bit integers, and return true if first is less than second.
-       , termILeq :: BinaryOp sym
+       , termILeq :: BinaryOp sbe
          -- | Bitwise and of two 32bit integers.
-       , termIAnd :: BinaryOp sym
+       , termIAnd :: BinaryOp sbe
          -- | Bitwise or of two 32bit integers.
-       , termIOr  :: BinaryOp sym
+       , termIOr  :: BinaryOp sbe
          -- | Bitwise exclusive or of arguments.
-       , termIXor :: BinaryOp sym
+       , termIXor :: BinaryOp sbe
          -- | Java shift-left on int values.
-       , termIShl  :: BinaryOp sym
+       , termIShl  :: BinaryOp sbe
          -- | Java signed shift-right on int values.
-       , termIShr  :: BinaryOp sym
+       , termIShr  :: BinaryOp sbe
          -- | Java unsigned shift-right on int values.
-       , termIUshr :: BinaryOp sym
+       , termIUshr :: BinaryOp sbe
          -- | Negates 32bit integer argument
-       , termINeg :: UnaryOp sym
+       , termINeg :: UnaryOp sbe
          -- | Adds two 32bit integer arguments.
-       , termIAdd :: BinaryOp sym
+       , termIAdd :: BinaryOp sbe
          -- | Subtracts one 32bit integer from another.
-       , termISub :: BinaryOp sym
+       , termISub :: BinaryOp sbe
          -- | Multiplies two 32bit integers.
-       , termIMul :: BinaryOp sym
+       , termIMul :: BinaryOp sbe
          -- | Returns signed division of two 32bit integers.
-       , termIDiv :: BinaryOp sym
+       , termIDiv :: BinaryOp sbe
          -- | Returns signed remainder of two 32bit integers.
-       , termIRem :: BinaryOp sym
+       , termIRem :: BinaryOp sbe
 
          -- | Compare two 64bit integers (x & y), and return one of three 32-bit integers:
          -- if x < y then return -1
          -- if x == y then return 0
          -- if x > y then return 1
-       , termLCompare :: BinaryOp sym
+       , termLCompare :: BinaryOp sbe
          -- | Bitwise and of two 32bit integers.
-       , termLAnd  :: BinaryOp sym
+       , termLAnd  :: BinaryOp sbe
          -- | Bitwise or of two 32bit integers.
-       , termLOr   :: BinaryOp sym
+       , termLOr   :: BinaryOp sbe
          -- | Bitwise exclusive or of arguments.
-       , termLXor  :: BinaryOp sym
+       , termLXor  :: BinaryOp sbe
          -- | Java shift-left on long values.
-       , termLShl  :: BinaryOp sym
+       , termLShl  :: BinaryOp sbe
          -- | Java signed shift-right on long values.
-       , termLShr  :: BinaryOp sym
+       , termLShr  :: BinaryOp sbe
          -- | Java unsigned shift-right on long values.
-       , termLUshr :: BinaryOp sym
+       , termLUshr :: BinaryOp sbe
          -- | Negates 64bit integer.
-       , termLNeg :: UnaryOp sym
+       , termLNeg :: UnaryOp sbe
          -- | Adds two 64bit integers.
-       , termLAdd :: BinaryOp sym
+       , termLAdd :: BinaryOp sbe
          -- | Subtracts one 64bit integer from another.
-       , termLSub :: BinaryOp sym
+       , termLSub :: BinaryOp sbe
          -- | Multiplies two 64bit integers.
-       , termLMul :: BinaryOp sym
+       , termLMul :: BinaryOp sbe
          -- | Returns signed division of two 64bit integers.
-       , termLDiv :: BinaryOp sym
+       , termLDiv :: BinaryOp sbe
          -- | Returns signed remainder of two 64bit integers.
-       , termLRem :: BinaryOp sym
+       , termLRem :: BinaryOp sbe
 
          -- | @termIntArray l@ returns an integer array of zeros with length
          -- @l@.  Will return @Nothing@ is operation cannot be performed because
          -- length is symbolic and symbolic lengths are unsupported. 
-       , termIntArray :: MonadTerm sym -> IO (Maybe (MonadTerm sym))
+       , termIntArray :: SBETerm sbe -> IO (Maybe (SBETerm sbe))
          -- | @termLongArray l@ returns a long array of zeros with length @l@.
-       , termLongArray :: MonadTerm sym -> IO (Maybe (MonadTerm sym))
+       , termLongArray :: SBETerm sbe -> IO (Maybe (SBETerm sbe))
          -- | @termGetIntArray l arr i@ returns value at @arr[i]@.  The length is
          -- the expected length of the array.  The length is passed in case the backend
          -- needs it.
-       , termGetIntArray :: MonadTerm sym -- ^ length
-                         -> MonadTerm sym -- ^ array
-                         -> MonadTerm sym -- ^ index
-                         -> IO (MonadTerm sym)
+       , termGetIntArray :: SBETerm sbe -- ^ length
+                         -> SBETerm sbe -- ^ array
+                         -> SBETerm sbe -- ^ index
+                         -> IO (SBETerm sbe)
          -- | @termGetLongArray l arr i@ returns value at @arr[i]@.
-       , termGetLongArray :: MonadTerm sym -- ^ length
-                          -> MonadTerm sym -- ^ array
-                          -> MonadTerm sym -- ^ index
-                          -> IO (MonadTerm sym)
+       , termGetLongArray :: SBETerm sbe -- ^ length
+                          -> SBETerm sbe -- ^ array
+                          -> SBETerm sbe -- ^ index
+                          -> IO (SBETerm sbe)
          -- | @termSetIntArray l arr i v@ returns value at @arr[i] = v@.
-       , termSetIntArray :: MonadTerm sym -- ^ length
-                         -> MonadTerm sym -- ^ array
-                         -> MonadTerm sym -- ^ index
-                         -> MonadTerm sym -- ^ value
-                         -> IO (MonadTerm sym)
+       , termSetIntArray :: SBETerm sbe -- ^ length
+                         -> SBETerm sbe -- ^ array
+                         -> SBETerm sbe -- ^ index
+                         -> SBETerm sbe -- ^ value
+                         -> IO (SBETerm sbe)
          -- | @termSetLongArray l arr i v@ returns value at @arr[i] = v@.
-       , termSetLongArray :: MonadTerm sym -- ^ length
-                          -> MonadTerm sym -- ^ array
-                          -> MonadTerm sym -- ^ index
-                          -> MonadTerm sym -- ^ value
-                          -> IO (MonadTerm sym)
+       , termSetLongArray :: SBETerm sbe -- ^ length
+                          -> SBETerm sbe -- ^ array
+                          -> SBETerm sbe -- ^ index
+                          -> SBETerm sbe -- ^ value
+                          -> IO (SBETerm sbe)
          -- | @blastTerm t@ bitblasts the Boolean term @t@ and returns a maybe value indicating
          -- if it is equivalent to the constant true or false.
-       , blastTerm :: MonadTerm sym -> IO (Maybe Bool)
+       , blastTerm :: SBETerm sbe -> IO (Maybe Bool)
         -- TODO: we may, at some point, want to get back a satisfying assignment
-       , satTerm :: MonadTerm sym -> IO Bool
+       , satTerm :: SBETerm sbe -> IO Bool
          -- | @evalAigIntegral f ins out@ applies concrete inputs @ins@ to the 
          -- AIG at the given symbolic output term @out@, applying @f@ to the
          -- @ins@ bit sequence
        , evalAigIntegral :: ([Bool] -> [Bool])
-                         -> [MonadTerm sym] 
-                         -> MonadTerm sym
-                         -> IO (MonadTerm sym)
+                         -> [SBETerm sbe] 
+                         -> SBETerm sbe
+                         -> IO (SBETerm sbe)
          -- | @evalAigArray w ins outs@ applies concrete inputs @ins@ to the
          -- AIG at the given symbolic output terms @outs@.  Each output is
          -- assumed to be w bits.  If @ins@ is not a constant, then this fails.
-       , evalAigArray :: BitWidth -> [MonadTerm sym] -> [MonadTerm sym] -> IO [MonadTerm sym]
+       , evalAigArray :: BitWidth -> [SBETerm sbe] -> [SBETerm sbe] -> IO [SBETerm sbe]
        , writeAigToFile :: FilePath -> SV.Vector Lit -> IO ()
          -- | Returns lit vector associated with given term, or fails
          -- if term cannot be bitblasted.
-       , getVarLit :: MonadTerm sym -> IO (LitResult Lit)
+       , getVarLit :: SBETerm sbe -> IO (LitResult Lit)
        }
