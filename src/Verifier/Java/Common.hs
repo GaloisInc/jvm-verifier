@@ -140,12 +140,7 @@ initialCtrlStk sbe = do
   let p = Path { _pathStack = []
                , _pathStackHt = 0
                , _pathException = Nothing
-               , _pathInitialization = M.empty
-               , _pathStaticFields = M.empty
-               , _pathInstanceFields = M.empty
-               , _pathScalarArrays = M.empty
-               , _pathRefArrays = M.empty
-               , _pathClassObjects = M.empty
+               , _pathMemory = emptyMemory
                , _pathAssertions = true
                , _pathName = 0
                , _pathStartingPC = 0
@@ -172,20 +167,7 @@ data Path' term = Path {
     -- ^ the current call frames count
   , _pathException      :: !(Maybe (JavaException term))
     -- ^ the exception thrown on this path, if any  
-  --- TODO: These fields should probably be extracted into a memory type like in LSS
-  , _pathInitialization :: !(Map String InitializationStatus)
-    -- ^ the initialization status of classes on this path
-  , _pathStaticFields   :: !(Map FieldId (Value term))
-    -- ^ static field values on this path
-  , _pathInstanceFields :: !(Map InstanceFieldRef (Value term))
-    -- ^ instance field values on this path
-  , _pathScalarArrays   :: !(Map Ref (term, term))
-    -- ^ integer and long array values (floating point not supported)
-  , _pathRefArrays      :: !(Map Ref (Array Int32 Ref))
-    -- ^ reference array values
-  , _pathClassObjects   :: !(Map String Ref)
-    -- ^ java.lang.Class objects for this path
-  --- end TODO
+  , _pathMemory         :: !(Memory term)
   , _pathAssertions     :: !term
     -- ^ facts assumed to be true on this path
   , _pathName           :: !PathDescriptor
@@ -200,6 +182,24 @@ data Path' term = Path {
   , _pathInsnCount      :: !Int
   -- ^ The number of instructions executed so far on this path.
   }
+
+data Memory term = Memory {
+    _memInitialization :: !(Map String InitializationStatus)
+    -- ^ the initialization status of classes
+  , _memStaticFields   :: !(Map FieldId (Value term))
+    -- ^ static field values 
+  , _memInstanceFields :: !(Map InstanceFieldRef (Value term))
+    -- ^ instance field values 
+  , _memScalarArrays   :: !(Map Ref (term, term))
+    -- ^ integer and long array values (floating point not supported)
+  , _memRefArrays      :: !(Map Ref (Array Int32 Ref))
+    -- ^ reference array values
+  , _memClassObjects   :: !(Map String Ref)
+    -- ^ java.lang.Class objects
+  }
+
+emptyMemory :: Memory term
+emptyMemory = Memory M.empty M.empty M.empty M.empty M.empty M.empty
 
 -- | A JVM call frame
 data CallFrame term
@@ -219,8 +219,8 @@ data CallFrame term
 
 data InitializationStatus
   = Started
-  | Erroneous
   | Initialized
+  | Erroneous
   deriving (Eq, Ord, Show)
 
 type InstanceFieldRef = (Ref, FieldId)
@@ -265,6 +265,7 @@ instance Ord Ref where
 
 makeLenses ''State
 makeLenses ''Path'
+makeLenses ''Memory
 makeLenses ''CallFrame
 makeLenses ''ErrorPath
 makeLenses ''JavaException
@@ -299,7 +300,7 @@ returnMerge sbe p (HandleBranch info@(ReturnPoint n hasVal) act h)
       let act' = BranchMerge (tp^.pathAssertions) c p
       return $ ActiveCS tp' (HandleBranch info act' h) 
     BranchMerge a c pf -> do
-      let assertions = p^.assertions 
+      let assertions = p^.pathAssertions 
           (Just cf1, Just cf2) = (currentCallFrame p, currentCallFrame pf)
       mergedCallFrame <- mergeCallFrames (p^.pathAssertions) cf1 cf2
       undefined
@@ -316,6 +317,25 @@ returnMerge sbe p (HandleBranch info@(ReturnPoint n hasVal) act h)
       returnMerge sbe p' h-}
 returnMerge _ p h = return (ActiveCS p h)
 
+
+mergeMemories :: MonadIO m
+              => MonadTerm sbe
+              -> Memory (MonadTerm sbe)
+              -> Memory (MonadTerm sbe)
+              -> Simulator sbe m (Memory (MonadTerm sbe))
+mergeMemories assertions mem1 mem2 = do
+  sbe <- use backend
+  let Memory init1 sFields1 iFields1 scArrays1 rArrays1 cObjs1 = mem1
+      Memory init2 sFields2 iFields2 scArrays2 rArrays2 cObjs2 = mem2
+      mergedInit = M.unionWith max init1 init2
+      mergeTup (i1, v1) (i2, v2) = 
+        (,) <$> (liftIO $ termIte sbe assertions i1 i2)
+            <*> (liftIO $ termIte sbe assertions v1 v2)
+  mergedSFields <- mergeBy (mergeValues assertions) sFields1 sFields2
+  mergedIFields <- mergeBy (mergeValues assertions) iFields1 iFields2
+  mergedScArrays <- mergeBy mergeTup scArrays1 scArrays2
+  undefined
+
 mergeCallFrames :: MonadIO m
                 => MonadTerm sbe
                 -> CallFrame (MonadTerm sbe)
@@ -327,7 +347,7 @@ mergeCallFrames assertions cf1 cf2 = do
   assert (class1  == class2)
   assert (method1 == method2)
   -- pcs may differ if paths merge at different return insts
-  mergedLocals <- mergeBy locals1 locals2 (mergeValues assertions)
+  mergedLocals <- mergeBy (mergeValues assertions) locals1 locals2
   mergedOpds <- zipWithM (mergeValues assertions) opds1 opds2
   return $ cf2 & cfLocals .~ mergedLocals
                & cfOpds   .~ mergedOpds
@@ -336,11 +356,11 @@ mergeCallFrames assertions cf1 cf2 = do
 -- states via the given action 'mrg', and then union in elements unique to
 -- each state as well (via the left-biased map union operator)
 mergeBy :: (Functor m, Monad m, Ord k)
-        => Map k a
+        => (a -> a -> m a)
         -> Map k a
-        -> (a -> a -> m a)
+        -> Map k a
         -> m (Map k a)
-mergeBy m1 m2 mrg = leftUnion <$> merged
+mergeBy mrg m1 m2 = leftUnion <$> merged
   where
     -- Use the left-biasing of M.union to prefer the key/value mappings in
     -- 'x', and then take everything else in the selected 'from' and 'to'
@@ -366,24 +386,24 @@ mergeValues assertions x y = mergeV x y
           liftIO $ termIte sbe assertions t1 t2
         mergeV (IValue v1) (IValue v2)             = IValue <$> v1 <-> v2
         mergeV (LValue v1) (LValue v2)             = LValue <$> v1 <-> v2
-        mergeV x@(FValue v1) y@(FValue v2) = do
+        mergeV (FValue v1) (FValue v2) = do
           if (isNaN v1 && isNaN v2 || v1 == v2)
             then return x
             else abort $ "Attempt to merge two concrete non-NaN unequal floats:"
                  <+> ppValue' x <+> "and" <+> ppValue' y
-        mergeV x@(DValue v1) y@(DValue v2) = do
+        mergeV (DValue v1) (DValue v2) = do
           if (isNaN v1 && isNaN v2 || v1 == v2)
             then return x
             else abort $ "Attempt to merge two concrete non-NaN unequal doubles: "
                  <+> ppValue' x <+> "and" <+> ppValue' y
-        mergeV x@(RValue NullRef) (RValue NullRef) = return x
-        mergeV x@(RValue (Ref r1 ty1)) y@(RValue (Ref r2 ty2)) = do
+        mergeV (RValue NullRef) (RValue NullRef) = return x
+        mergeV (RValue (Ref r1 ty1)) (RValue (Ref r2 ty2)) = do
           when (r1 /= r2) $
             abort $ "References differ when merging:" 
             <+> ppValue' x <+> "and" <+> ppValue' y
           assert (ty1 == ty2)
           return x
-        mergeV x y = 
+        mergeV _ _ = 
           abort $ "Unsupported or mismatched type when merging values:"
           <+> ppValue' x <+> "and" <+> ppValue' y
 
