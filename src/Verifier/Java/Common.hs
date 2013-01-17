@@ -95,9 +95,8 @@ data Ref
 -- | A point in the control flow of a program where a branched
 -- computation merges
 data MergePoint
-  -- | Merge at any @return@ statement at the given stack height; flag
-  -- specifies whether the function returns a value.
-  = ReturnPoint Int Bool
+  -- | Merge at any @return@ statement at the given stack height
+  = ReturnPoint Int
   -- | Merge at the given postdominator node at the given stack height.
   | PostdomPoint Int BlockId
 
@@ -204,18 +203,20 @@ emptyMemory = Memory M.empty M.empty M.empty M.empty M.empty M.empty
 -- | A JVM call frame
 data CallFrame term
   = CallFrame {
-      _cfClass  :: !String                               
+      _cfClass   :: !String                               
       -- ^ Name of the class containing the current method
-    , _cfMethod :: !Method                               
+    , _cfMethod  :: !Method
       -- ^ The current method
-    , _cfPC     :: !PC
+    , _cfBlockId :: !BlockId
+      -- ^ The current basic block
+    , _cfPC      :: !PC
       -- ^ The current program counter
-    , _cfLocals :: !(Map LocalVariableIndex (Value term)) 
+    , _cfLocals  :: !(Map LocalVariableIndex (Value term)) 
       -- ^ The current local variables (<http://docs.oracle.com/javase/specs/jvms/se7/html/jvms-2.html#jvms-2.6.1>)
-    , _cfOpds   :: ![Value term]                          
+    , _cfOpds    :: ![Value term]                          
       -- ^ The current operand stack
     }
-    deriving (Eq, Show)
+    deriving (Eq)
 
 data InitializationStatus
   = Started
@@ -246,7 +247,6 @@ data JavaException term =
     { _excRef   :: Ref          -- ^ the java.lang.Exception instance
     , _excStack :: [CallFrame term] -- ^ stack trace @ raise point
     }
-  deriving (Show)
 
 instance Eq (JavaException term) where
   e1@JavaException{} == e2@JavaException{} = _excRef e1 == _excRef e2
@@ -282,55 +282,60 @@ currentCallFrame p = p^.pathStack^?_head
 currentOpds :: Path' term -> Maybe [Value term]
 currentOpds p = view cfOpds <$> currentCallFrame p
 
--- | Called at symbolic return instructions to check whether it is
--- time to merge a path and move on to the next continuation. There
--- are three cases:
+-- | Called at symbolic return instructions and jumps to new basic
+-- blocks to check whether it is time to merge a path and move on to
+-- the next continuation. There are three cases:
 -- 
---   * There are no more call frames on the stack, and the
+--   1. There are no more call frames on the stack, and the
 --   continuation is empty. This leaves us with a completed control
 --   stack containing the current path.
 -- 
---   * The current path's 'MergePoint' matches the current stack
---   height, so the current continuation is complete. Depending on the
---   type of continuation, we either move on to a different path, or
---   merge the current path with an already-finished path before
---   continuing.
+--   2. We've reaced the current path's 'MergePoint' , so the current
+--   continuation is complete. Depending on the type of continuation,
+--   we either move on to a different path, or merge the current path
+--   with an already-finished path before continuing.
 -- 
---   * The current path's merge point does not indicate the current
+--   3. The current path's merge point does not indicate the current
 --   location, so we continue with the same path and continuation.
-returnMerge :: MonadIO m
-            => Backend sbe
-            -> Path sbe
-            -> SimCont sbe
-            -> Simulator sbe m (CS sbe)
-returnMerge _ p EmptyCont | 0 == p^.pathStackHt =
+mergeNextCont :: MonadIO m
+              => Backend sbe
+              -> Path sbe
+              -> SimCont sbe
+              -> Simulator sbe m (CS sbe)
+-- 1.
+mergeNextCont _ p EmptyCont | 0 == p^.pathStackHt =
   return (CompletedCS (Just p))
--
-returnMerge sbe p (HandleBranch info@(ReturnPoint n hasVal) act h) 
-    | n == p^.pathStackHt =
+-- 2.
+mergeNextCont sbe p (HandleBranch point act h) 
+  | p `atMergePoint` point =
   case act of
     BranchRunTrue c tp -> do
       true <- liftIO $ termBool sbe True
       undefined 
       let tp' = tp & pathAssertions .~ true
       let act' = BranchMerge (tp^.pathAssertions) c p
-      return $ ActiveCS tp' (HandleBranch info act' h) 
+      return $ ActiveCS tp' (HandleBranch point act' h) 
     BranchMerge a c pf -> do
       let assertions = p^.pathAssertions 
           (Just cf1, Just cf2) = (currentCallFrame p, currentCallFrame pf)
       mergedCallFrame <- mergeCallFrames (p^.pathAssertions) cf1 cf2
       mergedMemory <- mergeMemories assertions (p^.pathMemory) (pf^.pathMemory)
-      -- Merge assertions
       mergedAssertions <- 
           liftIO $ termIte sbe c (p^.pathAssertions) (pf^.pathAssertions)
       a' <- liftIO $ termAnd sbe a mergedAssertions
       let p' = p & pathStack._head .~ mergedCallFrame
                  & pathMemory      .~ mergedMemory
                  & pathAssertions  .~ a'
-      returnMerge sbe p' h
--
-returnMerge _ p h = return (ActiveCS p h)
+      -- recur in case multiple continuations have the same merge point
+      mergeNextCont sbe p' h
+-- 3.
+mergeNextCont _ p h = return (ActiveCS p h)
 
+atMergePoint :: Path' term -> MergePoint -> Bool
+p `atMergePoint` point = case point of
+  ReturnPoint n -> n == p^.pathStackHt
+  PostdomPoint n b -> 
+    n == p^.pathStackHt && Just b == (view cfBlockId <$> currentCallFrame p)
 
 mergeMemories :: MonadIO m
               => MonadTerm sbe
@@ -365,8 +370,8 @@ mergeCallFrames :: MonadIO m
                 -> CallFrame (MonadTerm sbe)
                 -> Simulator sbe m (CallFrame (MonadTerm sbe))
 mergeCallFrames assertions cf1 cf2 = do
-  let CallFrame class1 method1 pc1 locals1 opds1 = cf1
-      CallFrame class2 method2 pc2 locals2 opds2 = cf2
+  let CallFrame class1 method1 bb1 pc1 locals1 opds1 = cf1
+      CallFrame class2 method2 bb2 pc2 locals2 opds2 = cf2
   assert (class1  == class2)
   assert (method1 == method2)
   -- pcs may differ if paths merge at different return insts
@@ -521,7 +526,7 @@ ppPathException Nothing = "no exception"
 ppPathException exc     = undefined -- ppSimulatorExc <$> exc
 
 ppCallFrame :: PrettyTerm term => CallFrame term -> String
-ppCallFrame (CallFrame c me pc lvars stack) =
+ppCallFrame (CallFrame c me bb pc lvars stack) =
   "CallFrame (" ++ c ++ "." ++ (methodKeyName $ methodKey me) ++ "): PC " ++ show pc
       ++ "\n      Ls:\n        "
         ++ intercalate "\n        "
@@ -531,7 +536,7 @@ ppCallFrame (CallFrame c me pc lvars stack) =
              (map ppValue stack)
 
 ppCallFrameSrcLoc :: CallFrame term -> Doc
-ppCallFrameSrcLoc (CallFrame c me pc _vars _stack) =
+ppCallFrameSrcLoc (CallFrame c me bb pc _vars _stack) =
   text c <> text "." <> text mn <> parens (text c <> text ".java:" <> text (maybe "?" show mloc))
   where
     (mloc, mn) = (`sourceLineNumberOrPrev` pc) CA.&&& methodName $ me
