@@ -5,6 +5,7 @@ Stability        : stable
 Point-of-contact : acfoltzer
 -}
 
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -27,6 +28,7 @@ import Data.Array (Array, elems)
 import qualified Data.Foldable as DF
 import Data.Int (Int32)
 import Data.List (intercalate)
+import Data.List.Lens
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Set (Set)
@@ -271,10 +273,19 @@ makeLenses ''JavaException
 modifyCS :: (CS sbe -> CS sbe) -> (State sbe m -> State sbe m)
 modifyCS = over ctrlStk
 
-returnMerge :: Backend sbe
+-- | Get top call frame from a path
+currentCallFrame :: Path' term -> Maybe (CallFrame term)
+currentCallFrame p = p^.pathStack^?_head
+
+-- | Get operand stack of top call frame from a path
+currentOpds :: Path' term -> Maybe [Value term]
+currentOpds p = view cfOpds <$> currentCallFrame p
+
+returnMerge :: forall sbe m . MonadIO m
+            => Backend sbe
             -> Path sbe
             -> SimCont sbe
-            -> IO (CS sbe)
+            -> Simulator sbe m (CS sbe)
 returnMerge _ p EmptyCont | 0 == p^.pathStackHt =
   return (CompletedCS (Just p))
 
@@ -282,22 +293,17 @@ returnMerge sbe p (HandleBranch info@(ReturnPoint n hasVal) act h)
     | n == p^.pathStackHt =
   case act of
     BranchRunTrue c tp -> do
-      true <- termBool sbe True
+      true <- liftIO $ termBool sbe True
       undefined 
       let tp' = tp & pathAssertions .~ true
       let act' = BranchMerge (tp^.pathAssertions) c p
       return $ ActiveCS tp' (HandleBranch info act' h) 
-{-    BranchMerge a c pf -> do
-      -- Merge operand stack
-      mergedOpds <- zipWithM
-        case hasVal of
-          Nothing -> return (pathRegs p)
-          Just r -> do
-            let Just (Typed tp vt) = M.lookup r (pathRegs p)
-            let Just (Typed _ vf)  = M.lookup r (pathRegs pf)
-            v <- sbeRunIO sbe $ applyIte sbe tp c vt vf
-            return $ M.insert r (Typed tp v) (pathRegs p)
-      -- Merge memory
+    BranchMerge a c pf -> do
+      let assertions = p^.assertions 
+          (Just cf1, Just cf2) = (currentCallFrame p, currentCallFrame pf)
+      mergedCallFrame <- mergeCallFrames (p^.pathAssertions) cf1 cf2
+      undefined
+{-      -- Merge memory
       mergedMemory <- sbeRunIO sbe $ memMerge sbe c (pathMem p) (pathMem pf)
       -- Merge assertions
       mergedAssertions <- sbeRunIO sbe $
@@ -310,17 +316,54 @@ returnMerge sbe p (HandleBranch info@(ReturnPoint n hasVal) act h)
       returnMerge sbe p' h-}
 returnMerge _ p h = return (ActiveCS p h)
 
+mergeCallFrames :: MonadIO m
+                => MonadTerm sbe
+                -> CallFrame (MonadTerm sbe)
+                -> CallFrame (MonadTerm sbe)
+                -> Simulator sbe m (CallFrame (MonadTerm sbe))
+mergeCallFrames assertions cf1 cf2 = do
+  let CallFrame class1 method1 pc1 locals1 opds1 = cf1
+      CallFrame class2 method2 pc2 locals2 opds2 = cf2
+  assert (class1  == class2)
+  assert (method1 == method2)
+  -- pcs may differ if paths merge at different return insts
+  mergedLocals <- mergeBy locals1 locals2 (mergeValues assertions)
+  mergedOpds <- zipWithM (mergeValues assertions) opds1 opds2
+  return $ cf2 & cfLocals .~ mergedLocals
+               & cfOpds   .~ mergedOpds
 
+-- | Merge the map elements (given via the selector 'sel') common to both
+-- states via the given action 'mrg', and then union in elements unique to
+-- each state as well (via the left-biased map union operator)
+mergeBy :: (Functor m, Monad m, Ord k)
+        => Map k a
+        -> Map k a
+        -> (a -> a -> m a)
+        -> m (Map k a)
+mergeBy m1 m2 mrg = leftUnion <$> merged
+  where
+    -- Use the left-biasing of M.union to prefer the key/value mappings in
+    -- 'x', and then take everything else in the selected 'from' and 'to'
+    -- maps.
+    leftUnion x = x `M.union` m1 `M.union` m2
+    merged      =
+      DF.foldrM
+        (\(k, v1, v2) acc -> flip (M.insert k) acc <$> mrg v1 v2)
+        M.empty
+        (M.intersectionWithKey (\k v1 v2 -> (k, v1, v2)) m1 m2)
+
+
+-- | Merge the two symbolic values under the given assertions
 mergeValues :: MonadIO m 
             => MonadTerm sbe 
             -> Value (MonadTerm sbe) 
             -> Value (MonadTerm sbe) 
             -> Simulator sbe m (Value (MonadTerm sbe)) 
-mergeValues assumptions x y = mergeV x y
+mergeValues assertions x y = mergeV x y
   where abort = fail . render
         t1 <-> t2 = do 
           sbe <- use backend
-          liftIO $ termIte sbe assumptions t1 t2
+          liftIO $ termIte sbe assertions t1 t2
         mergeV (IValue v1) (IValue v2)             = IValue <$> v1 <-> v2
         mergeV (LValue v1) (LValue v2)             = LValue <$> v1 <-> v2
         mergeV x@(FValue v1) y@(FValue v2) = do
