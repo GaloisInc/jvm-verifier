@@ -303,18 +303,15 @@ returnMerge sbe p (HandleBranch info@(ReturnPoint n hasVal) act h)
       let assertions = p^.pathAssertions 
           (Just cf1, Just cf2) = (currentCallFrame p, currentCallFrame pf)
       mergedCallFrame <- mergeCallFrames (p^.pathAssertions) cf1 cf2
-      undefined
-{-      -- Merge memory
-      mergedMemory <- sbeRunIO sbe $ memMerge sbe c (pathMem p) (pathMem pf)
+      mergedMemory <- mergeMemories assertions (p^.pathMemory) (pf^.pathMemory)
       -- Merge assertions
-      mergedAssertions <- sbeRunIO sbe $
-        applyIte sbe i1 c (pathAssertions p) (pathAssertions pf)
-      a' <- sbeRunIO sbe $ applyAnd sbe a mergedAssertions
-      let p' = p { pathRegs = mergedRegs
-                 , pathMem = mergedMemory
-                 , pathAssertions = a'
-                 }
-      returnMerge sbe p' h-}
+      mergedAssertions <- 
+          liftIO $ termIte sbe c (p^.pathAssertions) (pf^.pathAssertions)
+      a' <- liftIO $ termAnd sbe a mergedAssertions
+      let p' = p & pathStack._head .~ mergedCallFrame
+                 & pathMemory      .~ mergedMemory
+                 & pathAssertions  .~ a'
+      returnMerge sbe p' h
 returnMerge _ p h = return (ActiveCS p h)
 
 
@@ -327,14 +324,23 @@ mergeMemories assertions mem1 mem2 = do
   sbe <- use backend
   let Memory init1 sFields1 iFields1 scArrays1 rArrays1 cObjs1 = mem1
       Memory init2 sFields2 iFields2 scArrays2 rArrays2 cObjs2 = mem2
-      mergedInit = M.unionWith max init1 init2
+      mergedInit    = M.unionWith max init1 init2
+      -- no symbolic references, so these are just unioned
+      mergedRArrays = M.union rArrays1 rArrays2
+      mergedCObjs   = M.union cObjs1 cObjs2
+      -- pointwise merging of tuples
       mergeTup (i1, v1) (i2, v2) = 
         (,) <$> (liftIO $ termIte sbe assertions i1 i2)
             <*> (liftIO $ termIte sbe assertions v1 v2)
   mergedSFields <- mergeBy (mergeValues assertions) sFields1 sFields2
   mergedIFields <- mergeBy (mergeValues assertions) iFields1 iFields2
   mergedScArrays <- mergeBy mergeTup scArrays1 scArrays2
-  undefined
+  return $ mem2 & memInitialization .~ mergedInit
+                & memStaticFields   .~ mergedSFields
+                & memInstanceFields .~ mergedIFields
+                & memScalarArrays   .~ mergedScArrays
+                & memRefArrays      .~ mergedRArrays
+                & memClassObjects   .~ mergedCObjs
 
 mergeCallFrames :: MonadIO m
                 => MonadTerm sbe
