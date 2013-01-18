@@ -16,6 +16,9 @@ import qualified Language.JVM.Parser as J
 data BlockId = BlockId { blockId :: !CFG.BBId, blockN :: !Int }
   deriving (Eq, Ord)
 
+entryBlock :: BlockId
+entryBlock = BlockId CFG.BBIdEntry 0
+
 ppPC :: J.PC -> Doc
 ppPC = int . fromIntegral
 
