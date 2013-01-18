@@ -40,10 +40,10 @@ module Verifier.Java.Common
   , currentPath
   , modifyCurrentPath
   , modifyCurrentPathM
-  -- , pushCallFrame
-  -- , addCtrlBranch
-  -- , jumpCurrentPath
-  -- , returnCurrentPath
+  , pushCallFrame
+  , addCtrlBranch
+  , jumpCurrentPath
+  , returnCurrentPath
   -- , markCurrentPathAsError
 
 
@@ -95,7 +95,7 @@ import Control.Arrow ((***))
 import qualified Control.Arrow as CA
 import Control.Exception (Exception)
 import Control.Lens hiding (Path)
-import Control.Monad.Error
+import Control.Monad.Error 
 import Control.Monad.State hiding (State)
 
 import Data.Array (Array, elems)
@@ -107,6 +107,7 @@ import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Set (Set)
 import qualified Data.Set as S
+import qualified Data.Traversable as T
 import Data.Typeable (Typeable)
 import Data.Word (Word32)
 
@@ -210,16 +211,17 @@ data CS sbe
 initialCtrlStk :: Backend sbe -> IO (CS sbe)
 initialCtrlStk sbe = do
   true <- termBool sbe True
-  let p = Path { _pathStack = []
-               , _pathStackHt = 0
-               , _pathBlockId = Just entryBlock
-               , _pathException = Nothing
-               , _pathMemory = emptyMemory
-               , _pathAssertions = true
-               , _pathName = 0
-               , _pathStartingPC = 0
+  let p = Path { _pathStack       = []
+               , _pathStackHt     = 0
+               , _pathBlockId     = Just entryBlock
+               , _pathRetVal      = Nothing
+               , _pathException   = Nothing
+               , _pathMemory      = emptyMemory
+               , _pathAssertions  = true
+               , _pathName        = 0
+               , _pathStartingPC  = 0
                , _pathBreakpoints = S.empty
-               , _pathInsnCount = 0
+               , _pathInsnCount   = 0
                }
   return $ CompletedCS (Just p)
 
@@ -241,6 +243,8 @@ data Path' term = Path {
     -- ^ the current call frames count
   , _pathBlockId        :: !(Maybe BlockId)
     -- ^ the currently-executing basic block on this path, if any
+  , _pathRetVal         :: !(Maybe (Value term))
+    -- ^ the current return value, if this path is in between call frames
   , _pathException      :: !(Maybe (JavaException term))
     -- ^ the exception thrown on this path, if any  
   , _pathMemory         :: !(Memory term)
@@ -401,6 +405,47 @@ pushCallFrame clname method retBB locals cs =
                        & pathStackHt +~ 1
                        & pathBlockId .~ Just entryBlock
 
+-- | Push a new continuation onto the control stack for a branching
+-- computation. A new path is created and suspended for the @then@
+-- branch.
+addCtrlBranch :: SBETerm sbe   -- ^ Condition to branch on.
+              -> BlockId       -- ^ Location for newly-branched paused path to start at.
+              -> Integer       -- ^ Name of new path
+              -> MergeLocation -- ^ Control point to merge at.
+              -> CS sbe        -- ^ Current control stack.
+              -> Maybe (CS sbe) 
+addCtrlBranch c nb nm ml cs =
+    case cs of
+      CompletedCS{} -> fail "Path is completed"
+      ActiveCS p k -> return . ActiveCS p $ HandleBranch point (BranchRunTrue c pt) k
+        where point = case ml of
+                       Just b -> PostdomPoint (p^.pathStackHt) b
+                       Nothing -> ReturnPoint (p^.pathStackHt - 1)
+              pt = p & pathBlockId .~ Just nb
+                     & pathName    .~ nm
+
+-- | Move current path to target block, checking for merge points.
+jumpCurrentPath :: MonadIO m
+                => BlockId -> CS sbe -> Simulator sbe m (CS sbe)
+jumpCurrentPath _ CompletedCS{} = fail "Path is completed"
+jumpCurrentPath b (ActiveCS p k) = 
+  mergeNextCont (p & pathBlockId .~ Just b) k
+
+-- | Return from current path, checking for merge points
+returnCurrentPath :: MonadIO m
+                  => Maybe (SBETerm sbe) 
+                  -> CS sbe 
+                  -> Simulator sbe m (CS sbe)
+returnCurrentPath _ CompletedCS{} = fail "Path is completed"
+returnCurrentPath retVal (ActiveCS p k) = do
+  let cf : cfs = p^.pathStack
+      p' :: Path sbe
+      p' = p & pathStack   .~ cfs
+             & pathStackHt -~ 1
+             & pathBlockId .~ Just (cf^.cfReturnBlock)
+             & pathRetVal  .~ retVal
+  mergeNextCont p' k
+
 addPathAssertion :: (MonadIO m, Functor m)
                  => Backend sbe 
                  -> SBETerm sbe 
@@ -433,16 +478,16 @@ currentOpds p = view cfOpds <$> currentCallFrame p
 --   3. The current path's merge point does not indicate the current
 --   location, so we continue with the same path and continuation.
 mergeNextCont :: MonadIO m
-              => Backend sbe
-              -> Path sbe
+              => Path sbe
               -> SimCont sbe
               -> Simulator sbe m (CS sbe)
 -- 1.
-mergeNextCont _ p EmptyCont | 0 == p^.pathStackHt =
+mergeNextCont p EmptyCont | 0 == p^.pathStackHt =
   return (CompletedCS (Just p))
 -- 2.
-mergeNextCont sbe p (HandleBranch point ba h) 
-  | p `atMergePoint` point =
+mergeNextCont p (HandleBranch point ba h) 
+  | p `atMergePoint` point = do
+  sbe <- use backend
   case ba of
     BranchRunTrue c tp -> do
       true <- liftIO $ termBool sbe True
@@ -453,6 +498,9 @@ mergeNextCont sbe p (HandleBranch point ba h)
       let assertions = p^.pathAssertions 
           (Just cf1, Just cf2) = (currentCallFrame p, currentCallFrame pf)
       mergedCallFrame <- mergeCallFrames (p^.pathAssertions) cf1 cf2
+      mergedRetVal <- T.sequence $ mergeValues <$> pure assertions 
+                                               <*> p^.pathRetVal
+                                               <*> pf^.pathRetVal
       mergedMemory <- mergeMemories assertions (p^.pathMemory) (pf^.pathMemory)
       mergedAssertions <- 
           liftIO $ termIte sbe c (p^.pathAssertions) (pf^.pathAssertions)
@@ -461,9 +509,9 @@ mergeNextCont sbe p (HandleBranch point ba h)
                  & pathMemory      .~ mergedMemory
                  & pathAssertions  .~ a'
       -- recur in case multiple continuations have the same merge point
-      mergeNextCont sbe p' h
+      mergeNextCont p' h
 -- 3.
-mergeNextCont _ p h = return (ActiveCS p h)
+mergeNextCont p h = return (ActiveCS p h)
 
 -- | Is the given path at its 'MergePoint'?
 atMergePoint :: Path' term -> MergePoint -> Bool
@@ -489,8 +537,8 @@ mergeMemories assertions mem1 mem2 = do
       mergeTup (i1, v1) (i2, v2) = 
         (,) <$> (liftIO $ termIte sbe assertions i1 i2)
             <*> (liftIO $ termIte sbe assertions v1 v2)
-  mergedSFields <- mergeBy (mergeValues sbe assertions) sFields1 sFields2
-  mergedIFields <- mergeBy (mergeValues sbe assertions) iFields1 iFields2
+  mergedSFields <- mergeBy (mergeValues assertions) sFields1 sFields2
+  mergedIFields <- mergeBy (mergeValues assertions) iFields1 iFields2
   mergedScArrays <- mergeBy mergeTup scArrays1 scArrays2
   return $ mem2 & memInitialization .~ mergedInit
                 & memStaticFields   .~ mergedSFields
@@ -511,8 +559,8 @@ mergeCallFrames assertions cf1 cf2 = do
   assert (class1  == class2)
   assert (method1 == method2)
   -- pcs may differ if paths merge at different return insts
-  mergedLocals <- mergeBy (mergeValues sbe assertions) locals1 locals2
-  mergedOpds <- zipWithM (mergeValues sbe assertions) opds1 opds2
+  mergedLocals <- mergeBy (mergeValues assertions) locals1 locals2
+  mergedOpds <- zipWithM (mergeValues assertions) opds1 opds2
   return $ cf2 & cfLocals .~ mergedLocals
                & cfOpds   .~ mergedOpds
 
@@ -539,36 +587,37 @@ mergeBy mrg m1 m2 = leftUnion <$> merged
 
 -- | Merge the two symbolic values under the given assertions
 mergeValues :: MonadIO m 
-            => Backend sbe
-            -> SBETerm sbe 
+            => SBETerm sbe 
             -> Value (SBETerm sbe) 
             -> Value (SBETerm sbe) 
             -> Simulator sbe m (Value (SBETerm sbe)) 
-mergeValues sbe assertions x y = mergeV x y
-  where abort = fail . render
-        t1 <-> t2 = liftIO $ termIte sbe assertions t1 t2
-        mergeV (IValue v1) (IValue v2)             = IValue <$> v1 <-> v2
-        mergeV (LValue v1) (LValue v2)             = LValue <$> v1 <-> v2
-        mergeV (FValue v1) (FValue v2) = do
-          if (isNaN v1 && isNaN v2 || v1 == v2)
-            then return x
-            else abort $ "Attempt to merge two concrete non-NaN unequal floats:"
-                 <+> ppValue sbe x <+> "and" <+> ppValue sbe y
-        mergeV (DValue v1) (DValue v2) = do
-          if (isNaN v1 && isNaN v2 || v1 == v2)
-            then return x
-            else abort $ "Attempt to merge two concrete non-NaN unequal doubles: "
-                 <+> ppValue sbe x <+> "and" <+> ppValue sbe y
-        mergeV (RValue NullRef) (RValue NullRef) = return x
-        mergeV (RValue (Ref r1 ty1)) (RValue (Ref r2 ty2)) = do
-          when (r1 /= r2) $
-            abort $ "References differ when merging:" 
-            <+> ppValue sbe x <+> "and" <+> ppValue sbe y
-          assert (ty1 == ty2)
-          return x
-        mergeV _ _ = 
-          abort $ "Unsupported or mismatched type when merging values:"
+mergeValues assertions x y = do
+  sbe <- use backend 
+  let abort = fail . render
+      t1 <-> t2 = liftIO $ termIte sbe assertions t1 t2
+      mergeV (IValue v1) (IValue v2)             = IValue <$> v1 <-> v2
+      mergeV (LValue v1) (LValue v2)             = LValue <$> v1 <-> v2
+      mergeV (FValue v1) (FValue v2) = do
+        if (isNaN v1 && isNaN v2 || v1 == v2)
+          then return x
+          else abort $ "Attempt to merge two concrete non-NaN unequal floats:"
+               <+> ppValue sbe x <+> "and" <+> ppValue sbe y
+      mergeV (DValue v1) (DValue v2) = do
+        if (isNaN v1 && isNaN v2 || v1 == v2)
+          then return x
+          else abort $ "Attempt to merge two concrete non-NaN unequal doubles: "
+               <+> ppValue sbe x <+> "and" <+> ppValue sbe y
+      mergeV (RValue NullRef) (RValue NullRef) = return x
+      mergeV (RValue (Ref r1 ty1)) (RValue (Ref r2 ty2)) = do
+        when (r1 /= r2) $
+          abort $ "References differ when merging:" 
           <+> ppValue sbe x <+> "and" <+> ppValue sbe y
+        assert (ty1 == ty2)
+        return x
+      mergeV _ _ = 
+        abort $ "Unsupported or mismatched type when merging values:"
+        <+> ppValue sbe x <+> "and" <+> ppValue sbe y
+  mergeV x y
 
 --------------------------------------------------------------------------------
 -- Pretty printers
