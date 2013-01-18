@@ -36,10 +36,10 @@ module Verifier.Java.Common
 
   , CS
   , initialCtrlStk
-  -- , isFinished
-  -- , getCurrentPath
-  -- , modifyPath
-  -- , modifyCurrentPathM
+  , isFinished
+  , currentPath
+  , modifyCurrentPath
+  , modifyCurrentPathM
   -- , pushCallFrame
   -- , addCtrlBranch
   -- , jumpCurrentPath
@@ -51,27 +51,30 @@ module Verifier.Java.Common
 
   , Path
   , Path'
-  -- , pathFuncSym
-  -- , pathCB
-  -- , pathName
-  -- , pathRegs
-  -- , pathMem
-  -- , pathAssertions
-  -- , addPathAssertion
-  -- , ppPath
-  -- , ppPathLoc
+  , pathName
+  , pathMemory
+  , pathAssertions
+  , addPathAssertion
+  , ppPath
 
   , CallFrame
+  , cfReturnBlock
+  , cfClass
+  , cfMethod
+  , cfLocals
+  , cfOpds
   , currentCallFrame
-  , ppCallFrameSrcLoc  
 
   , FailRsn(FailRsn)
-  -- , ppFailRsn
+  , ppFailRsn
 
   , JavaException
   , ppJavaException
 
-  -- , ErrorPath(EP, epRsn, epPath)
+  , ErrorPath(EP)
+  , epRsn
+  , epPath
+
   , InternalExc(ErrorPathExc, UnknownExc)
   -- , SEH( SEH
   --      , onPostOverrideReg
@@ -88,6 +91,7 @@ import Prelude hiding (EQ, GT, LT)
 import qualified Prelude as P
 
 import Control.Applicative (Applicative, (<$>), pure, (<*>))
+import Control.Arrow ((***))
 import qualified Control.Arrow as CA
 import Control.Exception (Exception)
 import Control.Lens hiding (Path)
@@ -208,6 +212,7 @@ initialCtrlStk sbe = do
   true <- termBool sbe True
   let p = Path { _pathStack = []
                , _pathStackHt = 0
+               , _pathBlockId = Just entryBlock
                , _pathException = Nothing
                , _pathMemory = emptyMemory
                , _pathAssertions = true
@@ -234,6 +239,8 @@ data Path' term = Path {
     -- ^ the current JVM call stack
   , _pathStackHt        :: !Int
     -- ^ the current call frames count
+  , _pathBlockId        :: !(Maybe BlockId)
+    -- ^ the currently-executing basic block on this path, if any
   , _pathException      :: !(Maybe (JavaException term))
     -- ^ the exception thrown on this path, if any  
   , _pathMemory         :: !(Memory term)
@@ -273,17 +280,15 @@ emptyMemory = Memory M.empty M.empty M.empty M.empty M.empty M.empty
 -- | A JVM call frame
 data CallFrame term
   = CallFrame {
-      _cfClass   :: !String                               
+      _cfClass       :: !String                               
       -- ^ Name of the class containing the current method
-    , _cfMethod  :: !Method
+    , _cfMethod      :: !Method
       -- ^ The current method
-    , _cfBlockId :: !BlockId
-      -- ^ The current basic block
-    , _cfPC      :: !PC
-      -- ^ The current program counter
-    , _cfLocals  :: !(Map LocalVariableIndex (Value term)) 
+    , _cfReturnBlock :: !BlockId
+      -- ^ The basic block to return to
+    , _cfLocals      :: !(Map LocalVariableIndex (Value term)) 
       -- ^ The current local variables (<http://docs.oracle.com/javase/specs/jvms/se7/html/jvms-2.html#jvms-2.6.1>)
-    , _cfOpds    :: ![Value term]                          
+    , _cfOpds        :: ![Value term]                          
       -- ^ The current operand stack
     }
     deriving (Eq)
@@ -343,6 +348,66 @@ makeLenses ''JavaException
 -- | Manipulate the control stack
 modifyCS :: (CS sbe -> CS sbe) -> (State sbe m -> State sbe m)
 modifyCS = over ctrlStk
+
+-- | Return true if all paths in control stack have no more work.
+isFinished :: CS sbe -> Bool
+isFinished CompletedCS{} = True
+isFinished _ = False
+
+-- | Apply @f@ to the current path, if one exists.
+modifyCurrentPath :: (Path sbe -> Path sbe) -> CS sbe -> CS sbe
+modifyCurrentPath f (CompletedCS mp) = CompletedCS (f <$> mp)
+modifyCurrentPath f (ActiveCS p k)   = ActiveCS (f p) k
+
+-- | Modify current path in control stack, returning an extra value.
+modifyCurrentPathM :: forall m sbe a .
+                      Functor m
+                   => CS sbe
+                   -> (Path sbe -> m (a,Path sbe))
+                   -> Maybe (m (a,CS sbe))
+modifyCurrentPathM cs f =
+  case cs of
+    CompletedCS mp -> (run (CompletedCS . Just)) <$> mp
+    ActiveCS p h -> Just (run fn p)
+      where fn p' = ActiveCS p' h
+ where run :: (Path sbe -> CS sbe) -> Path sbe -> m (a, CS sbe) 
+       run csfn = fmap (id *** csfn) . f
+
+currentPath :: CS sbe -> Maybe (Path sbe)
+currentPath (CompletedCS mp) = mp
+currentPath (ActiveCS p _) = Just p
+
+-- | Push a new call frame to the current path, if any. Needs the
+-- initial function arguments, and basic block (in the caller's
+-- context) to return to once this method is finished.
+pushCallFrame :: String
+              -- ^ Class name   
+              -> Method
+              -- ^ Method
+              -> BlockId
+              -- ^ Basic block to return to
+              -> Map LocalVariableIndex (Value (SBETerm sbe))
+              -- ^ Initial locals
+              -> CS sbe
+              -- ^ Current control stack
+              -> Maybe (CS sbe)
+pushCallFrame clname method retBB locals cs = 
+    case cs of
+      CompletedCS Nothing -> fail "all paths failed"
+      _ -> return $ modifyCurrentPath pushFrame cs
+  where pushFrame p = p'
+          where cf = CallFrame clname method retBB locals []
+                p' = p & pathStack   %~ (cf :)
+                       & pathStackHt +~ 1
+                       & pathBlockId .~ Just entryBlock
+
+addPathAssertion :: (MonadIO m, Functor m)
+                 => Backend sbe 
+                 -> SBETerm sbe 
+                 -> Path sbe 
+                 -> m (Path sbe)
+addPathAssertion sbe t p = 
+  p & pathAssertions %%~ \a -> liftIO (termAnd sbe a t)
 
 -- | Get top call frame from a path
 currentCallFrame :: Path' term -> Maybe (CallFrame term)
@@ -405,7 +470,7 @@ atMergePoint :: Path' term -> MergePoint -> Bool
 p `atMergePoint` point = case point of
   ReturnPoint n -> n == p^.pathStackHt
   PostdomPoint n b -> 
-    n == p^.pathStackHt && Just b == (view cfBlockId <$> currentCallFrame p)
+    n == p^.pathStackHt && Just b == p^.pathBlockId
 
 mergeMemories :: MonadIO m
               => SBETerm sbe
@@ -441,8 +506,8 @@ mergeCallFrames :: MonadIO m
                 -> Simulator sbe m (CallFrame (SBETerm sbe))
 mergeCallFrames assertions cf1 cf2 = do
   sbe <- use backend
-  let CallFrame class1 method1 _bb1 _pc1 locals1 opds1 = cf1
-      CallFrame class2 method2 _bb2 _pc2 locals2 opds2 = cf2
+  let CallFrame class1 method1 _bb1 locals1 opds1 = cf1
+      CallFrame class2 method2 _bb2 locals2 opds2 = cf2
   assert (class1  == class2)
   assert (method1 == method2)
   -- pcs may differ if paths merge at different return insts
@@ -508,23 +573,11 @@ mergeValues sbe assertions x y = mergeV x y
 --------------------------------------------------------------------------------
 -- Pretty printers
 
-ppStk :: [CallFrame term] -> Doc
-ppStk [] = text "(empty stack)"
-ppStk fs = vcat . map ppCallFrameSrcLoc $ fs
-
 ppJavaException :: JavaException term -> Doc
-ppJavaException (JavaException (Ref _ (ClassType nm)) frms) =
+ppJavaException (JavaException (Ref _ (ClassType nm)) _) =
   "Exception of type" <+> text (slashesToDots nm)
-  $+$ ppStk frms
-ppJavaException (JavaException r frms) =
+ppJavaException (JavaException r _) =
   "Unknown exception type" <+> ppRef r
-  $+$ ppStk frms
-
-ppCallFrameSrcLoc :: CallFrame term -> Doc
-ppCallFrameSrcLoc (CallFrame c me _bb pc _vars _stack) =
-  text c <> text "." <> text mn <> parens (text c <> text ".java:" <> text (maybe "?" show mloc))
-  where
-    (mloc, mn) = (`sourceLineNumberOrPrev` pc) CA.&&& methodName $ me
 
 ppValue :: Backend sbe -> Value (SBETerm sbe) -> Doc
 ppValue sbe (IValue st) = prettyTermD sbe st
@@ -555,7 +608,7 @@ ppPath sbe p =
       text "Path #"
       <>  integer (p^.pathName)
       <>  brackets ( text (cf^.cfClass) <> "." <> ppMethod (cf^.cfMethod)
-                   <> "/" <> ppBlockId (cf^.cfBlockId)
+                   <> "/" <> maybe "none" ppBlockId (p^.pathBlockId)
                    )
       <>  colon
       $+$ nest 2 (text "Locals:"   $+$ nest 2 (ppLocals sbe (cf^.cfLocals)))
@@ -606,3 +659,5 @@ dumpCtrlStk = do
   (sbe, cs) <- (,) <$> use backend <*> use ctrlStk
   banners $ show $ ppCtrlStk sbe cs
 
+ppFailRsn :: FailRsn -> Doc
+ppFailRsn (FailRsn msg) = text msg
