@@ -6,7 +6,7 @@ Point-of-contact : jhendrix, jstanley
 -}
 
 {-# LANGUAGE FlexibleContexts #-}
-
+{-# LANGUAGE OverloadedStrings #-}
 module Verifier.Java.Codebase
   ( Codebase
   , getClasses
@@ -17,6 +17,8 @@ module Verifier.Java.Codebase
   , tryLookupClass
   , lookupClass
   , findVirtualMethodsByRef
+  , lookupSymbolicMethod
+  , lookupSymbolicMethod'
   , supers
   , module Language.JVM.Parser
   ) where
@@ -29,8 +31,13 @@ import Data.Maybe
 import System.Directory
 import System.FilePath
 
+import Text.PrettyPrint
+
+import Data.JVM.Symbolic.Translation
+import Language.JVM.Common
 import Language.JVM.JarReader
 import Language.JVM.Parser
+import Verifier.Java.Utils
 
 -- | Collection of classes loaded by JVM.
 data CodebaseState = CodebaseState {
@@ -40,7 +47,8 @@ data CodebaseState = CodebaseState {
   , subclassMap :: M.Map String [Class]
   -- ^ Maps class names to the list of classes that are direct subclasses, and
   -- interfaces to list of classes that directly implement them.
-  } deriving (Show)
+  , symbolicMethodMap :: M.Map (String, MethodKey) [SymBlock]
+  }
 
 newtype Codebase = Codebase (IORef CodebaseState)
 
@@ -61,7 +69,7 @@ loadCodebase jarFiles classPaths = do
   classFiles <- filter (\p -> takeExtension p == ".class")
                   <$> recurseDirectories classPaths
   classes <- mapM loadClass classFiles
-  let cb = foldr addClass (CodebaseState jars M.empty M.empty) classes
+  let cb = foldr addClass (CodebaseState jars M.empty M.empty M.empty) classes
   fmap Codebase $ newIORef cb
 
 -- Returns in-order listing of all directories and files beneath the given list of paths.
@@ -86,11 +94,12 @@ recurseDirectories paths = impl paths []
 
 -- | Register a class with the given codebase
 addClass :: Class -> CodebaseState -> CodebaseState
-addClass cl (CodebaseState jr cMap scMap) =
+addClass cl (CodebaseState jr cMap scMap symMap) =
   CodebaseState jr
                 (M.insert (className cl) cl cMap)
                 (foldr addToSuperclass scMap
                    (maybeToList (superClass cl)++classInterfaces cl))
+                symMap
   where addToSuperclass super m =
           M.alter (\subclasses -> case subclasses of
                                     Just list -> Just (cl : list)
@@ -212,6 +221,31 @@ subs :: Codebase -> Class -> IO [Class]
 subs (Codebase ref) cl = do
   cb <- readIORef ref
   return $ starClosure (maybe [] id . (`M.lookup` subclassMap cb) . className) cl
+
+lookupSymbolicMethod' :: Class -> MethodKey -> Maybe ([SymBlock], [SymTransWarning])
+lookupSymbolicMethod' cl key = liftCFG <$> (methodCFG =<< lookupMethod cl key)
+  where methodCFG method = case methodBody method of
+          Code _ _ cfg _ _ _ _ -> Just cfg
+          _                    -> Nothing
+
+lookupSymbolicMethod :: Codebase -> String -> MethodKey -> IO (Maybe [SymBlock])
+lookupSymbolicMethod (Codebase ref) clName key = do
+  cb <- readIORef ref
+  case M.lookup (clName, key) (symbolicMethodMap cb) of
+    Just symblocks -> return $ Just symblocks
+    Nothing -> do 
+      cl <- lookupClass (Codebase ref) clName
+      case lookupSymbolicMethod' cl key of
+        Nothing -> do dbugM . render $ "unable to translate" <+> ppMethodKey key
+                      return Nothing
+        Just (symblocks, warns) -> do
+            let map' = M.insert (clName, key) symblocks (symbolicMethodMap cb)
+            writeIORef ref $ cb { symbolicMethodMap = map' }
+            case warns of
+              [] -> return ()
+              _  -> dbugM . render $ "warnings translating" <+> ppMethodKey key
+                                     $+$ nest 2 (sep warns)
+            return $ Just symblocks
 
 --------------------------------------------------------------------------------
 -- Misc
