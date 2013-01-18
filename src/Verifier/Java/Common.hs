@@ -44,7 +44,7 @@ module Verifier.Java.Common
   , addCtrlBranch
   , jumpCurrentPath
   , returnCurrentPath
-  -- , markCurrentPathAsError
+  , markCurrentPathAsError
 
 
   , BlockId
@@ -54,6 +54,7 @@ module Verifier.Java.Common
   , pathName
   , pathMemory
   , pathAssertions
+  , pathException
   , addPathAssertion
   , ppPath
 
@@ -446,6 +447,34 @@ returnCurrentPath retVal (ActiveCS p k) = do
              & pathRetVal  .~ retVal
   mergeNextCont p' k
 
+branchError :: MonadIO m
+            => BranchAction sbe -- ^ action to run if branch occurs.
+            -> SimCont sbe      -- ^ previous continuation
+            -> Simulator sbe m (CS sbe) 
+branchError ba k = do
+  sbe <- use backend
+  case ba of
+    BranchRunTrue c pt -> do
+      pt' <- pt & pathAssertions %%~ (liftIO . termAnd sbe c)
+      return $ ActiveCS pt' k
+    BranchMerge a c pf -> do
+      -- Update assertions on current path
+      a1   <- liftIO $ termAnd sbe a (pf^.pathAssertions)
+      cNot <- liftIO $ termNot sbe c
+      a2   <- liftIO $ termAnd sbe a1 cNot
+      let pf' = pf & pathAssertions .~ a2 
+      -- Try to merge states that may have been waiting for the current path to terminate.
+      mergeNextCont pf' k
+
+-- | Mark the current path as an error path.
+markCurrentPathAsError :: MonadIO m 
+                       => CS sbe 
+                       -> Simulator sbe m (CS sbe)
+markCurrentPathAsError cs = case cs of
+  CompletedCS{}                   -> fail "path is completed"
+  ActiveCS _ (HandleBranch _ a k) -> branchError a k
+  ActiveCS _ EmptyCont            -> return $ CompletedCS Nothing
+
 addPathAssertion :: (MonadIO m, Functor m)
                  => Backend sbe 
                  -> SBETerm sbe 
@@ -506,6 +535,7 @@ mergeNextCont p (HandleBranch point ba h)
           liftIO $ termIte sbe c (p^.pathAssertions) (pf^.pathAssertions)
       a' <- liftIO $ termAnd sbe a mergedAssertions
       let p' = p & pathStack._head .~ mergedCallFrame
+                 & pathRetVal      .~ mergedRetVal
                  & pathMemory      .~ mergedMemory
                  & pathAssertions  .~ a'
       -- recur in case multiple continuations have the same merge point
@@ -553,7 +583,6 @@ mergeCallFrames :: MonadIO m
                 -> CallFrame (SBETerm sbe)
                 -> Simulator sbe m (CallFrame (SBETerm sbe))
 mergeCallFrames assertions cf1 cf2 = do
-  sbe <- use backend
   let CallFrame class1 method1 _bb1 locals1 opds1 = cf1
       CallFrame class2 method2 _bb2 locals2 opds2 = cf2
   assert (class1  == class2)
