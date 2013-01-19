@@ -66,6 +66,7 @@ module Verifier.Java.Common
   , pathMemory
   , pathAssertions
   , pathException
+  , pathRetVal
   , addPathAssertion
   , ppPath
   
@@ -109,6 +110,7 @@ module Verifier.Java.Common
   --      )
   -- , ppTuple
   , ppMethod
+  , ppValue
   , assert
   ) where
 
