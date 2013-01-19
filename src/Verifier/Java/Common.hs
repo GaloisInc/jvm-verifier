@@ -5,6 +5,7 @@ Stability        : stable
 Point-of-contact : acfoltzer
 -}
 
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
@@ -14,19 +15,26 @@ Point-of-contact : acfoltzer
 
 module Verifier.Java.Common
   ( Simulator(SM)
+  , MonadSim
   , runSM
   , dumpCtrlStk
 
   -- , LSSOpts(LSSOpts, optsErrorPathDetails)
   -- , defaultLSSOpts
 
+  , Value
+  , Value'
+  , Ref(..)
+
   , State(State)
   , codebase
   , backend
   , ctrlStk
+  , nextRef
+  , strings
   -- , fnOverrides
   , verbosity
-  -- , evHandlers
+  , evHandlers
   , errorPaths
   -- , lssOpts
   -- , pathCounter
@@ -38,6 +46,7 @@ module Verifier.Java.Common
   , initialCtrlStk
   , isFinished
   , currentPath
+  , modifyPath
   , modifyCurrentPath
   , modifyCurrentPathM
   , pushCallFrame
@@ -51,12 +60,25 @@ module Verifier.Java.Common
 
   , Path
   , Path'
+  , pathStack
+  , pathBlockId
   , pathName
   , pathMemory
   , pathAssertions
   , pathException
   , addPathAssertion
   , ppPath
+  
+  , Memory
+  , memInitialization
+  , memStaticFields
+  , memInstanceFields
+  , memScalarArrays
+  , memRefArrays
+  , memClassObjects
+
+  , InitializationStatus(..)
+  , setInitializationStatus
 
   , CallFrame
   , cfReturnBlock
@@ -69,7 +91,7 @@ module Verifier.Java.Common
   , FailRsn(FailRsn)
   , ppFailRsn
 
-  , JavaException
+  , JavaException(..)
   , ppJavaException
 
   , ErrorPath(EP)
@@ -77,7 +99,7 @@ module Verifier.Java.Common
   , epPath
 
   , InternalExc(ErrorPathExc, UnknownExc)
-  -- , SEH( SEH
+  , SEH(..)
   --      , onPostOverrideReg
   --      , onPreStep
   --      , onPostStep
@@ -86,6 +108,8 @@ module Verifier.Java.Common
   --      , onPostGlobInit
   --      )
   -- , ppTuple
+  , ppMethod
+  , assert
   ) where
 
 import Prelude hiding (EQ, GT, LT)
@@ -116,7 +140,7 @@ import Text.PrettyPrint
 
 import Language.JVM.Common (ppType)
 import Data.JVM.Symbolic.AST
-import Execution (AtomicValue(..), JSValue)
+import Execution.JavaSemantics (AtomicValue(..), JSValue)
 import Verifier.Java.Backend
 import Verifier.Java.Codebase 
 import Verifier.Java.Utils
@@ -132,6 +156,8 @@ newtype Simulator sbe (m :: * -> *) a =
     , MonadState (State sbe m)
     , MonadError (InternalExc sbe m)
     )
+
+type MonadSim sbe m = (AigOps sbe, Functor m, MonadIO m)
 
 -- | Overrides for instance methods
 type InstanceOverride sbe m = Ref -> [Value' sbe m] -> Simulator sbe m ()
@@ -157,6 +183,7 @@ data State sbe m = State {
   , _simulationFlags   :: SimulationFlags
   , _backend           :: Backend sbe
   , _errorPaths        :: [ErrorPath sbe]
+  , _evHandlers        :: SEH sbe m
   }
 
 type Value term   = AtomicValue Double Float term term Ref
@@ -319,6 +346,17 @@ instance Error (InternalExc sbe m) where
   noMsg  = UnknownExc Nothing
   strMsg = UnknownExc . Just . FailRsn
 
+-- | Simulation event handlers, useful for debugging nontrivial codes.
+data SEH sbe m = SEH
+  {
+    -- | Invoked after function overrides have been registered
+    onPostOverrideReg :: Simulator sbe m ()
+    -- | Invoked before each instruction executes
+  , onPreStep         :: SymInsn -> Simulator sbe m ()
+    -- | Invoked after each instruction executes
+  , onPostStep        :: SymInsn -> Simulator sbe m ()
+  }
+
 assert :: Bool -> Simulator sbe m ()
 assert b = unless b . throwError $ strMsg "assertion failed"
 
@@ -358,6 +396,13 @@ modifyCS = over ctrlStk
 isFinished :: CS sbe -> Bool
 isFinished CompletedCS{} = True
 isFinished _ = False
+
+-- | For consistency with LSS api... probably not needed
+modifyPath :: (Path sbe -> Path sbe) -> CS sbe -> Maybe (CS sbe)
+modifyPath f cs = 
+  case cs of
+    CompletedCS mp -> (CompletedCS . Just . f) <$> mp
+    ActiveCS p k -> Just (ActiveCS (f p) k)
 
 -- | Apply @f@ to the current path, if one exists.
 modifyCurrentPath :: (Path sbe -> Path sbe) -> CS sbe -> CS sbe
@@ -739,3 +784,10 @@ dumpCtrlStk = do
 
 ppFailRsn :: FailRsn -> Doc
 ppFailRsn (FailRsn msg) = text msg
+
+setInitializationStatus :: String
+                        -> InitializationStatus
+                        -> Memory term
+                        -> Memory term
+setInitializationStatus clName status = 
+  memInitialization %~ M.insert clName status
