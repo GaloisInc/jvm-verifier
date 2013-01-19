@@ -12,6 +12,7 @@ import Control.Monad.Trans (liftIO)
 
 import Execution.JavaSemantics
 import Verifier.Java.Codebase
+import Verifier.Java.Simulator
 
 -- -- Step function {{{1
 

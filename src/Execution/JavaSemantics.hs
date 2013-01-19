@@ -31,7 +31,6 @@ type family JSInt    (m :: * -> *)
 type family JSLong   (m :: * -> *)
 type family JSRef    (m :: * -> *)
 type family JSBool   (m :: * -> *)
-type family JSRslt   (m :: * -> *)
 
 type JSValue m = AtomicValue (JSDouble m) (JSFloat m) (JSInt m) (JSLong m) (JSRef m)
 
@@ -46,7 +45,6 @@ class ( Monad m
       , Show (JSLong m) -- , Integral long
       , Show (JSRef m)
       , Show (JSBool m)
-      , Show (JSRslt m)
       )
   => JavaSemantics m where
   -- Control related functions {{{1
@@ -72,9 +70,6 @@ class ( Monad m
 
   getCodebase :: m Codebase
   
-  -- | Returns the result of running the simulator
-  getResult :: m (JSRslt m)
-
   -- | Returns name of current class in
   getCurrentClassName :: m String
 
@@ -431,10 +426,6 @@ class ( Monad m
   -- rNull returns node representing null pointer.
   rNull :: m (JSRef m)
 
-  -- Returns reference for given string constant.
-  -- NOTE: Requires string comes from constant pool of an initialized class.
-  refFromString :: String -> m (JSRef m)
-
   -- Returns the @Class@ instance corresponding to the given class name.
   getClassObject :: String -> m (JSRef m)
 
@@ -452,8 +443,6 @@ class ( Monad m
   pushArrayValue :: JSRef m -> JSInt m -> m ()
 
   setArrayValue :: JSRef m -> JSInt m -> JSValue m -> m ()
-
-  setInstanceFieldValue :: JSRef m -> FieldId -> JSValue m -> m ()
 
   setStaticFieldValue :: FieldId -> JSValue m -> m ()
 

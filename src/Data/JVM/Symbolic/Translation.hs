@@ -10,13 +10,16 @@ Point-of-contact : atomb, acfoltzer
 module Data.JVM.Symbolic.Translation
   ( liftBB
   , liftCFG
+  , symBlockMap
   , SymCond(..)
   , CmpType(..)
   , InvokeType(..)
   , SymInsn(..)
   , SymBlock(..)
+  , ppSymBlock
   , ppSymInsn
   , ppBlockId
+  , SymTransWarning
   ) where
 
 import Control.Applicative
@@ -26,6 +29,7 @@ import Control.Monad.RWS hiding ((<>))
 import Control.Monad.State
 import Data.Int
 import qualified Data.List as L
+import qualified Data.Map as M
 import Data.Maybe
 import Prelude hiding (EQ, LT, GT)
 import Text.PrettyPrint
@@ -71,6 +75,11 @@ liftCFG cfg = (initBlock : bs, ws)
                          sbId = bbToBlockId BBIdEntry
                        , sbInsns = [ si (SetCurrentBlock (BlockId (BBId 0) 0)) ]
                        }
+
+symBlockMap :: [SymBlock] -> M.Map BlockId [SymInsn]
+symBlockMap symblocks = M.fromList [ (bid, map snd insns) 
+                                   | SymBlock bid insns <- symblocks
+                                   ]
 
 liftBB :: CFG -> BBId -> SymTrans ()
 liftBB cfg bb = do
