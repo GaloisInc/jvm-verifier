@@ -5,6 +5,8 @@ Stability        : stable
 Point-of-contact : jstanley
 -}
 
+{-# OPTIONS_GHC -fno-warn-missing-methods #-}
+
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -18,14 +20,10 @@ module Verifier.Java.Simulator
   , Simulator (SM)
   , State(..)
   , SEH(..)
-  , calldefine
-  , calldefine_
+  , runStaticMethod
   , defaultSEH
-  , lookupSymbolDef
   , getProgramReturnValue
   , getProgramFinalMem
-  , EvalContext
-  , getEvalContext
   , prettyTermSBE
   , runSimulator
   , withSBE
@@ -66,7 +64,7 @@ import Text.PrettyPrint
 
 import Data.JVM.Symbolic.AST
 import Data.JVM.Symbolic.Translation
-import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, newObject, initializeClass, setArrayValue, setInstanceFieldValue, setStaticFieldValue, getCodebase)
+import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, newObject, initializeClass, setArrayValue, setInstanceFieldValue, setStaticFieldValue, getCodebase, isFinished, invokeStaticMethod, pushStaticMethodCall)
 import Language.JVM.Common
 import Language.JVM.Parser
 import Verifier.Java.Codebase
@@ -74,9 +72,134 @@ import Verifier.Java.Backend
 import Verifier.Java.Common
 import Verifier.Java.Utils
 
-runSimulator :: forall sbe a .
-  ( MonadSim sbe IO
-  )
+runStaticMethod :: (MonadSim sbe m)
+                => String      -- ^ Class name
+                -> String      -- ^ Method name
+                -> String      -- ^ Method type
+                -> [Value (SBETerm sbe)] -- ^ Arguments
+                -> Simulator sbe m [(Path sbe, Maybe (Value (SBETerm sbe)))]
+runStaticMethod cName mName mType args = do
+  let methodKey = makeMethodKey mName mType
+  override <- lookupStaticOverride cName methodKey
+  case override of
+    Just f  -> f args
+    Nothing -> invokeStaticMethod cName methodKey args
+  --run
+  undefined
+
+invokeStaticMethod :: MonadSim sbe m 
+                   => String 
+                   -> MethodKey
+                   -> [Value (SBETerm sbe)]
+                   -> Simulator sbe m ()
+invokeStaticMethod cName key args = do
+  cb <- use codebase
+  sups <- liftIO (supers cb =<< lookupClass cb cName);;
+  let targets = [ (cl, method) | cl <- sups
+                               , let method = lookupMethod cl key
+                               , isJust method 
+                ]
+  case targets of
+    ((cl, Just method) : _) -> do
+      when (not $ methodIsStatic method) $
+        fatal . render $ "Attempted static invocation on a non-static method" 
+                  <+> parens (text (className cl) <> "." <> ppMethod method)
+      initializeClass (className cl)
+      pushStaticMethodCall (className cl) method args Nothing
+    _ -> fatal . render $ "Could not find static method" 
+                   <+> ppMethodKey key <+> "in" <+> text cName
+
+lookupStaticOverride cName methodKey = uses staticOverrides $ M.lookup (cName, methodKey)
+
+pushStaticMethodCall :: forall sbe m . MonadSim sbe m
+                     => String
+                     -> Method
+                     -> [Value (SBETerm sbe)]
+                     -> Maybe BlockId
+                     -> Simulator sbe m ()
+pushStaticMethodCall cName method args mRetBlock = do
+  let mk = methodKey method
+      locals = setupLocals args
+  override <- lookupStaticOverride cName mk
+  case override of
+    Just f -> f args
+    Nothing ->
+      if methodIsNative method then
+        error $ "Unsupported native static method " ++ show mk ++ " in " ++ cName
+      else do
+        when (cName == "com/galois/symbolic/Symbolic") $
+          expectOverride "Symbolic" mk
+        when (cName == "com/galois/symbolic/Symbolic$Debug") $
+          expectOverride "Symbolic$Debug" mk
+        -- dbugM $ "pushCallFrame: (static) method call to " ++ cName ++ "." ++ methodName method
+        case mRetBlock of
+          Just retBB -> do 
+            cs <- use ctrlStk
+            case pushCallFrame cName method retBB locals cs of
+              Just cs' -> ctrlStk .= cs'
+              Nothing  -> fail "cannot invoke method: all paths failed"
+          Nothing -> void $ runMethod cName mk locals
+  where
+    expectOverride cn mk =
+      error $ "expected static override for " ++ cn ++ "."
+            ++ methodName method ++ unparseMethodDescriptor mk
+
+
+setupLocals :: [Value term]
+            -> M.Map LocalVariableIndex (Value term)
+setupLocals vals = M.fromList (snd $ foldl setupLocal (0, []) vals)
+  where
+    setupLocal (n, acc) v@LValue{} = (n + 2, (n, v) : acc)
+    setupLocal (n, acc) v@DValue{} = (n + 2, (n, v) : acc)
+    setupLocal (n, acc) v          = (n + 1, (n, v) : acc)
+
+
+{-
+  invokeStaticMethod cName key args = do
+    cb <- use codebase
+    sups <- liftIO (supers cb =<< lookupClass cb cName)
+    case mapMaybe (\cl -> (,) cl `fmap` (cl `lookupMethod` key)) sups of
+      ((cl,method):_) -> do
+        when (not $ methodIsStatic method) $
+          fatal $ "Attempted static invocation on a non-static method ("
+                ++ className cl ++ "." ++ methodName method ++ ")"
+        initializeClass (className cl)
+        pushStaticMethodCall (className cl) method args
+      [] -> error $ "Could not find static method " ++ show key ++ " in " ++ cName
+-}
+
+{-
+runMethod' :: MonadSim sbe m
+           => Bool          -- ^ Is this a redirected call?
+           -> Method        -- ^ Callee
+           -> [(JSValue m)] -- ^ Callee arguments
+           -> Simulator sbe m [(Path sbe, Maybe (Value (SBETerm sbe)))]
+runMethod' isRedirected method args = do
+  -- NB: Check overrides before anything else so we catch overriden intrinsics
+  override <- M.lookup calleeSym <$> gets fnOverrides
+  case override of
+    Nothing -> normal
+    Just (Redirect calleeSym', _)
+      -- NB: We break transitive redirection to avoid cycles
+      | isRedirected -> normal
+      | otherwise    -> callDefine' True normalRetID calleeSym' mreg args
+    Just (Override f, _) -> do
+      r <- f calleeSym mreg args
+      modifyPathRegs $ setReturnValue "callDefine'" mreg r
+      setCurrentBlock normalRetID
+      return []
+  where
+    normal
+      | isPrefixOf "llvm." calleeName = do
+          intrinsic calleeName mreg args
+          setCurrentBlock normalRetID
+          return []
+      | otherwise = do
+          runNormalSymbol normalRetID calleeSym mreg args
+-}
+
+runSimulator :: 
+     MonadSim sbe IO
   => Codebase              -- ^ JVM Codebase
   -> Backend sbe           -- ^ A symbolic backend
   -> SEH sbe IO            -- ^ Simulation event handlers (use defaultSEH if no
@@ -96,6 +219,24 @@ runSimulator cb sbe seh mflags m = do
     Left (UnknownExc mfr) -> error $ "internal: uncaught unknown exception: "
                                      ++ maybe "(no details)" (show . ppFailRsn) mfr
     Right x               -> return x
+
+getProgramReturnValue :: MonadSim sbe m
+                      => Simulator sbe m (Maybe (Value (SBETerm sbe)))
+getProgramReturnValue = do
+  cs <- use ctrlStk
+  if isFinished cs 
+    then case currentPath cs of
+           Just p -> return (p^.pathRetVal)
+           _      -> return Nothing            
+    else return Nothing
+
+getProgramFinalMem :: MonadSim sbe m
+                   => Simulator sbe m (Maybe (Memory (SBETerm sbe)))
+getProgramFinalMem = do
+  cs <- use ctrlStk
+  if isFinished cs
+    then getMem
+    else return Nothing
 
 --------------------------------------------------------------------------------
 -- Memory operations
@@ -1193,7 +1334,7 @@ stdOverrides = do
             cb <- use codebase
             cl <- liftIO $ lookupClass cb nativeClass
             let Just methodImpl = cl `lookupMethod` arrayCopyKey
-            pushStaticMethodCall nativeClass methodImpl opds
+            pushStaticMethodCall nativeClass methodImpl opds Nothing
         )
       -- java.lang.Float.floatToRawIntBits: override for invocation by
       -- java.lang.Math's static initializer
