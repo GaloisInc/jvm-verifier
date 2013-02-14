@@ -5,9 +5,11 @@ Stability        : stable
 Point-of-contact : jstanley
 -}
 
+{-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -24,15 +26,14 @@ module Verifier.Java.Simulator
   , getProgramFinalMem
   , EvalContext
   , getEvalContext
-  , getTypedTerm'
   , prettyTermSBE
   , runSimulator
   , withSBE
 --  , withSBE'
-  , getSizeT
   -- * Memory operations
-  , alloca
-  , load
+  , setLocal
+  , setArrayValue
+  , setInstanceFieldValue
   , setStaticFieldValue
   -- for testing
   , dbugM
@@ -49,27 +50,52 @@ import Control.Lens hiding (Path)
 import Control.Monad
 import Control.Monad.Error
 import Control.Monad.IO.Class
-import Control.Monad.State (get)
+import Control.Monad.State (evalStateT, get)
 
 import Data.Array
 import Data.Char
 import Data.Int
-import Data.List (foldl')
+import Data.List (find, foldl')
 import qualified Data.Map as M
 import Data.Maybe
 import qualified Data.Vector as V
+
+import System.IO (hFlush, stdout)
 
 import Text.PrettyPrint
 
 import Data.JVM.Symbolic.AST
 import Data.JVM.Symbolic.Translation
-import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, newObject, initializeClass, setStaticFieldValue, getCodebase)
+import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, newObject, initializeClass, setArrayValue, setInstanceFieldValue, setStaticFieldValue, getCodebase)
 import Language.JVM.Common
 import Language.JVM.Parser
 import Verifier.Java.Codebase
 import Verifier.Java.Backend
 import Verifier.Java.Common
 import Verifier.Java.Utils
+
+runSimulator :: forall sbe a .
+  ( Functor sbe
+  )
+  => Codebase              -- ^ JVM Codebase
+  -> Backend sbe           -- ^ A symbolic backend
+  -> SEH sbe IO            -- ^ Simulation event handlers (use defaultSEH if no
+                           -- event handling is needed)
+  -> Maybe SimulationFlags -- ^ Simulation flags
+  -> Simulator sbe IO a    -- ^ Simulator action to perform
+  -> IO a
+runSimulator cb sbe seh mflags m = do
+  cs <- initialCtrlStk sbe
+  newSt <- initialState cb sbe (fromMaybe defaultSimFlags mflags) seh
+  ea <- flip evalStateT newSt $ runErrorT $ runSM $ do
+    stdOverrides
+    m
+  -- TODO: call exception handlers given by to-be-written SEH fields
+  case ea of
+    Left ErrorPathExc{}   -> error "internal: uncaught error path exception"
+    Left (UnknownExc mfr) -> error $ "internal: uncaught unknown exception: "
+                                     ++ maybe "(no details)" (show . ppFailRsn) mfr
+    Right x               -> return x
 
 --------------------------------------------------------------------------------
 -- Memory operations
@@ -260,6 +286,36 @@ getType :: (AigOps sbe, Functor m, MonadIO m) => Ref -> Simulator sbe m Type
 getType NullRef    = throwNullPtrExc
 getType (Ref _ tp) = return tp
 
+getInstanceFieldValue :: MonadSim sbe m
+                      => Ref
+                      -> FieldId
+                      -> Simulator sbe m (Value (SBETerm sbe))
+getInstanceFieldValue ref fldId = do
+  m <- getMem
+  case M.lookup (ref, fldId) (m^.memInstanceFields) of
+    Just v   -> return v
+    Nothing  -> fail $ "getInstanceFieldValue: instance field " ++
+                       show fldId ++ " does not exist"
+
+getStaticFieldValue :: MonadSim sbe m
+                    => FieldId
+                    -> Simulator sbe m (Value (SBETerm sbe))
+getStaticFieldValue fldId = do
+  cb <- use codebase
+  withSBE $ \sbe -> do
+    cl <- lookupClass cb (fieldIdClass fldId)
+    m <- getMem
+    case M.lookup fldId (m^.memStaticFields) of
+      Just v  -> return v
+      Nothing -> do
+        assert (validStaticField cl) 
+        defaultValue sbe (fieldIdType fldId)
+  where
+    validStaticField cl =
+      maybe False (\f -> fieldIsStatic f && fieldType f == fieldIdType fldId)
+      $ find (\fld -> fieldName fld == fieldIdName fldId)
+      $ classFields cl
+
 
 tryModifyCS :: Monad m => String -> (CS sbe -> Maybe (CS sbe)) -> Simulator sbe m ()
 tryModifyCS ctx f = ctrlStk %= fn
@@ -282,7 +338,11 @@ setMem mem = tryModifyCS "setMem" $ modifyPath $ set pathMemory mem
 
 withSBE :: MonadIO m
         => (Backend sbe -> IO a) -> Simulator sbe m a
-withSBE f = liftIO =<< uses backend f
+withSBE f = uses backend f >>= liftIO
+
+withSBE' :: Monad m 
+         => (Backend sbe -> a) -> Simulator sbe m a
+withSBE' f = uses backend f
 
 setSEH :: Monad m => SEH sbe m -> Simulator sbe m ()
 setSEH = assign evHandlers
@@ -1005,3 +1065,317 @@ drefString strRef = do
       return $ take (cvt cnt) $ drop (cvt off) $ map (toEnum . cvt) chars
     _ -> error "Invalid field name/type for java.lang.String instance"
 -}
+
+prettyTermSBE :: (Functor m, Monad m) => SBETerm sbe -> Simulator sbe m Doc
+prettyTermSBE t = withSBE' $ \sbe -> prettyTermD sbe t
+
+
+-- | Override behavior of simulator when it encounters a specific instance
+-- method to perform a user-definable action.
+-- Note: Fails if the method has already been overridden.
+overrideInstanceMethod :: String
+                       -> MethodKey
+                       -> (Ref -> [Value (SBETerm sym)] -> Simulator sbe ())
+                       -> Simulator sbe ()
+overrideInstanceMethod cName mKey action = do
+  s <- get
+  let key = (cName, mKey)
+  when (key `M.member` instanceOverrides s) $ do
+    fail $ "Method " ++ cName ++ "." ++ methodKeyName mKey  ++ " is already overridden."
+  instanceOverrides %= M.insert key action
+
+-- | Override behavior of simulator when it encounters a specific static
+-- method to perform a user-definable action.
+-- Note: Fails if the method has already been overridden.
+overrideStaticMethod ::
+  AigOps sym
+  => String
+  -> MethodKey
+  -> ([Value (SBETerm sym)] -> Simulator sbe ())
+  -> Simulator sbe ()
+overrideStaticMethod cName mKey action = do
+  s <- get
+  let key = (cName, mKey)
+  when (key `M.member` staticOverrides s) $
+    abort $ "Method " ++ cName ++ "." ++ methodKeyName mKey ++ " is already overridden."
+  staticOverrides %= M.insert key action
+
+-- | Register all predefined overrides for builtin native implementations.
+stdOverrides :: AigOps sbe => Simulator sbe ()
+stdOverrides = do
+  --------------------------------------------------------------------------------
+  -- Instance method overrides
+
+  mapM_ (\(cn, key, impl) -> overrideInstanceMethod cn key impl)
+    [ printlnMthd "()V"
+    , printlnMthd "(Z)V"
+    , printlnMthd "(C)V"
+    , printlnMthd "([C)V"
+    , printlnMthd "(D)V"
+    , printlnMthd "(F)V"
+    , printlnMthd "(I)V"
+    , printlnMthd "(J)V"
+    , printlnMthd "(Ljava/lang/Object;)V"
+    , printlnMthd "(Ljava/lang/String;)V"
+    , printMthd   "(Z)V"
+    , printMthd   "(C)V"
+    , printMthd   "([C)V"
+    , printMthd   "(D)V"
+    , printMthd   "(F)V"
+    , printMthd   "(I)V"
+    , printMthd   "(J)V"
+    , printMthd   "(Ljava/lang/Object;)V"
+    , printMthd   "(Ljava/lang/String;)V"
+    , appendIntegralMthd "(I)Ljava/lang/StringBuilder;"
+    , appendIntegralMthd "(J)Ljava/lang/StringBuilder;"
+    -- java.io.BufferedOutputStream.flush
+    , ( "java/io/BufferedOutputStream"
+      , makeMethodKey "flush" "()V"
+      , \_ _ -> liftIO $ hFlush stdout
+      )
+    -- java.lang.Runtime.gc
+    , ( "java/lang/Runtime"
+      , makeMethodKey "gc" "()V"
+      -- Should we implement a garbage collector? ;)
+      , \_ _ -> return ()
+      )
+    -- java.lang.Throwable.fillInStackTrace
+    -- REVISIT: We may want to correctly populate the Throwable instance,
+    -- instead of this just being a pass-through.
+    , ( "java/lang/Throwable"
+      , makeMethodKey "fillInStackTrace" "()Ljava/lang/Throwable;"
+      , \this _ -> pushValue (RValue this)
+      )
+    -- java.lang.Class.isArray
+    , ( "java/lang/Class"
+      , makeMethodKey "isArray" "()Z"
+      , \this _ -> pushValue =<< classNameIsArray =<< getClassName this
+      )
+    -- java.lang.Class.isPrimitive
+    , ( "java/lang/Class"
+      , makeMethodKey "isPrimitive" "()Z"
+      , \this _ -> pushValue =<< classNameIsPrimitive =<< getClassName this
+      )
+    -- java.lang.Class.getComponentType
+    , ( "java/lang/Class"
+      , makeMethodKey "getComponentType" "()Ljava/lang/Class;"
+      , \this _ -> do
+          nm <- getClassName this
+          pushValue =<< RValue
+                        <$> if classNameIsArray' nm
+                            then getClassObject (tail nm)
+                            else return NullRef
+      )
+    -- java.lang.class.getClassLoader -- REVISIT: This implementation makes it so
+    -- that custom class loaders are not supported.
+    , ( "java/lang/Class"
+      , makeMethodKey "getClassLoader" "()Ljava/lang/ClassLoader;"
+      , \_ _ -> pushValue (RValue NullRef)
+      )
+    -- java.lang.String.intern -- FIXME (must reconcile reference w/ strings map)
+    , ( "java/lang/String"
+      , makeMethodKey "intern" "()Ljava/lang/String;"
+      , \this _ -> pushValue =<< RValue <$> (refFromString =<< drefString this)
+      )
+    ]
+
+  --------------------------------------------------------------------------------
+  -- Static method overrides
+
+  mapM_ (\(cn, key, impl) -> overrideStaticMethod cn key impl)
+    [ -- Java.lang.System.arraycopy
+      let arrayCopyKey =
+            makeMethodKey "arraycopy"
+              "(Ljava/lang/Object;ILjava/lang/Object;II)V"
+      in
+        ( "java/lang/System"
+        , arrayCopyKey
+        , \opds -> do
+            let nativeClass = "com/galois/core/NativeImplementations"
+            cb <- use codebase
+            cl <- liftIO $ lookupClass cb nativeClass
+            let Just methodImpl = cl `lookupMethod` arrayCopyKey
+            pushStaticMethodCall nativeClass methodImpl opds
+        )
+      -- java.lang.Float.floatToRawIntBits: override for invocation by
+      -- java.lang.Math's static initializer
+    , ( "java/lang/Float"
+      , makeMethodKey "floatToRawIntBits" "(F)I"
+      , \args -> case args of
+                   [FValue flt] -> do
+                     when (flt /= (-0.0 :: Float)) $
+                       abort "floatToRawIntBits: overridden for -0.0f only"
+                     pushValue =<< withSBE (\sbe -> IValue <$> termInt sbe 0x80000000)
+                   _ -> abort "floatToRawIntBits: called with incorrect arguments"
+      )
+      -- java.lang.Double.doubleToRawLongBits: override for invocation by
+      -- java.lang.Math's static initializer
+    , ( "java/lang/Double"
+      , makeMethodKey "doubleToRawLongBits" "(D)J"
+      , \args -> case args of
+                   [DValue dbl] -> do
+                     when (dbl /= (-0.0 :: Double)) $
+                       abort "doubltToRawLongBits: overriden -0.0d only"
+                     pushValue =<< withSBE (\sbe -> LValue <$> termLong sbe 0x8000000000000000)
+                   _ -> abort "floatToRawIntBits: called with incorrect arguments"
+      )
+      -- Set up any necessary state for the native methods of various
+      -- classes. At the moment, nothing is necessary.
+    , ( "java/lang/Class"
+      , makeMethodKey "registerNatives" "()V"
+      , \_ -> return ()
+      )
+    , ( "java/lang/ClassLoader"
+      , makeMethodKey "registerNatives" "()V"
+      , \_ -> return ()
+      )
+    , ( "java/lang/Thread"
+      , makeMethodKey "registerNatives" "()V"
+      , \_ -> return ()
+      )
+    , ( "java/lang/Class"
+      , makeMethodKey "desiredAssertionStatus0" "(Ljava/lang/Class;)Z"
+      , \_ -> pushValue =<< withSBE (\sbe -> IValue <$> termInt sbe 1)
+      )
+    , ( "java/lang/Class"
+      , makeMethodKey "getPrimitiveClass" "(Ljava/lang/String;)Ljava/lang/Class;"
+      , \args -> case args of
+                   [RValue strRef@(Ref _ (ClassType "java/lang/String"))] -> do
+                     -- NB: I've guessed on the correct class names for
+                     -- primitive types.  Instantiating java.class.Class with
+                     -- the type descriptor name seems to work, though, at least
+                     -- for the jdk invocations that arise via executing the
+                     -- ashes suite.  We should probably REVISIT this as well as
+                     -- consider a real reflection infrastructure. [js 04 Nov
+                     -- 2010]
+
+                     ms <- lookupStringRef strRef
+                     (pushValue . RValue <=< getClassObject) $ case ms of
+                       Just "byte"    -> "B"
+                       Just "short"   -> "S"
+                       Just "int"     -> "I"
+                       Just "long"    -> "J"
+                       Just "float"   -> "F"
+                       Just "double"  -> "D"
+                       Just "boolean" -> "Z"
+                       Just "char"    -> "C"
+                       Just _         -> error "getPrimitiveClass: unsupported type string"
+                       Nothing        -> error "getPrimitiveClass: could not resolve string reference"
+                   _ -> abort "getPrimitiveClass: called with incorrect arguments"
+      )
+    , ( "java/io/FileInputStream", makeMethodKey "initIDs" "()V", \ _ -> return () )
+    , ( "java/io/FileOutputStream", makeMethodKey "initIDs" "()V", \ _ -> return () )
+    , ( "java/io/RandomAccessFile", makeMethodKey "initIDs" "()V", \ _ -> return () )
+    , ( "java/io/ObjectStreamClass", makeMethodKey "initNative" "()V", \ _ -> return () )
+    , ( "java/security/AccessController"
+      , makeMethodKey "doPrivileged" "(Ljava/security/PrivilegedAction;)Ljava/lang/Object;"
+      , \args -> case args of
+                   [RValue a@(Ref _ (ClassType cn))] ->
+                     invokeInstanceMethod
+                     cn
+                     (makeMethodKey "run" "()Ljava/lang/Object;")
+                     a []
+                   _ -> abort "doPrivileged called with incorrect arguments"
+      )
+    ]
+  where
+    printlnMthd t = ( "java/io/PrintStream"
+                    , makeMethodKey "println" t
+                    , \_ args -> printStream True (t == "(C)V") args
+                    )
+    printMthd t   = ( "java/io/PrintStream"
+                    , makeMethodKey "print" t
+                    , \_ args -> printStream False (t == "(C)V") args
+                    )
+
+    -- | Allows the user to append pretty-printed renditions of symbolic
+    -- ints/longs as strings; however, we should REVISIT this.  Concatenation of
+    -- the typical form form ("x = " + x) where x is symbolic is currently very
+    -- inefficient since the concrete string representation of x is still
+    -- executed through many array operations in the {Abstract,}StringBuilder
+    -- implementations and so forth.  This leads to the odd situation where:
+    --
+    -- System.out.print("x = ");
+    -- System.out.println(x);
+    --
+    -- is vastly more efficient than the equivalent concatenating version.
+    appendIntegralMthd t =
+      let cn = "java/lang/StringBuilder"
+      in
+        ( cn
+        , makeMethodKey "append" t
+        , \this [st] -> do
+            let redir = makeMethodKey "append" "(Ljava/lang/String;)Ljava/lang/StringBuilder;"
+                warn  = dbugM $
+                  "Warning: string concatenation of symbolic variables is "
+                    ++ "very inefficient in this release. \n  Consider using "
+                    ++ "'System.out.print(\"x = \"); System.out.println(x);'"
+                    ++ "\n  instead of 'System.out.println(\"x = \" + x); "
+                    ++ "also see Symbolic.Debug.trace()."
+            sbe <- use backend
+            case st of
+              IValue (asInt sbe -> Just{}) -> return ()
+              LValue (asLong sbe -> Just{}) -> return ()
+              _ -> warn
+            sr        <- refFromString (ppValue st)
+            cb <- use codebase
+            Just meth <- liftIO ((`lookupMethod` redir) <$> lookupClass cb cn)
+            runInstanceMethodCall cn meth this [RValue sr]
+        )
+
+lookupStringRef :: Ref -> Simulator sbe (Maybe String)
+lookupStringRef r =
+  lookup r. map (\(a,b) -> (b,a)) . M.assocs <$> use strings
+
+-- | Extract the string from the given reference to a java.lang.String
+-- contains concrete characters.
+drefString :: AigOps sbe => Ref -> Simulator sbe String
+drefString strRef = do
+  Just ty       <- typeOf strRef
+  assert (ty == stringTy)
+
+  m <- getMem
+  let iflds  = m^.memInstanceFields
+      lkup   = (`M.lookup` iflds) . (,) strRef
+      fldIds = [ FieldId "java/lang/String" "value"  (ArrayType CharType)
+               , FieldId "java/lang/String" "count"  IntType
+               , FieldId "java/lang/String" "offset" IntType
+               ]
+  case mapMaybe lkup fldIds of
+    [RValue arrRef, IValue cnt, IValue off] -> do
+      chars <- getIntArray arrRef
+      sbe <- use backend
+      when (any (not . isJust . asInt sbe) $ cnt:off:chars) $
+        abort "Unable to dereference symbolic strings"
+      let cvt = fromIntegral . fromJust . asInt sbe
+      return $ take (cvt cnt) $ drop (cvt off) $ map (toEnum . cvt) chars
+    _ -> error "Invalid field name/type for java.lang.String instance"
+
+
+-- | Obtain the string value of the name field for the given instance of class
+-- @Class@
+getClassName :: AigOps sbe => Ref -> Simulator sbe String
+getClassName classRef@(Ref _ (ClassType "java/lang/Class")) = do
+  drefString =<< unRValue <$> getInstanceFieldValue classRef
+                                (FieldId "java/lang/Class" "name" stringTy)
+getClassName _ = error "getClassName: wrong argument type"
+
+-- | Returns (the Value) 'true' if the given class name represents an array class
+-- (using java.lang.Class naming conventions)
+classNameIsArray :: String -> Simulator sbe (Value (SBETerm sym))
+classNameIsArray s = withSBE $ \sbe -> IValue <$> termInt sbe v
+  where v = if classNameIsArray' s then 1 else 0
+
+classNameIsArray' :: String -> Bool
+classNameIsArray' ('[':_) = True
+classNameIsArray' _       = False
+
+-- | Returns (the Value) 'true' if the given class name represents a primtive
+-- type (using java.lang.Class naming conventions)
+classNameIsPrimitive :: String -> Simulator sbe (Value (SBETerm sym))
+classNameIsPrimitive s = withSBE $ \sbe -> IValue <$> termInt sbe v 
+  where v = if classNameIsPrimitive' s then 1 else 0
+    
+classNameIsPrimitive' :: String -> Bool
+classNameIsPrimitive' (ch:[]) = ch `elem` ['B','S','I','J','F','D','Z','C']
+classNameIsPrimitive' _       = False

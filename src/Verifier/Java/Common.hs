@@ -19,8 +19,8 @@ module Verifier.Java.Common
   , runSM
   , dumpCtrlStk
 
-  -- , LSSOpts(LSSOpts, optsErrorPathDetails)
-  -- , defaultLSSOpts
+  , SimulationFlags(..)
+  , defaultSimFlags
 
   , Value
   , Value'
@@ -32,7 +32,8 @@ module Verifier.Java.Common
   , ctrlStk
   , nextRef
   , strings
-  -- , fnOverrides
+  , instanceOverrides
+  , staticOverrides
   , verbosity
   , evHandlers
   , errorPaths
@@ -41,6 +42,7 @@ module Verifier.Java.Common
   -- , aigOutputs
   , ppState
   , modifyCS
+  , initialState
 
   , CS
   , initialCtrlStk
@@ -129,7 +131,6 @@ import Data.Array (Array, elems)
 import qualified Data.Foldable as DF
 import Data.Int (Int32)
 import Data.List (intercalate)
-import Data.List.Lens
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Set (Set)
@@ -173,10 +174,6 @@ data State sbe m = State {
   , _staticOverrides   :: !(Map (String, MethodKey) (StaticOverride sbe m))
     -- ^ Maps static method identifiers to a function for executing them.
   , _ctrlStk           :: CS sbe
-    -- ^ Auxiliary data structures for tracking execution and merging of
-    -- multiple paths within a single frame.  Currently, there is a 1-1
-    -- correspondence between each MergeFrame and its corresponding CallFrame (i.e.,
-    -- the Java activation record).
   , _nextPSS           :: PathDescriptor
     -- ^ Name supply for unique path state selectors
   , _strings           :: !(Map String Ref)
@@ -187,6 +184,29 @@ data State sbe m = State {
   , _errorPaths        :: [ErrorPath sbe]
   , _evHandlers        :: SEH sbe m
   }
+
+-- | Set up a new State with the given arguments and default values
+-- for the rest of the fields.
+initialState :: Codebase
+             -> Backend sbe
+             -> SimulationFlags
+             -> SEH sbe m
+             -> IO (State sbe m)
+initialState cb sbe flags seh = do
+  cs <- initialCtrlStk sbe
+  return $ State { _codebase          = cb
+                 , _instanceOverrides = M.empty
+                 , _staticOverrides   = M.empty
+                 , _ctrlStk           = cs
+                 , _nextPSS           = 0
+                 , _strings           = M.empty
+                 , _nextRef           = 0
+                 , _verbosity         = 6
+                 , _simulationFlags   = flags
+                 , _backend           = sbe
+                 , _errorPaths        = []
+                 , _evHandlers        = seh
+                 }
 
 type Value term   = AtomicValue Double Float term term Ref
 type Value' sbe m = JSValue (Simulator sbe m)

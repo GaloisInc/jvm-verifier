@@ -41,8 +41,10 @@ library
     , directory
     , filepath
     , jvm-parser >= 0.2
-    , lens >= 3.6
+    , lens >= 3.8
     , mtl >= 2.1
+    , pretty >= 1.1
+    , transformers >= 0.3
     , vector >= 0.7
     , Verinf >= 0.2
 
