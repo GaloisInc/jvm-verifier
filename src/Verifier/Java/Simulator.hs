@@ -75,7 +75,7 @@ import Verifier.Java.Common
 import Verifier.Java.Utils
 
 runSimulator :: forall sbe a .
-  ( Functor sbe
+  ( MonadSim sbe IO
   )
   => Codebase              -- ^ JVM Codebase
   -> Backend sbe           -- ^ A symbolic backend
@@ -291,7 +291,7 @@ getInstanceFieldValue :: MonadSim sbe m
                       -> FieldId
                       -> Simulator sbe m (Value (SBETerm sbe))
 getInstanceFieldValue ref fldId = do
-  m <- getMem
+  Just m <- getMem
   case M.lookup (ref, fldId) (m^.memInstanceFields) of
     Just v   -> return v
     Nothing  -> fail $ "getInstanceFieldValue: instance field " ++
@@ -302,14 +302,13 @@ getStaticFieldValue :: MonadSim sbe m
                     -> Simulator sbe m (Value (SBETerm sbe))
 getStaticFieldValue fldId = do
   cb <- use codebase
-  withSBE $ \sbe -> do
-    cl <- lookupClass cb (fieldIdClass fldId)
-    m <- getMem
-    case M.lookup fldId (m^.memStaticFields) of
-      Just v  -> return v
-      Nothing -> do
-        assert (validStaticField cl) 
-        defaultValue sbe (fieldIdType fldId)
+  cl <- liftIO $ lookupClass cb (fieldIdClass fldId)
+  Just m <- getMem
+  case M.lookup fldId (m^.memStaticFields) of
+    Just v  -> return v
+    Nothing -> do
+      assert (validStaticField cl) 
+      withSBE $ \sbe -> defaultValue sbe (fieldIdType fldId)
   where
     validStaticField cl =
       maybe False (\f -> fieldIsStatic f && fieldType f == fieldIdType fldId)
@@ -1075,33 +1074,32 @@ prettyTermSBE t = withSBE' $ \sbe -> prettyTermD sbe t
 -- Note: Fails if the method has already been overridden.
 overrideInstanceMethod :: String
                        -> MethodKey
-                       -> (Ref -> [Value (SBETerm sym)] -> Simulator sbe ())
-                       -> Simulator sbe ()
+                       -> (Ref -> [Value (SBETerm sbe)] -> Simulator sbe m ())
+                       -> Simulator sbe m ()
 overrideInstanceMethod cName mKey action = do
-  s <- get
+  overrides <- use instanceOverrides
   let key = (cName, mKey)
-  when (key `M.member` instanceOverrides s) $ do
+  when (key `M.member` overrides) $ do
     fail $ "Method " ++ cName ++ "." ++ methodKeyName mKey  ++ " is already overridden."
   instanceOverrides %= M.insert key action
 
 -- | Override behavior of simulator when it encounters a specific static
 -- method to perform a user-definable action.
 -- Note: Fails if the method has already been overridden.
-overrideStaticMethod ::
-  AigOps sym
-  => String
-  -> MethodKey
-  -> ([Value (SBETerm sym)] -> Simulator sbe ())
-  -> Simulator sbe ()
+overrideStaticMethod :: MonadSim sbe m
+                     => String
+                     -> MethodKey
+                     -> ([Value (SBETerm sbe)] -> Simulator sbe m ())
+                     -> Simulator sbe m ()
 overrideStaticMethod cName mKey action = do
-  s <- get
+  overrides <- use staticOverrides
   let key = (cName, mKey)
-  when (key `M.member` staticOverrides s) $
+  when (key `M.member` overrides) $
     abort $ "Method " ++ cName ++ "." ++ methodKeyName mKey ++ " is already overridden."
   staticOverrides %= M.insert key action
 
 -- | Register all predefined overrides for builtin native implementations.
-stdOverrides :: AigOps sbe => Simulator sbe ()
+stdOverrides :: MonadSim sbe m => Simulator sbe m ()
 stdOverrides = do
   --------------------------------------------------------------------------------
   -- Instance method overrides
@@ -1317,24 +1315,24 @@ stdOverrides = do
               IValue (asInt sbe -> Just{}) -> return ()
               LValue (asLong sbe -> Just{}) -> return ()
               _ -> warn
-            sr        <- refFromString (ppValue st)
+            sr        <- refFromString . render . ppValue sbe $ st
             cb <- use codebase
             Just meth <- liftIO ((`lookupMethod` redir) <$> lookupClass cb cn)
             runInstanceMethodCall cn meth this [RValue sr]
         )
 
-lookupStringRef :: Ref -> Simulator sbe (Maybe String)
+lookupStringRef :: Ref -> Simulator sbe m (Maybe String)
 lookupStringRef r =
   lookup r. map (\(a,b) -> (b,a)) . M.assocs <$> use strings
 
 -- | Extract the string from the given reference to a java.lang.String
 -- contains concrete characters.
-drefString :: AigOps sbe => Ref -> Simulator sbe String
+drefString :: MonadSim sbe m => Ref -> Simulator sbe m String
 drefString strRef = do
   Just ty       <- typeOf strRef
   assert (ty == stringTy)
 
-  m <- getMem
+  Just m <- getMem
   let iflds  = m^.memInstanceFields
       lkup   = (`M.lookup` iflds) . (,) strRef
       fldIds = [ FieldId "java/lang/String" "value"  (ArrayType CharType)
@@ -1354,7 +1352,7 @@ drefString strRef = do
 
 -- | Obtain the string value of the name field for the given instance of class
 -- @Class@
-getClassName :: AigOps sbe => Ref -> Simulator sbe String
+getClassName :: MonadSim sbe m => Ref -> Simulator sbe m String
 getClassName classRef@(Ref _ (ClassType "java/lang/Class")) = do
   drefString =<< unRValue <$> getInstanceFieldValue classRef
                                 (FieldId "java/lang/Class" "name" stringTy)
@@ -1362,7 +1360,9 @@ getClassName _ = error "getClassName: wrong argument type"
 
 -- | Returns (the Value) 'true' if the given class name represents an array class
 -- (using java.lang.Class naming conventions)
-classNameIsArray :: String -> Simulator sbe (Value (SBETerm sym))
+classNameIsArray :: MonadSim sbe m
+                 => String 
+                 -> Simulator sbe m (Value (SBETerm sbe))
 classNameIsArray s = withSBE $ \sbe -> IValue <$> termInt sbe v
   where v = if classNameIsArray' s then 1 else 0
 
@@ -1372,7 +1372,9 @@ classNameIsArray' _       = False
 
 -- | Returns (the Value) 'true' if the given class name represents a primtive
 -- type (using java.lang.Class naming conventions)
-classNameIsPrimitive :: String -> Simulator sbe (Value (SBETerm sym))
+classNameIsPrimitive :: MonadSim sbe m 
+                     => String
+                     -> Simulator sbe m (Value (SBETerm sbe))
 classNameIsPrimitive s = withSBE $ \sbe -> IValue <$> termInt sbe v 
   where v = if classNameIsPrimitive' s then 1 else 0
     
