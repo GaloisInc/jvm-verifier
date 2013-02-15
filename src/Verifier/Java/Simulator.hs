@@ -10,6 +10,7 @@ Point-of-contact : jstanley
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -48,7 +49,7 @@ import Control.Lens hiding (Path)
 import Control.Monad
 import Control.Monad.Error
 import Control.Monad.IO.Class
-import Control.Monad.State (evalStateT, get)
+import Control.Monad.State (evalStateT, get, put)
 
 import Data.Array
 import Data.Char
@@ -72,7 +73,7 @@ import Verifier.Java.Backend
 import Verifier.Java.Common
 import Verifier.Java.Utils
 
-runStaticMethod :: (MonadSim sbe m)
+runStaticMethod :: forall sbe m . MonadSim sbe m
                 => String      -- ^ Class name
                 -> String      -- ^ Method name
                 -> String      -- ^ Method type
@@ -80,12 +81,100 @@ runStaticMethod :: (MonadSim sbe m)
                 -> Simulator sbe m [(Path sbe, Maybe (Value (SBETerm sbe)))]
 runStaticMethod cName mName mType args = do
   let methodKey = makeMethodKey mName mType
-  override <- lookupStaticOverride cName methodKey
-  case override of
-    Just f  -> f args
-    Nothing -> invokeStaticMethod cName methodKey args
-  --run
-  undefined
+  invokeStaticMethod cName methodKey args
+  run
+  cs <- use ctrlStk
+  when (not $ isFinished cs) 
+    $ fail "unexpected active control stack after executing method"
+  case currentPath cs of
+    Just p -> do
+      rv <- getProgramReturnValue
+      return [(p, rv)]
+    Nothing -> fail "all paths failed"
+
+run :: MonadSim sbe m => Simulator sbe m ()
+run = do
+  cs <- use ctrlStk
+  if isFinished cs then
+    case currentPath cs of
+      Just (p :: Path sbe) -> do
+        -- Normal program termination on at least one path.
+        -- Report termination info at appropriate verbosity levels; also,
+        -- inform user about error paths when present and optionally dump
+        -- them.
+        whenVerbosity (>=5) $ dumpCtrlStk
+        whenVerbosity (>=2) $ do
+          dbugM "run terminating normally: found valid exit frame"
+          case p^.pathRetVal of
+            Nothing -> dbugM "Program had no return value."
+            Just rv -> dbugTerm "Program returned value" rv
+          numErrs <- uses errorPaths length
+          -- showEPs <- optsErrorPathDetails <$> gets lssOpts
+          -- when (numErrs > 0 && not showEPs) $
+          --   tellUser "Warning: Some paths yielded errors. To see details, use --errpaths."
+          -- when (numErrs > 0 && showEPs) $ do
+          dbugM $ showErrCnt numErrs
+          dumpErrorPaths
+      Nothing -> do
+        -- -- All paths ended in errors.
+        -- showEPs <- gets (optsErrorPathDetails . lssOpts)
+        -- if showEPs then
+        --   tellUser "All paths yielded errors!" >> dumpErrorPaths
+        -- else
+          tellUser "All paths yielded errors! To see details, use --errpaths."
+  else do
+    (p :: Path sbe) <- case currentPath cs of
+                         Just p -> return p
+                         Nothing -> fail "impossible"
+    flip catchError handleError $ do
+      let Just bid = p^.pathBlockId
+      sbe <- use backend
+      when (pathAssertedFalse sbe p) $
+        errorPath $ FailRsn $ "This path is infeasible"
+
+      cf <- case currentCallFrame p of
+              Just cf -> return cf
+              Nothing -> fail "empty call stack"
+      let method = cf^.cfMethod
+          cName  = cf^.cfClass
+      cb <- use codebase
+      Just symBlocks <- liftIO $ lookupSymbolicMethod cb cName (methodKey method)
+      case lookupSymBlock bid symBlocks of
+        Just symBlock -> runInsns . map snd $ sbInsns symBlock
+        Nothing -> fail . render 
+          $ "invalid basic block" <+> ppBlockId bid 
+          <+> "for method" <+> ppMethod method
+    run
+  where
+    lookupSymBlock :: BlockId -> [SymBlock] -> Maybe SymBlock
+    lookupSymBlock bid = find $ \SymBlock { sbId } -> bid == sbId
+    handleError (ErrorPathExc _rsn s) = do
+      -- errorPath ensures that the simulator state provided in the
+      -- exception data is correct for the next invocation of run,
+      -- so overwrite the current state here.
+      put s
+    handleError e = throwError e
+    showErrCnt x
+      | x == 1    = "Encountered errors on exactly one path. Details below."
+      | otherwise = "Encountered errors on " ++ show x ++ " paths.  Details below."
+    dumpErrorPaths = do
+        dbugM $ replicate 80 '-'
+        eps <- use errorPaths
+        forM_ eps $ \ep -> do
+          let p = ep^.epPath
+          sbe <- use backend
+          dbugM $ "Error reason        : " ++ show (ppFailRsn (ep^.epRsn))
+          dbugM $ "Error path state    :\n" ++ show (nest 2 $ ppPath sbe p)
+          -- whenVerbosity (>= 3) $ do
+          --   dbugM "Error path memory: "
+          -- withSBE (\s -> memDump s (pathMem p) Nothing)
+          when (length eps > 1) $ dbugM "--"
+        dbugM $ replicate 80 '-'
+
+-- | Return true if the path has asserted false to be true, and therefore we
+-- can call errorPath on it.
+pathAssertedFalse :: Backend sbe -> Path' (SBETerm sbe) -> Bool
+pathAssertedFalse sbe p = asBool sbe (p^.pathAssertions) == Just False
 
 invokeStaticMethod :: MonadSim sbe m 
                    => String 
@@ -109,9 +198,16 @@ invokeStaticMethod cName key args = do
     _ -> fatal . render $ "Could not find static method" 
                    <+> ppMethodKey key <+> "in" <+> text cName
 
-lookupStaticOverride cName methodKey = uses staticOverrides $ M.lookup (cName, methodKey)
+lookupStaticOverride :: String 
+                     -> MethodKey
+                     -> Simulator sbe m (Maybe (StaticOverride sbe m))
+lookupStaticOverride cName methodKey = 
+  uses staticOverrides $ M.lookup (cName, methodKey)
 
-pushStaticMethodCall :: forall sbe m . MonadSim sbe m
+-- | Invoke a method in the current simulator state. If there is no
+-- basic block to return to, this is either a top-level invocation, or
+-- a special case like an overridden method.
+pushStaticMethodCall :: MonadSim sbe m
                      => String
                      -> Method
                      -> [Value (SBETerm sbe)]
@@ -1522,3 +1618,13 @@ classNameIsPrimitive s = withSBE $ \sbe -> IValue <$> termInt sbe v
 classNameIsPrimitive' :: String -> Bool
 classNameIsPrimitive' (ch:[]) = ch `elem` ['B','S','I','J','F','D','Z','C']
 classNameIsPrimitive' _       = False
+
+unlessQuiet :: MonadIO m => Simulator sbe m () -> Simulator sbe m ()
+unlessQuiet act = getVerbosity >>= \v -> unless (v == 0) act
+
+-- For user feedback that gets silenced when verbosity = 0.
+tellUser :: (MonadIO m) => String -> Simulator sbe m ()
+tellUser msg = unlessQuiet $ dbugM msg
+
+dbugTerm :: (MonadIO m, Functor m) => String -> SBETerm sbe -> Simulator sbe m ()
+dbugTerm desc t = dbugM =<< ((++) (desc ++ ": ")) . render <$> prettyTermSBE t
