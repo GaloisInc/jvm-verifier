@@ -6,7 +6,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 module Verifier.Java.WordBackend 
-       ( -- * Re-exports from Verifier infrastructure.
+       ( -- * Re-exports from Verifier infrastructure.         
          DagTerm
        , mkOpCache
        , mkCInt
@@ -23,6 +23,7 @@ module Verifier.Java.WordBackend
        , constLong
        , intToBoolSeq
          -- * Backend Exports
+       , module Verifier.Java.Backend
        , SymbolicMonad
        , withSymbolicMonadState
        , withFreshBackend
@@ -82,7 +83,7 @@ mkSymbolicMonadState oc be de = do
 
 data SymbolicMonad
 instance AigOps SymbolicMonad where
-type instance MonadTerm SymbolicMonad  = DagTerm
+type instance SBETerm SymbolicMonad  = DagTerm
 
 withBitEngine :: (BitEngine Lit -> IO a) -> IO a
 withBitEngine = bracket createBitEngine beFree

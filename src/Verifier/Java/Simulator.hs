@@ -881,11 +881,11 @@ setCurrentBlock b = modifyCSM $ jumpCurrentPath b
 evalCond :: MonadSim sbe m => SymCond -> Simulator sbe m (SBETerm sbe)
 evalCond = undefined
 
-{-
+
 -- | Evaluate condition in current path.
 evalCond :: (Functor sbe, Functor m, MonadIO m) => SymCond -> Simulator sbe m (SBETerm sbe)
 evalCond TrueSymCond = withSBE $ \sbe -> termBool sbe True
-evalCond (HasConstValue i) = do
+evalCond (HasConstValue typedTerm i) = do
   Typed (L.PrimType (L.Integer w)) v <- getTypedTerm "evalCond" typedTerm
   sbe <- gets symBE
   iv <- liftSBE $ termInt sbe (fromIntegral w) i
@@ -898,7 +898,7 @@ evalCond (NotConstValues typedTerm is) = do
   ir <- mapM (liftSBE . applyIne sbe (fromIntegral w) t) il
   let fn r v = liftSBE $ applyAnd sbe r v
   foldM fn true ir
--}
+
 --------------------------------------------------------------------------------
 -- Callbacks and event handlers
 

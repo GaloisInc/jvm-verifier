@@ -15,6 +15,8 @@ module Verifier.Java.Utils
   , dbugV
   , headf
   , safeHead
+  , boolSeqToValue
+  , splitN
   )
 where
 
