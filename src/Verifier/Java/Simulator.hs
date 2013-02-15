@@ -17,7 +17,10 @@ Point-of-contact : jstanley
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 module Verifier.Java.Simulator
-  ( module Verifier.Java.Codebase
+  ( module Execution.JavaSemantics
+  , module Verifier.Java.Backend
+  , module Verifier.Java.Common
+  , module Verifier.Java.Codebase
   , Simulator (SM)
   , State(..)
   , SEH(..)
@@ -29,11 +32,27 @@ module Verifier.Java.Simulator
   , runSimulator
   , withSBE
 --  , withSBE'
+  , overrideInstanceMethod
+  , overrideStaticMethod
+  -- * Array operations
+  , getArrayLength
+  , getArrayValue
+  , getByteArray
+  , getIntArray
+  , getLongArray
+  , getRefArray
+  , getSymbolicArray
+  , newIntArray
+  , newLongArray
+  , newSymbolicArray
+  , setSymbolicArray
+  , updateSymbolicArray
   -- * Memory operations
   , setLocal
   , setArrayValue
   , setInstanceFieldValue
   , setStaticFieldValue
+  , lookupStringRef
   -- for testing
   , dbugM
 --  , dbugTerm
@@ -42,6 +61,8 @@ module Verifier.Java.Simulator
   , getMem
   , setSEH
   , warning
+  , ppValue
+  , abort  
   ) where
 
 import Control.Applicative hiding (empty)
@@ -65,7 +86,8 @@ import Text.PrettyPrint
 
 import Data.JVM.Symbolic.AST
 import Data.JVM.Symbolic.Translation
-import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, newObject, initializeClass, setArrayValue, setInstanceFieldValue, setStaticFieldValue, getCodebase, isFinished, invokeStaticMethod, pushStaticMethodCall)
+
+import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, newObject, initializeClass, setArrayValue, setInstanceFieldValue, setStaticFieldValue, getCodebase, isFinished, invokeStaticMethod, pushStaticMethodCall, setLocal, invokeInstanceMethod, dynBind', isNull)
 import Language.JVM.Common
 import Language.JVM.Parser
 import Verifier.Java.Codebase
@@ -182,6 +204,30 @@ invokeStaticMethod :: MonadSim sbe m
                    -> [Value (SBETerm sbe)]
                    -> Simulator sbe m ()
 invokeStaticMethod cName key args = do
+  cb <- use codebase
+  sups <- liftIO (supers cb =<< lookupClass cb cName);;
+  let targets = [ (cl, method) | cl <- sups
+                               , let method = lookupMethod cl key
+                               , isJust method 
+                ]
+  case targets of
+    ((cl, Just method) : _) -> do
+      when (not $ methodIsStatic method) $
+        fatal . render $ "Attempted static invocation on a non-static method" 
+                  <+> parens (text (className cl) <> "." <> ppMethod method)
+      initializeClass (className cl)
+      pushStaticMethodCall (className cl) method args Nothing
+    _ -> fatal . render $ "Could not find static method" 
+                   <+> ppMethodKey key <+> "in" <+> text cName
+
+
+invokeInstanceMethod :: MonadSim sbe m 
+                     => String 
+                     -> MethodKey
+                     -> JSRef (Simulator sbe m)
+                     -> [Value (SBETerm sbe)]
+                     -> Simulator sbe m ()
+invokeInstanceMethod cName key objectRef args = do
   cb <- use codebase
   sups <- liftIO (supers cb =<< lookupClass cb cName);;
   let targets = [ (cl, method) | cl <- sups
@@ -798,8 +844,61 @@ dbugStep insn = do
   cb1 onPostStep insn
   whenVerbosity (>=5) dumpCtrlStk
 
-step = undefined
 
+-- | Execute a single LLVM-Sym AST instruction
+step :: MonadSim sbe m
+     => SymInsn -> Simulator sbe m ()
+
+step (PushInvokeFrame InvStatic (ClassType cName) key retBlock) = do
+  reverseArgs <- replicateM (length (methodKeyParameterTypes key)) popValue
+  invokeStaticMethod cName key (reverse reverseArgs)  
+
+step ReturnVal = do
+  rv <- popValue
+  modifyCSM $ \cs -> returnCurrentPath (Just rv) cs
+
+step (PushPendingExecution bid cond ml elseInsns) = do
+  sbe <- use backend
+  c <- evalCond cond
+  case asBool sbe c of
+   -- Don't bother with elseStmts as condition is true. 
+   Just True  -> setCurrentBlock bid
+   -- Don't bother with pending path as condition is false.
+   Just False -> runInsns (map snd elseInsns)
+   Nothing -> do
+     nm <- use nextPSS
+     nextPSS += 1
+     modifyCSM $ \cs -> case addCtrlBranch c bid nm ml cs of
+                          Just cs' -> return cs'
+                          Nothing -> fail "addCtrlBranch"
+     runInsns (map snd elseInsns)
+
+step (SetCurrentBlock bid) = setCurrentBlock bid
+
+setCurrentBlock :: MonadSim sbe m => BlockId -> Simulator sbe m ()
+setCurrentBlock b = modifyCSM $ jumpCurrentPath b 
+
+evalCond :: MonadSim sbe m => SymCond -> Simulator sbe m (SBETerm sbe)
+evalCond = undefined
+
+{-
+-- | Evaluate condition in current path.
+evalCond :: (Functor sbe, Functor m, MonadIO m) => SymCond -> Simulator sbe m (SBETerm sbe)
+evalCond TrueSymCond = withSBE $ \sbe -> termBool sbe True
+evalCond (HasConstValue i) = do
+  Typed (L.PrimType (L.Integer w)) v <- getTypedTerm "evalCond" typedTerm
+  sbe <- gets symBE
+  iv <- liftSBE $ termInt sbe (fromIntegral w) i
+  liftSBE $ applyIEq sbe (fromIntegral w) v iv
+evalCond (NotConstValues typedTerm is) = do
+  Typed (L.PrimType (L.Integer w)) t <- getTypedTerm "evalCond" typedTerm
+  sbe <- gets symBE
+  true <- liftSBE $ termBool sbe True
+  il <- mapM (liftSBE . termInt sbe (fromIntegral w)) is
+  ir <- mapM (liftSBE . applyIne sbe (fromIntegral w) t) il
+  let fn r v = liftSBE $ applyAnd sbe r v
+  foldM fn true ir
+-}
 --------------------------------------------------------------------------------
 -- Callbacks and event handlers
 
@@ -1191,11 +1290,6 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
             error $ "internal: Undefined local variable " ++ show i
       _ -> error "Frames are empty"
 
-  setLocal i v = do
-    ps <- getPathState
-    let Call st m pc lvars stack : rest = frames ps
-    putPathState ps { frames = Call st m pc (M.insert i v lvars) stack : rest
-                    }
 
   printStream nl _ []       = liftIO $ (if nl then putStrLn else putStr) "" >> hFlush stdout
   printStream nl binary [x] = do
@@ -1587,6 +1681,12 @@ drefString strRef = do
     _ -> error "Invalid field name/type for java.lang.String instance"
 
 
+
+
+
+setLocal :: LocalVariableIndex -> Value (SBETerm sbe) -> Simulator sbe m ()
+setLocal i v = modifyCallFrameM $ \cf -> return $ cf & cfLocals %~ M.insert i v
+
 -- | Obtain the string value of the name field for the given instance of class
 -- @Class@
 getClassName :: MonadSim sbe m => Ref -> Simulator sbe m String
@@ -1628,3 +1728,38 @@ tellUser msg = unlessQuiet $ dbugM msg
 
 dbugTerm :: (MonadIO m, Functor m) => String -> SBETerm sbe -> Simulator sbe m ()
 dbugTerm desc t = dbugM =<< ((++) (desc ++ ": ")) . render <$> prettyTermSBE t
+
+-- | (dynBind cln meth r act) provides to 'act' the class name that defines r's
+-- implementation of 'meth'
+dynBind :: MonadSim sbe m
+        => String           -- ^ Name of 'this''s class
+        -> MethodKey        -- ^ Key of method to invoke
+        -> JSRef (Simulator sbe m) -- ^ 'this'
+        -> (String -> Simulator sbe m ()) -- ^ e.g., an invokeInstanceMethod invocation.
+        -> Simulator sbe m ()
+dynBind clName key objectRef act =
+  act =<< dynBind' clName key objectRef    
+
+dynBind' :: MonadSim sbe m
+         => String
+         -> MethodKey
+         -> JSRef (Simulator sbe m)
+         -> Simulator sbe m String
+dynBind' clName key objectRef = do
+  nullRef <- isNull objectRef
+  sbe <- use backend
+  when (asBool sbe nullRef == Just True) throwNullPtrExc
+  mty <- typeOf objectRef
+  cb <- use codebase
+  cls <- case mty of
+           Nothing ->
+             fail . render $ "dynBind': could not determine type of reference"
+           Just (ClassType instTy) -> liftIO $ findVirtualMethodsByRef cb clName key instTy
+           Just _ -> fail "dynBind' type parameter not ClassType-constructed"
+  case cls of
+    [] -> fail . render $ "dynBind': could not determine target for" <+> ppMethodKey key
+    (cl:_) -> return cl
+
+-- | Returns true if reference is null.
+isNull :: JavaSemantics m => JSRef m -> m (JSBool m)
+isNull ref = rEq ref =<< rNull
