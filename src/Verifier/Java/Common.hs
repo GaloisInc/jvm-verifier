@@ -31,9 +31,12 @@ module Verifier.Java.Common
   , backend
   , ctrlStk
   , nextRef
+  , nextPSS
   , strings
   , instanceOverrides
+  , InstanceOverride
   , staticOverrides
+  , StaticOverride
   , verbosity
   , evHandlers
   , errorPaths
@@ -51,6 +54,9 @@ module Verifier.Java.Common
   , modifyPath
   , modifyCurrentPath
   , modifyCurrentPathM
+  , modifyCSM
+  , modifyPathM
+  , modifyCallFrameM
   , pushCallFrame
   , addCtrlBranch
   , jumpCurrentPath
@@ -449,6 +455,34 @@ currentPath :: CS sbe -> Maybe (Path sbe)
 currentPath (CompletedCS mp) = mp
 currentPath (ActiveCS p _) = Just p
 
+modifyCSM :: (CS sbe -> Simulator sbe m (CS sbe))
+          -> Simulator sbe m ()
+modifyCSM f = ctrlStk <~ do f =<< use ctrlStk
+
+modifyPathM :: (Path sbe -> Simulator sbe m (Path sbe))
+            -> Simulator sbe m ()
+modifyPathM f = 
+  modifyCSM $ \cs ->
+      case cs of 
+        CompletedCS Nothing -> fail "modifyPathM: no paths"
+        CompletedCS (Just p) -> do
+                p' <- f p
+                return $ CompletedCS (Just p')
+        ActiveCS p k -> do
+                p' <- f p
+                return $ ActiveCS p' k
+
+modifyCallFrameM :: 
+    (CallFrame (SBETerm sbe) -> Simulator sbe m (CallFrame (SBETerm sbe)))
+      -> Simulator sbe m ()
+modifyCallFrameM f = 
+  modifyPathM $ \p ->
+    case p^.pathStack of
+      [] -> fail "modifyCallFrameM: no stack frames"
+      (cf:cfs) -> do
+        cf' <- f cf
+        return $ p & pathStack .~ (cf':cfs)
+
 -- | Push a new call frame to the current path, if any. Needs the
 -- initial function arguments, and basic block (in the caller's
 -- context) to return to once this method is finished.
@@ -500,8 +534,8 @@ jumpCurrentPath b (ActiveCS p k) =
   mergeNextCont (p & pathBlockId .~ Just b) k
 
 -- | Return from current path, checking for merge points
-returnCurrentPath :: MonadIO m
-                  => Maybe (SBETerm sbe) 
+returnCurrentPath :: forall sbe m . MonadIO m
+                  => Maybe (Value (SBETerm sbe))
                   -> CS sbe 
                   -> Simulator sbe m (CS sbe)
 returnCurrentPath _ CompletedCS{} = fail "Path is completed"

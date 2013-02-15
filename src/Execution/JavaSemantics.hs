@@ -31,6 +31,7 @@ type family JSInt    (m :: * -> *)
 type family JSLong   (m :: * -> *)
 type family JSRef    (m :: * -> *)
 type family JSBool   (m :: * -> *)
+type family JSRslt   (m :: * -> *)
 
 type JSValue m = AtomicValue (JSDouble m) (JSFloat m) (JSInt m) (JSLong m) (JSRef m)
 

@@ -21,7 +21,7 @@ type UnaryOp sbe = SBETerm sbe -> IO (SBETerm sbe)
 type BinaryOp sbe = SBETerm sbe -> SBETerm sbe -> IO (SBETerm sbe)
 
 -- | Returns term type associated with monad.
-type family SBETerm (sbe :: * -> *)
+type family SBETerm (sbe :: *)
 
 class ( PrettyTerm (SBETerm m)
       , Show (SBETerm m)
