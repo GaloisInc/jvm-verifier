@@ -61,9 +61,10 @@ module Verifier.Java.Simulator
   , getMem
   , setSEH
   , warning
-  , ppValue
   , abort  
   ) where
+
+import Prelude hiding (EQ, LT, GT)
 
 import Control.Applicative hiding (empty)
 import Control.Lens hiding (Path)
@@ -879,9 +880,34 @@ setCurrentBlock :: MonadSim sbe m => BlockId -> Simulator sbe m ()
 setCurrentBlock b = modifyCSM $ jumpCurrentPath b 
 
 evalCond :: MonadSim sbe m => SymCond -> Simulator sbe m (SBETerm sbe)
-evalCond = undefined
+evalCond (HasConstValue i) = do
+  sbe <- use backend
+  v <- iPop
+  si <- iConst (fromIntegral i)
+  iEq v si
+evalCond (NotConstValues is) = do
+  sbe <- use backend
+  true <- liftIO $ termBool sbe True
+  v <- iPop
+  sis <- mapM (iConst . fromIntegral) is
+  sbs <- mapM (\si -> bNot =<< iEq v si) sis
+  liftIO $ foldM (termAnd sbe) true sbs
+evalCond Null = isNull =<< rPop
+evalCond NonNull = bNot =<< isNull =<< rPop
+evalCond TrueSymCond = do
+  sbe <- use backend
+  liftIO $ termBool sbe True
+evalCond (Compare cmpTy) = do
+  let op x y = case cmpTy of
+                 EQ -> iEq x y
+                 NE -> bNot =<< iEq x y
+                 LT -> iLt x y
+                 GE -> bNot =<< iLt x y
+                 GT -> bNot =<< iLeq x y
+                 LE -> iLeq x y
+  op <$> iPop <*> iPop
 
-
+{-
 -- | Evaluate condition in current path.
 evalCond :: (Functor sbe, Functor m, MonadIO m) => SymCond -> Simulator sbe m (SBETerm sbe)
 evalCond TrueSymCond = withSBE $ \sbe -> termBool sbe True
@@ -898,6 +924,7 @@ evalCond (NotConstValues typedTerm is) = do
   ir <- mapM (liftSBE . applyIne sbe (fromIntegral w) t) il
   let fn r v = liftSBE $ applyAnd sbe r v
   foldM fn true ir
+-}
 
 --------------------------------------------------------------------------------
 -- Callbacks and event handlers
