@@ -48,9 +48,7 @@ module Verifier.Java.Simulator
   , setSymbolicArray
   , updateSymbolicArray
   -- * Memory operations
-  , setInstanceFieldValue
   , lookupStringRef
-  , refFromString
   -- for testing
   , dbugM
 --  , dbugTerm
@@ -942,15 +940,7 @@ floatRem x y = fromIntegral z
   where z :: Integer
         z = truncate x `rem` truncate y
 
-refFromString :: MonadSim sbe m => String -> Simulator sbe m Ref
-refFromString val = do
-  sMap <- use strings
-  case M.lookup val sMap of
-    Just ref -> return ref
-    Nothing  -> do
-      ref <- newString val
-      strings %= M.insert val ref
-      return ref
+--refFromString :: MonadSim sbe m => String -> Simulator sbe m Ref
 
 newString :: MonadSim sbe m => String -> Simulator sbe m Ref
 newString s = do
@@ -1206,23 +1196,22 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
              Just super -> isSubtype cb (ClassType super) (ClassType tp)
              Nothing    -> return False
       termBool sbe b
-
+-}
   -- (rEq x y) returns boolean formula that holds if x == y.
   rEq x y = withSBE $ \sbe -> termBool sbe (x == y)
 
   -- rNull returns node representing null pointer.
   rNull = return NullRef
 
-  -- Returns reference for given string constant.
-  -- NOTE: Assumes string comes from constant pool of an initialized class.
   refFromString val = do
-    s <- get
-    case M.lookup val (strings s) of
+    sMap <- use strings
+    case M.lookup val sMap of
       Just ref -> return ref
       Nothing  -> do
         ref <- newString val
-        modify $ \s' -> s'{ strings = M.insert val ref (strings s') }
+        strings %= M.insert val ref
         return ref
+{-
 
   getClassObject cname = do
     ps <- getPathState
