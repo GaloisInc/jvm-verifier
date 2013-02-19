@@ -1,29 +1,34 @@
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ViewPatterns #-}
 module Overrides (jssOverrides) where
 
 import Control.Applicative
+import Control.Lens
 import Control.Monad
 import Control.Monad.State
 import qualified Data.Map as M
 import qualified Data.Vector.Storable as SV
 
+import Text.PrettyPrint
+
+import Verinf.Utils.LogMonad
+
 import Verifier.Java.Simulator
 
 -- | Register all predefined overrides for the com.galois.symbolic.Symbolic
 -- API.
-jssOverrides :: (AigOps sym) => Simulator sym ()
+jssOverrides :: MonadSim sbe m => Simulator sbe m ()
 jssOverrides = do
-  sbe <- gets backend
+  sbe <- use backend
   let m `pushAs` f  = pushValue =<< f <$> liftIO (m sbe)
   let evalAigBody f chkInps dtor ctor out cvArr = do
-        abortWhenMultiPath "AIG evaluation (scalar)"
+--        abortWhenMultiPath "AIG evaluation (scalar)"
         cinps <- map dtor <$> (chkInps =<< getInputs cvArr)
         pushValue =<< liftIO (ctor <$> evalAigIntegral sbe f cinps out)
   let evalAigArrayBody w chkInps getArr dtor push [RValue outs, RValue cvArr] = do
-        abortWhenMultiPath "AIG evaluation (array)"
-        pd      <- getPSS
+--        abortWhenMultiPath "AIG evaluation (array)"
         ins     <- chkInps =<< getInputs cvArr
-        outLits <- getArr pd outs
+        outLits <- getArr outs
         push =<< liftIO
                  (evalAigArray sbe
                                w
@@ -31,7 +36,7 @@ jssOverrides = do
                                outLits)
       evalAigArrayBody _ _ _ _ _ _ = error "invalid evalAigArrayBody parameters"
   let writeAigerBody f fnameRef outs = do
-        abortWhenMultiPath "AIGER write"
+--        abortWhenMultiPath "AIGER write"
         mfn <- lookupStringRef fnameRef
         case mfn of
           Nothing -> abort $ "writeAiger filename parameter does "
@@ -57,6 +62,8 @@ jssOverrides = do
     , sym "freshLongArray" "(I)[J" $ \[IValue (asInt sbe -> Just n)] ->
         pushLongArr =<< liftIO (replicateM (fromIntegral n) $ freshLong sbe)
     , sym "getPathDescriptors" "(Z)[I" $ \[IValue (asInt sbe -> Just includeExc)] ->
+          pushIntArr []
+{- No more global map of path states, so this is kind of meaningless now
         let filterExc PathState{ finalResult = fr } =
               if includeExc /= 0
                 then True
@@ -64,7 +71,7 @@ jssOverrides = do
         in pushIntArr
              =<< mapM (liftIO . termInt sbe . fromIntegral . unPSS)
                =<< (M.keys . M.filter filterExc <$> gets pathStates)
-
+-}
       --------------------------------------------------------------------------------
       -- evalAig
 
@@ -104,43 +111,36 @@ jssOverrides = do
     , sym "writeAiger" "(Ljava/lang/String;J)V"  $ \([RValue fnameRef, LValue out]) ->
         writeAigerBody id fnameRef [out]
     , sym "writeAiger" "(Ljava/lang/String;[B)V" $ \([RValue fnameRef, RValue outs]) ->
-        writeAigerBody id fnameRef =<< (`getByteArray` outs) =<< getPSS
+        writeAigerBody id fnameRef =<< getByteArray outs
     , sym "writeAiger" "(Ljava/lang/String;[I)V" $ \([RValue fnameRef, RValue outs]) ->
-        writeAigerBody id fnameRef =<< (`getIntArray` outs) =<< getPSS
+        writeAigerBody id fnameRef =<< getIntArray outs
     , sym "writeAiger" "(Ljava/lang/String;[J)V" $ \([RValue fnameRef, RValue outs]) ->
-        writeAigerBody id fnameRef =<< (`getLongArray` outs) =<< getPSS
+        writeAigerBody id fnameRef =<< getLongArray outs
 
       --------------------------------------------------------------------------------
       -- debugging
 
-    , dbg "trace" "(I)V" $ \[v@IValue{}] -> dbugM $ ppValue v
+    , dbg "trace" "(I)V" $ \[v@IValue{}] -> dbugM . render $ ppValue sbe v
     , dbg "trace" "(Ljava/lang/String;I)V" $ \[RValue msgRef, v@IValue{}] -> do
         mmsg <- lookupStringRef msgRef
         case mmsg of
-          Just msg -> dbugM $ "(JSS) " ++ msg ++ ": " ++ ppValue v
+          Just msg -> dbugM $ "(JSS) " ++ msg ++ ": " ++ render (ppValue sbe v)
           _ -> error "Symbolic.Debug.trace expects interned message strings"
-    , dbg "trace" "(J)V" $ \[v@LValue{}] -> dbugM $ ppValue v
+    , dbg "trace" "(J)V" $ \[v@LValue{}] -> dbugM . render $ ppValue sbe v
     , dbg "trace" "(Ljava/lang/String;J)V" $ \[RValue msgRef, v@LValue{}] -> do
         mmsg <- lookupStringRef msgRef
         case mmsg of
-          Just msg -> dbugM $ "(JSS) " ++ msg ++ ": " ++ ppValue v
+          Just msg -> dbugM $ "(JSS) " ++ msg ++ ": " ++ render (ppValue sbe v)
           _ -> error "Symbolic.Debug.trace expects interned message strings"
 
     , dbg "abort" "()V"          $ \_ -> abort "Abort explicitly triggered (via JAPI)."
-    , dbg "dumpPathStates" "()V" $ \_ -> dumpPathStates
+    , dbg "dumpPathStates" "()V" $ \_ -> dumpCurrentPath
     , dbg "setVerbosity" "(I)V"  $ \[IValue (asInt sbe -> Just v)] ->
         setVerbosity (fromIntegral v)
     , dbg "eval" "(I[Lcom/galois/symbolic/CValue;)I" $ \[IValue _out, RValue _cvArr] -> do
         error "debug dag eval / bitblast integrity checker NYI"
     ]
   where
-    abortWhenMultiPath msg = do
-      finished <- snd <$> splitFinishedPaths
-      when (length finished > 1) $ do
-        dbugM $ "Error: " ++ msg ++ ": There are multiple non-exception paths.  Displaying all path states:"
-        dumpPathStates
-        abort $ msg ++ ": only permitted when there's one non-exception path state."
-
     sym meth md f = (symbolicCN, makeMethodKey meth md, f)
     dbg meth md f = (symbolicCN ++ "$Debug", makeMethodKey meth md, f)
     symbolicCN    = "com/galois/symbolic/Symbolic"
@@ -158,7 +158,7 @@ jssOverrides = do
         abort "JAPI: expected CValue operands to represent type long "
       return xs
     getInputs cvArr = do
-      cvalRefs <- getPSS >>= (`getRefArray` cvArr)
+      cvalRefs <- getRefArray cvArr
       forM cvalRefs $ \r -> do
         mty <- typeOf r
         case mty of
@@ -177,5 +177,4 @@ jssOverrides = do
         cjCN              = "com/galois/symbolic/CValue$CLong"
         unboxCV cn ref td = do
           invokeInstanceMethod cn (makeMethodKey "getValue" td) ref []
-          runFrame
           popValue

@@ -48,11 +48,9 @@ module Verifier.Java.Simulator
   , setSymbolicArray
   , updateSymbolicArray
   -- * Memory operations
-  , setLocal
-  , setArrayValue
   , setInstanceFieldValue
-  , setStaticFieldValue
   , lookupStringRef
+  , refFromString
   -- for testing
   , dbugM
 --  , dbugTerm
@@ -88,7 +86,7 @@ import Text.PrettyPrint
 import Data.JVM.Symbolic.AST
 import Data.JVM.Symbolic.Translation
 
-import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, newObject, initializeClass, setArrayValue, setInstanceFieldValue, setStaticFieldValue, getCodebase, isFinished, invokeStaticMethod, pushStaticMethodCall, setLocal, invokeInstanceMethod, dynBind', isNull)
+import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, newObject, initializeClass, setInstanceFieldValue, getCodebase, isFinished, invokeStaticMethod, pushStaticMethodCall, invokeInstanceMethod, dynBind', isNull)
 import Language.JVM.Common
 import Language.JVM.Parser
 import Verifier.Java.Codebase
@@ -115,7 +113,7 @@ runStaticMethod cName mName mType args = do
       return [(p, rv)]
     Nothing -> fail "all paths failed"
 
-run :: MonadSim sbe m => Simulator sbe m ()
+run :: forall sbe m . MonadSim sbe m => Simulator sbe m ()
 run = do
   cs <- use ctrlStk
   if isFinished cs then
@@ -130,7 +128,7 @@ run = do
           dbugM "run terminating normally: found valid exit frame"
           case p^.pathRetVal of
             Nothing -> dbugM "Program had no return value."
-            Just rv -> dbugTerm "Program returned value" rv
+            Just rv -> dbugValue "Program returned value" rv
           numErrs <- uses errorPaths length
           -- showEPs <- optsErrorPathDetails <$> gets lssOpts
           -- when (numErrs > 0 && not showEPs) $
@@ -542,28 +540,12 @@ getRefArray :: MonadSim sbe m
             => Ref -> Simulator sbe m [Ref]
 getRefArray = getArray unRValue
 
-setArrayValue r idx (IValue val) = updateSymbolicArray r $ \sbe l a ->
-  termSetIntArray  sbe l a idx val
-setArrayValue r idx (LValue val) = updateSymbolicArray r $ \sbe l a ->
-  termSetLongArray sbe l a idx val
-setArrayValue r idx (RValue v) = do
-  sbe <- use backend
-  (Just m) <- getMem
-  case asInt sbe idx of
-    Nothing -> fail "Cannot update reference arrays at symbolic indices"
-    Just i -> do
-      let updateFn arr = Just (arr // [(fromIntegral i,v)])
-      setMem (m & memRefArrays %~ M.update updateFn r)
-
 setInstanceFieldValue r fieldId v = do
   Just m <- getMem
   setMem (m & memInstanceFields %~ M.insert (r, fieldId) v)
 
-setStaticFieldValue :: MonadSim sbe m
-                    => FieldId -> Value (SBETerm sbe) -> Simulator sbe m ()
-setStaticFieldValue fieldId v = do
-  Just m <- getMem
-  setMem (m & memStaticFields %~ M.insert fieldId v)
+--setStaticFieldValue :: MonadSim sbe m
+--                    => FieldId -> Value (SBETerm sbe) -> Simulator sbe m ()
 
 -- | Returns type of reference and throws null pointer exception if reference is null.
 getType :: (AigOps sbe, Functor m, MonadIO m) => Ref -> Simulator sbe m Type
@@ -898,14 +880,15 @@ evalCond TrueSymCond = do
   sbe <- use backend
   liftIO $ termBool sbe True
 evalCond (Compare cmpTy) = do
-  let op x y = case cmpTy of
-                 EQ -> iEq x y
-                 NE -> bNot =<< iEq x y
-                 LT -> iLt x y
-                 GE -> bNot =<< iLt x y
-                 GT -> bNot =<< iLeq x y
-                 LE -> iLeq x y
-  op <$> iPop <*> iPop
+  x <- iPop
+  y <- iPop
+  case cmpTy of
+    EQ -> iEq x y
+    NE -> bNot =<< iEq x y
+    LT -> iLt x y
+    GE -> bNot =<< iLt x y
+    GT -> bNot =<< iLeq x y
+    LE -> iLeq x y
 
 {-
 -- | Evaluate condition in current path.
@@ -1087,6 +1070,26 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   lSub  x y = withSBE $ \sbe -> termLSub sbe x y
   lUshr x y = withSBE $ \sbe -> termLUshr sbe x y
   lXor  x y = withSBE $ \sbe -> termIXor sbe x y
+
+  setLocal i v = modifyCallFrameM $ \cf -> return $ cf & cfLocals %~ M.insert i v
+
+  setArrayValue r idx (IValue val) = updateSymbolicArray r $ \sbe l a ->
+    termSetIntArray  sbe l a idx val
+  setArrayValue r idx (LValue val) = updateSymbolicArray r $ \sbe l a ->
+    termSetLongArray sbe l a idx val
+  setArrayValue r idx (RValue v) = do
+    sbe <- use backend
+    (Just m) <- getMem
+    case asInt sbe idx of
+      Nothing -> fail "Cannot update reference arrays at symbolic indices"
+      Just i -> do
+        let updateFn arr = Just (arr // [(fromIntegral i,v)])
+        setMem (m & memRefArrays %~ M.update updateFn r)
+
+  setStaticFieldValue fieldId v = do
+    Just m <- getMem
+    setMem (m & memStaticFields %~ M.insert fieldId v)
+          
 {-
   intFromFloat x   = withSBE $ \sbe -> termInt sbe (truncate x)
   longFromFloat x  = withSBE $ \sbe -> termLong sbe (truncate x)
@@ -1423,8 +1426,11 @@ drefString strRef = do
     _ -> error "Invalid field name/type for java.lang.String instance"
 -}
 
-prettyTermSBE :: (Functor m, Monad m) => SBETerm sbe -> Simulator sbe m Doc
+prettyTermSBE :: MonadSim sbe m => SBETerm sbe -> Simulator sbe m Doc
 prettyTermSBE t = withSBE' $ \sbe -> prettyTermD sbe t
+
+prettyValueSBE :: MonadSim sbe m => Value (SBETerm sbe) -> Simulator sbe m Doc
+prettyValueSBE v = withSBE' $ \sbe -> ppValue sbe v
 
 
 -- | Override behavior of simulator when it encounters a specific instance
@@ -1711,8 +1717,8 @@ drefString strRef = do
 
 
 
-setLocal :: LocalVariableIndex -> Value (SBETerm sbe) -> Simulator sbe m ()
-setLocal i v = modifyCallFrameM $ \cf -> return $ cf & cfLocals %~ M.insert i v
+-- setLocal :: LocalVariableIndex -> Value (SBETerm sbe) -> Simulator sbe m ()
+
 
 -- | Obtain the string value of the name field for the given instance of class
 -- @Class@
@@ -1753,8 +1759,8 @@ unlessQuiet act = getVerbosity >>= \v -> unless (v == 0) act
 tellUser :: (MonadIO m) => String -> Simulator sbe m ()
 tellUser msg = unlessQuiet $ dbugM msg
 
-dbugTerm :: (MonadIO m, Functor m) => String -> SBETerm sbe -> Simulator sbe m ()
-dbugTerm desc t = dbugM =<< ((++) (desc ++ ": ")) . render <$> prettyTermSBE t
+dbugValue :: MonadSim sbe m => String -> Value (SBETerm sbe) -> Simulator sbe m ()
+dbugValue desc v = dbugM =<< ((++) (desc ++ ": ")) . render <$> prettyValueSBE v
 
 -- | (dynBind cln meth r act) provides to 'act' the class name that defines r's
 -- implementation of 'meth'
