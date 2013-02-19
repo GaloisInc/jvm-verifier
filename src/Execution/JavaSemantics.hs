@@ -51,25 +51,6 @@ class ( Monad m
   => JavaSemantics m where
   -- Control related functions {{{1
 
-  -- | Returns True if execution is finished.
-  isFinished :: m Bool
-
-  -- | Fork that executes true execution if condition is true, and false
-  --   execution otherwise.  Yields one or more resulting executions (as it is
-  --   at the discretion of instances if they want to consider more than one
-  --   branch).
-
-  fork :: JSBool m -- ^ condition
-       -> m ()     -- ^ true execution
-       -> m ()     -- ^ false execution
-       -> m ()
-
-  -- | Resolve the monadic condition to exactly one of its branches
-  singleForkM :: m (JSBool m)
-              -> m v
-              -> m v
-              -> m v
-
   getCodebase :: m Codebase
   
   -- | Returns name of current class in
@@ -411,6 +392,10 @@ class ( Monad m
   -- Note: Requires ref is non-null
   hasType :: JSRef m -> Type -> m (JSBool m)
 
+  -- | Subtly different from 'hasType' due to return value; see
+  -- <http://docs.oracle.com/javase/specs/jvms/se7/html/jvms-6.html#jvms-6.5.instanceof>
+  instanceOf :: JSRef m -> Type -> m ()
+
   -- Returns the type of ref; Nothing if the given ref is null
   typeOf :: JSRef m -> m (Maybe Type)
 
@@ -537,6 +522,11 @@ class ( Monad m
                      -> [JSValue m] -- ^ Operands to pass to method
                      -> m ()
 
+  -- | Check an assertion in the current exection state. 
+  assertM :: m (JSBool m) -- ^ Condition to check
+          -> String       -- ^ Name of exception to throw if condition fails
+          -> m ()
+
 --------------------------------------------------------------------------------
 -- Control flow primitives and helpers
 
@@ -545,41 +535,40 @@ data Case m v = Case (m (JSBool m)) (m v)
 cond |-> fn = Case cond fn
 infix 1 |->
 
+whenM :: JavaSemantics m => m (JSBool m) -> m () -> m ()
+whenM cond m = do
+  mb <- toBool =<< cond
+  when (fromMaybe False mb) m
+
 -- | Returns true if reference is null.
 isNull :: JavaSemantics m => JSRef m -> m (JSBool m)
 isNull ref = rEq ref =<< rNull
 
-arrayGuards :: JavaSemantics m => JSRef m -> JSInt m -> [Case m ()]
-arrayGuards arrayref index
-   = [ isNull arrayref
-        |-> throwNullPtrExc
-     , do zero <- iConst 0
-          arrayLen <- arrayLength arrayref
-          index `iLt` zero ||| arrayLen `iLeq` index
-        |-> createAndThrow "java/lang/ArrayIndexOutOfBoundsException"
-     ]
-
-choice :: JavaSemantics m => [Case m ()] -> m () -> m ()
-choice (Case cond fn : rest) dflt = forkM cond fn (choice rest dflt)
-choice [] dflt                    = dflt >> return ()
-
-forkM :: JavaSemantics m => m (JSBool m) -> m () -> m () -> m ()
-forkM bM trueM falseM = do
-  cond <- bM
-  fork cond trueM falseM
+-- | Throws a null pointer exception if @arrayRef@ is null, and throws
+-- an index out of bounds exception if @index@ is out of bounds.
+guardArray :: JavaSemantics m => JSRef m -> JSInt m -> m ()
+guardArray arrayRef index = do
+  throwIfRefNull arrayRef
+  zero <- iConst 0
+  arrayLen <- arrayLength arrayRef
+  whenM (index `iLt` zero ||| arrayLen `iLeq` index)
+    $ createAndThrow "java/lang/ArrayIndexOutOfBoundsException"
+ 
 
 -- | Creates an exception of the given class (which is assumed to have a no
 -- argument constructor) and throws it.
 createAndThrow :: JavaSemantics m => String -> m ()
 createAndThrow = (`createInstance` Nothing) >=> throw
 
+-- | @java.lang.NullPointerException@
+nullPtrExc :: String
+nullPtrExc = "java/lang/NullPointerException"
+
 throwNullPtrExc :: JavaSemantics m => m a
 throwNullPtrExc = createAndThrow "java/lang/NullPointerException" >> error "unreachable"
 
 throwIfRefNull :: JavaSemantics m => JSRef m -> m ()
-throwIfRefNull ref = do
-  mb <- toBool =<< isNull ref
-  when (fromMaybe False mb) throwNullPtrExc
+throwIfRefNull ref = assertM (isNull ref) nullPtrExc
 
 --------------------------------------------------------------------------------
 -- Instance creation, query, and method dispatch
@@ -598,17 +587,6 @@ dynBind clName key objectRef act =
 
 --------------------------------------------------------------------------------
 -- Instruction/stack manip
-
--- | Advances PC to next instruction.
-gotoNextInstruction :: JavaSemantics m => m ()
-gotoNextInstruction = setPc =<< getNextPc
-
--- | Returns next program counter value for execution.
-getNextPc :: JavaSemantics m => m PC
-getNextPc = do
-  finished <- isFinished
-  if finished then error "Is finished early" else return ()
-  liftM2 nextPc getCurrentMethod getPc
 
 -- | Pops a single value from stack.
 popType1 :: JavaSemantics m => m (JSValue m)
