@@ -1179,6 +1179,21 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     b <- liftIO $ isSubtype cb rtp tp
     withSBE $ \sbe -> termBool sbe b
 
+-}
+
+  instanceOf ref tp = do
+    -- this technically violates the semantics of Java, which just returns false
+    -- for (null instanceof Foo), rather than throwing an exception
+    throwIfRefNull ref
+    cond <- hasType ref tp
+    zero <- iConst 0
+    one <- iConst 1
+    -- rather than splitting paths, just push a conditional symbolic value here
+    sbe <- use backend
+    term <- liftIO $ termIte sbe cond one zero
+    pushValue $ IValue term
+
+{-
 
   typeOf NullRef    = return Nothing
   typeOf (Ref _ ty) = return (Just ty)
@@ -1383,7 +1398,18 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
         initializeClass (className cl)
         pushStaticMethodCall (className cl) method args
       [] -> error $ "Could not find static method " ++ show key ++ " in " ++ cName
+
 -}
+
+  -- if the asserted condition is definitely false, throw the given
+  -- exception. Otherwise, continue, but add an assertion to the
+  -- current path.
+  assertM cond exc = do
+    sbe <- use backend
+    term <- cond    
+    when (asBool sbe term == Just False) $ createAndThrow exc
+    modifyPathM (addPathAssertion sbe term)
+    
 
 abort :: MonadSim sbe m => String -> Simulator sbe m a
 abort msg = do

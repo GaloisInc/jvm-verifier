@@ -10,6 +10,8 @@ module Execution.Stepper (step) where
 import Control.Monad
 import Control.Monad.Trans (liftIO)
 
+import Data.Maybe
+
 import Execution.JavaSemantics
 import Verifier.Java.Codebase
 import Verifier.Java.Simulator
@@ -21,19 +23,19 @@ step :: JavaSemantics m => Instruction -> m ()
 
 step Aaload = {-# SCC "Aaload" #-}  do
   index    <- iPop
-  arrayref <- rPop
-  choice (arrayGuards arrayref index)
-         (pushArrayValue arrayref index >> gotoNextInstruction)
+  arrayRef <- rPop
+  guardArray arrayRef index
+  pushArrayValue arrayRef index
 
 step Aastore = {-# SCC "Aastore" #-}  do
   value    <- rPop
   index    <- iPop
-  arrayref <- rPop
+  arrayRef <- rPop
   (`choice` createAndThrow "java/lang/ArrayStoreException") $
-    arrayGuards arrayref index
+    arrayGuards arrayRef index
     ++
-    [ isValidEltOfArray value arrayref |-> do
-        setArrayValue arrayref index (RValue value)
+    [ isValidEltOfArray value arrayRef |-> do
+        setArrayValue arrayRef index (RValue value)
         gotoNextInstruction
     ]
 
@@ -48,10 +50,10 @@ step (Aload index) = {-# SCC "Aload" #-}  do
 step Areturn = {-# SCC "Areturn" #-}  execReturn . Just . RValue =<< rPop
 
 step Arraylength = {-# SCC "Arraylength" #-}  do
-  arrayref <- rPop
-  forkM (isNull arrayref)
+  arrayRef <- rPop
+  forkM (isNull arrayRef)
         (createAndThrow "java/lang/NullPointerException")
-        (do iPush =<< arrayLength arrayref
+        (do iPush =<< arrayLength arrayRef
             gotoNextInstruction)
 
 step (Astore index) = {-# SCC "Astore" #-}  do
@@ -66,35 +68,35 @@ step Athrow = {-# SCC "Athrow" #-}  do
 
 step Baload = {-# SCC "Baload" #-}  do
   index <- iPop
-  arrayref <- rPop
-  choice (arrayGuards arrayref index)
-         (do pushArrayValue arrayref index
+  arrayRef <- rPop
+  guardArray arrayRef index
+         (do pushArrayValue arrayRef index
              gotoNextInstruction)
 
 step Bastore = {-# SCC "Bastore" #-}  do
   value <- iPop
   index <- iPop
-  arrayref <- rPop
-  choice (arrayGuards arrayref index)
-         (do fixedVal <- singleForkM (arrayref `hasType` (ArrayType BooleanType))
+  arrayRef <- rPop
+  guardArray arrayRef index
+         (do fixedVal <- singleForkM (arrayRef `hasType` (ArrayType BooleanType))
                                      (boolFromInt value)
                                      (byteFromInt value)
-             setArrayValue arrayref index (IValue fixedVal)
+             setArrayValue arrayRef index (IValue fixedVal)
              gotoNextInstruction)
 
 step Caload = {-# SCC "Caload" #-}  do
   index <- iPop
-  arrayref <- rPop
-  choice (arrayGuards arrayref index)
-         (do pushArrayValue arrayref index
+  arrayRef <- rPop
+  guardArray arrayRef index
+         (do pushArrayValue arrayRef index
              gotoNextInstruction)
 
 step Castore = {-# SCC "Castore" #-}  do
   value <- iPop
   index <- iPop
-  arrayref <- rPop
-  choice (arrayGuards arrayref index)
-         (do setArrayValue arrayref index . IValue =<< charFromInt value
+  arrayRef <- rPop
+  guardArray arrayRef index
+         (do setArrayValue arrayRef index . IValue =<< charFromInt value
              gotoNextInstruction)
 
 step (Checkcast tp) = {-# SCC "Checkcast" #-}  do
@@ -118,17 +120,17 @@ step Dadd = {-# SCC "Dadd" #-}  do
 
 step Daload = {-# SCC "Daload" #-}  do
   index <- iPop
-  arrayref <- rPop
-  choice (arrayGuards arrayref index)
-         (do pushArrayValue arrayref index
+  arrayRef <- rPop
+  guardArray arrayRef index
+         (do pushArrayValue arrayRef index
              gotoNextInstruction)
 
 step Dastore = {-# SCC "Dastore" #-}  do
   value <- dPop
   index <- iPop
-  arrayref <- rPop
-  choice (arrayGuards arrayref index)
-         (do setArrayValue arrayref index (DValue value)
+  arrayRef <- rPop
+  guardArray arrayRef index
+         (do setArrayValue arrayRef index (DValue value)
              gotoNextInstruction)
 
 step Dcmpg = {-# SCC "Dcmpg" #-}  do
@@ -237,17 +239,17 @@ step Fadd = {-# SCC "Fadd" #-}  do
 
 step Faload = {-# SCC "Faload" #-}  do
   index <- iPop
-  arrayref <- rPop
-  choice (arrayGuards arrayref index)
-         (do pushArrayValue arrayref index
+  arrayRef <- rPop
+  guardArray arrayRef index
+         (do pushArrayValue arrayRef index
              gotoNextInstruction)
 
 step Fastore = {-# SCC "Fastore" #-}  do
   value <- fPop
   index <- iPop
-  arrayref <- rPop
-  choice (arrayGuards arrayref index)
-         (do setArrayValue arrayref index (FValue value)
+  arrayRef <- rPop
+  guardArray arrayRef index
+         (do setArrayValue arrayRef index (FValue value)
              gotoNextInstruction)
 
 step Fcmpg = {-# SCC "Fcmpg" #-}  do
@@ -334,9 +336,9 @@ step Iadd = {-# SCC "Iadd" #-}  do
 
 step Iaload = {-# SCC "Iaload" #-}  do
   index <- iPop
-  arrayref <- rPop
-  choice (arrayGuards arrayref index)
-         (do pushArrayValue arrayref index
+  arrayRef <- rPop
+  guardArray arrayRef index
+         (do pushArrayValue arrayRef index
              gotoNextInstruction)
 
 step Iand = {-# SCC "Iand" #-}  do
@@ -348,9 +350,9 @@ step Iand = {-# SCC "Iand" #-}  do
 step Iastore = {-# SCC "Iastore" #-}  do
   value <- iPop
   index <- iPop
-  arrayref <- rPop
-  choice (arrayGuards arrayref index)
-         (do setArrayValue arrayref index (IValue value)
+  arrayRef <- rPop
+  guardArray arrayRef index
+         (do setArrayValue arrayRef index (IValue value)
              gotoNextInstruction)
 
 step Idiv = {-# SCC "Idiv" #-}  do
@@ -488,14 +490,11 @@ step Imul = {-# SCC "Imul" #-}  do
   iPush =<< value1 `iMul` value2
   gotoNextInstruction
 
-step Ineg = {-# SCC "Ineg" #-}  iPop >>= iNeg >>= iPush >> gotoNextInstruction
+step Ineg = {-# SCC "Ineg" #-}  iPop >>= iNeg >>= iPush
 
 step (Instanceof tp) = {-# SCC "Instanceof" #-}  do
   objectRef <- rPop
-  forkM ((bNot =<< isNull objectRef) &&& objectRef `hasType` tp)
-        (iPush =<< iConst 1)
-        (iPush =<< iConst 0)
-  gotoNextInstruction
+  instanceOf objectRef
 
 step (Invokeinterface iName key) = {-# SCC "Invokeinterface" #-}  do
   reverseArgs <- replicateM (length (methodKeyParameterTypes key)) popValue
@@ -534,11 +533,6 @@ step (Invokespecial (ArrayType _methodType) key) = {-# SCC "Invokespecial" #-}  
 
 step (Invokespecial _ _) = error "internal: unexpected Invokespecial form"
 
-step (Invokestatic cName key) = {-# SCC "Invokestatic" #-}  do
-  reverseArgs <- replicateM (length (methodKeyParameterTypes key)) popValue
-  gotoNextInstruction
-  invokeStaticMethod cName key (reverse reverseArgs)
-
 -- Invoking virtual methods on an array type just reduces to object type.
 step (Invokevirtual (ArrayType _methodType) key) = {-# SCC "Invokevirtual" #-}  do
   reverseArgs <- replicateM (length (methodKeyParameterTypes key)) popValue
@@ -561,217 +555,170 @@ step Ior = {-# SCC "Ior" #-}  do
   value2 <- iPop
   value1 <- iPop
   iPush =<< value1 `iOr` value2
-  gotoNextInstruction
 
 step Irem = {-# SCC "Irem" #-}  do
   value2 <- iPop
   value1 <- iPop
-  forkM (iEq value2 =<< iConst 0)
-        (createAndThrow "java/lang/ArithmeticException")
-        (do
-          iPush =<< value1 `iRem` value2
-          gotoNextInstruction)
-
-step Ireturn = {-# SCC "Ireturn" #-} execReturn =<< liftM (Just . IValue) iPop
+  whenM (iEq value2 =<< iConst 0)
+    $ createAndThrow "java/lang/ArithmeticException"
+  iPush =<< value1 `iRem` value2
 
 step Ishl = {-# SCC "Ishl" #-}  do
   value2 <- iPop
   value1 <- iPop
   iPush =<< value1 `iShl` value2
-  gotoNextInstruction
 
 step Ishr = {-# SCC "Ishr" #-}  do
   value2 <- iPop
   value1 <- iPop
   iPush =<< value1 `iShr` value2
-  gotoNextInstruction
 
 step (Istore index) = {-# SCC "Istore" #-}  do
   setLocal index . IValue =<< iPop
-  gotoNextInstruction
 
 step Isub = {-# SCC "Isub" #-}  do
   value2 <- iPop
   value1 <- iPop
   iPush =<< value1 `iSub` value2
-  gotoNextInstruction
 
 step Iushr = {-# SCC "Iushr" #-}  do
   value2 <- iPop
   value1 <- iPop
   iPush =<< value1 `iUshr` value2
-  gotoNextInstruction
 
 step Ixor = {-# SCC "Ixor" #-}  do
   value2 <- iPop
   value1 <- iPop
   iPush =<< value1 `iXor` value2
-  gotoNextInstruction
 
-step (Jsr target) = {-# SCC "Jsr" #-}  do
-  pushValue . AValue =<< getNextPc
-  setPc target
+step L2d = {-# SCC "L2d" #-}  lPop >>= doubleFromLong >>= dPush
 
-step L2d = {-# SCC "L2d" #-}  lPop >>= doubleFromLong >>= dPush >> gotoNextInstruction
+step L2f = {-# SCC "L2f" #-}  lPop >>=  floatFromLong >>= fPush
 
-step L2f = {-# SCC "L2f" #-}  lPop >>=  floatFromLong >>= fPush >> gotoNextInstruction
-
-step L2i = {-# SCC "L2i" #-}  lPop >>=    intFromLong >>= iPush >> gotoNextInstruction
+step L2i = {-# SCC "L2i" #-}  lPop >>=    intFromLong >>= iPush
 
 step Ladd = {-# SCC "Ladd" #-}  do
   value2 <- lPop
   value1 <- lPop
   lPush =<< value1 `lAdd` value2
-  gotoNextInstruction
 
 step Laload = {-# SCC "Laload" #-}  do
   index <- iPop
-  arrayref <- rPop
-  choice (arrayGuards arrayref index)
-         (do pushArrayValue arrayref index
-             gotoNextInstruction)
+  arrayRef <- rPop
+  guardArray arrayRef index
+  pushArrayValue arrayRef index  
 
 step Land = {-# SCC "Land" #-}  do
   value2 <- lPop
   value1 <- lPop
   lPush =<< value1 `lAnd` value2
-  gotoNextInstruction
 
 step Lastore = {-# SCC "Lastore" #-}  do
   value <- lPop
   index <- iPop
-  arrayref <- rPop
-  choice (arrayGuards arrayref index)
-         (do setArrayValue arrayref index (LValue value)
-             gotoNextInstruction)
+  arrayRef <- rPop
+  guardArray arrayRef index
+  setArrayValue arrayRef index (LValue value)  
 
 step Lcmp = {-# SCC "Lcmp" #-}  do
   value2 <- lPop
   value1 <- lPop
   iPush =<< value1 `lCmp` value2
-  gotoNextInstruction
 
-step (Ldc (Double v))  = {-# SCC "Ldc" #-}  dConst v >>= dPush >> gotoNextInstruction
-step (Ldc (Float v))   = {-# SCC "Ldc" #-}  fConst v >>= fPush >> gotoNextInstruction
-step (Ldc (Integer v)) = {-# SCC "Ldc" #-}  iConst v >>= iPush >> gotoNextInstruction
-step (Ldc (Long v))    = {-# SCC "Ldc" #-}  lConst v >>= lPush >> gotoNextInstruction
+step (Ldc (Double v))  = {-# SCC "Ldc" #-}  dConst v >>= dPush
+step (Ldc (Float v))   = {-# SCC "Ldc" #-}  fConst v >>= fPush
+step (Ldc (Integer v)) = {-# SCC "Ldc" #-}  iConst v >>= iPush
+step (Ldc (Long v))    = {-# SCC "Ldc" #-}  lConst v >>= lPush
 step (Ldc (String v))  = {-# SCC "Ldc" #-}  do
   pushValue . RValue =<< refFromString v
-  gotoNextInstruction
 step (Ldc (ClassRef c)) = {-# SCC "Ldc" #-} do
   pushValue . RValue =<< getClassObject c
-  gotoNextInstruction
 
 step Ldiv = {-# SCC "Ldiv" #-}  do
   value2 <- lPop
   value1 <- lPop
-  forkM (lEq value2 =<< lConst 0)
-        (createAndThrow "java/lang/ArithmeticException")
-        (do lPush =<< value1 `lDiv` value2
-            gotoNextInstruction)
+  whenM (lEq value2 =<< lConst 0)
+    $ createAndThrow "java/lang/ArithmeticException"
+  lPush =<< value1 `lDiv` value2  
 
 step (Lload index) = {-# SCC "Lload" #-}  do
   pushValue =<< getLocal index
-  gotoNextInstruction
 
 step Lmul = {-# SCC "Lmul" #-}  do
   value2 <- lPop
   value1 <- lPop
   lPush =<< value1 `lMul` value2
-  gotoNextInstruction
 
 step Lneg = {-# SCC "Lneg" #-}  do
   lPush =<< lNeg =<< lPop
-  gotoNextInstruction
-
-step (Lookupswitch defaultBranch cases) = {-# SCC "Lookupswitch" #-}  do
-  index <- iPop
-  choice (map (\(value,branch) -> (iEq index =<< iConst value) |-> setPc branch)
-              cases)
-         (setPc defaultBranch)
 
 step Lor = {-# SCC "Lor" #-}  do
   value2 <- lPop
   value1 <- lPop
   lPush =<< value1 `lOr` value2
-  gotoNextInstruction
 
 step Lrem = {-# SCC "Lrem" #-}  do
   value2 <- lPop
   value1 <- lPop
-  forkM (lEq value2 =<< lConst 0)
-        (createAndThrow "java/lang/ArithmeticException")
-        (do lPush =<< value1 `lRem` value2
-            gotoNextInstruction)
-
-step Lreturn = {-# SCC "Lreturn" #-}  execReturn . Just . LValue =<< lPop
+  whenM (lEq value2 =<< lConst 0)
+    $ createAndThrow "java/lang/ArithmeticException"
+  lPush =<< value1 `lRem` value2
 
 step Lshl = {-# SCC "Lshl" #-}  do
   value2 <- longFromInt =<< iPop -- promote for lShl
   value1 <- lPop
   lPush =<< value1 `lShl` value2
-  gotoNextInstruction
 
 step Lshr = {-# SCC "Lshr" #-}  do
   value2 <- longFromInt =<< iPop -- promote for lShr
   value1 <- lPop
   lPush =<< value1 `lShr` value2
-  gotoNextInstruction
 
 step (Lstore index) = {-# SCC "Lstore" #-}  do
   setLocal index . LValue =<< lPop
-  gotoNextInstruction
 
 step Lsub = {-# SCC "Lsub" #-}  do
   value2 <- lPop
   value1 <- lPop
   lPush =<< value1 `lSub` value2
-  gotoNextInstruction
 
 step Lushr = {-# SCC "Lushr" #-}  do
   value2 <- longFromInt =<< iPop -- promote for lUshr
   value1 <- lPop
   lPush =<< value1 `lUshr` value2
-  gotoNextInstruction
 
 step Lxor = {-# SCC "Lxor" #-}  do
   value2 <- lPop
   value1 <- lPop
   lPush =<< value1 `lXor` value2
-  gotoNextInstruction
 
-step Monitorenter = {-# SCC "Monitorenter" #-}  do
-  _objectRef <- rPop
-  gotoNextInstruction
+step Monitorenter = {-# SCC "Monitorenter" #-} void rPop
 
-step Monitorexit = {-# SCC "Monitorexit" #-}  do
-  _objectRef <- rPop
-  gotoNextInstruction
+step Monitorexit = {-# SCC "Monitorexit" #-} void rPop
 
 step (Multianewarray arrayType dimensions) = {-# SCC "Multianewarray" #-}  do
   counts <- return . reverse =<< sequence (replicate (fromIntegral dimensions) iPop)
   zero <- iConst 0
-  choice [count `iLt` zero |-> createAndThrow "java/lang/NegativeArraySizeException" | count <- counts]
-         (do pushValue . RValue =<< newMultiArray arrayType counts
-             gotoNextInstruction)
-
+  forM_ counts $ \count -> do
+    whenM (count `iLt` zero)
+      $ createAndThrow "java/lang/NegativeArraySizeException"
+  pushValue . RValue =<< newMultiArray arrayType counts
+  
 step (New name) = {-# SCC "New" #-}  do
    pushValue . RValue =<< newObject name
-   gotoNextInstruction
 
 step (Newarray arrayType) = {-# SCC "Newarray" #-}  do
   count <- iPop
   zero <- iConst 0
-  forkM (count `iLt` zero)
-        (createAndThrow "java/lang/NegativeArraySizeException")
-        (do pushValue . RValue =<< newMultiArray arrayType [count]
-            gotoNextInstruction)
+  whenM (count `iLt` zero)
+    $ createAndThrow "java/lang/NegativeArraySizeException"
+  pushValue . RValue =<< newMultiArray arrayType [count]
 
-step Nop = {-# SCC "Nop" #-}  gotoNextInstruction
+step Nop = {-# SCC "Nop" #-}  return ()
 
-step Pop  = {-# SCC "Pop" #-}  popType1 >> gotoNextInstruction
+step Pop  = {-# SCC "Pop" #-}  popType1
 
-step Pop2 = {-# SCC "Pop2" #-}  popType2 >> gotoNextInstruction
+step Pop2 = {-# SCC "Pop2" #-}  popType2
 
 step (Putfield fldId) = {-# SCC "Putfield" #-}  do
   val <- popValue
@@ -786,7 +733,6 @@ step (Putfield fldId) = {-# SCC "Putfield" #-}  do
               _ -> return val
   fld <- liftIO $ locateField cb fldId
   setInstanceFieldValue objectRef fld value
-  gotoNextInstruction
 
 step (Putstatic fieldId) = {-# SCC "Putstatic" #-}  do
   initializeClass $ fieldIdClass fieldId
@@ -798,7 +744,6 @@ step (Putstatic fieldId) = {-# SCC "Putstatic" #-}  do
       ShortType   -> return . IValue =<< shortFromInt =<< iPop
       _           -> popValue
   setStaticFieldValue fieldId value
-  gotoNextInstruction
 
 step (Ret index) = {-# SCC "Ret" #-}  do
   AValue newPc <- getLocal index
@@ -808,29 +753,22 @@ step Return = {-# SCC "Return" #-}  execReturn Nothing
 
 step Saload = {-# SCC "Saload" #-}  do
   index <- iPop
-  arrayref <- rPop
-  choice (arrayGuards arrayref index)
-         (do pushArrayValue arrayref index
-             gotoNextInstruction)
+  arrayRef <- rPop
+  guardArray arrayRef index
+  pushArrayValue arrayRef index
 
 step Sastore = {-# SCC "Sastore" #-}  do
   value <- iPop
   index <- iPop
-  arrayref <- rPop
-  choice (arrayGuards arrayref index)
-         (do setArrayValue arrayref index . IValue =<< shortFromInt value
-             gotoNextInstruction)
+  arrayRef <- rPop
+  guardArray arrayRef index
+  setArrayValue arrayRef index . IValue =<< shortFromInt value
 
 step Swap = {-# SCC "Swap" #-}  do
   value1 <- popType1
   value2 <- popType1
   pushValue value1
   pushValue value2
-  gotoNextInstruction
 
-step (Tableswitch defaultBranch low high branches) = {-# SCC "Tableswitch" #-}  do
-  index <- iPop
-  choice (map (\(value,branch) -> (iEq index =<< iConst value) |-> setPc branch)
-              (zip [low .. high] branches))
-         (setPc defaultBranch)
+step inst = error $ "invalid instruction " ++ show inst
 -- }}}1
