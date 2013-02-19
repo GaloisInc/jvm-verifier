@@ -17,6 +17,7 @@ module Main where
 import Control.Applicative hiding (many)
 import Control.Exception
 import Control.Monad
+import Control.Monad.Error
 import Control.Monad.Trans
 import Data.Char
 import System.Console.CmdArgs.Implicit hiding (verbosity, setVerbosity)
@@ -29,13 +30,17 @@ import System.FilePath
 import Text.ParserCombinators.Parsec
 import Prelude hiding (catch)
 
+import Text.PrettyPrint hiding (char)
+
 import Language.JVM.CFG
 
+import Data.JVM.Symbolic.Translation
 import Verifier.Java.Codebase
 import Verifier.Java.Simulator
-import Verifier.Java.SymTranslation
 import Verifier.Java.WordBackend
 import Overrides
+
+import Verinf.Utils.LogMonad
 
 #ifdef UseSAW
 import Verifier.Java.SAWBackend
@@ -43,23 +48,13 @@ import Verifier.Java.SAWBackend
 import Verifier.Java.WordBackend
 #endif
 
-
-asSimulatorExc :: (Show (MonadTerm m), Typeable (MonadTerm m))
-               => Backend m
-               -> SomeException
-               -> Maybe (SimulatorExc (MonadTerm m))
-asSimulatorExc _ = fromException
-
-
-simExcHndlr' :: (Show (MonadTerm m), Typeable (MonadTerm m)) 
-             => Backend m -> Bool -> String -> SomeException -> IO [Bool]
+simExcHndlr' :: Backend sbe -> Bool -> Doc -> InternalExc sbe m -> Simulator sbe m ()
 simExcHndlr' sbe suppressOutput failMsg exc =
-  case asSimulatorExc sbe exc of
-    Just (SimExtErr msg _ _) -> do
-      unless suppressOutput $ hPutStr stderr msg
-      return [False]
-    Just se -> error $ ppSimulatorExc se
-    _ -> error $ failMsg ++ ": " ++ show exc
+  case exc of
+    epe@ErrorPathExc{} -> liftIO $
+      unless suppressOutput . hPutStr stderr . render 
+        $ failMsg <> colon <+> ppInternalExc epe
+    unk -> error . render $ ppInternalExc unk
 
 dumpSymASTs :: Codebase -> String -> IO ()
 dumpSymASTs cb cname = do
@@ -69,7 +64,7 @@ dumpSymASTs cb cname = do
     Nothing -> putStrLn $ "Main class " ++ cname ++ " not found."
   where ppInst' (pc, i) = show pc ++ ": " ++ ppInst i
         ppSymInst' (mpc, i) =
-          maybe "" (\pc -> show pc ++ ": ") mpc ++ ppSymInst i
+          maybe "" (\pc -> show pc ++ ": ") mpc ++ render (ppSymInsn i)
         dumpMethod c m =
           case methodBody m of
             Code _ _ cfg _ _ _ _ -> do
@@ -79,10 +74,10 @@ dumpSymASTs cb cname = do
               putStrLn ""
               mapM_ (putStrLn . ppInst') . concatMap bbInsts $ allBBs cfg
               putStrLn ""
-              mapM_ dumpBlock $ liftCFG cfg
+              mapM_ dumpBlock . fst $ liftCFG cfg
             _ -> return ()
         dumpBlock b = do
-          putStrLn . ppBlockId . sbId $ b
+          putStrLn . render . ppBlockId . sbId $ b
           mapM_ (\i -> putStrLn $ "  " ++ ppSymInst' i) $ sbInsns b
 
 data JSS = JSS
@@ -175,25 +170,22 @@ main = do
     dumpSymASTs cb cname
     exitSuccess
   withFreshBackend $ \sbe -> do
-    let go = do 
-          let fl = defaultSimFlags{ alwaysBitBlastBranchTerms = blast args' }
-          tl <- termInt sbe (fromIntegral (length jopts))
-          runSimulator sbe fl cb $ do
-            jssOverrides
-            setVerbosity (dbug args')
-            rs <- runMain cname =<< do
-              jargs <- newMultiArray (ArrayType (ClassType "java/lang/String")) [tl]
-              forM_ ([0..length jopts - 1] `zip` jopts) $ \(i,s) -> do
-                r <- RValue <$> refFromString s
-                ti <- liftIO $ termInt sbe (fromIntegral i)
-                setArrayValue jargs ti r
-              return [RValue jargs]
-            when (length (withoutExceptions rs) > 1) $
-              -- As long as we filter out exception paths and our merging is working,
-              -- this warning shouldn't fire.
-              liftIO $ putStrLn $ "Warning: Simulator could not merge all paths."
-    go `catch` \e -> do
-      case fromException e of
-        Just ExitSuccess     -> exitSuccess
-        Just c@ExitFailure{} -> exitWith c
-        _ -> simExcHndlr' sbe False "jss" e >> (exitWith $ ExitFailure 1)
+   let fl = defaultSimFlags{ alwaysBitBlastBranchTerms = blast args' }
+   let go = do tl <- liftIO $ termInt sbe (fromIntegral (length jopts))
+               jssOverrides
+               setVerbosity (dbug args')
+               rs <- runMain cname =<< do
+                 jargs <- newMultiArray (ArrayType (ClassType "java/lang/String")) [tl]
+                 forM_ ([0..length jopts - 1] `zip` jopts) $ \(i,s) -> do
+                   r <- RValue <$> refFromString s
+                   ti <- liftIO $ termInt sbe (fromIntegral i)
+                   setArrayValue jargs ti r
+                 return [RValue jargs]
+               when (length rs > 1) $
+                 -- As long as we filter out exception paths and our merging is working,
+                 -- this warning shouldn't fire.
+                 liftIO $ putStrLn $ "Warning: Simulator could not merge all paths."
+   runSimulator cb sbe defaultSEH (Just fl) $ 
+     go `catchError` \e -> do
+                       simExcHndlr' sbe False (text "jss") e
+                       liftIO . exitWith $ ExitFailure 1
