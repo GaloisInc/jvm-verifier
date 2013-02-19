@@ -776,18 +776,17 @@ step Pop2 = {-# SCC "Pop2" #-}  popType2 >> gotoNextInstruction
 step (Putfield fldId) = {-# SCC "Putfield" #-}  do
   val <- popValue
   objectRef <- rPop
+  throwIfRefNull objectRef
   cb <- getCodebase
-  forkM (isNull objectRef)
-        (createAndThrow "java/lang/NullPointerException")
-        (do value <- case (fieldIdType fldId, val) of
-                      (BooleanType, IValue i) -> return . IValue =<< boolFromInt  i
-                      (ByteType,    IValue i) -> return . IValue =<< byteFromInt  i
-                      (CharType,    IValue i) -> return . IValue =<< charFromInt  i
-                      (ShortType,   IValue i) -> return . IValue =<< shortFromInt i
-                      _ -> return val
-            fld <- liftIO $ locateField cb fldId
-            setInstanceFieldValue objectRef fld value
-            gotoNextInstruction)
+  value <- case (fieldIdType fldId, val) of
+              (BooleanType, IValue i) -> return . IValue =<< boolFromInt  i
+              (ByteType,    IValue i) -> return . IValue =<< byteFromInt  i
+              (CharType,    IValue i) -> return . IValue =<< charFromInt  i
+              (ShortType,   IValue i) -> return . IValue =<< shortFromInt i
+              _ -> return val
+  fld <- liftIO $ locateField cb fldId
+  setInstanceFieldValue objectRef fld value
+  gotoNextInstruction
 
 step (Putstatic fieldId) = {-# SCC "Putstatic" #-}  do
   initializeClass $ fieldIdClass fieldId

@@ -14,6 +14,7 @@ import Control.Monad
 import Control.Monad.State
 
 import Data.Int
+import Data.Maybe
 
 import Verifier.Java.Codebase
 
@@ -121,6 +122,8 @@ class ( Monad m
   (|||) :: m (JSBool m) -> m (JSBool m) -> m (JSBool m)
   infixr 2 |||
   mx ||| my = bNot =<< (bNot =<< mx) &&& (bNot =<< my)
+
+  toBool :: JSBool m -> m (Maybe Bool)
 
   -- Conversion functions {{{1
 
@@ -427,6 +430,10 @@ class ( Monad m
   -- rNull returns node representing null pointer.
   rNull :: m (JSRef m)
 
+  -- Returns reference for given string constant.
+  -- NOTE: Requires string comes from constant pool of an initialized class.
+  refFromString :: String -> m (JSRef m)
+
   -- Returns the @Class@ instance corresponding to the given class name.
   getClassObject :: String -> m (JSRef m)
 
@@ -444,6 +451,8 @@ class ( Monad m
   pushArrayValue :: JSRef m -> JSInt m -> m ()
 
   setArrayValue :: JSRef m -> JSInt m -> JSValue m -> m ()
+
+  setInstanceFieldValue :: JSRef m -> FieldId -> JSValue m -> m ()
 
   setStaticFieldValue :: FieldId -> JSValue m -> m ()
 
@@ -566,6 +575,11 @@ createAndThrow = (`createInstance` Nothing) >=> throw
 
 throwNullPtrExc :: JavaSemantics m => m a
 throwNullPtrExc = createAndThrow "java/lang/NullPointerException" >> error "unreachable"
+
+throwIfRefNull :: JavaSemantics m => JSRef m -> m ()
+throwIfRefNull ref = do
+  mb <- toBool =<< isNull ref
+  when (fromMaybe False mb) throwNullPtrExc
 
 --------------------------------------------------------------------------------
 -- Instance creation, query, and method dispatch
