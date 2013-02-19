@@ -108,6 +108,7 @@ module Verifier.Java.Common
   , epPath
 
   , InternalExc(ErrorPathExc, UnknownExc)
+  , ppInternalExc
   , SEH(..)
   --      , onPostOverrideReg
   --      , onPreStep
@@ -119,6 +120,8 @@ module Verifier.Java.Common
   -- , ppTuple
   , ppMethod
   , ppValue
+  , ppCurrentPath
+  , dumpCurrentPath
   , assert
   ) where
 
@@ -847,3 +850,26 @@ setInitializationStatus :: String
                         -> Memory term
 setInitializationStatus clName status = 
   memInitialization %~ M.insert clName status
+
+ppCurrentPath :: MonadSim sbe m => Simulator sbe m Doc
+ppCurrentPath = do
+  cs <- use ctrlStk
+  sbe <- use backend
+  return $ case cs of
+    CompletedCS Nothing  -> "all paths failed"
+    CompletedCS (Just p) -> "completed path" <> colon <+> ppPath sbe p
+    ActiveCS p _         -> "active path" <> colon <+> ppPath sbe p
+
+dumpCurrentPath :: MonadSim sbe m => Simulator sbe m ()
+dumpCurrentPath = do
+  path <- ppCurrentPath
+  liftIO . putStrLn . render $ path
+
+ppInternalExc :: InternalExc sbe m -> Doc
+ppInternalExc exc = case exc of
+  ErrorPathExc rsn s -> 
+      "internal error" <> colon <+> ppFailRsn rsn <+> ppState s
+  UnknownExc Nothing -> 
+      "unknown error"
+  UnknownExc (Just rsn) -> 
+      "unknown error" <> colon <+> ppFailRsn rsn

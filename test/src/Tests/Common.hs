@@ -29,7 +29,7 @@ import Test.QuickCheck.Monadic
 import qualified Test.QuickCheck.Test as T
 
 import Language.JVM.Parser
-import Verifier.Java.Simulator hiding (run)
+import Verifier.Java.Simulator hiding (run, assert)
 import Verifier.Java.Utils
 import Verifier.Java.WordBackend
 

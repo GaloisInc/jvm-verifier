@@ -27,7 +27,7 @@ Flag build-tests
 
 Flag build-SAWScript
   description: Build the SAWScript interface
-  default: True
+  default: False
 
 Flag use-saw
   description: Use SAW as the default term representation
@@ -55,6 +55,7 @@ library
     Data.JVM.Symbolic.Translation
     Verifier.Java.Backend
     Verifier.Java.Codebase
+    Verifier.Java.Common
     Verifier.Java.Simulator
     Verifier.Java.Utils
  
@@ -76,7 +77,7 @@ library
   if !flag(build-library)
     buildable: False
 
-  GHC-options: -O2 -Wall -fno-ignore-asserts
+  GHC-options: -Wall -fno-ignore-asserts
 
 executable jss
   if !flag(build-jss)
