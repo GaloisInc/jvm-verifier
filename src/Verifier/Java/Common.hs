@@ -503,6 +503,7 @@ pushCallFrame :: String
 pushCallFrame clname method retBB locals cs = 
     case cs of
       CompletedCS Nothing -> fail "all paths failed"
+      CompletedCS (Just p) -> Just $ ActiveCS (pushFrame p) EmptyCont
       _ -> return $ modifyCurrentPath pushFrame cs
   where pushFrame p = p'
           where cf = CallFrame clname method retBB locals []
@@ -809,7 +810,7 @@ ppOpds sbe = brackets . commas . map (ppValue sbe)
 
 ppCtrlStk :: Backend sbe -> CS sbe -> Doc
 ppCtrlStk sbe (CompletedCS mp) =
-  maybe (text "All paths failed") (ppPath sbe) mp
+  "Completed stack:" <+> maybe (text "All paths failed") (ppPath sbe) mp
 ppCtrlStk sbe (ActiveCS p k) =
   text "Active path:" $$
   ppPath sbe p $$

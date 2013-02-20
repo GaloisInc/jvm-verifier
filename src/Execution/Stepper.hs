@@ -14,7 +14,6 @@ import Data.Maybe
 
 import Execution.JavaSemantics
 import Verifier.Java.Codebase
-import Verifier.Java.Simulator
 
 -- -- Step function {{{1
 
