@@ -86,7 +86,7 @@ import Text.PrettyPrint
 import Data.JVM.Symbolic.AST
 import Data.JVM.Symbolic.Translation
 
-import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, newObject, initializeClass, setInstanceFieldValue, getCodebase, isFinished, invokeStaticMethod, pushStaticMethodCall, invokeInstanceMethod, dynBind', isNull)
+import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, newObject, setInstanceFieldValue, getCodebase, isFinished, invokeStaticMethod, pushStaticMethodCall, invokeInstanceMethod, dynBind', isNull)
 import qualified Execution.Stepper as Stepper
 import Language.JVM.Common
 import Language.JVM.Parser
@@ -640,53 +640,7 @@ safeCast = impl minBound maxBound . toInteger
           | toInteger minb <= s && s <= toInteger maxb = fromInteger s
           | otherwise = error "internal: safeCast argument out of range"
 
-initializeClass :: MonadSim sbe m => String -> Simulator sbe m ()
-initializeClass name = do
-  Just m <- getMem
-  case M.lookup name (m^.memInitialization) of
-    Nothing -> do
-      let clinit = MethodKey "<clinit>" [] Nothing
-          initializeField :: MonadSim sbe m => Field -> Simulator sbe m ()
-          initializeField f =
-            let fieldId = FieldId name (fieldName f) (fieldType f)
-            in case fieldConstantValue f of
-                Just (Double v) ->
-                  setStaticFieldValue fieldId . DValue =<< dConst v
-                Just (Float v) ->
-                  setStaticFieldValue fieldId . FValue =<< fConst v
-                Just (Integer v) ->
-                  setStaticFieldValue fieldId . IValue =<< iConst v
-                Just (Long v) ->
-                  setStaticFieldValue fieldId . LValue =<< lConst v
-                Just (String v) ->
-                  setStaticFieldValue fieldId . RValue =<< refFromString v
-                Nothing ->
-                  when (fieldIsStatic f) $ do
-                    val <- withSBE $ \sbe -> defaultValue sbe (fieldType f)
-                    setStaticFieldValue fieldId val
-                Just tp -> error $ "Unsupported field type" ++ show tp
-      cb <- use codebase
-      cl <- liftIO $ lookupClass cb name
-      mapM_ initializeField $ classFields cl
-      case cl `lookupMethod` clinit of
-        Just method -> do          
-          Just m <- getMem
-          setMem $ setInitializationStatus name Started m
-          unless (skipInit name) $ do
-            Just symBlocks <- liftIO $ lookupSymbolicMethod cb name clinit
-            cs <- use ctrlStk
-            let Just cs'      = pushCallFrame name method entryBlock M.empty cs
-                Just symInsns = M.lookup entryBlock (symBlockMap symBlocks)
-            ctrlStk .= cs'
-            runInsns symInsns
-        Nothing -> return ()
-      runCustomClassInitialization cl
-      Just m <- getMem
-      setMem $ setInitializationStatus name Initialized m
-    Just Erroneous -> do
-      createAndThrow "java/lang/NoClassDefFoundError"
-    Just Started -> return ()
-    Just Initialized -> return ()
+-- initializeClass :: MonadSim sbe m => String -> Simulator sbe m ()
 
 -- | Low-level method call for when we need to make a method call not
 -- prescribed by the symbolic instructions. This arises mainly in
@@ -999,6 +953,53 @@ type instance JSBool   (Simulator sbe m) = SBETerm sbe
 
 instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
 
+  initializeClass name = do
+    Just m <- getMem
+    case M.lookup name (m^.memInitialization) of
+      Nothing -> do
+        let clinit = MethodKey "<clinit>" [] Nothing
+            initializeField :: MonadSim sbe m => Field -> Simulator sbe m ()
+            initializeField f =
+              let fieldId = FieldId name (fieldName f) (fieldType f)
+              in case fieldConstantValue f of
+                  Just (Double v) ->
+                    setStaticFieldValue fieldId . DValue =<< dConst v
+                  Just (Float v) ->
+                    setStaticFieldValue fieldId . FValue =<< fConst v
+                  Just (Integer v) ->
+                    setStaticFieldValue fieldId . IValue =<< iConst v
+                  Just (Long v) ->
+                    setStaticFieldValue fieldId . LValue =<< lConst v
+                  Just (String v) ->
+                    setStaticFieldValue fieldId . RValue =<< refFromString v
+                  Nothing ->
+                    when (fieldIsStatic f) $ do
+                      val <- withSBE $ \sbe -> defaultValue sbe (fieldType f)
+                      setStaticFieldValue fieldId val
+                  Just tp -> error $ "Unsupported field type" ++ show tp
+        cb <- use codebase
+        cl <- liftIO $ lookupClass cb name
+        mapM_ initializeField $ classFields cl
+        case cl `lookupMethod` clinit of
+          Just method -> do          
+            Just m <- getMem
+            setMem $ setInitializationStatus name Started m
+            unless (skipInit name) $ do
+              Just symBlocks <- liftIO $ lookupSymbolicMethod cb name clinit
+              cs <- use ctrlStk
+              let Just cs'      = pushCallFrame name method entryBlock M.empty cs
+                  Just symInsns = M.lookup entryBlock (symBlockMap symBlocks)
+              ctrlStk .= cs'
+              runInsns symInsns
+          Nothing -> return ()
+        runCustomClassInitialization cl
+        Just m <- getMem
+        setMem $ setInitializationStatus name Initialized m
+      Just Erroneous -> do
+        createAndThrow "java/lang/NoClassDefFoundError"
+      Just Started -> return ()
+      Just Initialized -> return ()
+
   -- Negate a Boolean value
   bNot x = withSBE $ \sbe -> termNot sbe x 
 
@@ -1171,22 +1172,6 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   newMultiArray _ _ = abort "Cannot create array with symbolic size"
 
 {-
-  newObject name = do
-   initializeClass name
-   ref <- genRef (ClassType name)
-   -- Set fields to default value
-   cb <- use codebase
-   fields <- liftIO $ classFields <$> lookupClass cb name
-   fvals <- withSBE $ \sbe -> mapM (defaultValue sbe . fieldType) fields
-   modifyPathState $ \ps ->
-     ps { instanceFields =
-            foldl' (\fieldMap (f,val) ->
-                      let fid = FieldId name (fieldName f) (fieldType f)
-                       in val `seq` M.insert (ref,fid) val fieldMap)
-                   (instanceFields ps)
-                   (fields `zip` fvals)
-        }
-   return ref
 
   isValidEltOfArray elt arr = do
     if elt == NullRef then
@@ -1279,18 +1264,19 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
         val <- withSBE $ \sbe -> defaultValue sbe (fieldIdType fieldId)
         pushValue val
 
+-}
   -- Pushes value of field onto stack.
   -- NOTE: Assumes ref is not null.
   pushStaticFieldValue fieldId = do
-    ps <- getPathState
-    case M.lookup fieldId (staticFields ps) of
+    Just m <- getMem
+    case M.lookup fieldId (m^.memStaticFields) of
       Just value -> pushValue value
       Nothing    -> do
         when (isFloatType (fieldIdType fieldId)) $
           error $ "internal: unassigned static floating-point field " ++
                         show fieldId
         pushValue =<< withSBE (\sbe -> defaultValue sbe (fieldIdType fieldId))
-
+{-
   -- (pushArrayValue ref index) pushes the value of the array at index to the stack.
   -- NOTE: Assumes that ref is a valid array and index is a valid index in array.
   pushArrayValue r idx = do
