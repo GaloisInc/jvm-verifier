@@ -12,6 +12,7 @@ Point-of-contact : acfoltzer
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 
 module Verifier.Java.Common
   ( Simulator(SM)
@@ -55,8 +56,11 @@ module Verifier.Java.Common
   , modifyCurrentPath
   , modifyCurrentPathM
   , modifyCSM
+  , modifyCSM_
   , modifyPathM
+  , modifyPathM_
   , modifyCallFrameM
+  , modifyCallFrameM_
   , pushCallFrame
   , addCtrlBranch
   , jumpCurrentPath
@@ -458,33 +462,43 @@ currentPath :: CS sbe -> Maybe (Path sbe)
 currentPath (CompletedCS mp) = mp
 currentPath (ActiveCS p _) = Just p
 
-modifyCSM :: (CS sbe -> Simulator sbe m (CS sbe))
-          -> Simulator sbe m ()
-modifyCSM f = ctrlStk <~ do f =<< use ctrlStk
+modifyCSM :: (CS sbe -> Simulator sbe m (a, (CS sbe)))
+          -> Simulator sbe m a
+modifyCSM f = do
+  cs <- use ctrlStk
+  (x, cs') <- f cs
+  ctrlStk .= cs'
+  return x
 
-modifyPathM :: (Path sbe -> Simulator sbe m (Path sbe))
-            -> Simulator sbe m ()
+modifyCSM_ f = modifyCSM (\cs -> ((),) <$> f cs)
+
+modifyPathM :: (Path sbe -> Simulator sbe m (a, (Path sbe)))
+            -> Simulator sbe m a
 modifyPathM f = 
   modifyCSM $ \cs ->
       case cs of 
         CompletedCS Nothing -> fail "modifyPathM: no paths"
         CompletedCS (Just p) -> do
-                p' <- f p
-                return $ CompletedCS (Just p')
+                (x, p') <- f p
+                return $ (x, CompletedCS (Just p'))
         ActiveCS p k -> do
-                p' <- f p
-                return $ ActiveCS p' k
+                (x, p') <- f p
+                return $ (x, ActiveCS p' k)
+
+modifyPathM_ f = modifyPathM (\p -> ((),) <$> f p)
 
 modifyCallFrameM :: 
-    (CallFrame (SBETerm sbe) -> Simulator sbe m (CallFrame (SBETerm sbe)))
-      -> Simulator sbe m ()
+    (CallFrame (SBETerm sbe) -> Simulator sbe m (a, (CallFrame (SBETerm sbe))))
+      -> Simulator sbe m a
 modifyCallFrameM f = 
   modifyPathM $ \p ->
     case p^.pathStack of
       [] -> fail "modifyCallFrameM: no stack frames"
       (cf:cfs) -> do
-        cf' <- f cf
-        return $ p & pathStack .~ (cf':cfs)
+        (x, cf') <- f cf
+        return (x, p & pathStack .~ (cf':cfs))
+
+modifyCallFrameM_ f = modifyCallFrameM (\cf -> ((),) <$> f cf)
 
 -- | Push a new call frame to the current path, if any. Needs the
 -- initial function arguments, and basic block (in the caller's

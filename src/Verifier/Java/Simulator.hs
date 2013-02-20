@@ -852,7 +852,7 @@ step (PushInvokeFrame InvStatic (ClassType cName) key retBlock) = do
 
 step ReturnVal = do
   rv <- popValue
-  modifyCSM $ \cs -> returnCurrentPath (Just rv) cs
+  modifyCSM_ $ \cs -> returnCurrentPath (Just rv) cs
 
 step (PushPendingExecution bid cond ml elseInsns) = do
   sbe <- use backend
@@ -865,9 +865,9 @@ step (PushPendingExecution bid cond ml elseInsns) = do
    Nothing -> do
      nm <- use nextPSS
      nextPSS += 1
-     modifyCSM $ \cs -> case addCtrlBranch c bid nm ml cs of
-                          Just cs' -> return cs'
-                          Nothing -> fail "addCtrlBranch"
+     modifyCSM_ $ \cs -> case addCtrlBranch c bid nm ml cs of
+                           Just cs' -> return cs'
+                           Nothing -> fail "addCtrlBranch"
      runInsns (map snd elseInsns)
 
 step (SetCurrentBlock bid) = setCurrentBlock bid
@@ -875,7 +875,7 @@ step (SetCurrentBlock bid) = setCurrentBlock bid
 step (NormalInsn insn) = Stepper.step insn
 
 setCurrentBlock :: MonadSim sbe m => BlockId -> Simulator sbe m ()
-setCurrentBlock b = do modifyCSM $ \cs -> jumpCurrentPath b cs
+setCurrentBlock b = do modifyCSM_ $ \cs -> jumpCurrentPath b cs
                        dumpCtrlStk
 
 evalCond :: MonadSim sbe m => SymCond -> Simulator sbe m (SBETerm sbe)
@@ -998,9 +998,11 @@ type instance JSRef    (Simulator sbe m) = Ref
 type instance JSBool   (Simulator sbe m) = SBETerm sbe
 
 instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
-{-
+
   -- Negate a Boolean value
   bNot x = withSBE $ \sbe -> termNot sbe x 
+
+{-
 
   -- (x &&& y) returns logical and
   mx &&& my = do
@@ -1080,8 +1082,6 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   lUshr x y = withSBE $ \sbe -> termLUshr sbe x y
   lXor  x y = withSBE $ \sbe -> termIXor sbe x y
 
-  setLocal i v = modifyCallFrameM $ \cf -> return $ cf & cfLocals %~ M.insert i v
-
   setArrayValue r idx (IValue val) = updateSymbolicArray r $ \sbe l a ->
     termSetIntArray  sbe l a idx val
   setArrayValue r idx (LValue val) = updateSymbolicArray r $ \sbe l a ->
@@ -1131,14 +1131,9 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     term <- liftIO $ termIte sbe cond t e
     return $ term
 
-{-
-
   -- (arrayLength ref) return length of array at ref.
-  arrayLength ref = do
-    pd  <- getPSS
-    getArrayLength pd ref
+  arrayLength = getArrayLength
 
--}
   -- (newMultiArray tp len) returns a reference to a multidimentional array with
   -- type tp and len = [len1, len2, ...] where len1 equals length of first
   -- dimention len2 equals length of second dimension and so on.  Note: Assumes
@@ -1324,34 +1319,30 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
 
   setStaticFieldValue fieldId v = modifyPathState $ \ps ->
     ps{ staticFields = M.insert fieldId v (staticFields ps) }
-
+-}
   -- Pop value off top of stack.
-  popValue = do
-    ps <- getPathState
-    when (null $ frames ps) $ error $ "Bad path state: no frame:\n " ++ show ps
-    case frames ps of
-      Call st m pc lvars (top : vals) : tailFrames
-          -> do putPathState ps{ frames = Call st m pc lvars vals : tailFrames }
-                return top
-      _ -> error $ "Unexpected path state (empty operand stack):\n " ++ show ps
+  popValue = modifyCallFrameM $ \cf -> 
+               case cf^.cfOpds of
+                 [] -> error $ "internal: empty operand stack"
+                 (x:xs) -> return (x, cf & cfOpds .~ xs)
 
   -- Push value onto top of stack.
-  pushValue val = updateFrame (\(Call st m pc lvars stack) -> Call st m pc lvars (val : stack))
+  pushValue val = modifyCallFrameM_ $ \cf -> return $ cf & cfOpds %~ (val:)
+
 
   -- Local variable functions {{{1
   getLocal i = do
-    ps <- getPathState
-    case frames ps of
-      _cl@(Call _ _ _ lvars _) : _ -> do
-        case M.lookup i lvars of
-          Just lcl -> return lcl
-          Nothing -> do
-            dbugM $ unlines
-              $ "stack dump:" : [ show (c,methodKey m, pc,vm,st)
-                                | Call c m pc vm st <- frames ps
-                                ]
-            error $ "internal: Undefined local variable " ++ show i
-      _ -> error "Frames are empty"
+    cs <- use ctrlStk
+    let mv = do cf <- currentCallFrame =<< currentPath cs
+                M.lookup i (cf^.cfLocals)
+    case mv of
+      Just v -> return v
+      Nothing -> error $ "internal: undefined local variable " ++ show i
+
+  setLocal i v = modifyCallFrameM_ $ \cf -> 
+                   return $ cf & cfLocals %~ M.insert i v
+{-
+
 
 
   printStream nl _ []       = liftIO $ (if nl then putStrLn else putStr) "" >> hFlush stdout
@@ -1437,7 +1428,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     sbe <- use backend
     term <- cond    
     when (asBool sbe term == Just False) $ createAndThrow exc
-    modifyPathM (addPathAssertion sbe term)
+    modifyPathM_ (addPathAssertion sbe term)
     
 
 abort :: MonadSim sbe m => String -> Simulator sbe m a
