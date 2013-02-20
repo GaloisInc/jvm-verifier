@@ -87,6 +87,7 @@ import Data.JVM.Symbolic.AST
 import Data.JVM.Symbolic.Translation
 
 import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, newObject, initializeClass, setInstanceFieldValue, getCodebase, isFinished, invokeStaticMethod, pushStaticMethodCall, invokeInstanceMethod, dynBind', isNull)
+import qualified Execution.Stepper as Stepper
 import Language.JVM.Common
 import Language.JVM.Parser
 import Verifier.Java.Codebase
@@ -676,6 +677,7 @@ initializeClass name = do
             cs <- use ctrlStk
             let Just cs'      = pushCallFrame name method entryBlock M.empty cs
                 Just symInsns = M.lookup entryBlock (symBlockMap symBlocks)
+            ctrlStk .= cs'
             runInsns symInsns
         Nothing -> return ()
       runCustomClassInitialization cl
@@ -705,7 +707,10 @@ runMethod clName key locals = do
   cs <- use ctrlStk
   let Just cs'      = pushCallFrame clName method curId locals cs
       Just symInsns = M.lookup entryBlock (symBlockMap symBlocks)
+  ctrlStk .= cs'
+  dumpCtrlStk
   runInsns symInsns
+  dumpCtrlStk
   Just p' <- getPath
   return (p'^.pathRetVal)
 
@@ -813,9 +818,18 @@ dbugStep insn = do
   case mp of
     Nothing -> dbugM' 2 $ "Executing: (no current path): " ++ show (ppSymInsn insn)
     Just p  -> do
+      let loc = case currentCallFrame p of
+                  Nothing -> "<unknown method>" <> parens bid
+                  Just cf -> text (cf^.cfClass) 
+                             <> "." <> ppMethod (cf^.cfMethod)
+                             <> parens bid
+          bid = case p^.pathBlockId of
+                  Nothing -> "<no current block>"
+                  Just b -> ppBlockId b
+      dumpCtrlStk
       dbugM' 2 $ "Executing ("
                  ++ "#" ++ show (p^.pathName) ++ "): "
-                 ++ maybe "" (show . parens . ppBlockId) (p^.pathBlockId)
+                 ++ render loc
                  ++ ": " ++
                  case insn of
                    PushPendingExecution{} -> "\n"
@@ -858,8 +872,11 @@ step (PushPendingExecution bid cond ml elseInsns) = do
 
 step (SetCurrentBlock bid) = setCurrentBlock bid
 
+step (NormalInsn insn) = Stepper.step insn
+
 setCurrentBlock :: MonadSim sbe m => BlockId -> Simulator sbe m ()
-setCurrentBlock b = modifyCSM $ jumpCurrentPath b 
+setCurrentBlock b = do modifyCSM $ \cs -> jumpCurrentPath b cs
+                       dumpCtrlStk
 
 evalCond :: MonadSim sbe m => SymCond -> Simulator sbe m (SBETerm sbe)
 evalCond (HasConstValue i) = do
@@ -1121,7 +1138,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     pd  <- getPSS
     getArrayLength pd ref
 
-
+-}
   -- (newMultiArray tp len) returns a reference to a multidimentional array with
   -- type tp and len = [len1, len2, ...] where len1 equals length of first
   -- dimention len2 equals length of second dimension and so on.  Note: Assumes
@@ -1130,34 +1147,35 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     | isRValue tp = return NullRef
   newMultiArray tp@(ArrayType eltType) [l]
     | isIValue eltType || (eltType == LongType) = do
-      sbe <- gets backend
+      sbe <- use backend
       ref <- genRef tp
       let arrayFn | eltType == LongType = termLongArray
                   | otherwise           = termIntArray
       ma <- liftIO $ arrayFn sbe l
       case ma of
         Nothing -> abort "Cannot create array with symbolic size"
-        Just a ->
-          modifyPathState $ \ps ->
-            ps { arrays = M.insert ref (l, a) (arrays ps) }
+        Just a -> do
+          Just m <- getMem
+          setMem $ m & memScalarArrays %~ M.insert ref (l, a)
       return ref
   newMultiArray (ArrayType DoubleType) _ =
     abort "Floating point arrays (e.g., double) are not supported"
   newMultiArray (ArrayType FloatType) _ =
     abort "Floating point arrays (e.g., float) are not supported"
   newMultiArray tp@(ArrayType eltTp) (tcnt : rest) = do
-    sbe <- gets backend
+    sbe <- use backend
     case asInt sbe tcnt of
       Nothing -> abort "Cannot create array of references with symbolic size"
       Just cnt -> do
         ref <- genRef tp
         values <- replicateM (fromIntegral cnt) (newMultiArray eltTp rest)
         let arr = listArray (0, fromIntegral cnt-1) values
-        modifyPathState $ \ps ->
-          ps { refArrays = M.insert ref arr (refArrays ps) }
+        Just m <- getMem
+        setMem $ m & memRefArrays %~ M.insert ref arr
         return ref
   newMultiArray _ _ = abort "Cannot create array with symbolic size"
 
+{-
   newObject name = do
    initializeClass name
    ref <- genRef (ClassType name)
