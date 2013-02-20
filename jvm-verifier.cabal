@@ -51,6 +51,7 @@ library
   hs-source-dirs: src
 
   exposed-modules:
+    Execution
     Data.JVM.Symbolic.AST
     Data.JVM.Symbolic.Translation
     Verifier.Java.Backend
@@ -60,7 +61,6 @@ library
     Verifier.Java.Utils
  
   other-modules:
-    Execution
     Execution.JavaSemantics
     Execution.Stepper
 
@@ -91,10 +91,14 @@ executable jss
     , directory
     , executable-path
     , filepath
+    , jvm-parser >= 0.2
     , jvm-verifier
+    , lens >= 3.8
     , mtl >= 2.1
     , parsec
+    , pretty >= 1.1
     , vector >= 0.7
+    , Verinf >= 0.2
 
   other-modules:
     Overrides

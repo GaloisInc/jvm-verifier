@@ -25,6 +25,7 @@ module Verifier.Java.Simulator
   , State(..)
   , SEH(..)
   , runStaticMethod
+  , run
   , defaultSEH
   , getProgramReturnValue
   , getProgramFinalMem
@@ -34,6 +35,7 @@ module Verifier.Java.Simulator
 --  , withSBE'
   , overrideInstanceMethod
   , overrideStaticMethod
+  , invokeInstanceMethod
   -- * Array operations
   , getArrayLength
   , getArrayValue
@@ -1103,7 +1105,16 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     case asLong sbe l of
       Just n -> return $ fromIntegral n
       Nothing -> error "cannot convert symbolic long to float"
+-}
+  byteArrayVal arrayRef value = do
+    cond <- arrayRef `hasType` (ArrayType BooleanType)
+    t <- boolFromInt value
+    e <- byteFromInt value
+    sbe <- use backend
+    term <- liftIO $ termIte sbe cond t e
+    return $ term
 
+{-
 
   -- (arrayLength ref) return length of array at ref.
   arrayLength ref = do
@@ -1404,7 +1415,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   -- if the asserted condition is definitely false, throw the given
   -- exception. Otherwise, continue, but add an assertion to the
   -- current path.
-  assertM cond exc = do
+  assertTrueM cond exc = do
     sbe <- use backend
     term <- cond    
     when (asBool sbe term == Just False) $ createAndThrow exc

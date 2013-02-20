@@ -145,6 +145,10 @@ class ( Monad m
      shlValue <- i `iShl` shiftVal
      shlValue `iShr` shiftVal
 
+  -- | Checks whether the given byte array contains booleans or bytes,
+  -- and converts the given value accordingly
+  byteArrayVal :: JSRef m -> JSInt m -> m (JSInt m)
+
   -- | Truncates int to char, then zero-extends back to int.
   charFromInt :: JSInt m -> m (JSInt m)
   charFromInt i = do
@@ -523,22 +527,23 @@ class ( Monad m
                      -> m ()
 
   -- | Check an assertion in the current exection state. 
-  assertM :: m (JSBool m) -- ^ Condition to check
-          -> String       -- ^ Name of exception to throw if condition fails
-          -> m ()
+  assertTrueM :: m (JSBool m) -- ^ Condition to check
+              -> String       -- ^ Name of exception to throw if condition fails
+              -> m ()
 
 --------------------------------------------------------------------------------
 -- Control flow primitives and helpers
+
+assertFalseM :: JavaSemantics m 
+             => m (JSBool m)
+             -> String
+             -> m ()
+assertFalseM cond exc = assertTrueM (bNot =<< cond) exc
 
 data Case m v = Case (m (JSBool m)) (m v)
 (|->) :: m (JSBool m) -> m v -> Case m v
 cond |-> fn = Case cond fn
 infix 1 |->
-
-whenM :: JavaSemantics m => m (JSBool m) -> m () -> m ()
-whenM cond m = do
-  mb <- toBool =<< cond
-  when (fromMaybe False mb) m
 
 -- | Returns true if reference is null.
 isNull :: JavaSemantics m => JSRef m -> m (JSBool m)
@@ -551,8 +556,8 @@ guardArray arrayRef index = do
   throwIfRefNull arrayRef
   zero <- iConst 0
   arrayLen <- arrayLength arrayRef
-  whenM (index `iLt` zero ||| arrayLen `iLeq` index)
-    $ createAndThrow "java/lang/ArrayIndexOutOfBoundsException"
+  assertTrueM (zero `iLeq` index &&& index `iLt` arrayLen)
+    "java/lang/ArrayIndexOutOfBoundsException"
  
 
 -- | Creates an exception of the given class (which is assumed to have a no
@@ -568,7 +573,7 @@ throwNullPtrExc :: JavaSemantics m => m a
 throwNullPtrExc = createAndThrow "java/lang/NullPointerException" >> error "unreachable"
 
 throwIfRefNull :: JavaSemantics m => JSRef m -> m ()
-throwIfRefNull ref = assertM (isNull ref) nullPtrExc
+throwIfRefNull ref = assertFalseM (isNull ref) nullPtrExc
 
 --------------------------------------------------------------------------------
 -- Instance creation, query, and method dispatch
