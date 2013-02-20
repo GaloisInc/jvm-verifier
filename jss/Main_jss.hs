@@ -34,6 +34,7 @@ import Text.PrettyPrint hiding (char)
 
 import Language.JVM.CFG
 
+import Execution
 import Data.JVM.Symbolic.Translation
 import Verifier.Java.Codebase
 import Verifier.Java.Simulator
