@@ -272,6 +272,7 @@ symbolicBackend sms = do
           _  -> error $ "evalAigArray: input array elements have unexpected bit width"
    , writeAigToFile = \fname res -> lWriteAiger fname [res]
    , getVarLit = getTermLit
+   , Verifier.Java.Backend.prettyTermD = Verinf.Symbolic.prettyTermD
    }
 
 -- Misc utility functions {{{1
