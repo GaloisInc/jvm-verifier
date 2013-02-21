@@ -48,7 +48,7 @@ module Verifier.Java.Common
   , modifyCS
   , initialState
 
-  , CS
+  , CS(..)
   , initialCtrlStk
   , isFinished
   , currentPath
@@ -66,6 +66,8 @@ module Verifier.Java.Common
   , jumpCurrentPath
   , returnCurrentPath
   , markCurrentPathAsError
+ 
+  , SimCont(..)
 
 
   , BlockId

@@ -68,9 +68,6 @@ class ( Monad m
   -- | Ensures class with given name is initialized.
   initializeClass :: String -> m ()
 
-  -- | Pushes an instance method call.
-  pushInstanceMethodCall :: String -> Method -> JSRef m -> [JSValue m] -> m ()
-
   -- | Runs an instance method call.
   runInstanceMethodCall :: String -> Method -> JSRef m -> [JSValue m] -> m ()
 

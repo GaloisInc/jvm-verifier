@@ -86,7 +86,7 @@ import Text.PrettyPrint
 import Data.JVM.Symbolic.AST
 import Data.JVM.Symbolic.Translation
 
-import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, newObject, setInstanceFieldValue, getCodebase, isFinished, invokeStaticMethod, pushStaticMethodCall, invokeInstanceMethod, dynBind', isNull)
+import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, newObject, setInstanceFieldValue, getCodebase, isFinished, invokeStaticMethod, pushStaticMethodCall, invokeInstanceMethod, dynBind, dynBind', isNull)
 import qualified Execution.Stepper as Stepper
 import Language.JVM.Common
 import Language.JVM.Parser
@@ -221,38 +221,15 @@ invokeStaticMethod cName key args = do
                    <+> ppMethodKey key <+> "in" <+> text cName
 
 
-invokeInstanceMethod :: MonadSim sbe m 
-                     => String 
-                     -> MethodKey
-                     -> JSRef (Simulator sbe m)
-                     -> [Value (SBETerm sbe)]
-                     -> Simulator sbe m ()
-invokeInstanceMethod cName key objectRef args = do
-  cb <- use codebase
-  sups <- liftIO (supers cb =<< lookupClass cb cName);;
-  let targets = [ (cl, method) | cl <- sups
-                               , let method = lookupMethod cl key
-                               , isJust method 
-                ]
-  case targets of
-    ((cl, Just method) : _) -> do
-      when (not $ methodIsStatic method) $
-        fatal . render $ "Attempted static invocation on a non-static method" 
-                  <+> parens (text (className cl) <> "." <> ppMethod method)
-      initializeClass (className cl)
-      pushStaticMethodCall (className cl) method args Nothing
-    _ -> fatal . render $ "Could not find static method" 
-                   <+> ppMethodKey key <+> "in" <+> text cName
-
 lookupStaticOverride :: String 
                      -> MethodKey
                      -> Simulator sbe m (Maybe (StaticOverride sbe m))
 lookupStaticOverride cName methodKey = 
   uses staticOverrides $ M.lookup (cName, methodKey)
 
--- | Invoke a method in the current simulator state. If there is no
--- basic block to return to, this is either a top-level invocation, or
--- a special case like an overridden method.
+-- | Invoke a static method in the current simulator state. If there
+-- is no basic block to return to, this is either a top-level
+-- invocation, or a special case like an overridden method.
 pushStaticMethodCall :: MonadSim sbe m
                      => String
                      -> Method
@@ -275,10 +252,9 @@ pushStaticMethodCall cName method args mRetBlock = do
           expectOverride "Symbolic$Debug" mk
         -- dbugM $ "pushCallFrame: (static) method call to " ++ cName ++ "." ++ methodName method
         case mRetBlock of
-          Just retBB -> do 
-            cs <- use ctrlStk
+          Just retBB -> modifyCSM_ $ \cs ->
             case pushCallFrame cName method retBB locals cs of
-              Just cs' -> ctrlStk .= cs'
+              Just cs' -> return cs'
               Nothing  -> fail "cannot invoke method: all paths failed"
           Nothing -> void $ runMethod cName mk locals
   where
@@ -286,6 +262,59 @@ pushStaticMethodCall cName method args mRetBlock = do
       error $ "expected static override for " ++ cn ++ "."
             ++ methodName method ++ unparseMethodDescriptor mk
 
+lookupInstanceOverride :: String 
+                     -> MethodKey
+                     -> Simulator sbe m (Maybe (InstanceOverride sbe m))
+lookupInstanceOverride cName methodKey = 
+  uses instanceOverrides $ M.lookup (cName, methodKey)
+
+-- | Either pushes a call frame onto the simulator state, or runs an
+-- override. Assumes the given class name is the concrete class to
+-- call (dynamic dispatch already resolved)
+invokeInstanceMethod :: MonadSim sbe m 
+                     => String 
+                     -> MethodKey
+                     -> JSRef (Simulator sbe m)
+                     -> [Value (SBETerm sbe)]
+                     -> Simulator sbe m ()
+invokeInstanceMethod cName key objectRef args = do
+  cb <- use codebase
+  cl <- liftIO $ lookupClass cb cName
+  case cl `lookupMethod` key of
+    Just method -> pushInstanceMethodCall cName method objectRef args Nothing
+    _ -> fatal . render $ "Could not find instance method" 
+                   <+> ppMethodKey key <+> "in" <+> text cName
+
+-- | Invoke an instance method in the current simulator state. If
+-- there is no basic block to return to, this is either a top-level
+-- invocation, or a special case like an overridden method. The given
+-- class is assumed to be the concrete type, with dynamic dispatch
+-- handled by the caller.
+pushInstanceMethodCall :: MonadSim sbe m
+                       => String
+                       -> Method
+                       -> JSRef (Simulator sbe m)
+                       -> [Value (SBETerm sbe)]
+                       -> Maybe BlockId
+                       -> Simulator sbe m ()
+pushInstanceMethodCall cName method objectRef args mRetBlock = do
+  let mk = methodKey method
+      locals = setupLocals args
+  override <- lookupInstanceOverride cName mk
+  case override of
+    Just f -> f objectRef args
+    Nothing ->
+      if methodIsNative method then
+        error $ "Unsupported native instance method " ++ show mk ++ " in " ++ cName
+      else do
+        dbugM $ "pushCallFrame: (instance) method call to " ++ cName ++ "." ++ methodName method
+        case mRetBlock of
+          Just retBB -> do 
+            modifyCSM_ $ \cs ->
+              case pushCallFrame cName method retBB locals cs of
+                Just cs' -> return cs'
+                Nothing  -> fail "cannot invoke method: all paths failed"
+          Nothing -> void $ runMethod cName mk locals
 
 setupLocals :: [Value term]
             -> M.Map LocalVariableIndex (Value term)
@@ -662,9 +691,7 @@ runMethod clName key locals = do
   let Just cs'      = pushCallFrame clName method curId locals cs
       Just symInsns = M.lookup entryBlock (symBlockMap symBlocks)
   ctrlStk .= cs'
-  dumpCtrlStk
   runInsns symInsns
-  dumpCtrlStk
   Just p' <- getPath
   return (p'^.pathRetVal)
 
@@ -780,7 +807,6 @@ dbugStep insn = do
           bid = case p^.pathBlockId of
                   Nothing -> "<no current block>"
                   Just b -> ppBlockId b
-      dumpCtrlStk
       dbugM' 2 $ "Executing ("
                  ++ "#" ++ show (p^.pathName) ++ "): "
                  ++ render loc
@@ -795,10 +821,31 @@ dbugStep insn = do
   cb1 onPostStep insn
   whenVerbosity (>=5) dumpCtrlStk
 
-
 -- | Execute a single LLVM-Sym AST instruction
 step :: MonadSim sbe m
      => SymInsn -> Simulator sbe m ()
+
+step (PushInvokeFrame InvVirtual (ArrayType _methodType) key retBlock) = do
+  reverseArgs <- replicateM (length (methodKeyParameterTypes key)) popValue
+  objectRef <- rPop
+  throwIfRefNull objectRef
+  invokeInstanceMethod "java/lang/Object" key objectRef $ reverse reverseArgs
+
+step (PushInvokeFrame InvVirtual (ClassType cName) key retrBlock) = do
+  reverseArgs <- replicateM (length (methodKeyParameterTypes key)) popValue
+  objectRef   <- rPop
+  throwIfRefNull objectRef
+  dynBind cName key objectRef $ \cName' ->
+    invokeInstanceMethod cName' key objectRef (reverse reverseArgs)
+
+{-
+step (Invokevirtual (ClassType cName) key) = {-# SCC "Invokevirtual" #-} do
+  reverseArgs <- replicateM (length (methodKeyParameterTypes key)) popValue
+  objectRef   <- rPop
+  dynBind cName key objectRef $ \cName' -> do
+    gotoNextInstruction
+    invokeInstanceMethod cName' key objectRef (reverse reverseArgs)
+-}
 
 step (PushInvokeFrame InvStatic (ClassType cName) key retBlock) = do
   reverseArgs <- replicateM (length (methodKeyParameterTypes key)) popValue
@@ -830,7 +877,6 @@ step (NormalInsn insn) = Stepper.step insn
 
 setCurrentBlock :: MonadSim sbe m => BlockId -> Simulator sbe m ()
 setCurrentBlock b = do modifyCSM_ $ \cs -> jumpCurrentPath b cs
-                       dumpCtrlStk
 
 evalCond :: MonadSim sbe m => SymCond -> Simulator sbe m (SBETerm sbe)
 evalCond (HasConstValue i) = do
@@ -985,16 +1031,34 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
             Just m <- getMem
             setMem $ setInitializationStatus name Started m
             unless (skipInit name) $ do
-              Just symBlocks <- liftIO $ lookupSymbolicMethod cb name clinit
-              cs <- use ctrlStk
-              let Just cs'      = pushCallFrame name method entryBlock M.empty cs
-                  Just symInsns = M.lookup entryBlock (symBlockMap symBlocks)
-              ctrlStk .= cs'
-              runInsns symInsns
+              -- Horrendous Hack Alert: Since we actually need to
+              -- resume execution from the middle of a basic block, we
+              -- are going to make a recursive call to `run` while
+              -- executing the symbolic instruction that originally
+              -- triggered the class initialization.
+              --
+              -- We save the current continuation, use its path in a
+              -- new empty continuation, run the init method, then
+              -- replace the suspended continuation with the new path.
+              suspCS <- use ctrlStk
+              let Just p       = currentPath suspCS
+                  Just cs      = pushCallFrame name 
+                                               method
+                                               entryBlock
+                                               M.empty
+                                               (ActiveCS p EmptyCont)
+              ctrlStk .= cs
+              dbugM $ "initializing class: " ++ name
+              run
+              cs' <- use ctrlStk
+              let Just p' = currentPath cs'
+              ctrlStk .= suspCS
+              modifyPathM_ $ \_ -> return p'
           Nothing -> return ()
         runCustomClassInitialization cl
         Just m <- getMem
         setMem $ setInitializationStatus name Initialized m
+        dbugM $ "class initialized: " ++ name
       Just Erroneous -> do
         createAndThrow "java/lang/NoClassDefFoundError"
       Just Started -> return ()
@@ -1383,15 +1447,6 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     let cases = (isNull objectRef |-> throwNullPtrExc) : map cgen cls
     -- In theory, this error should be unreachable.
     choice cases (error $ "Uncaught linker error: " ++ clName ++ ":" ++ show key)
-
-  invokeInstanceMethod cName key objectRef args = do
-    cb <- use codebase
-    cl <- liftIO $ lookupClass cb cName
-    case cl `lookupMethod` key of
-       Just method -> pushInstanceMethodCall cName method objectRef args
-       Nothing -> error $
-         "Could not find instance method " ++ show key ++ " in " ++ cName
-           ++ "\n  objectRef = " ++ show objectRef ++ ", args = " ++ show args
 
   invokeStaticMethod cName key args = do
     cb <- use codebase
@@ -1794,15 +1849,14 @@ dynBind :: MonadSim sbe m
 dynBind clName key objectRef act =
   act =<< dynBind' clName key objectRef    
 
+-- | Assumes reference non-null
 dynBind' :: MonadSim sbe m
          => String
          -> MethodKey
          -> JSRef (Simulator sbe m)
          -> Simulator sbe m String
 dynBind' clName key objectRef = do
-  nullRef <- isNull objectRef
   sbe <- use backend
-  when (asBool sbe nullRef == Just True) throwNullPtrExc
   mty <- typeOf objectRef
   cb <- use codebase
   cls <- case mty of
