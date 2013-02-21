@@ -709,22 +709,27 @@ runMethod cName key locals = do
   -- executing the symbolic instruction that originally
   -- triggered the class initialization.
   --
-  -- We save the current continuation, use its path in a
-  -- new empty continuation, run the init method, then
-  -- replace the suspended continuation with the new path.
+  -- We save the current continuation, use its path in a new empty
+  -- continuation and an empty call stack, run the init method, then
+  -- replace the suspended continuation with the new path and the
+  -- original path's call stack.
   suspCS <- use ctrlStk
-  let Just p  = currentPath suspCS
+  let Just suspPath  = currentPath suspCS 
+      p = suspPath & pathStack   .~ []
+                   & pathStackHt .~ 0
       Just cs = pushCallFrame cName 
                               method
                               entryBlock
                               locals
-                              (ActiveCS p EmptyCont)
+                              (CompletedCS (Just p))
   ctrlStk .= cs
   run
   cs' <- use ctrlStk
   ctrlStk .= suspCS
   case currentPath cs' of
-    Just p' -> Just <$> (modifyPathM $ \_ -> return ((p', p'^.pathRetVal), p'))
+    Just p' -> let p'' = p' & pathStack   .~ suspPath^.pathStack
+                            & pathStackHt .~ suspPath^.pathStackHt
+               in Just <$> (modifyPathM $ \_ -> return ((p'', p''^.pathRetVal), p''))
     Nothing -> return Nothing
 
 runCustomClassInitialization :: MonadSim sbe m => Class -> Simulator sbe m ()
@@ -1416,13 +1421,13 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     ps{ staticFields = M.insert fieldId v (staticFields ps) }
 -}
   -- Pop value off top of stack.
-  popValue = modifyCallFrameM $ \cf -> 
+  popValue = modifyCallFrameM "popValue" $ \cf -> 
                case cf^.cfOpds of
-                 [] -> error $ "internal: empty operand stack"
+                 [] -> fail "empty operand stack"
                  (x:xs) -> return (x, cf & cfOpds .~ xs)
 
   -- Push value onto top of stack.
-  pushValue val = modifyCallFrameM_ $ \cf -> return $ cf & cfOpds %~ (val:)
+  pushValue val = modifyCallFrameM_ "pushValue" $ \cf -> return $ cf & cfOpds %~ (val:)
 
 
   -- Local variable functions {{{1
@@ -1434,7 +1439,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
       Just v -> return v
       Nothing -> error $ "internal: undefined local variable " ++ show i
 
-  setLocal i v = modifyCallFrameM_ $ \cf -> 
+  setLocal i v = modifyCallFrameM_ "setLocal" $ \cf -> 
                    return $ cf & cfLocals %~ M.insert i v
 
   printStream nl _ []       = liftIO $ (if nl then putStrLn else putStr) "" >> hFlush stdout

@@ -76,6 +76,7 @@ module Verifier.Java.Common
   , Path
   , Path'
   , pathStack
+  , pathStackHt
   , pathBlockId
   , pathName
   , pathMemory
@@ -491,19 +492,20 @@ modifyPathM f =
 modifyPathM_ f = modifyPathM (\p -> ((),) <$> f p)
 
 modifyCallFrameM :: 
-    (CallFrame (SBETerm sbe) -> Simulator sbe m (a, (CallFrame (SBETerm sbe))))
-      -> Simulator sbe m a
-modifyCallFrameM f = 
+     String
+  -> (CallFrame (SBETerm sbe) -> Simulator sbe m (a, (CallFrame (SBETerm sbe))))
+  -> Simulator sbe m a
+modifyCallFrameM ctx f = 
   modifyPathM $ \p ->
     case p^.pathStack of
-      [] -> fail "modifyCallFrameM: no stack frames"
+      [] -> fail $ ctx ++ ": no stack frames"
       (cf:cfs) -> do
         (x, cf') <- f cf
         return (x, p & pathStack .~ (cf':cfs))
 
-modifyCallFrameM_ f = modifyCallFrameM (\cf -> ((),) <$> f cf)
+modifyCallFrameM_ ctx f = modifyCallFrameM ctx (\cf -> ((),) <$> f cf)
 
-getCurrentClassName = modifyCallFrameM $ \cf -> return (cf^.cfClass, cf)
+getCurrentClassName = modifyCallFrameM "getCurrentClassName" $ \cf -> return (cf^.cfClass, cf)
 
 -- | Push a new call frame to the current path, if any. Needs the
 -- initial function arguments, and basic block (in the caller's
