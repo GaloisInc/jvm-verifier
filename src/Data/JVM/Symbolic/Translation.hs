@@ -97,7 +97,7 @@ liftBB cfg bb = do
            maybe [] (brSymInstrs cfg . bbToBlockId . BBId) (join $ nextPC cfg `fmap` mpc))
       processInsns ((pc,i):is) currId il =
         let blk' = fromMaybe (bbToBlockId BBIdExit) $ nextBlk pc
-            blk'' = blk { blockN = blockN blk + 1 }
+            blk'' = blk { blockN = blockN currId + 1 }
             warn msg = tell $ ["warning in" <+> ppBlockId currId <> colon <+> msg]
             assertEnd :: SymTrans () -> SymTrans ()
             assertEnd m = case is of

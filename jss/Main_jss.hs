@@ -170,7 +170,7 @@ main = do
   when (xlate args') $ do
     dumpSymASTs cb cname
 --    dumpSymASTs cb "java/lang/String"
-    dumpSymASTs cb "java/lang/String$CaseInsensitiveComparator"
+--    dumpSymASTs cb "java/lang/String$CaseInsensitiveComparator"
     
     exitSuccess
   withFreshBackend $ \sbe -> do
