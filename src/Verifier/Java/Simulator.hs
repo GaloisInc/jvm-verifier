@@ -697,7 +697,7 @@ runMethod :: MonadSim sbe m
           => String
           -> MethodKey
           -> M.Map LocalVariableIndex (Value (SBETerm sbe)) 
-          -> Simulator sbe m (Path sbe, (Maybe (Value (SBETerm sbe))))
+          -> Simulator sbe m (Maybe (Path sbe, (Maybe (Value (SBETerm sbe)))))
 runMethod cName key locals = do
   cb <- use codebase
   cl <- lookupClass' cName
@@ -713,18 +713,19 @@ runMethod cName key locals = do
   -- new empty continuation, run the init method, then
   -- replace the suspended continuation with the new path.
   suspCS <- use ctrlStk
-  let Just p       = currentPath suspCS
-      Just cs      = pushCallFrame cName 
-                                   method
-                                   entryBlock
-                                   locals
-                                   (ActiveCS p EmptyCont)
+  let Just p  = currentPath suspCS
+      Just cs = pushCallFrame cName 
+                              method
+                              entryBlock
+                              locals
+                              (ActiveCS p EmptyCont)
   ctrlStk .= cs
   run
   cs' <- use ctrlStk
-  let Just p' = currentPath cs'
   ctrlStk .= suspCS
-  modifyPathM $ \_ -> return ((p', p'^.pathRetVal), p')
+  case currentPath cs' of
+    Just p' -> Just <$> (modifyPathM $ \_ -> return ((p', p'^.pathRetVal), p'))
+    Nothing -> return Nothing
 
 runCustomClassInitialization :: MonadSim sbe m => Class -> Simulator sbe m ()
 runCustomClassInitialization cl =
@@ -1456,8 +1457,10 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
           Just str  -> putStr' str
           Nothing   -> do
             let key = makeMethodKey "toString" "()Ljava/lang/String;"
-            (_, Just sref) <- runMethod "java/lang/Object" key (setupLocals [RValue r])
-            putStr' =<< drefString (unRValue sref)
+            mres <- runMethod "java/lang/Object" key (setupLocals [RValue r])
+            case mres of
+              Just (_, Just sref) -> putStr' =<< drefString (unRValue sref)
+              _ -> fail "toString terminated abnormally"
       _ -> abort $ "Unable to display values of type other than "
                  ++ "int, long, and reference to constant string"
   printStream _ _ _ = abort $ "Unable to print more than one argument"
@@ -1677,7 +1680,13 @@ stdOverrides = do
       -- java.lang.System.exit(int status)
     , ( "java/lang/System"
       , makeMethodKey "exit" "(I)V"
-      , \[IValue status] -> exit status
+      , \[IValue status] -> do
+          sbe <- use backend
+          let codeStr = case asInt sbe status of
+                          Nothing -> "unknown exit code"
+                          Just code -> "exit code " ++ show code
+          errorPath . FailRsn
+            $ "java.lang.System.exit(int status) called with " ++ codeStr
       )
       -- java.lang.Float.floatToRawIntBits: override for invocation by
       -- java.lang.Math's static initializer
