@@ -86,7 +86,7 @@ import Text.PrettyPrint
 import Data.JVM.Symbolic.AST
 import Data.JVM.Symbolic.Translation
 
-import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, setInstanceFieldValue, getCodebase, isFinished, invokeStaticMethod, pushStaticMethodCall, invokeInstanceMethod, dynBind, dynBind', isNull, getCurrentClassName)
+import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, setInstanceFieldValue, isFinished, invokeStaticMethod, pushStaticMethodCall, invokeInstanceMethod, dynBind, dynBind', isNull, getCurrentClassName)
 import qualified Execution.Stepper as Stepper
 import Language.JVM.Common
 import Language.JVM.Parser
@@ -1056,6 +1056,8 @@ type instance JSBool   (Simulator sbe m) = SBETerm sbe
 
 instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
 
+  getCodebase = use codebase
+
   initializeClass name = do
     Just m <- getMem
     case M.lookup name (m^.memInitialization) of
@@ -1103,11 +1105,9 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   -- Negate a Boolean value
   bNot x = withSBE $ \sbe -> termNot sbe x 
 
-{-
-
   -- (x &&& y) returns logical and
   mx &&& my = do
-    sbe <- gets backend
+    sbe <- use backend
     x <- mx
     case asBool sbe x of
       Just True -> my
@@ -1118,6 +1118,8 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
           Just True -> return x
           Just False -> return y
           _ -> liftIO $ termAnd sbe x y
+{-
+
 
   -- Conversions
   floatFromDouble  = return . fromRational . toRational
@@ -1361,13 +1363,14 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
           ps' { classObjects = M.insert cname ref (classObjects ps') }
         return ref
 
+-}
   -- Heap related functions {{{1
 
   -- Pushes value of field onto stack.
   -- NOTE: Assumes ref is not null.
   pushInstanceFieldValue r fieldId = do
-    ps <- getPathState
-    case M.lookup (r, fieldId) (instanceFields ps) of
+    Just m <- getMem
+    case M.lookup (r, fieldId) (m^.memInstanceFields) of
       Just value -> pushValue value
       -- Some code seems to depend on instance fields being
       -- initialized to their default value.
@@ -1378,7 +1381,6 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
         val <- withSBE $ \sbe -> defaultValue sbe (fieldIdType fieldId)
         pushValue val
 
--}
   -- Pushes value of field onto stack.
   -- NOTE: Assumes ref is not null.
   pushStaticFieldValue fieldId = do
@@ -1390,14 +1392,12 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
           error $ "internal: unassigned static floating-point field " ++
                         show fieldId
         pushValue =<< withSBE (\sbe -> defaultValue sbe (fieldIdType fieldId))
-{-
+
   -- (pushArrayValue ref index) pushes the value of the array at index to the stack.
   -- NOTE: Assumes that ref is a valid array and index is a valid index in array.
-  pushArrayValue r idx = do
-    pd  <- getPSS
-    val <- getArrayValue pd r idx
-    pushValue val
+  pushArrayValue r idx = pushValue =<< getArrayValue r idx
 
+{-
   setArrayValue r idx (IValue val) = updateSymbolicArray r $ \sbe l a ->
     termSetIntArray  sbe l a idx val
   setArrayValue r idx (LValue val) = updateSymbolicArray r $ \sbe l a ->

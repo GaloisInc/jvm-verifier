@@ -311,7 +311,7 @@ data Path' term = Path {
   , _pathBlockId        :: !(Maybe BlockId)
     -- ^ the currently-executing basic block on this path, if any
   , _pathRetVal         :: !(Maybe (Value term))
-    -- ^ the current return value, if this path is in between call frames
+    -- ^ the current return value, if this path has returned its last call frame
   , _pathException      :: !(Maybe (JavaException term))
     -- ^ the exception thrown on this path, if any  
   , _pathMemory         :: !(Memory term)
@@ -558,7 +558,8 @@ jumpCurrentPath _ CompletedCS{} = fail "Path is completed"
 jumpCurrentPath b (ActiveCS p k) = 
   mergeNextCont (p & pathBlockId .~ Just b) k
 
--- | Return from current path, checking for merge points
+-- | Return from current path, checking for merge points, and putting
+-- the optional return value on the operand stack of the next frame.
 returnCurrentPath :: forall sbe m . MonadIO m
                   => Maybe (Value (SBETerm sbe))
                   -> CS sbe 
@@ -566,11 +567,16 @@ returnCurrentPath :: forall sbe m . MonadIO m
 returnCurrentPath _ CompletedCS{} = fail "Path is completed"
 returnCurrentPath retVal (ActiveCS p k) = do
   let cf : cfs = p^.pathStack
+      cfs' = case retVal of
+               Nothing -> cfs
+               Just rv -> addRv rv cfs
+      addRv _  []          = []
+      addRv rv (cf':cfs'') = (cf' & cfOpds %~ (rv:)):cfs''
       p' :: Path sbe
-      p' = p & pathStack   .~ cfs
+      p' = p & pathStack   .~ cfs'
              & pathStackHt -~ 1
              & pathBlockId .~ Just (cf^.cfReturnBlock)
-             & pathRetVal  .~ retVal
+             & pathRetVal  .~ if null cfs' then retVal else Nothing
   mergeNextCont p' k
 
 branchError :: MonadIO m
@@ -653,15 +659,11 @@ mergeNextCont p (HandleBranch point ba h)
       let assertions = p^.pathAssertions 
           (Just cf1, Just cf2) = (currentCallFrame p, currentCallFrame pf)
       mergedCallFrame <- mergeCallFrames (p^.pathAssertions) cf1 cf2
-      mergedRetVal <- T.sequence $ mergeValues <$> pure assertions 
-                                               <*> p^.pathRetVal
-                                               <*> pf^.pathRetVal
       mergedMemory <- mergeMemories assertions (p^.pathMemory) (pf^.pathMemory)
       mergedAssertions <- 
           liftIO $ termIte sbe c (p^.pathAssertions) (pf^.pathAssertions)
       a' <- liftIO $ termAnd sbe a mergedAssertions
       let p' = p & pathStack._head .~ mergedCallFrame
-                 & pathRetVal      .~ mergedRetVal
                  & pathMemory      .~ mergedMemory
                  & pathAssertions  .~ a'
       -- recur in case multiple continuations have the same merge point
@@ -715,6 +717,7 @@ mergeCallFrames assertions cf1 cf2 = do
   assert (method1 == method2)
   -- pcs may differ if paths merge at different return insts
   mergedLocals <- mergeBy (mergeValues assertions) locals1 locals2
+  assert (length opds1 == length opds2)
   mergedOpds <- zipWithM (mergeValues assertions) opds1 opds2
   return $ cf2 & cfLocals .~ mergedLocals
                & cfOpds   .~ mergedOpds
