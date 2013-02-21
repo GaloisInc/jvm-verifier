@@ -51,6 +51,8 @@ class ( Monad m
   => JavaSemantics m where
   -- Control related functions {{{1
 
+  exit :: JSInt m -> m a
+
   getCodebase :: m Codebase
   
   -- | Returns name of current class in

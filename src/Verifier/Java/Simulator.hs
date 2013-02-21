@@ -148,6 +148,8 @@ run = do
     (p :: Path sbe) <- case currentPath cs of
                          Just p -> return p
                          Nothing -> fail "impossible"
+    sbe <- use backend
+    dbugM . render $ "run:" <+> ppPath sbe p
     flip catchError handleError $ do
       let Just bid = p^.pathBlockId
       sbe <- use backend
@@ -162,7 +164,9 @@ run = do
       cb <- use codebase
       Just symBlocks <- liftIO $ lookupSymbolicMethod cb cName (methodKey method)
       case lookupSymBlock bid symBlocks of
-        Just symBlock -> runInsns . map snd $ sbInsns symBlock
+        Just symBlock -> do
+          dbugM . render $ "run:" <+> ppSymBlock symBlock
+          runInsns . map snd $ sbInsns symBlock
         Nothing -> fail . render 
           $ "invalid basic block" <+> ppBlockId bid 
           <+> "for method" <+> ppMethod method
@@ -241,7 +245,10 @@ pushStaticMethodCall cName method args mRetBlock = do
       locals = setupLocals args
   override <- lookupStaticOverride cName mk
   case override of
-    Just f -> f args
+    Just f -> do f args
+                 case mRetBlock of
+                   Just retBlock -> setCurrentBlock retBlock
+                   Nothing -> return ()
     Nothing ->
       if methodIsNative method then
         error $ "Unsupported native static method " ++ show mk ++ " in " ++ cName
@@ -311,7 +318,10 @@ pushInstanceMethodCall cName method objectRef args mRetBlock = do
       locals = setupLocals (RValue objectRef : args)
   override <- lookupInstanceOverride cName mk
   case override of
-    Just f -> f objectRef args
+    Just f -> do f objectRef args
+                 case mRetBlock of
+                   Just retBlock -> setCurrentBlock retBlock
+                   Nothing -> return ()
     Nothing ->
       if methodIsNative method then
         error $ "Unsupported native instance method " ++ show mk ++ " in " ++ cName
@@ -1664,6 +1674,11 @@ stdOverrides = do
             let Just methodImpl = cl `lookupMethod` arrayCopyKey
             pushStaticMethodCall nativeClass methodImpl opds Nothing
         )
+      -- java.lang.System.exit(int status)
+    , ( "java/lang/System"
+      , makeMethodKey "exit" "(I)V"
+      , \[IValue status] -> exit status
+      )
       -- java.lang.Float.floatToRawIntBits: override for invocation by
       -- java.lang.Math's static initializer
     , ( "java/lang/Float"
