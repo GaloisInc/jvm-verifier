@@ -169,6 +169,9 @@ main = do
   cb <- loadCodebase jpaths' cpaths
   when (xlate args') $ do
     dumpSymASTs cb cname
+--    dumpSymASTs cb "java/lang/String"
+    dumpSymASTs cb "java/lang/String$CaseInsensitiveComparator"
+    
     exitSuccess
   withFreshBackend $ \sbe -> do
    let fl = defaultSimFlags{ alwaysBitBlastBranchTerms = blast args' }

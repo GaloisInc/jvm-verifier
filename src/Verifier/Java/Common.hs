@@ -61,6 +61,7 @@ module Verifier.Java.Common
   , modifyPathM_
   , modifyCallFrameM
   , modifyCallFrameM_
+  , getCurrentClassName
   , pushCallFrame
   , addCtrlBranch
   , jumpCurrentPath
@@ -501,6 +502,8 @@ modifyCallFrameM f =
         return (x, p & pathStack .~ (cf':cfs))
 
 modifyCallFrameM_ f = modifyCallFrameM (\cf -> ((),) <$> f cf)
+
+getCurrentClassName = modifyCallFrameM $ \cf -> return (cf^.cfClass, cf)
 
 -- | Push a new call frame to the current path, if any. Needs the
 -- initial function arguments, and basic block (in the caller's
