@@ -25,6 +25,8 @@ module Verifier.Java.Simulator
   , State(..)
   , SEH(..)
   , runStaticMethod
+  , execInstanceMethod
+  , execStaticMethod
   , run
   , defaultSEH
   , getProgramReturnValue
@@ -35,7 +37,6 @@ module Verifier.Java.Simulator
 --  , withSBE'
   , overrideInstanceMethod
   , overrideStaticMethod
-  , invokeInstanceMethod
   -- * Array operations
   , getArrayLength
   , getArrayValue
@@ -86,7 +87,7 @@ import Text.PrettyPrint
 import Data.JVM.Symbolic.AST
 import Data.JVM.Symbolic.Translation
 
-import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, setInstanceFieldValue, isFinished, invokeStaticMethod, pushStaticMethodCall, invokeInstanceMethod, dynBind, dynBind', isNull, getCurrentClassName)
+import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, isFinished, invokeStaticMethod, pushStaticMethodCall, invokeInstanceMethod, dynBind, dynBind', isNull, getCurrentClassName)
 import qualified Execution.Stepper as Stepper
 import Language.JVM.Common
 import Language.JVM.Parser
@@ -103,7 +104,7 @@ runStaticMethod :: forall sbe m . MonadSim sbe m
                 -> Simulator sbe m [(Path sbe, Maybe (Value (SBETerm sbe)))]
 runStaticMethod cName mName mType args = do
   let methodKey = makeMethodKey mName mType
-  invokeStaticMethod cName methodKey args
+  pushStaticMethodCall cName methodKey args Nothing
   run
   cs <- use ctrlStk
   when (not $ isFinished cs) 
@@ -202,104 +203,81 @@ run = do
 pathAssertedFalse :: Backend sbe -> Path' (SBETerm sbe) -> Bool
 pathAssertedFalse sbe p = asBool sbe (p^.pathAssertions) == Just False
 
-invokeStaticMethod :: MonadSim sbe m 
-                   => String 
-                   -> MethodKey
-                   -> [Value (SBETerm sbe)]
-                   -> Simulator sbe m ()
-invokeStaticMethod cName key args = do
+lookupOverride :: M.Map (String, MethodKey) a 
+               -> String 
+               -> MethodKey
+               -> Simulator sbe m (Maybe a)
+lookupOverride overrides cName key = do
   cb <- use codebase
-  sups <- liftIO (supers cb =<< lookupClass cb cName);;
-  let targets = [ (cl, method) | cl <- sups
-                               , let method = lookupMethod cl key
-                               , isJust method 
-                ]
-  case targets of
-    ((cl, Just method) : _) -> do
-      when (not $ methodIsStatic method) $
-        fatal . render $ "Attempted static invocation on a non-static method" 
-                  <+> parens (text (className cl) <> "." <> ppMethod method)
-      initializeClass (className cl)
-      pushStaticMethodCall (className cl) method args Nothing
-    _ -> fatal . render $ "Could not find static method" 
-                   <+> ppMethodKey key <+> "in" <+> text cName
-
+  cl <- lookupClass' cName
+  tgts <- map className <$> liftIO (supers cb cl)
+  let mtgts = [ M.lookup (cName, key) overrides | cName <- tgts ]
+  case catMaybes mtgts of
+    [] -> return Nothing
+    (ovr:_) -> return (Just ovr)
 
 lookupStaticOverride :: String 
                      -> MethodKey
                      -> Simulator sbe m (Maybe (StaticOverride sbe m))
-lookupStaticOverride cName methodKey = 
-  uses staticOverrides $ M.lookup (cName, methodKey)
+lookupStaticOverride cName key = do
+  override <- use staticOverrides
+  lookupOverride override cName key
 
 -- | Invoke a static method in the current simulator state. If there
 -- is no basic block to return to, this is either a top-level
 -- invocation, or a special case like an overridden method.
 pushStaticMethodCall :: MonadSim sbe m
                      => String
-                     -> Method
+                     -> MethodKey
                      -> [Value (SBETerm sbe)]
                      -> Maybe BlockId
                      -> Simulator sbe m ()
-pushStaticMethodCall cName method args mRetBlock = do
-  let mk = methodKey method
-      locals = setupLocals args
-  override <- lookupStaticOverride cName mk
+pushStaticMethodCall cName key args mRetBlock = do
+  initializeClass cName
+  let locals = setupLocals args
+  override <- lookupStaticOverride cName key
   case override of
     Just f -> do f args
                  case mRetBlock of
                    Just retBlock -> setCurrentBlock retBlock
                    Nothing -> return ()
-    Nothing ->
+    Nothing -> do
+      cl <- lookupClass' cName
+      method <- case cl `lookupMethod` key of
+                  Just m -> return m
+                  Nothing -> fail . render 
+                    $ "pushStaticMethodCall: could not find method" 
+                    <+> text cName <> "." <> ppMethodKey key
       if methodIsNative method then
-        error $ "Unsupported native static method " ++ show mk ++ " in " ++ cName
+        error $ "Unsupported native static method " ++ show key ++ " in " ++ cName
       else do
         when (cName == "com/galois/symbolic/Symbolic") $
-          expectOverride "Symbolic" mk
+          expectOverride "Symbolic" key
         when (cName == "com/galois/symbolic/Symbolic$Debug") $
-          expectOverride "Symbolic$Debug" mk
+          expectOverride "Symbolic$Debug" key
         -- dbugM $ "pushCallFrame: (static) method call to " ++ cName ++ "." ++ methodName method
         case mRetBlock of
           Just retBB -> modifyCSM_ $ \cs ->
             case pushCallFrame cName method retBB locals cs of
               Just cs' -> return cs'
               Nothing  -> fail "cannot invoke method: all paths failed"
-          Nothing -> void $ runMethod cName mk locals
+          Nothing -> void $ execMethod cName key locals
   where
-    expectOverride cn mk =
+    expectOverride cn key =
       error $ "expected static override for " ++ cn ++ "."
-            ++ methodName method ++ unparseMethodDescriptor mk
+            ++ methodKeyName key ++ unparseMethodDescriptor key
 
 lookupInstanceOverride :: String 
                      -> MethodKey
                      -> Simulator sbe m (Maybe (InstanceOverride sbe m))
-lookupInstanceOverride cName methodKey = 
-  uses instanceOverrides $ M.lookup (cName, methodKey)
+lookupInstanceOverride cName key = do
+  overrides <- use instanceOverrides
+  lookupOverride overrides cName key
 
 lookupClass' :: String -> Simulator sbe m Class
 lookupClass' cName = do
   cb <- use codebase
   liftIO $ lookupClass cb cName
-
-lookupMethod' :: Class -> MethodKey -> Simulator sbe m Method
-lookupMethod' cl key = 
-  case cl `lookupMethod` key of
-    Just method -> return method
-    _ -> fail . render $ "Could not find instance method" 
-                   <+> ppMethodKey key <+> "in" <+> text (className cl)
-
--- | Either pushes a call frame onto the simulator state, or runs an
--- override. Assumes the given class name is the concrete class to
--- call (dynamic dispatch already resolved)
-invokeInstanceMethod :: MonadSim sbe m 
-                     => String 
-                     -> MethodKey
-                     -> JSRef (Simulator sbe m)
-                     -> [Value (SBETerm sbe)]
-                     -> Simulator sbe m ()
-invokeInstanceMethod cName key objectRef args = do
-  cl <- lookupClass' cName
-  method <- lookupMethod' cl key
-  pushInstanceMethodCall cName method objectRef args Nothing
   
 -- | Invoke an instance method in the current simulator state. If
 -- there is no basic block to return to, this is either a top-level
@@ -308,23 +286,32 @@ invokeInstanceMethod cName key objectRef args = do
 -- handled by the caller.
 pushInstanceMethodCall :: MonadSim sbe m
                        => String
-                       -> Method
+                       -> MethodKey
                        -> JSRef (Simulator sbe m)
                        -> [Value (SBETerm sbe)]
                        -> Maybe BlockId
                        -> Simulator sbe m ()
-pushInstanceMethodCall cName method objectRef args mRetBlock = do
-  let mk = methodKey method
-      locals = setupLocals (RValue objectRef : args)
-  override <- lookupInstanceOverride cName mk
+pushInstanceMethodCall cName key objectRef args mRetBlock = do
+  let locals = setupLocals (RValue objectRef : args)
+  override <- lookupInstanceOverride cName key
+  ovrs <- use instanceOverrides
+  let ovrString = sep [ text cName <> "." <> ppMethodKey key
+                      | (cName, key) <- M.keys ovrs ]
+  dbugM . render $ ovrString
   case override of
     Just f -> do f objectRef args
                  case mRetBlock of
                    Just retBlock -> setCurrentBlock retBlock
                    Nothing -> return ()
-    Nothing ->
+    Nothing -> do
+      cl <- lookupClass' cName
+      method <- case cl `lookupMethod` key of
+                  Just m -> return m
+                  Nothing -> fail . render 
+                    $ "pushInstanceMethodCall: could not find method" 
+                    <+> text cName <> "." <> ppMethodKey key
       if methodIsNative method then
-        error $ "Unsupported native instance method " ++ show mk ++ " in " ++ cName
+        error $ "Unsupported native instance method " ++ show key ++ " in " ++ cName
       else do
         dbugM $ "pushCallFrame: (instance) method call to " ++ cName ++ "." ++ methodName method
         case mRetBlock of
@@ -333,7 +320,7 @@ pushInstanceMethodCall cName method objectRef args mRetBlock = do
               case pushCallFrame cName method retBB locals cs of
                 Just cs' -> return cs'
                 Nothing  -> fail "cannot invoke method: all paths failed"
-          Nothing -> void $ runMethod cName mk locals
+          Nothing -> void $ execMethod cName key locals
 
 setupLocals :: [Value term]
             -> M.Map LocalVariableIndex (Value term)
@@ -589,10 +576,6 @@ getRefArray :: MonadSim sbe m
             => Ref -> Simulator sbe m [Ref]
 getRefArray = getArray unRValue
 
-setInstanceFieldValue r fieldId v = do
-  Just m <- getMem
-  setMem (m & memInstanceFields %~ M.insert (r, fieldId) v)
-
 --setStaticFieldValue :: MonadSim sbe m
 --                    => FieldId -> Value (SBETerm sbe) -> Simulator sbe m ()
 
@@ -689,19 +672,52 @@ safeCast = impl minBound maxBound . toInteger
 
 -- initializeClass :: MonadSim sbe m => String -> Simulator sbe m ()
 
+-- | Run a static method in the current simulator context, temporarily
+-- suspending the current call stack. Useful for implementing method
+-- overrides. For top-level invocations, use 'runStaticMethod' instead.
+execStaticMethod :: MonadSim sbe m
+                 => String
+                 -> MethodKey                 
+                 -> [Value (SBETerm sbe)]
+                 -> Simulator sbe m (Maybe (Value (SBETerm sbe)))
+execStaticMethod cName key args = do
+  mp <- execMethod cName key (setupLocals args)
+  case mp of
+    Nothing -> fail "execStaticMethod: all paths failed"
+    Just (_, mrv) -> return mrv
+
+-- | Run an instance method in the current simulator context, using
+-- @ref@ as @this@, temporarily suspending the current call
+-- stack. Useful for implementing method overrides.
+execInstanceMethod :: MonadSim sbe m
+                   => String
+                   -> MethodKey
+                   -> Ref
+                   -> [Value (SBETerm sbe)]
+                   -> Simulator sbe m (Maybe (Value (SBETerm sbe)))
+execInstanceMethod cName key ref args = do
+  mp <- execMethod cName key (setupLocals (RValue ref : args))
+  case mp of
+    Nothing -> fail "execInstanceMethod: all paths failed"
+    Just (_, mrv) -> return mrv
+
 -- | Low-level method call for when we need to make a method call not
 -- prescribed by the symbolic instructions. This arises mainly in
 -- class initialization, as well as synthetic code as for
--- printStreams.
-runMethod :: MonadSim sbe m 
-          => String
-          -> MethodKey
-          -> M.Map LocalVariableIndex (Value (SBETerm sbe)) 
-          -> Simulator sbe m (Maybe (Path sbe, (Maybe (Value (SBETerm sbe)))))
-runMethod cName key locals = do
+-- printStreams. Does not check for overrides.
+execMethod :: MonadSim sbe m 
+           => String
+           -> MethodKey
+           -> M.Map LocalVariableIndex (Value (SBETerm sbe)) 
+           -> Simulator sbe m (Maybe (Path sbe, (Maybe (Value (SBETerm sbe)))))
+execMethod cName key locals = do
   cb <- use codebase
   cl <- lookupClass' cName
-  method <- cl `lookupMethod'` key
+  method <- case cl `lookupMethod` key of
+              Just m -> return m
+              Nothing -> fail . render 
+                $ "runMethod: could not find method" <+> text cName
+                <> "." <> ppMethodKey key
 
   -- Horrendous Hack Alert: Since we may need to
   -- resume execution from the middle of a basic block, we
@@ -854,9 +870,7 @@ step (PushInvokeFrame InvSpecial (ClassType cName) key retBlock) = do
   cb               <- use codebase
   b                <- liftIO $ isStrictSuper cb cName currentClass
   let args          = reverse reverseArgs
-      call cName'   = do cl <- lookupClass' cName'
-                         method <- lookupMethod' cl key
-                         pushInstanceMethodCall cName' method objectRef args (Just retBlock)
+      call cName'   = pushInstanceMethodCall cName' key objectRef args (Just retBlock)
   if classHasSuperAttribute currentClass && b && methodKeyName key /= "<init>"
     then do
       dynBind cName key objectRef call
@@ -879,10 +893,8 @@ step (PushInvokeFrame InvVirtual (ArrayType _methodType) key retBlock) = do
   objectRef <- rPop
   throwIfRefNull objectRef
   let object = "java/lang/Object"
-  cl <- lookupClass' object
-  method <- lookupMethod' cl key
   pushInstanceMethodCall object
-                         method
+                         key
                          objectRef 
                          (reverse reverseArgs)
                          (Just retBlock)
@@ -892,19 +904,15 @@ step (PushInvokeFrame InvVirtual (ClassType cName) key retBlock) = do
   objectRef   <- rPop
   throwIfRefNull objectRef
   dynBind cName key objectRef $ \cName' -> do
-    cl <- lookupClass' cName'
-    method <- lookupMethod' cl key
     pushInstanceMethodCall cName' 
-                           method
+                           key
                            objectRef
                            (reverse reverseArgs) 
                            (Just retBlock)
 
 step (PushInvokeFrame InvStatic (ClassType cName) key retBlock) = do
   reverseArgs <- replicateM (length (methodKeyParameterTypes key)) popValue
-  cl <- lookupClass' cName
-  method <- lookupMethod' cl key
-  pushStaticMethodCall cName method (reverse reverseArgs) (Just retBlock)
+  pushStaticMethodCall cName key (reverse reverseArgs) (Just retBlock)
 
 step ReturnVoid = modifyCSM_ $ returnCurrentPath Nothing
 
@@ -1091,7 +1099,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
             setMem $ setInitializationStatus name Started m
             unless (skipInit name) $ do
               dbugM $ "initializing class: " ++ name
-              void $ runMethod name clinit M.empty
+              void $ execStaticMethod name clinit []
           Nothing -> return ()
         runCustomClassInitialization cl
         Just m <- getMem
@@ -1413,7 +1421,11 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
          in refArrays ps' M.! r `seq` putPathState ps'
   setArrayValue _ _ _ =
     error "internal: invalid setArrayValue parameters (array type/elem mismatch?)"
-
+-}
+  setInstanceFieldValue r fieldId v = do
+    Just m <- getMem
+    setMem (m & memInstanceFields %~ M.insert (r, fieldId) v)
+{-
   setInstanceFieldValue r fieldId v = modifyPathState $ \ps ->
       ps{ instanceFields = v `seq` M.insert (r,fieldId) v (instanceFields ps) }
 
@@ -1462,9 +1474,9 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
           Just str  -> putStr' str
           Nothing   -> do
             let key = makeMethodKey "toString" "()Ljava/lang/String;"
-            mres <- runMethod "java/lang/Object" key (setupLocals [RValue r])
-            case mres of
-              Just (_, Just sref) -> putStr' =<< drefString (unRValue sref)
+            msref <- execInstanceMethod "java/lang/Object" key r []
+            case msref of
+              Just sref -> putStr' =<< drefString (unRValue sref)
               _ -> fail "toString terminated abnormally"
       _ -> abort $ "Unable to display values of type other than "
                  ++ "int, long, and reference to constant string"
@@ -1564,12 +1576,12 @@ overrideInstanceMethod :: String
                        -> MethodKey
                        -> (Ref -> [Value (SBETerm sbe)] -> Simulator sbe m ())
                        -> Simulator sbe m ()
-overrideInstanceMethod cName mKey action = do
+overrideInstanceMethod cName key action = do
   overrides <- use instanceOverrides
-  let key = (cName, mKey)
-  when (key `M.member` overrides) $ do
-    fail $ "Method " ++ cName ++ "." ++ methodKeyName mKey  ++ " is already overridden."
-  instanceOverrides %= M.insert key action
+  let k = (cName, key)
+  when (k `M.member` overrides) $ do
+    fail $ "Method " ++ cName ++ "." ++ methodKeyName key  ++ " is already overridden."
+  instanceOverrides %= M.insert k action
 
 -- | Override behavior of simulator when it encounters a specific static
 -- method to perform a user-definable action.
@@ -1678,9 +1690,7 @@ stdOverrides = do
         , arrayCopyKey
         , \opds -> do
             let nativeClass = "com/galois/core/NativeImplementations"
-            cl <- lookupClass' nativeClass
-            let Just methodImpl = cl `lookupMethod` arrayCopyKey
-            pushStaticMethodCall nativeClass methodImpl opds Nothing
+            pushStaticMethodCall nativeClass arrayCopyKey opds Nothing
         )
       -- java.lang.System.exit(int status)
     , ( "java/lang/System"
@@ -1767,10 +1777,10 @@ stdOverrides = do
       , makeMethodKey "doPrivileged" "(Ljava/security/PrivilegedAction;)Ljava/lang/Object;"
       , \args -> case args of
                    [RValue a@(Ref _ (ClassType cn))] ->
-                     invokeInstanceMethod
+                     pushInstanceMethodCall
                      cn
                      (makeMethodKey "run" "()Ljava/lang/Object;")
-                     a []
+                     a [] Nothing
                    _ -> abort "doPrivileged called with incorrect arguments"
       )
     ]

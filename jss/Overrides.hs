@@ -176,5 +176,7 @@ jssOverrides = do
         czCN              = "com/galois/symbolic/CValue$CBool"
         cjCN              = "com/galois/symbolic/CValue$CLong"
         unboxCV cn ref td = do
-          invokeInstanceMethod cn (makeMethodKey "getValue" td) ref []
-          popValue
+          mp <- execInstanceMethod cn (makeMethodKey "getValue" td) ref []
+          case mp of
+            Just v -> return v
+            Nothing -> fail "getInputs: no return value"
