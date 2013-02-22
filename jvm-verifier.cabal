@@ -23,7 +23,7 @@ Flag build-examples
 
 Flag build-tests
   description: Build the test executables
-  default: False
+  default: True
 
 Flag build-SAWScript
   description: Build the SAWScript interface
@@ -184,9 +184,12 @@ executable Tests
     , directory
     , filepath
     , jvm-parser
+    , lens >= 3.8
     , mtl >= 2.1
+    , pretty
     , process
     , random >= 1.0.1.0
+    , transformers >= 0.3.0.0
     , vector >= 0.7
     , QuickCheck >= 2.4.1
     , Verinf
