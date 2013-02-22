@@ -792,12 +792,10 @@ errorPath rsn = do
 -- | Creates an exception of the given class (which is assumed to have a no
 -- argument constructor) and throws it.
 createAndThrow :: MonadSim sbe m => String -> Simulator sbe m a
-createAndThrow clName = do
-  ref <- newObject clName
-  ctrlStk %= modifyCurrentPath (\p -> 
-    let exc = JavaException ref (p^.pathStack)
-    in p & pathException .~ Just exc)
-  errorPath $ FailRsn clName
+createAndThrow cName = do
+  ref <- newObject cName
+  throw ref
+  error "createAndThrow: unreachable"
 
 throwNullPtrExc :: MonadSim sbe m => Simulator sbe m a
 throwNullPtrExc = createAndThrow "java/lang/NullPointerException"
@@ -1109,6 +1107,15 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
         createAndThrow "java/lang/NoClassDefFoundError"
       Just Started -> return ()
       Just Initialized -> return ()
+
+  throw ref@(Ref _ (ClassType cName)) = do
+    ctrlStk %= modifyCurrentPath (\p -> 
+      let exc = JavaException ref (p^.pathStack)
+      in p & pathException .~ Just exc)
+    errorPath $ FailRsn cName
+
+  throw _ = fail "throw: null or non-reference type thrown"
+
 
   -- Negate a Boolean value
   bNot x = withSBE $ \sbe -> termNot sbe x 
