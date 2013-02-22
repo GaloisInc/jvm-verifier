@@ -31,7 +31,9 @@ module Verifier.Java.Simulator
   , defaultSEH
   , getProgramReturnValue
   , getProgramFinalMem
+  , getProgramErrorPaths
   , prettyTermSBE
+  , runDefSimulator
   , runSimulator
   , withSBE
 --  , withSBE'
@@ -375,6 +377,8 @@ runMethod' isRedirected method args = do
           runNormalSymbol normalRetID calleeSym mreg args
 -}
 
+runDefSimulator cb sbe m = runSimulator cb sbe defaultSEH Nothing m
+
 runSimulator :: 
      MonadSim sbe IO
   => Codebase              -- ^ JVM Codebase
@@ -414,6 +418,10 @@ getProgramFinalMem = do
   if isFinished cs
     then getMem
     else return Nothing
+
+getProgramErrorPaths :: MonadSim sbe m
+                     => Simulator sbe m [ErrorPath sbe]
+getProgramErrorPaths = use errorPaths
 
 --------------------------------------------------------------------------------
 -- Memory operations
@@ -750,15 +758,15 @@ execMethod cName key locals = do
 
 runCustomClassInitialization :: MonadSim sbe m => Class -> Simulator sbe m ()
 runCustomClassInitialization cl =
-  case cname of
+  case cName of
     "java/lang/System" -> do
       initializeClass pstreamName
       outStream <- RValue `liftM` genRef (ClassType pstreamName)
       errStream <- RValue `liftM` genRef (ClassType pstreamName)
-      setStaticFieldValue (FieldId cname "out" pstreamType) outStream
-      setStaticFieldValue (FieldId cname "err" pstreamType) errStream
+      setStaticFieldValue (FieldId cName "out" pstreamType) outStream
+      setStaticFieldValue (FieldId cName "err" pstreamType) errStream
     _ -> return ()
-  where cname = className cl
+  where cName = className cl
         pstreamName = "java/io/PrintStream"
         pstreamType = ClassType pstreamName
 
@@ -859,6 +867,17 @@ dbugStep insn = do
 step :: MonadSim sbe m
      => SymInsn -> Simulator sbe m ()
 
+step (PushInvokeFrame InvInterface (ClassType iName) key retBlock) = do
+  reverseArgs <- replicateM (length (methodKeyParameterTypes key)) popValue
+  objectRef   <- rPop
+  throwIfRefNull objectRef
+  dynBind iName key objectRef $ \iName' -> do
+    pushInstanceMethodCall iName' 
+                           key 
+                           objectRef 
+                           (reverse reverseArgs)
+                           (Just retBlock)
+
 step (PushInvokeFrame InvSpecial (ClassType cName) key retBlock) = do
   currentClassName <- getCurrentClassName
   reverseArgs      <- replicateM (length (methodKeyParameterTypes key)) popValue
@@ -876,22 +895,21 @@ step (PushInvokeFrame InvSpecial (ClassType cName) key retBlock) = do
       do throwIfRefNull objectRef
          call cName
 
-{-
-step (Invokespecial (ArrayType _methodType) key) = {-# SCC "Invokespecial" #-}  do
+step (PushInvokeFrame InvSpecial (ArrayType _methodType) key retBlock) = do
   reverseArgs <- replicateM (length (methodKeyParameterTypes key)) popValue
   objectRef <- rPop
-  forkM (isNull objectRef)
-        (createAndThrow "java/lang/NullPointerException")
-        (do gotoNextInstruction
-            invokeInstanceMethod "java/lang/Object" key objectRef $ reverse reverseArgs)
--}
+  throwIfRefNull objectRef
+  pushInstanceMethodCall "java/lang/Object" 
+                         key
+                         objectRef
+                         (reverse reverseArgs)
+                         (Just retBlock)
 
 step (PushInvokeFrame InvVirtual (ArrayType _methodType) key retBlock) = do
   reverseArgs <- replicateM (length (methodKeyParameterTypes key)) popValue
   objectRef <- rPop
   throwIfRefNull objectRef
-  let object = "java/lang/Object"
-  pushInstanceMethodCall object
+  pushInstanceMethodCall "java/lang/Object"
                          key
                          objectRef 
                          (reverse reverseArgs)
@@ -1009,8 +1027,6 @@ defaultSEH = SEH
 
 --------------------------------------------------------------------------------
 -- Conversions
-longFromInt x = withSBE $ \sbe -> termLongFromInt sbe x
-intFromLong x = withSBE $ \sbe -> termIntFromLong sbe x
 
 compareFloat :: (Floating a, Ord a, MonadSim sbe m) 
              => a -> a -> Simulator sbe m (SBETerm sbe)
@@ -1089,6 +1105,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
                       setStaticFieldValue fieldId val
                   Just tp -> error $ "Unsupported field type" ++ show tp
         cl <- lookupClass' name
+        runCustomClassInitialization cl
         mapM_ initializeField $ classFields cl
         case cl `lookupMethod` clinit of
           Just _ -> do
@@ -1099,7 +1116,6 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
               dbugM $ "initializing class: " ++ name
               void $ execStaticMethod name clinit []
           Nothing -> return ()
-        runCustomClassInitialization cl
         Just m <- getMem
         setMem $ setInitializationStatus name Initialized m
         dbugM $ "class initialized: " ++ name
@@ -1133,15 +1149,37 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
           Just True -> return x
           Just False -> return y
           _ -> liftIO $ termAnd sbe x y
-{-
-
 
   -- Conversions
+  longFromInt x = withSBE $ \sbe -> termLongFromInt sbe x
+  intFromLong x = withSBE $ \sbe -> termIntFromLong sbe x
   floatFromDouble  = return . fromRational . toRational
   intFromDouble x  = withSBE $ \sbe -> termInt sbe (truncate x)
   longFromDouble x = withSBE $ \sbe -> termLong sbe (truncate x)
   doubleFromFloat  = return . fromRational . toRational
--}
+  intFromFloat x   = withSBE $ \sbe -> termInt sbe (truncate x)
+  longFromFloat x  = withSBE $ \sbe -> termLong sbe (truncate x)
+  doubleFromInt  i = do
+    sbe <- use backend
+    case asInt sbe i of
+      Just n -> return (fromIntegral n)
+      Nothing -> error "cannot convert symbolic int to double"
+  floatFromInt i = do
+    sbe <- use backend
+    case asInt sbe i of
+      Just n -> return (fromIntegral n)
+      Nothing -> error "cannot convert symbolic int to float"
+  doubleFromLong l = do
+    sbe <- use backend
+    case asLong sbe l of
+      Just n -> return (fromIntegral n)
+      Nothing -> error "cannot convert symbolic long to double"
+  floatFromLong  l = do
+    sbe <- use backend
+    case asLong sbe l of
+      Just n -> return $ fromIntegral n
+      Nothing -> error "cannot convert symbolic long to float"
+
   -- Double operations
   dAdd  x y = return $ x + y
   -- TODO: Fix Nan handling.
@@ -1217,30 +1255,6 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     Just m <- getMem
     setMem (m & memStaticFields %~ M.insert fieldId v)
           
-{-
-  intFromFloat x   = withSBE $ \sbe -> termInt sbe (truncate x)
-  longFromFloat x  = withSBE $ \sbe -> termLong sbe (truncate x)
-  doubleFromInt  i = do
-    sbe <- gets backend
-    case asInt sbe i of
-      Just n -> return (fromIntegral n)
-      Nothing -> error "cannot convert symbolic int to double"
-  floatFromInt i = do
-    sbe <- gets backend
-    case asInt sbe i of
-      Just n -> return (fromIntegral n)
-      Nothing -> error "cannot convert symbolic int to float"
-  doubleFromLong l = do
-    sbe <- gets backend
-    case asLong sbe l of
-      Just n -> return (fromIntegral n)
-      Nothing -> error "cannot convert symbolic long to double"
-  floatFromLong  l = do
-    sbe <- gets backend
-    case asLong sbe l of
-      Just n -> return $ fromIntegral n
-      Nothing -> error "cannot convert symbolic long to float"
--}
   byteArrayVal arrayRef value = do
     cond <- arrayRef `hasType` (ArrayType BooleanType)
     t <- boolFromInt value
@@ -1304,8 +1318,6 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     setMem m'
     return ref
 
-{-
-
   isValidEltOfArray elt arr = do
     if elt == NullRef then
       withSBE $ \sbe -> termBool sbe True
@@ -1320,8 +1332,6 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     rtp <- getType ref
     b <- liftIO $ isSubtype cb rtp tp
     withSBE $ \sbe -> termBool sbe b
-
--}
 
   instanceOf ref tp = do
     -- this technically violates the semantics of Java, which just returns false
@@ -1366,19 +1376,16 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
         ref <- newString val
         strings %= M.insert val ref
         return ref
-{-
 
-  getClassObject cname = do
-    ps <- getPathState
-    case M.lookup cname (classObjects ps) of
+  getClassObject cName = do
+    Just m <- getMem
+    case M.lookup cName (m^.memClassObjects) of
       Just ref -> return ref
       Nothing -> do
-        ref <- newClass cname
-        modifyPathState $ \ps' ->
-          ps' { classObjects = M.insert cname ref (classObjects ps') }
+        ref <- newClass cName
+        setMem $ m & memClassObjects %~ M.insert cName ref
         return ref
 
--}
   -- Heap related functions {{{1
 
   -- Pushes value of field onto stack.
@@ -1870,6 +1877,17 @@ drefString strRef = do
 
 -- setLocal :: LocalVariableIndex -> Value (SBETerm sbe) -> Simulator sbe m ()
 
+-- | Create an instance of the @Class@ class; should only be called once per class
+newClass :: MonadSim sbe m => String -> Simulator sbe m Ref
+newClass cName = do
+  -- As with String above, creating a proper Class object is tricky,
+  -- and intimately tied with things like reflection. We probably want
+  -- to REVISIT this, as well.
+  initializeClass "java/lang/Class"
+  ref <- genRef (ClassType "java/lang/Class")
+  str <- newString cName
+  setInstanceFieldValue ref (FieldId "java/lang/Class" "name" stringTy) (RValue str)
+  return ref
 
 -- | Obtain the string value of the name field for the given instance of class
 -- @Class@
