@@ -1,3 +1,5 @@
+#!/usr/bin/env runhaskell
+
 {-# OPTIONS_GHC -fno-warn-unused-do-bind #-}
 module Main where
 

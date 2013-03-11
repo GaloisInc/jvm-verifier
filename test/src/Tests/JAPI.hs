@@ -36,7 +36,7 @@ japiTests =
   , test1 (doTest "outArr")       "JAPI: symbolic array out param"
   ]
 
-mkTestArgs :: String -> Simulator SymbolicMonad [Value DagTerm]
+mkTestArgs :: String -> Simulator SymbolicMonad IO [Value DagTerm]
 mkTestArgs tn = do
   args <- newMultiArray (ArrayType (ClassType "java/lang/String")) [mkCInt 32 1]
   setArrayValue args (mkCInt 32 0) =<< (RValue <$> refFromString tn)
@@ -45,7 +45,7 @@ mkTestArgs tn = do
 doTest :: String -> TrivialProp
 doTest tn cb =
   runSymTest $ \sbe -> do
-    runDefSimulator sbe cb $ do
+    runDefSimulator cb sbe $ do
       jssOverrides
       rs <- runMain "JAPI" =<< mkTestArgs tn
       CE.assert (length rs == 1) $ return [True]
