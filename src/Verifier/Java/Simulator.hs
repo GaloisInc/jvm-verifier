@@ -54,6 +54,8 @@ module Verifier.Java.Simulator
   , updateSymbolicArray
   -- * Memory operations
   , lookupStringRef
+  , getStaticFieldValue
+  , getInstanceFieldValue
   -- for testing
   , dbugM
 --  , dbugTerm

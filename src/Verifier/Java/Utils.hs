@@ -17,6 +17,12 @@ module Verifier.Java.Utils
   , safeHead
   , boolSeqToValue
   , splitN
+  , hexToByteSeq
+  , byteSeqToHex
+  , hexToByteSeq
+  , hexToIntSeq
+  , boolSeqToHex
+  , byteSeqToHex
   )
 where
 

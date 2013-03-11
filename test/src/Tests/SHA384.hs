@@ -95,18 +95,18 @@ evalAigSHA384 msg = do
     return $ byteSeqToHex rs
   assert $ rslt == golden
 
-runSHA384 :: AigOps sym => [MonadTerm sym] -> Simulator sym [MonadTerm sym]
+runSHA384 :: MonadSim sbe m => [SBETerm sbe] -> Simulator sbe m [SBETerm sbe]
 runSHA384 msgVars = do
   msgArray <- newIntArray intArrayTy msgVars
   l <- withSBE $ \sbe -> termInt sbe 48
   outArray <- newMultiArray (ArrayType ByteType) [l]
-  [(pd, Terminated)] <- runStaticMethod "TestSHA384"
-                                        "sha384_digest"
-                                        "([B[B)V"
-                                        [ RValue msgArray
-                                        , RValue outArray
-                                        ]
-  getIntArray pd outArray
+  _ <- runStaticMethod "TestSHA384"
+                       "sha384_digest"
+                       "([B[B)V"
+                       [ RValue msgArray
+                       , RValue outArray
+                       ]
+  getIntArray outArray
 
 _ignore_nouse :: a
 _ignore_nouse = undefined main evalAigSHA384
