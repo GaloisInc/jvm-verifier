@@ -84,6 +84,7 @@ module Verifier.Java.Common
   , pathException
   , pathRetVal
   , addPathAssertion
+  , getPath
   , ppPath
   
   , Memory
@@ -93,6 +94,9 @@ module Verifier.Java.Common
   , memScalarArrays
   , memRefArrays
   , memClassObjects
+  , getMem
+  , ppMemory
+  , dumpMemory
 
   , InitializationStatus(..)
   , setInitializationStatus
@@ -144,7 +148,7 @@ import Control.Lens hiding (Path)
 import Control.Monad.Error 
 import Control.Monad.State hiding (State)
 
-import Data.Array (Array, elems)
+import Data.Array (Array, Ix, elems, assocs)
 import qualified Data.Foldable as DF
 import Data.Int (Int32)
 import Data.List (intercalate)
@@ -158,7 +162,7 @@ import Data.Word (Word32)
 
 import Text.PrettyPrint
 
-import Language.JVM.Common (ppType)
+import Language.JVM.Common (ppFldId, ppType)
 import Data.JVM.Symbolic.AST
 import Execution.JavaSemantics (AtomicValue(..), JSValue)
 import Verifier.Java.Backend
@@ -337,7 +341,7 @@ data Memory term = Memory {
     -- ^ static field values 
   , _memInstanceFields :: !(Map InstanceFieldRef (Value term))
     -- ^ instance field values 
-  , _memScalarArrays   :: !(Map Ref (term, term))
+  , _memScalarArrays   :: !(Map Ref (Int32, term))
     -- ^ integer and long array values (floating point not supported)
   , _memRefArrays      :: !(Map Ref (Array Int32 Ref))
     -- ^ reference array values
@@ -491,6 +495,16 @@ modifyPathM f =
 
 modifyPathM_ f = modifyPathM (\p -> ((),) <$> f p)
 
+-- | Obtain the current path; @Nothing@ means that the control stack
+-- is empty or the top entry of the control stack has no pending paths
+-- recorded.
+getPath :: (Functor m, Monad m) => Simulator sbe m (Maybe (Path sbe))
+getPath = uses ctrlStk currentPath
+
+-- @getMem@ yields the memory model of the current path, which must exist.
+getMem :: (Functor m, Monad m) => Simulator sbe m (Maybe (Memory (SBETerm sbe)))
+getMem = fmap (view pathMemory <$>) getPath
+
 modifyCallFrameM :: 
      String
   -> (CallFrame (SBETerm sbe) -> Simulator sbe m (a, (CallFrame (SBETerm sbe))))
@@ -552,7 +566,7 @@ addCtrlBranch c nb nm ml cs =
                      & pathName    .~ nm
 
 -- | Move current path to target block, checking for merge points.
-jumpCurrentPath :: MonadIO m
+jumpCurrentPath :: (Functor m, MonadIO m)
                 => BlockId -> CS sbe -> Simulator sbe m (CS sbe)
 jumpCurrentPath _ CompletedCS{} = fail "Path is completed"
 jumpCurrentPath b (ActiveCS p k) = 
@@ -560,7 +574,7 @@ jumpCurrentPath b (ActiveCS p k) =
 
 -- | Return from current path, checking for merge points, and putting
 -- the optional return value on the operand stack of the next frame.
-returnCurrentPath :: forall sbe m . MonadIO m
+returnCurrentPath :: forall sbe m . (Functor m, MonadIO m)
                   => Maybe (Value (SBETerm sbe))
                   -> CS sbe 
                   -> Simulator sbe m (CS sbe)
@@ -579,7 +593,7 @@ returnCurrentPath retVal (ActiveCS p k) = do
              & pathRetVal  .~ if null cfs' then retVal else Nothing
   mergeNextCont p' k
 
-branchError :: MonadIO m
+branchError :: (Functor m, MonadIO m)
             => BranchAction sbe -- ^ action to run if branch occurs.
             -> SimCont sbe      -- ^ previous continuation
             -> Simulator sbe m (CS sbe) 
@@ -599,7 +613,7 @@ branchError ba k = do
       mergeNextCont pf' k
 
 -- | Mark the current path as an error path.
-markCurrentPathAsError :: MonadIO m 
+markCurrentPathAsError :: (Functor m, MonadIO m)
                        => CS sbe 
                        -> Simulator sbe m (CS sbe)
 markCurrentPathAsError cs = case cs of
@@ -631,14 +645,14 @@ currentOpds p = view cfOpds <$> currentCallFrame p
 --   continuation is empty. This leaves us with a completed control
 --   stack containing the current path.
 -- 
---   2. We've reaced the current path's 'MergePoint' , so the current
+--   2. We've reached the current path's 'MergePoint', so the current
 --   continuation is complete. Depending on the type of continuation,
 --   we either move on to a different path, or merge the current path
 --   with an already-finished path before continuing.
 -- 
 --   3. The current path's merge point does not indicate the current
 --   location, so we continue with the same path and continuation.
-mergeNextCont :: MonadIO m
+mergeNextCont :: (Functor m, MonadIO m)
               => Path sbe
               -> SimCont sbe
               -> Simulator sbe m (CS sbe)
@@ -656,16 +670,22 @@ mergeNextCont p (HandleBranch point ba h)
       let ba' = BranchMerge (tp^.pathAssertions) c p
       return $ ActiveCS tp' (HandleBranch point ba' h) 
     BranchMerge a c pf -> do
-      let assertions = p^.pathAssertions 
-          (Just cf1, Just cf2) = (currentCallFrame p, currentCallFrame pf)
-      mergedCallFrame <- mergeCallFrames (p^.pathAssertions) cf1 cf2
-      mergedMemory <- mergeMemories assertions (p^.pathMemory) (pf^.pathMemory)
+      let assertions = p^.pathAssertions
+      mergedCallStack <- 
+        case (p^.pathStack, pf^.pathStack) of
+          -- TODO is it right to ignore the other frames on one path?
+          -- That's what old sim did...
+          (cf1:cfs1, cf2:_) -> do 
+            cf' <- mergeCallFrames c cf1 cf2
+            return (cf':cfs1)
+          _ -> throwError $ strMsg "call frame mismatch when merging paths"
+      mergedMemory <- mergeMemories c (p^.pathMemory) (pf^.pathMemory)
       mergedAssertions <- 
           liftIO $ termIte sbe c (p^.pathAssertions) (pf^.pathAssertions)
       a' <- liftIO $ termAnd sbe a mergedAssertions
-      let p' = p & pathStack._head .~ mergedCallFrame
-                 & pathMemory      .~ mergedMemory
-                 & pathAssertions  .~ a'
+      let p' = p & pathStack      .~ mergedCallStack
+                 & pathMemory     .~ mergedMemory
+                 & pathAssertions .~ a'
       -- recur in case multiple continuations have the same merge point
       mergeNextCont p' h
 -- 3.
@@ -692,9 +712,10 @@ mergeMemories assertions mem1 mem2 = do
       mergedRArrays = M.union rArrays1 rArrays2
       mergedCObjs   = M.union cObjs1 cObjs2
       -- pointwise merging of tuples
-      mergeTup (i1, v1) (i2, v2) = 
-        (,) <$> (liftIO $ termIte sbe assertions i1 i2)
-            <*> (liftIO $ termIte sbe assertions v1 v2)
+      mergeTup (l1, v1) (l2, v2) = do
+        assert (l1 == l2)
+        (,) l1 <$> (liftIO $ termIte sbe assertions v1 v2)
+            
   mergedSFields <- mergeBy (mergeValues assertions) sFields1 sFields2
   mergedIFields <- mergeBy (mergeValues assertions) iFields1 iFields2
   mergedScArrays <- mergeBy mergeTup scArrays1 scArrays2
@@ -827,7 +848,46 @@ ppLocals :: Backend sbe
          -> Map LocalVariableIndex (Value (SBETerm sbe))
          -> Doc
 ppLocals sbe = braces . commas . M.elems . M.mapWithKey ppPair
-  where ppPair idx val = int (fromIntegral idx) <+> "=>" <+> ppValue sbe val
+  where ppPair idx val = int (fromIntegral idx) <+> ":=" <+> ppValue sbe val
+
+ppMemory :: Backend sbe
+         -> Memory (SBETerm sbe)
+         -> Doc
+ppMemory sbe mem = hang ("memory" <> colon) 2 (brackets . commas $ rest)
+  where rest = [ 
+            hang ("class initialization" <> colon) 2 $
+              ppMap text (text . show) (mem^.memInitialization)
+          , hang ("static fields" <> colon) 2 $ 
+              ppMap (text . ppFldId) (ppValue sbe) (mem^.memStaticFields)
+          , hang ("instance fields" <> colon) 2 $
+              ppMap ppInstanceFieldRef (ppValue sbe) (mem^.memInstanceFields)
+          , let ppArr (len, a) = brackets (int (fromIntegral len)) 
+                                 <+> prettyTermD sbe a
+            in hang ("scalar arrays" <> colon) 2 $ 
+                 ppMap ppRef ppArr (mem^.memScalarArrays)
+          , let ppArr = ppArray (int . fromIntegral) ppRef
+            in hang ("reference arrays" <> colon) 2 $
+                 ppMap ppRef ppArr (mem^.memRefArrays)
+          , hang ("class objects" <> colon) 2 $
+              ppMap text ppRef (mem^.memClassObjects)
+          ]
+
+dumpMemory :: (Functor m, MonadIO m) => Simulator sbe m ()
+dumpMemory = do
+  sbe <- use backend
+  Just m <- getMem
+  liftIO . putStrLn . render . ppMemory sbe $ m  
+
+ppInstanceFieldRef :: InstanceFieldRef -> Doc
+ppInstanceFieldRef (ref, fld) = text (ppFldId fld) <> (braces . ppRef $ ref)
+
+ppArray :: Ix i => (i -> Doc) -> (e -> Doc) -> Array i e -> Doc
+ppArray idxf eltf = braces . commas . map ppPair . assocs
+  where ppPair (idx, elt) = idxf idx <+> ":=" <+> eltf elt
+
+ppMap :: (k -> Doc) -> (v -> Doc) -> Map k v -> Doc
+ppMap kf vf = braces . commas . map ppPair . M.toList
+  where ppPair (k, v) = kf k <+> ":=" <+> vf v
 
 ppOpds :: Backend sbe -> [Value (SBETerm sbe)] -> Doc
 ppOpds sbe = brackets . commas . map (ppValue sbe)

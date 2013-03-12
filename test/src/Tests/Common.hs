@@ -11,7 +11,8 @@ Point-of-contact : atomb, jhendrix
 {-# LANGUAGE TypeFamilies         #-}
 {-# LANGUAGE ViewPatterns         #-}
 module Tests.Common 
-  ( module Tests.Common
+  ( module Text.PrettyPrint
+  , module Tests.Common
   , module Execution
   , module Language.JVM.Parser
   , module Verifier.Java.Simulator
@@ -25,6 +26,7 @@ import Data.Int
 import Prelude hiding (catch)
 import System.FilePath
 import System.Random
+import Text.PrettyPrint
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import qualified Test.QuickCheck.Test as T
