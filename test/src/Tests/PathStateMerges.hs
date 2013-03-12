@@ -21,7 +21,7 @@ dummyCN = "PathStateMerges$Dummy"
 
 psmsTests :: [(Args, Property)]
 psmsTests =
-{-
+
   [ (`test1` "ddb1") $ \cb -> runSymTest $ \sbe -> do
       b    <- IValue <$> freshInt sbe
       outs <- runDefSimulator cb sbe $ do
@@ -46,8 +46,7 @@ psmsTests =
       res <- forM [0,1] $ \x ->
         asInt sbe <$> evalAigIntegral sbe id [mkCInt 32 x] out
       return [map Just [99,42] ==  res]
-  ,
--}[ (`test1` "ddb3") $ \cb -> runSymTest $ \sbe -> do
+  , (`test1` "ddb3") $ \cb -> runSymTest $ \sbe -> do
       b     <- IValue <$> freshInt sbe
       _refs <- runDefSimulator cb sbe $ do
         arr <- newMultiArray (ArrayType (ClassType dummyCN)) [mkCInt 32 1]

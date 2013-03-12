@@ -839,9 +839,9 @@ runInsns :: MonadSim sbe m
 runInsns insns = do Just p <- getPath
                     cb <- use codebase
                     return ()
---                    case currentCallFrame p of
---                      Just cf -> do dbugM $ "################## " ++ (cf^.cfClass)
---                                    liftIO $ dumpSymASTs cb (cf^.cfClass)
+                    -- case currentCallFrame p of
+                    --   Just cf -> do dbugM $ "################## " ++ (cf^.cfClass)
+                    --                 liftIO $ dumpSymASTs cb (cf^.cfClass)
                     mapM_ dbugStep insns
 
 dbugStep :: MonadSim sbe m 
