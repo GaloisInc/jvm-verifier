@@ -7,6 +7,7 @@ Point-of-contact : jstanley
 
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -14,6 +15,7 @@ Point-of-contact : jstanley
 module Tests.PrimOps (primOpTests) where
 
 import Control.Applicative
+import Control.Lens hiding (elements)
 import Control.Monad
 import Data.Bits
 import qualified Data.Vector as V
@@ -103,7 +105,7 @@ t3 :: TrivialProp
 t3 cb =  
   runSymTest $ \sbe -> do
     syms <- replicateM 4 $ freshByte sbe
-    [(_,ReturnVal (IValue rsltTerm))] <- runDefSimulator sbe cb $ do
+    [(_,Just (IValue rsltTerm))] <- runDefSimulator cb sbe $ do
       setVerbosity verb
       arr <- newIntArray (ArrayType ByteType) syms
       runStaticMethod "Trivial" "byte_array_f3" "([B)B" [RValue arr]
@@ -129,7 +131,7 @@ t9 :: TrivialProp
 t9 cb =
   runSymTest $ \sbe -> do
     syms <- replicateM 4 $ freshLong sbe
-    [(_,ReturnVal (LValue rsltTerm))] <- runDefSimulator sbe cb $ do
+    [(_,Just (LValue rsltTerm))] <- runDefSimulator cb sbe $ do
       setVerbosity verb
       arr <- newLongArray syms
       runStaticMethod "Trivial" "long_array_f3" "([J)J" [RValue arr]
@@ -143,7 +145,7 @@ t12a :: TrivialProp
 t12a cb =
   runSymTest $ \sbe -> do
     sym <- freshInt sbe
-    [(_,ReturnVal (IValue rsltTerm))] <- runDefSimulator sbe cb $ do
+    [(_,Just (IValue rsltTerm))] <- runDefSimulator cb sbe $ do
       setVerbosity verb
       runStaticMethod "Trivial" "fork_f1" "(Z)I" [IValue sym]
     let inps = [[0],[1]]
@@ -159,7 +161,7 @@ t12cmn
 t12cmn (cNm, mNm, sig) chk cb = do
   runSymTest $ \sbe -> do
     syms <- replicateM 2 $ IValue <$> freshInt sbe
-    [(_,ReturnVal (IValue rslt))] <- runDefSimulator sbe cb $ do
+    [(_,Just (IValue rslt))] <- runDefSimulator cb sbe $ do
       setVerbosity verb
       runStaticMethod cNm mNm sig syms
     forM [[0,0],[1,0],[0,1],[1,1]] $ \[b0,b1] -> do
@@ -184,14 +186,12 @@ t13 cb =
         cInputs = [constInt 16, constInt 4]
         expect  = map constInt [4, 64, 4, 8]
     ins <- replicateM 2 $ IValue <$> freshInt sbe
-    outVars <- runDefSimulator sbe cb $ do
+    outVars <- runDefSimulator cb sbe $ do
       setVerbosity verb
       outArr <- newMultiArray (ArrayType IntType) [mkCInt 32 4]
-      [(pd, Terminated)] <-
-        withoutExceptions <$>
-          runStaticMethod "Trivial" "out_array" "(II[I)V"
-                          (ins ++ [RValue outArr])
-      getIntArray pd outArr
+      [(pd, _)] <- runStaticMethod "Trivial" "out_array" "(II[I)V"
+                       (ins ++ [RValue outArr])
+      getIntArray outArr
     -- DAG eval
     evalFn <- concreteEvalFn (V.fromList cInputs)
     outVals <- mapM evalFn outVars
@@ -208,11 +208,12 @@ t13 cb =
 _t14 :: TrivialProp
 _t14 cb = runSymTest $ \sbe -> do
     a <- freshInt sbe
-    [(p,ReturnVal (IValue x))] <- 
-       runDefSimulator sbe cb $ do
+    [(p,Just (IValue x))] <- 
+       runDefSimulator cb sbe $ do
         setVerbosity verb
         runStaticMethod "Trivial" "loop1" "(I)I" [IValue a]
-    putStrLn $ "t14: rs = " ++ show p ++ " => " ++ prettyTerm x
+    putStrLn . render $ 
+      "t14: rs =" <+> integer (p^.pathName) <+> "=>" <+> prettyTermD sbe x
     return [True]
 
 --------------------------------------------------------------------------------
@@ -222,11 +223,10 @@ _t14 cb = runSymTest $ \sbe -> do
 -- field
 ct1 :: TrivialProp
 ct1 cb = runSymTest $ \sbe -> do
-  outVars <- runDefSimulator sbe cb $ do
+  outVars <- runDefSimulator cb sbe $ do
     outArr <- newMultiArray (ArrayType IntType) [mkCInt 32 2]
-    [(pd, Terminated)] <-
-      runStaticMethod "IVTDriver" "go" "([I)V" [RValue outArr]
-    getIntArray pd outArr
+    [(pd, _)] <- runStaticMethod "IVTDriver" "go" "([I)V" [RValue outArr]
+    getIntArray outArr
   evalFn <- concreteEvalFn V.empty
   outVals <- mapM evalFn outVars
   return $ [[constInt 42, constInt 42] == outVals]
@@ -237,7 +237,7 @@ ct2 cb =
   forAllM (listOf1 $ elements $ ['a'..'z'] ++ ['A'..'Z']) $ \str -> do
   runSymTest $ \sbe -> do
     inp <- termInt sbe (fromIntegral (length str))
-    [(_, ReturnVal (IValue outVar))] <- runDefSimulator sbe cb $ do
+    [(_, Just (IValue outVar))] <- runDefSimulator cb sbe $ do
       s <- refFromString str
       runStaticMethod "Trivial" "stringCheck" "(Ljava/lang/String;I)Z"
                       [RValue s, IValue inp]
@@ -257,8 +257,8 @@ testDoubleBin cb op method ty = do
   let a = 1.0
       b = 2.0
   runSymTest $ \sbe -> do
-    [(_,ReturnVal (DValue r))] <-
-      runDefSimulator sbe cb $
+    [(_,Just (DValue r))] <-
+      runDefSimulator cb sbe $
         runStaticMethod "Trivial" method ty [DValue a, DValue b]
     return [r == op a b]
 
@@ -271,8 +271,8 @@ testFloatBin cb op method ty = do
   let a = 1.0
       b = 2.0
   runSymTest $ \sbe -> do
-    [(_,ReturnVal (FValue r))] <- 
-      runDefSimulator sbe cb $ do
+    [(_,Just (FValue r))] <- 
+      runDefSimulator cb sbe $ do
         runStaticMethod "Trivial" method ty [FValue a, FValue b]
     return [r == op a b]
 
@@ -333,10 +333,9 @@ evalBinOp32 cb (classNm, methodNm, sig) x y = do
     let sbe = symbolicBackend sms
     a <- IValue <$> freshInt sbe
     b <- IValue <$> freshInt sbe
-    [(_,ReturnVal (IValue rslt))] <- runDefSimulator sbe cb $ do
+    [(_,Just (IValue rslt))] <- runDefSimulator cb sbe $ do
       setVerbosity verb
-      withoutExceptions <$>
-        runStaticMethod classNm methodNm sig [a, b]
+      runStaticMethod classNm methodNm sig [a, b]
     let args = V.map (mkCInt 32 . toInteger) (V.fromList [x, y])
     evalFn <- concreteEvalFn args
     evalFn rslt
@@ -353,10 +352,9 @@ evalBinOp64 cb (classNm, methodNm, sig) x y = do
     let sbe = symbolicBackend sms
     a <- LValue <$> freshLong sbe
     b <- LValue <$> freshLong sbe
-    [(_,ReturnVal (LValue rslt))] <- runDefSimulator sbe cb $ do
+    [(_,Just (LValue rslt))] <- runDefSimulator cb sbe $ do
       setVerbosity verb
-      withoutExceptions <$>
-        runStaticMethod classNm methodNm sig [a, b]
+      runStaticMethod classNm methodNm sig [a, b]
     let args = V.map (mkCInt 64 . toInteger) (V.fromList [x, y])
     evalFn <- concreteEvalFn args
     evalFn rslt

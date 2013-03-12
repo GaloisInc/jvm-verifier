@@ -9,6 +9,7 @@ module Tests.PathStateMerges(psmsTests) where
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.IO.Class
 import Data.Maybe
 import Prelude hiding (catch)
 import Test.QuickCheck
@@ -20,6 +21,7 @@ dummyCN = "PathStateMerges$Dummy"
 
 psmsTests :: [(Args, Property)]
 psmsTests =
+{-
   [ (`test1` "ddb1") $ \cb -> runSymTest $ \sbe -> do
       b    <- IValue <$> freshInt sbe
       outs <- runDefSimulator cb sbe $ do
@@ -32,6 +34,7 @@ psmsTests =
       let fn x = do
             map (fromJust . asInt sbe)
               <$> evalAigArray sbe 32 [mkCInt 32 x] outs
+      putStrLn . show =<< mapM fn [0,1]
       (\x -> [[[99,2000],[42,1000]] == x]) <$> mapM fn [0,1]
   , (`test1` "ddb2") $ \cb -> runSymTest $ \sbe -> do
       b <- IValue <$> freshInt sbe
@@ -43,7 +46,8 @@ psmsTests =
       res <- forM [0,1] $ \x ->
         asInt sbe <$> evalAigIntegral sbe id [mkCInt 32 x] out
       return [map Just [99,42] ==  res]
-  , (`test1` "ddb3") $ \cb -> runSymTest $ \sbe -> do
+  ,
+-}[ (`test1` "ddb3") $ \cb -> runSymTest $ \sbe -> do
       b     <- IValue <$> freshInt sbe
       _refs <- runDefSimulator cb sbe $ do
         arr <- newMultiArray (ArrayType (ClassType dummyCN)) [mkCInt 32 1]
@@ -52,6 +56,8 @@ psmsTests =
         when (length rs /= 1) $ error "psmsTests.ddb3: failed path state merge"
         getRefArray arr
       return [True]
+  ]
+{-
   , (`test1` "ddb4") $ \cb -> runSymTest $ \sbe -> do
       b   <- IValue <$> freshInt sbe
       IValue out <- runDefSimulator cb sbe $ do
@@ -111,7 +117,7 @@ psmsTests =
         <$> mapM (\(x,y) -> evalAigIntegral sbe id [mkCInt 32 x, mkCInt 32 y] out)
                  [(2,2), (4,5), (42,99), (2310, 33393)]
   ]
-
+-}
 --------------------------------------------------------------------------------
 -- Scratch
 

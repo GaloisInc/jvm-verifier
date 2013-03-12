@@ -39,16 +39,17 @@ runTests chooseTest = do
     noOfSelected = length qcProps
     qcProps = filter chooseTest allTests
     allTests =
-      [ ("Error propagation in IO.Session: via IO exception",   exampleExceptionSessionTests)
-      , ("Error propagation in IO.Session: via ErrorT",         exampleErrorSessionTests)
-      , ("SBVParser",                                           sbvParserTests)
-      , ("PrimOps",                                             primOpTests)
-      , ("Arrays",                                              arrayTests)
-      , ("Path state merging",                                  psmsTests)
-      , ("Expected Errors",                                     expErrTests)
-      , ("RC5-64",                                              rc564Tests)
-      , ("SHA-384",                                             sha384Tests)
-      , ("Java API",                                            japiTests)
-      , ("PrettyPrint",                                         prettyPrintTests)
-      , ("RuleChecker",                                         ruleCheckerTests)
+      [ 
+--        ("Error propagation in IO.Session: via IO exception",   exampleExceptionSessionTests)
+--      , ("Error propagation in IO.Session: via ErrorT",         exampleErrorSessionTests)
+--      , ("SBVParser",                                           sbvParserTests)
+--        ("PrimOps",                                             primOpTests)
+--      , ("Arrays",                                              arrayTests)
+        ("Path state merging",                                  psmsTests)
+--      , ("Expected Errors",                                     expErrTests)
+--      , ("RC5-64",                                              rc564Tests)
+--      , ("SHA-384",                                             sha384Tests)
+--      , ("Java API",                                            japiTests)
+--      , ("PrettyPrint",                                         prettyPrintTests)
+--      , ("RuleChecker",                                         ruleCheckerTests)
       ]

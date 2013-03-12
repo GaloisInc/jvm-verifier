@@ -191,7 +191,7 @@ liftBB cfg bb = do
                 mkCase (cv, bid) rest = 
                   [ si (PushPendingExecution bid (HasConstValue cv) pd rest) ]
       br currBlk il thenBlk elseBlk cmp = do
-        let suspendBlk = currBlk { blockN = 1 }
+        let suspendBlk = currBlk { blockN = (blockN currBlk) + 1 }
         -- Add pending execution for true branch, and execute false branch.
         -- If we want to do it the other way, we can negate the condition
         defineBlock currBlk $ reverse $

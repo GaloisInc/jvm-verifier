@@ -5,6 +5,7 @@ Stability        : provisional
 Point-of-contact : jstanley
 -}
 
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE CPP #-}
 
 module Tests.RC564 (rc564Tests) where
@@ -67,7 +68,7 @@ evalDagRC564 key input = do
     let sbe = symbolicBackend sms 
     keyVars <- replicateM 16 $ freshByte sbe
     inpVars <- replicateM 16 $ freshByte sbe
-    outVars <- runDefSimulator sbe cb $ runRC564 keyVars inpVars
+    outVars <- runDefSimulator cb sbe $ runRC564 keyVars inpVars
     let inpValues = V.map constInt
                   $ V.fromList
                   $ hexToByteSeq key ++ hexToByteSeq input
@@ -86,25 +87,25 @@ _makeAigerRC564 filepath = do
     let be = smsBitEngine sms
     keyVars <- replicateM 16 $ freshByte sbe
     inpVars <- replicateM 16 $ freshByte sbe
-    outValues <- runDefSimulator sbe cb $ runRC564 keyVars inpVars
+    outValues <- runDefSimulator cb sbe $ runRC564 keyVars inpVars
     putStrLn "Creating RC564 aiger..."
     outLits <- mapM (getVarLit sbe) outValues
     putStrLn $ "Writing RC564 aiger to '" ++ filepath ++ "'"
     writeAiger be filepath $ concat (map (take 8 . toLsbf_lit) outLits)
 
-runRC564 :: AigOps sym =>
-            [MonadTerm sym] -> [MonadTerm sym] -> Simulator sym [MonadTerm sym]
+runRC564 :: MonadSim sbe m =>
+            [SBETerm sbe] -> [SBETerm sbe] -> Simulator sbe m [SBETerm sbe]
 runRC564 keyVars inpVars = do
   let byteArrayType = ArrayType ByteType
   keyArray <- newIntArray byteArrayType keyVars
   inpArray <- newIntArray byteArrayType inpVars
   l16 <- withSBE $ \sbe -> termInt sbe 16
   outArray <- newMultiArray byteArrayType [l16]
-  [(pd,Terminated)] <- runStaticMethod "TestRC564"
-                                       "rc564_encrypt"
-                                       "([B[B[B)V"
-                                       [ RValue keyArray
-                                       , RValue inpArray
-                                       , RValue outArray
-                                       ]
-  getIntArray pd outArray
+  _ <- runStaticMethod "TestRC564"
+                       "rc564_encrypt"
+                       "([B[B[B)V"
+                       [ RValue keyArray
+                       , RValue inpArray
+                       , RValue outArray
+                       ]
+  getIntArray outArray

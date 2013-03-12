@@ -5,6 +5,7 @@ Stability        : provisional
 Point-of-contact : jstanley
 -}
 
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE CPP #-}
 
 module Tests.SHA384 (sha384Tests) where
@@ -63,7 +64,7 @@ evalDagSHA384 msg = do
   rslt <- run $ withSymbolicMonadState oc $ \sms -> do
     let sbe = symbolicBackend sms 
     msgVars <- replicateM (length msg `div` 2) $ freshByte sbe
-    outVars <- runDefSimulator sbe cb $ runSHA384 msgVars
+    outVars <- runDefSimulator cb sbe $ runSHA384 msgVars
     let inputValues = V.map constInt $ V.fromList (hexToByteSeq msg)
     evalFn <- concreteEvalFn inputValues
     byteSeqToHex <$> mapM evalFn outVars
@@ -81,7 +82,7 @@ evalAigSHA384 msg = do
     let sbe = symbolicBackend sms 
     let be = smsBitEngine sms
     msgVars <- replicateM msgLen $ freshByte sbe
-    outVars <- runDefSimulator sbe cb $ runSHA384 msgVars
+    outVars <- runDefSimulator cb sbe $ runSHA384 msgVars
     outLits <- concat <$> mapM (fmap toLsbf_lit . getVarLit sbe) outVars
     -- | Word-level inputs
     let cinps = map constInt $ hexToByteSeq msg
