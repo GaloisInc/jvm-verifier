@@ -673,6 +673,7 @@ mergeNextCont p (HandleBranch point ba h)
       let assertions = p^.pathAssertions
       mergedCallStack <- 
         case (p^.pathStack, pf^.pathStack) of
+          ([]      , []   ) -> return []
           -- TODO is it right to ignore the other frames on one path?
           -- That's what old sim did...
           (cf1:cfs1, cf2:_) -> do 
@@ -682,10 +683,12 @@ mergeNextCont p (HandleBranch point ba h)
       mergedMemory <- mergeMemories c (p^.pathMemory) (pf^.pathMemory)
       mergedAssertions <- 
           liftIO $ termIte sbe c (p^.pathAssertions) (pf^.pathAssertions)
+      mergedRetVal <- mergeRetVals sbe c (p^.pathRetVal) (pf^.pathRetVal)
       a' <- liftIO $ termAnd sbe a mergedAssertions
       let p' = p & pathStack      .~ mergedCallStack
                  & pathMemory     .~ mergedMemory
                  & pathAssertions .~ a'
+                 & pathRetVal     .~ mergedRetVal
       -- recur in case multiple continuations have the same merge point
       mergeNextCont p' h
 -- 3.
@@ -697,6 +700,11 @@ p `atMergePoint` point = case point of
   ReturnPoint n -> n == p^.pathStackHt
   PostdomPoint n b -> 
     n == p^.pathStackHt && Just b == p^.pathBlockId
+
+mergeRetVals sbe c (Just rv1) (Just rv2) = Just <$> mergeValues c rv1 rv2
+mergeRetVals _   _ Nothing    Nothing    = return Nothing
+mergeRetVals _   _ _          _          = 
+    throwError $ strMsg "return value mismatch when merging paths"
 
 mergeMemories :: MonadIO m
               => SBETerm sbe
