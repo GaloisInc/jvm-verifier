@@ -11,6 +11,7 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Maybe
+import Data.Monoid
 import Prelude hiding (catch)
 
 import Test.HUnit hiding (Test)
@@ -27,7 +28,7 @@ dummyCN :: String
 dummyCN = "PathStateMerges$Dummy"
 
 psmsTests :: Codebase -> Test
-psmsTests cb = testGroup "PathMerges" $
+psmsTests cb = plusTestOptions (mempty { topt_timeout = Just (Just 2000000) }) $ testGroup "PathMerges" $
   [ testCase "ddb1" . mkSymAssertion $ \sbe -> do
       b    <- IValue <$> freshInt sbe
       outs <- runDefSimulator cb sbe $ do
