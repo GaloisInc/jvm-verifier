@@ -12,22 +12,27 @@ module Tests.RuleChecker (ruleCheckerTests) where
 
 
 import qualified Control.Exception as E
-import Test.QuickCheck
-import Test.QuickCheck.Monadic as QC
+import Test.HUnit hiding (Test)
+import Test.Framework
+import Test.Framework.Providers.HUnit
 import qualified Data.Vector as V
 
 import Verinf.Symbolic
 
-ruleCheckerTests :: [(Args, Property)]
-ruleCheckerTests =
-      [(stdArgs{ maxSuccess = 1 }, label ("good rule test " ++ show (i::Int)) $ monadicIO (testGoodRule r))                 | (i, r) <- zip [0 ..] goodRules]
-   ++ [(stdArgs{ maxSuccess = 1 }, label ("bad rule test "  ++ show (i::Int)) $ expectFailure $ monadicIO (testBadRule  r)) | (i, r) <- zip [0 ..] badRules]
-  where testGoodRule (gold, r) = QC.assert (ruleName r == gold)
+main = defaultMain [ruleCheckerTests]
+
+ruleCheckerTests :: Test
+ruleCheckerTests = testGroup "RuleChecker" $
+      [testCase ("goodRule" ++ show (i :: Int)) (testGoodRule r) 
+           | (i, r) <- zip [0 ..] goodRules]
+   ++ [testCase ("badRule"  ++ show (i :: Int)) (testBadRule  r)
+           | (i, r) <- zip [0 ..] badRules]
+  where testGoodRule (gold, r) = ruleName r @?= gold
         testBadRule  (gold, r)  = do
                 let mark = "recovered from expected failure test error, this must not a valid rule name!"
                     rn   = ruleName r
-                res <- run $ (r `seq` rn `seq` return rn) `E.catch` (\(_ :: E.ErrorCall) -> return mark)
-                QC.assert (res == gold)
+                res <- (r `seq` rn `seq` return rn) `E.catch` (\(_ :: E.ErrorCall) -> return mark)
+                assert (res /= gold)
         goodRules = [ goodRule1
                     , goodRule2
                     , goodRule3
