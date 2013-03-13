@@ -14,7 +14,9 @@ module Tests.JAPI(japiTests) where
 
 import Control.Applicative
 import qualified Control.Exception as CE
-import Test.QuickCheck
+import Test.HUnit
+import Test.Framework
+import Test.Framework.Providers.HUnit
 
 import Tests.Common
 import Overrides

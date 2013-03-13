@@ -10,25 +10,33 @@ module Tests.Arrays (arrayTests) where
 import Control.Applicative
 import Control.Monad
 import Data.Int
+import Test.HUnit hiding (Test)
+import Test.Framework
+import Test.Framework.Providers.HUnit
+import Test.Framework.Providers.QuickCheck2
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 
 import Tests.Common
 
-arrayTests :: [(Args, Property)]
-arrayTests =
+main :: IO ()
+main = do cb <- commonLoadCB
+          defaultMain [arrayTests cb]
+
+arrayTests :: Codebase -> Test
+arrayTests cb = testGroup "Arrays" $
   [
-    test 10 False sa1 "Read concarray @ symidx"
-  , test 10 False sa2 "Write symelem @ symidx to concarray"
-  , test 1  False sa3 "Write symelem @ concidx to concarray"
-  , test 1  False sa4 "Write symelem @ concidx to 2-dim symarray"
+    testPropertyN 10 "Read concarray @ symidx" $ sa1 cb
+  , testPropertyN 10 "Write symelem @ symidx to concarray" $ sa2 cb
+  , testCase "Write symelem @ concidx to concarray" $ sa3 cb
+  , testCase "Write symelem @ concidx to 2-dim symarray" $ sa4 cb
   ]
 
 -- | Read concrete int array at symbolic indices
 sa1 :: TrivialProp
 sa1 cb =
   forAllM (int32s 128) $ \arrayElems ->
-    runWithSymbolicMonadState $ \sms -> do
+    mkPropWithSMS $ \sms -> do
       let sbe = symbolicBackend sms
       let be = smsBitEngine sms
       idx <- IValue <$> freshInt sbe
@@ -51,7 +59,7 @@ sa2 :: TrivialProp
 sa2 cb =
   forAllM (int32s 128 `suchThat` (not . elem 42))            $ \arrayElems ->
   forAllM (choose (0, fromIntegral (length arrayElems - 1))) $ \overwriteIdx ->
-  runWithSymbolicMonadState $ \sms -> do
+  mkPropWithSMS $ \sms -> do
     let sbe = symbolicBackend sms
     let be = smsBitEngine sms
     [idx, val]  <- replicateM 2 $ IValue <$> freshInt sbe
@@ -68,9 +76,9 @@ sa2 cb =
       <$> evalAig be (evalAigArgs32 [overwriteIdx, 42]) rsltLits
 
 -- | Symbolic array update w/ concrete index and symbolic value
-sa3 :: TrivialProp
+sa3 :: Codebase -> Assertion
 sa3 cb =
-  runWithSymbolicMonadState $ \sms -> do
+  mkAssertionWithSMS $ \sms -> do
     let sbe = symbolicBackend sms
     let be = smsBitEngine sms
     let n    = 3
@@ -85,14 +93,14 @@ sa3 cb =
       getIntArray arr
     -- Overwrite the last index with 42 and check it
     rsltLits <- concatMap toLsbf_lit <$> mapM (getVarLit sbe) rslt
-    ((:[]) . (==) (replicate (n-1) fill ++ [42]))
-        <$> (map boolSeqToValue . splitN 32)
+    (@=?) (replicate (n-1) fill ++ [42])
+        =<< (map boolSeqToValue . splitN 32)
         <$> evalAig be (evalAigArgs32 (42 : replicate n fill)) rsltLits
 
 -- | Symbolic 2-dim array update w/ concrete index and value
-sa4 :: TrivialProp
+sa4 :: Codebase -> Assertion
 sa4 cb =
-  runWithSymbolicMonadState $ \sms -> do 
+  mkAssertionWithSMS $ \sms -> do 
     let sbe = symbolicBackend sms
     let be = smsBitEngine sms
     let n        = 3 ; nI = fromIntegral n
@@ -112,8 +120,8 @@ sa4 cb =
       concat <$> (mapM getIntArray =<< getRefArray twodim)
     -- Overwrite the first index with 42 and check it
     rsltLits <- concatMap toLsbf_lit <$> mapM (getVarLit sbe) rslt
-    ((:[]) . (==) ((42 :: Int32) : replicate (numElems - 1) (fromIntegral fill)))
-        <$> (map boolSeqToValue . splitN 32)
+    (@=?) ((42 :: Int32) : replicate (numElems - 1) (fromIntegral fill))
+        =<< (map boolSeqToValue . splitN 32)
         <$> evalAig be (concatMap intToBoolSeq $ replicate numElems (mkCInt 32 fill)) rsltLits
 
 --------------------------------------------------------------------------------
@@ -121,6 +129,3 @@ sa4 cb =
 
 _ignore_nouse :: a
 _ignore_nouse = undefined main
-
-main :: IO ()
-main = runTests arrayTests
