@@ -34,11 +34,6 @@ expErrTests cb = testGroup "ExpectedErrors" $
   , testCase "(-) update @ symidx into array of refs" $ sa4 cb
   ]
 
--- NB: One can set verb > 0 to see the error output (stack traces, error
--- messages, etc.)  during execution of the tests.
-verb :: Int
-verb = 0
-
 go :: Codebase
    -> Simulator SymbolicMonad IO a
    -> Assertion
@@ -54,7 +49,7 @@ go cb act = do
           h (ErrorPathExc (FailRsn rsn) _) = succeed rsn
           h (UnknownExc (Just (FailRsn rsn))) = succeed rsn
           h _ = liftIO $ assertFailure "unknown exception"
-      runDefSimulator cb sbe $ withVerbosity verb $ act'
+      runDefSimulator cb sbe act'
   assert b
   where
     succeed msg = return ()

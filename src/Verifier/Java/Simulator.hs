@@ -157,7 +157,7 @@ run = do
                          Just p -> return p
                          Nothing -> fail "impossible"
     sbe <- use backend
-    dbugM . render $ "run:" <+> ppPath sbe p
+    dbugM' 5 . render $ "run:" <+> ppPath sbe p
     flip catchError handleError $ do
       let Just bid = p^.pathBlockId
       sbe <- use backend
@@ -849,7 +849,7 @@ dbugStep :: MonadSim sbe m
 dbugStep insn = do
   mp <- getPath
   case mp of
-    Nothing -> dbugM' 2 $ "Executing: (no current path): " ++ show (ppSymInsn insn)
+    Nothing -> dbugM' 5 $ "Executing: (no current path): " ++ show (ppSymInsn insn)
     Just p  -> do
       let loc = case currentCallFrame p of
                   Nothing -> "<unknown method>" <> parens bid
@@ -860,7 +860,7 @@ dbugStep insn = do
                   Nothing -> "<no current block>"
                   Just b -> ppBlockId b
       return ()
-      dbugM' 2 $ "Executing ("
+      dbugM' 5 $ "Executing ("
                  ++ "#" ++ show (p^.pathName) ++ "): "
                  ++ render loc
                  ++ ": " ++

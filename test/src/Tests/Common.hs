@@ -40,9 +40,19 @@ import Test.QuickCheck.Monadic as QC
 
 import Execution (runMain)
 import Language.JVM.Parser
-import Verifier.Java.Simulator hiding (run, assert)
+import Verifier.Java.Simulator hiding (run, assert, runSimulator, runDefSimulator)
+import qualified Verifier.Java.Simulator as Sim 
 import Verifier.Java.Utils
 import Verifier.Java.WordBackend
+
+-- | Bake a particular verbosity level into all simulator calls for the test suite
+verb :: Int
+verb = 0
+
+runSimulator cb sbe seh msf m =
+  Sim.runSimulator cb sbe seh msf (setVerbosity verb >> m)
+runDefSimulator cb sbe m = 
+  Sim.runDefSimulator cb sbe (setVerbosity verb >> m)
 
 expectFailure :: String -> Assertion -> Assertion
 expectFailure msg a = CE.catch (a >> assertFailure msg)

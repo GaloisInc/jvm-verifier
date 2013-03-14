@@ -13,8 +13,10 @@ module Tests.ExampleExceptionSession (exampleExceptionSessionTests)
 import Control.Exception as Exc
 import Control.Monad.State
 import Data.Typeable (Typeable)
-import Test.QuickCheck
-import Test.QuickCheck.Monadic as QC
+
+import Test.HUnit hiding (Test)
+import Test.Framework
+import Test.Framework.Providers.HUnit
 
 import Verinf.IO.Session
 
@@ -50,18 +52,15 @@ mockSession = do
 bug :: Mock Int
 bug = throwErr "Bzz"
 
-testSession :: PropertyM IO ()
+testSession :: Assertion
 testSession = do
-  sess <- run $ mockSession
+  sess <- mockSession
   let m = toIO sess
-  res <- run ((m $ bug >> return "everything's fine")
-                `Exc.catch` (return . symExtErrMsg))
-  QC.assert (res == "Bzz")
-  run $ finishIO sess
+  res <- ((m $ bug >> return "everything's fine")
+            `Exc.catch` (return . symExtErrMsg))
+  res @?= "Bzz"
+  finishIO sess
 
-exampleExceptionSessionTests :: [(Args, Property)]
-exampleExceptionSessionTests =
-  [ ( stdArgs{ maxSuccess = 1 }
-    , label "exampleExceptionSessionTests" $ monadicIO testSession
-    )
-  ]
+exampleExceptionSessionTests :: Test
+exampleExceptionSessionTests = testGroup "ExampleExceptionSession" $ 
+  [ testCase "testSession" testSession ]

@@ -23,24 +23,23 @@ import Test.QuickCheck.Monadic
 
 import Tests.Common
 
-sha384Tests :: [(Args, Property)]
-sha384Tests =
+main :: IO ()
+main = defaultMain [sha384Tests]
+
+sha384Tests :: Test
+sha384Tests = testGroup "SHA384" $
   [
   --- dag-based eval for SHA384 on a message of (random r in [1..256]) bytes
-    ( stdArgs { maxSuccess = 10 }
-    , label "SHA-384 digests of random messages (dag evaluation)" $ monadicIO $
+    testPropertyN 10 "SHA-384 digests of random messages (dag evaluation)" $
         -- run $ putStrLn "Running SHA-384 test..."
         forAllM (choose (1,256)) $ \numBytes ->
           forAllM (bytes numBytes) $ \msg ->
             evalDagSHA384 msg
-    )
-  , ( stdArgs { maxSuccess = 2 }
-    , label "SHA-384 digests of random messages (aig evaluation)" $ monadicIO $
+  , testPropertyN 2 "SHA-384 digests of random messages (aig evaluation)" $
         -- run $ putStrLn "Running SHA-384 test..."
         forAllM (choose (1,256)) $ \numBytes ->
           forAllM (bytes numBytes) $ \msg ->
             evalAigSHA384 msg
-    )
   ]
 
 getGoldenSHA384 :: String -> IO String
@@ -59,7 +58,7 @@ getGoldenSHA384 msg =
 
 evalDagSHA384 :: String -> PropertyM IO ()
 evalDagSHA384 msg = do
-  cb <- commonCB
+  cb <- run commonLoadCB
   golden <- run $ getGoldenSHA384 msg
   -- run $ putStrLn $ "Message        : " ++ msg
   -- run $ putStrLn $ "SHA-384 Golden : " ++ golden
@@ -76,7 +75,7 @@ evalDagSHA384 msg = do
 
 evalAigSHA384 :: String -> PropertyM IO ()
 evalAigSHA384 msg = do
-  cb <- commonCB
+  cb <- run commonLoadCB
   golden <- run $ getGoldenSHA384 msg
 --   run $ putStrLn $ "golden sha = " ++ golden
   oc <- run mkOpCache
@@ -115,5 +114,3 @@ runSHA384 msgVars = do
 _ignore_nouse :: a
 _ignore_nouse = undefined main evalAigSHA384
 
-main :: IO ()
-main = runTests sha384Tests
