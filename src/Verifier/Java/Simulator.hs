@@ -70,7 +70,7 @@ module Verifier.Java.Simulator
 import Prelude hiding (EQ, LT, GT)
 
 import Control.Applicative hiding (empty)
-import Control.Lens hiding (Path)
+import Control.Lens
 import Control.Monad
 import Control.Monad.Error
 import Control.Monad.IO.Class
@@ -88,11 +88,11 @@ import System.IO (hFlush, stdout)
 
 import Text.PrettyPrint
 
-import Language.JVM.CFG hiding (entryBlock)
+import Language.JVM.CFG
 import Data.JVM.Symbolic.AST
 import Data.JVM.Symbolic.Translation
 
-import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, isFinished, invokeStaticMethod, pushStaticMethodCall, invokeInstanceMethod, dynBind, dynBind', isNull, getCurrentClassName)
+import Execution.JavaSemantics hiding (createAndThrow, throwNullPtrExc, invokeStaticMethod, pushStaticMethodCall, invokeInstanceMethod, dynBind, dynBind', isNull, getCurrentClassName)
 import qualified Execution.Stepper as Stepper
 import Language.JVM.Common
 import Language.JVM.Parser
