@@ -144,7 +144,7 @@ import Control.Applicative (Applicative, (<$>), pure, (<*>))
 import Control.Arrow ((***))
 import qualified Control.Arrow as CA
 import Control.Exception (Exception)
-import Control.Lens hiding (Path)
+import Control.Lens
 import Control.Monad.Error 
 import Control.Monad.State hiding (State)
 
