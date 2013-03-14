@@ -111,7 +111,7 @@ psmsTests cb = plusTestOptions (mempty { topt_timeout = Just (Just 2000000) }) $
                  [(2,2), (4,5), (42,99)]
   , testCase "mul2" . mkSymAssertion $ \sbe -> do
       [a, b] <- replicateM 2 $ IValue <$> freshInt sbe
-      rs <- runSimulator cb sbe defaultSEH (Just $ SimulationFlags{ alwaysBitBlastBranchTerms = True}) $
+      rs <- runSimulator cb sbe defaultSEH (Just (defaultSimFlags { alwaysBitBlastBranchTerms = True })) $
               runStaticMethod "PathStateMerges" "mul2" "(II)I" [a, b]
       when (length rs /= 1) $ error "psmsTests.mul2: failed path state merge"
       let [(_, Just (IValue out))] = rs

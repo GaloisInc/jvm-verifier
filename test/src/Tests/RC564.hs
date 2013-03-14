@@ -14,28 +14,29 @@ import Control.Applicative
 import Control.Monad
 import qualified Data.Vector as V
 import System.Process
+
+import Test.Framework
+import Test.Framework.Providers.QuickCheck2
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 
 import Tests.Common
 
-rc564Tests :: [(Args, Property)]
-rc564Tests =
+rc564Tests :: Test
+rc564Tests = testGroup "RC564" $
   [ -- dag-based eval only for RC564 on two random 128b inputs
-    ( stdArgs{ maxSuccess = 10 }
-    , label "RC5-64 random keys/messages" $ monadicIO $
+    testPropertyN 10 "RC5-64 random keys/messages" $ 
         -- run $ putStrLn "Running RC5-64 test..."
         forAllM (bytes 16) $ \key ->
           forAllM (bytes 16) $ \inp -> do
             evalDagRC564 key inp
-    )
   ]
 
 _ignore_nouse :: a
 _ignore_nouse = undefined main
 
 main :: IO ()
-main = runTests rc564Tests
+main = defaultMain [rc564Tests]
 
 --------------------------------------------------------------------------------
 -- RC-564
@@ -58,7 +59,7 @@ getGoldenRC564 key inp =
 -- TODO: add evalAigRC564 etc.
 evalDagRC564 :: String -> String -> PropertyM IO ()
 evalDagRC564 key input = do
-  cb     <- commonCB
+  cb <- run commonLoadCB
   oc <- run mkOpCache
   golden <- run $ getGoldenRC564 key input
 --   run $ putStrLn $ "Key    : " ++ key
