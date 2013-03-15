@@ -130,8 +130,8 @@ liftBB cfg bb = do
           Goto tgt ->
             defineBlock currId $
             reverse il ++ brSymInstrs cfg (getBlock tgt)
-          If_acmpeq tgt -> br currId il (getBlock tgt) blk' (Compare EQ)
-          If_acmpne tgt -> br currId il (getBlock tgt) blk' (Compare NE)
+          If_acmpeq tgt -> br currId il (getBlock tgt) blk' (CompareRef EQ)
+          If_acmpne tgt -> br currId il (getBlock tgt) blk' (CompareRef NE)
           If_icmpeq tgt -> br currId il (getBlock tgt) blk' (Compare EQ)
           If_icmpne tgt -> br currId il (getBlock tgt) blk' (Compare NE)
           If_icmplt tgt -> br currId il (getBlock tgt) blk' (Compare LT)
