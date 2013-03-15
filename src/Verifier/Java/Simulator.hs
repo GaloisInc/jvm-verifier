@@ -859,7 +859,6 @@ dbugStep insn = do
           bid = case p^.pathBlockId of
                   Nothing -> "<no current block>"
                   Just b -> ppBlockId b
-      return ()
       dbugM' 5 $ "Executing ("
                  ++ "#" ++ show (p^.pathName) ++ "): "
                  ++ render loc
@@ -872,7 +871,12 @@ dbugStep insn = do
   cb1 onPreStep insn
   step insn
   cb1 onPostStep insn
---  whenVerbosity (>=5) dumpCtrlStk
+  whenVerbosity (>=6) $ do
+    mp <- getPath
+    sbe <- use backend
+    case mp of
+      Nothing -> return ()
+      Just p  -> dbugM . render $ ppPath sbe p
 
 -- | Execute a single LLVM-Sym AST instruction
 step :: MonadSim sbe m
@@ -950,7 +954,7 @@ step ReturnVal = do
 step (PushPendingExecution bid cond ml elseInsns) = do
   sbe <- use backend
   c <- evalCond cond
---  dbugM $ "### PushPendingExecution (condAsBool=" ++ show (asBool sbe c) ++ ")"
+  dbugM' 6 $ "### PushPendingExecution (condAsBool=" ++ show (asBool sbe c) ++ ")"
   case asBool sbe c of
    -- Don't bother with elseStmts as condition is true. 
    Just True  -> setCurrentBlock bid
@@ -990,8 +994,8 @@ evalCond TrueSymCond = do
   sbe <- use backend
   liftIO $ termBool sbe True
 evalCond (Compare cmpTy) = do
-  x <- iPop
   y <- iPop
+  x <- iPop
   case cmpTy of
     EQ -> iEq x y
     NE -> bNot =<< iEq x y
