@@ -98,6 +98,7 @@ liftBB cfg bb = do
       processInsns ((pc,i):is) currId il =
         let blk' = fromMaybe (bbToBlockId BBIdExit) $ nextBlk pc
             blk'' = blk { blockN = blockN currId + 1 }
+            blk''' = if null is then blk' else blk''
             warn msg = tell $ ["warning in" <+> ppBlockId currId <> colon <+> msg]
             assertEnd :: SymTrans () -> SymTrans ()
             assertEnd m = case is of
@@ -112,21 +113,22 @@ liftBB cfg bb = do
           Ireturn -> retVal currId il
           Return -> retVoid currId il
           Invokeinterface n k -> do
+
             defineBlock currId $ reverse
-              (si (PushInvokeFrame InvInterface (ClassType n) k blk'') : il)
-            processInsns is blk'' []
+              (si (PushInvokeFrame InvInterface (ClassType n) k blk''') : il)
+            processInsns is blk''' []
           Invokespecial t k -> do
             defineBlock currId $ reverse
-              (si (PushInvokeFrame InvSpecial t k blk'') : il)
-            processInsns is blk'' []
+              (si (PushInvokeFrame InvSpecial t k blk''') : il)
+            processInsns is blk''' []
           Invokestatic n k -> do
             defineBlock currId $ reverse
-              (si (PushInvokeFrame InvStatic (ClassType n) k blk'') : il)
-            processInsns is blk'' []
+              (si (PushInvokeFrame InvStatic (ClassType n) k blk''') : il)
+            processInsns is blk''' []
           Invokevirtual t k -> do
             defineBlock currId $ reverse
-              (si (PushInvokeFrame InvVirtual t k blk'') : il)
-            processInsns is blk'' []
+              (si (PushInvokeFrame InvVirtual t k blk''') : il)
+            processInsns is blk''' []
           Goto tgt ->
             defineBlock currId $
             reverse il ++ brSymInstrs cfg (getBlock tgt)

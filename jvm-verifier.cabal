@@ -178,7 +178,7 @@ executable Tests
     buildable: False
 
   build-depends: 
-       base >= 4
+      base >= 4
     , array
     , containers
     , directory
@@ -197,9 +197,10 @@ executable Tests
     , test-framework-hunit >= 0.3
     , test-framework-quickcheck2 >= 0.3
     , Verinf
+    , jvm-verifier
 
   main-is          : Tests.hs
-  hs-source-dirs   : src jss test/src
+  hs-source-dirs   : jss test/src
   ghc-options      : -O2 -Wall -fno-ignore-asserts
   ghc-prof-options : -prof -auto-all
 

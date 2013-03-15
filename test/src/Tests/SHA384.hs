@@ -109,6 +109,7 @@ runSHA384 msgVars = do
                        [ RValue msgArray
                        , RValue outArray
                        ]
+  dbugM' 2 "SHA384 simulation finished"
   getIntArray outArray
 
 _ignore_nouse :: a
