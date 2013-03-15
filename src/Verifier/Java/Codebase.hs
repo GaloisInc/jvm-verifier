@@ -16,6 +16,7 @@ module Verifier.Java.Codebase
   , locateField
   , tryLookupClass
   , lookupClass
+  , findStaticMethodsByRef
   , findVirtualMethodsByRef
   , lookupSymbolicMethod
   , lookupSymbolicMethod'
@@ -208,6 +209,16 @@ findVirtualMethodsByRef cb name key instTyNm = do
       Just _  -> do
         b   <- isStrictSuper cb (className cl) =<< lookupClass cb instTyNm
         return $ className cl == instTyNm || b
+
+-- | Finds all classes that implement a given static method. List is
+-- ordered so that subclasses appear before their base class.
+findStaticMethodsByRef :: Codebase
+                       -> String 
+                       -- ^ Name of class given in the code for this call
+                       -> MethodKey
+                       -- ^ Method to call
+                       -> IO [String]                          
+findStaticMethodsByRef cb name key = findVirtualMethodsByRef cb name key name
 
 -- | Produces the superclass hierarchy of the given class. Ordered from subclass
 -- to base class, starting with the given class.

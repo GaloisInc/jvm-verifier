@@ -170,7 +170,12 @@ run = do
       let method = cf^.cfMethod
           cName  = cf^.cfClass
       cb <- use codebase
-      Just symBlocks <- liftIO $ lookupSymbolicMethod cb cName (methodKey method)
+      symBlocks <- do 
+         mblocks <- liftIO $ lookupSymbolicMethod cb cName (methodKey method)
+         case mblocks of
+           Just blocks -> return blocks
+           _ -> fail . render $ "unable to symbolically translate" 
+                <+> text cName <+> ppMethod method
       case lookupSymBlock bid symBlocks of
         Just symBlock -> do
 --          dbugM . render $ "run:" <+> ppSymBlock symBlock
@@ -249,7 +254,16 @@ pushStaticMethodCall cName key args mRetBlock = do
                    Just retBlock -> setCurrentBlock retBlock
                    Nothing -> return ()
     Nothing -> do
-      cl <- lookupClass' cName
+      cb <- use codebase
+      impls <- liftIO $ findStaticMethodsByRef cb cName key
+      dbugM' 6 . render $ "found static impls:" <+> sep (map text impls)
+      cl <- case impls of
+              cl:_ -> lookupClass' cl
+              _ -> fail . render 
+                     $ "pushStaticMethodCall: could not find method"
+                     <+> text cName <> "." <> ppMethodKey key
+      -- shadow with resolved class name
+      let cName = className cl
       method <- case cl `lookupMethod` key of
                   Just m -> return m
                   Nothing -> fail . render 
@@ -905,7 +919,7 @@ step (PushInvokeFrame InvSpecial (ClassType cName) key retBlock) = do
       call cName'   = pushInstanceMethodCall cName' key objectRef args (Just retBlock)
   if classHasSuperAttribute currentClass && b && methodKeyName key /= "<init>"
     then do
-      dynBind cName key objectRef call
+      dynBindSuper cName key objectRef call
     else
       do throwIfRefNull objectRef
          call cName
@@ -1004,8 +1018,8 @@ evalCond (Compare cmpTy) = do
     GT -> bNot =<< iLeq x y
     LE -> iLeq x y
 evalCond (CompareRef cmpTy) = do
-  x <- rPop
   y <- rPop
+  x <- rPop
   case cmpTy of
     EQ -> rEq x y
     NE -> bNot =<< rEq x y
@@ -1957,22 +1971,51 @@ dynBind :: MonadSim sbe m
         -> JSRef (Simulator sbe m) -- ^ 'this'
         -> (String -> Simulator sbe m ()) -- ^ e.g., an invokeInstanceMethod invocation.
         -> Simulator sbe m ()
-dynBind clName key objectRef act =
-  act =<< dynBind' clName key objectRef    
+dynBind clName key objectRef act = do
+  impls <- dynBind' clName key objectRef    
+  case impls of
+    cl:_ -> act cl
+    _    -> fail . render $ "no implementations found for" 
+              <+> text clName <+> ppMethodKey key
+
+-- | (dynBindSuper cln meth r act) provides to 'act' the class name
+-- that defines r's implementation of 'meth', with lookup starting
+-- from the superclass of r's concrete type. This is used primarily to
+-- implement invokespecial
+dynBindSuper :: MonadSim sbe m
+             => String           -- ^ Name of 'this''s class
+             -> MethodKey        -- ^ Key of method to invoke
+             -> JSRef (Simulator sbe m) -- ^ 'this'
+             -> (String -> Simulator sbe m ()) 
+             -- ^ e.g., an invokeInstanceMethod invocation.
+             -> Simulator sbe m ()
+dynBindSuper clName key objectRef act = do
+  impls <- dynBind' clName key objectRef    
+  case impls of
+    _:cl:_ -> act cl
+    _    -> fail . render $ "no super implementations found for" 
+              <+> text clName <+> ppMethodKey key
 
 -- | Assumes reference non-null
 dynBind' :: MonadSim sbe m
          => String
          -> MethodKey
          -> JSRef (Simulator sbe m)
-         -> Simulator sbe m String
+         -> Simulator sbe m [String]
 dynBind' clName key objectRef = do
+  dbugM' 6 . render $ "dynBind" <+> text clName <+> ppMethodKey key
   sbe <- use backend
   mty <- typeOf objectRef
   case mty of
     Nothing -> fail . render $ "dynBind': could not determine type of reference"
-    Just (ClassType instTy) -> return instTy
+    Just (ClassType instTy) -> do
+      cb <- use codebase
+      impls <- liftIO $ findVirtualMethodsByRef cb clName key instTy
+      dbugM' 6 . render $ "found impls:" <+> sep (map text impls)
+      return impls
     Just _ -> fail "dynBind' type parameter not ClassType-constructed"
+
+
 {- We currently always know the concrete type of a reference, so just return it
 
   cb <- use codebase
