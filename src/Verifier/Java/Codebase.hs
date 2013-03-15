@@ -218,7 +218,11 @@ findStaticMethodsByRef :: Codebase
                        -> MethodKey
                        -- ^ Method to call
                        -> IO [String]                          
-findStaticMethodsByRef cb name key = findVirtualMethodsByRef cb name key name
+findStaticMethodsByRef cb name key = do
+  cl <- lookupClass cb name
+  sups <- supers cb cl
+  let isMatch cl = isJust (cl `lookupMethod` key)
+  return . map className . filter isMatch $ sups
 
 -- | Produces the superclass hierarchy of the given class. Ordered from subclass
 -- to base class, starting with the given class.
