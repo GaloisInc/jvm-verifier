@@ -28,7 +28,7 @@ dummyCN :: String
 dummyCN = "PathStateMerges$Dummy"
 
 psmsTests :: Codebase -> Test
-psmsTests cb = plusTestOptions (mempty { topt_timeout = Just (Just 2000000) }) $ testGroup "PathMerges" $
+psmsTests cb = testGroup "PathMerges" $
   [ testCase "ddb1" . mkSymAssertion $ \sbe -> do
       b    <- IValue <$> freshInt sbe
       outs <- runDefSimulator cb sbe $ do
