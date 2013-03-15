@@ -21,14 +21,19 @@ module Tests.Common
   , BitEngine(..)
   ) where
 
+import Control.Applicative
 import Control.Monad
 import qualified Control.Exception as CE
 import Data.Int
+import Data.Maybe
 import Data.Monoid
 import Prelude hiding (catch)
+import System.Environment
+import System.IO.Unsafe
 import System.FilePath
 import System.Random
 import Text.PrettyPrint
+import Text.Read
 
 import Test.HUnit as HUnit hiding (test)
 import Test.HUnit.Lang (HUnitFailure)
@@ -45,9 +50,16 @@ import qualified Verifier.Java.Simulator as Sim
 import Verifier.Java.Utils
 import Verifier.Java.WordBackend
 
--- | Bake a particular verbosity level into all simulator calls for the test suite
+-- | Bake a particular verbosity level into all simulator calls for
+-- the test suite. Configurable using the environment variable
+-- @VERBOSITY@.
 verb :: Int
-verb = 0
+verb = fromMaybe 0 . unsafePerformIO $ do
+         mvs <- lookupEnv "VERBOSITY"
+         case mvs of
+           Just vs -> return $ readMaybe vs
+           Nothing -> return Nothing
+           
 
 runSimulator cb sbe seh msf m =
   Sim.runSimulator cb sbe seh msf (setVerbosity verb >> m)
