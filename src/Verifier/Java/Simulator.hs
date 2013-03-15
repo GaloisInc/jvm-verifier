@@ -170,6 +170,8 @@ run = do
       let method = cf^.cfMethod
           cName  = cf^.cfClass
       cb <- use codebase
+      whenVerbosity (>= 6) $ do
+         liftIO $ dumpSymASTs cb cName
       symBlocks <- do 
          mblocks <- liftIO $ lookupSymbolicMethod cb cName (methodKey method)
          case mblocks of
@@ -178,7 +180,7 @@ run = do
                 <+> text cName <+> ppMethod method
       case lookupSymBlock bid symBlocks of
         Just symBlock -> do
---          dbugM . render $ "run:" <+> ppSymBlock symBlock
+          dbugM' 6 . render $ "run:" <+> ppSymBlock symBlock
           runInsns . map snd $ sbInsns symBlock
         Nothing -> fail . render 
           $ "invalid basic block" <+> ppBlockId bid 
@@ -852,10 +854,6 @@ runInsns :: MonadSim sbe m
          => [SymInsn] -> Simulator sbe m ()
 runInsns insns = do Just p <- getPath
                     cb <- use codebase
-                    return ()
-                    -- case currentCallFrame p of
-                    --   Just cf -> do dbugM $ "################## " ++ (cf^.cfClass)
-                    --                 liftIO $ dumpSymASTs cb (cf^.cfClass)
                     mapM_ dbugStep insns
 
 dbugStep :: MonadSim sbe m 
@@ -863,7 +861,8 @@ dbugStep :: MonadSim sbe m
 dbugStep insn = do
   mp <- getPath
   case mp of
-    Nothing -> dbugM' 5 $ "Executing: (no current path): " ++ show (ppSymInsn insn)
+    Nothing -> dbugM' 4 . render $ "Executing: (no current path)" 
+               <> colon <+> (ppSymInsn insn)
     Just p  -> do
       let loc = case currentCallFrame p of
                   Nothing -> "<unknown method>" <> parens bid
@@ -873,14 +872,10 @@ dbugStep insn = do
           bid = case p^.pathBlockId of
                   Nothing -> "<no current block>"
                   Just b -> ppBlockId b
-      dbugM' 5 $ "Executing ("
-                 ++ "#" ++ show (p^.pathName) ++ "): "
-                 ++ render loc
-                 ++ ": " ++
-                 case insn of
-                   PushPendingExecution{} -> "\n"
-                   _ -> ""
-                 ++ show (ppSymInsn insn)
+      verb <- getVerbosity
+      dbugM' 4 . render $ 
+        "Executing" <+> parens ("#" <> integer (p^.pathName))
+        <+> loc <> colon <+> (ppSymInsn insn)
 --  repl
   cb1 onPreStep insn
   step insn
