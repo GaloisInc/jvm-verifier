@@ -1268,7 +1268,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   lShr  x y = withSBE $ \sbe -> termLShr sbe x y
   lSub  x y = withSBE $ \sbe -> termLSub sbe x y
   lUshr x y = withSBE $ \sbe -> termLUshr sbe x y
-  lXor  x y = withSBE $ \sbe -> termIXor sbe x y
+  lXor  x y = withSBE $ \sbe -> termLXor sbe x y
 
   setArrayValue r idx (IValue val) = updateSymbolicArray r $ \sbe l a ->
     termSetIntArray  sbe l a idx val
