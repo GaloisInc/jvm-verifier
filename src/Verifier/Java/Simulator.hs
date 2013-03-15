@@ -637,7 +637,10 @@ getStaticFieldValue :: MonadSim sbe m
                     => FieldId
                     -> Simulator sbe m (Value (SBETerm sbe))
 getStaticFieldValue fldId = do
-  cl <- lookupClass' (fieldIdClass fldId)
+  let cName = fieldIdClass fldId
+  -- this might be the first time we reference this class, so initialize
+  initializeClass cName
+  cl <- lookupClass' cName
   Just m <- getMem
   case M.lookup fldId (m^.memStaticFields) of
     Just v  -> return v
@@ -776,18 +779,28 @@ execMethod cName key locals = do
                in Just <$> (modifyPathM $ \_ -> return ((p'', p''^.pathRetVal), p''))
     Nothing -> return Nothing
 
-runCustomClassInitialization :: MonadSim sbe m => Class -> Simulator sbe m ()
-runCustomClassInitialization cl =
+hasCustomClassInitialization :: String -> Bool
+hasCustomClassInitialization "java/lang/System" = True
+hasCustomClassInitialization _                  = False
+
+runCustomClassInitialization :: MonadSim sbe m => String -> Simulator sbe m ()
+runCustomClassInitialization cName = do
   case cName of
     "java/lang/System" -> do
+      dbugM' 5 $ "initializing java/lang/System"
+      -- we're only here if initializeClass found Nothing for
+      -- initialization status, so we don't need to check again
+      Just m <- getMem
+      setMem $ setInitializationStatus cName Started m
       initializeClass pstreamName
       outStream <- RValue `liftM` genRef (ClassType pstreamName)
       errStream <- RValue `liftM` genRef (ClassType pstreamName)
       setStaticFieldValue (FieldId cName "out" pstreamType) outStream
       setStaticFieldValue (FieldId cName "err" pstreamType) errStream
+      Just m <- getMem
+      setMem $ setInitializationStatus cName Initialized m
     _ -> return ()
-  where cName = className cl
-        pstreamName = "java/io/PrintStream"
+  where pstreamName = "java/io/PrintStream"
         pstreamType = ClassType pstreamName
 
 --newObject :: MonadSim sbe m => String -> Simulator sbe m Ref
@@ -1115,7 +1128,11 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   initializeClass name = do
     Just m <- getMem
     case M.lookup name (m^.memInitialization) of
-      Nothing -> do
+      Nothing | hasCustomClassInitialization name -> 
+                  runCustomClassInitialization name
+      Nothing | otherwise -> do
+        Just m <- getMem
+        setMem $ setInitializationStatus name Started m
         let clinit = MethodKey "<clinit>" [] Nothing
             initializeField :: MonadSim sbe m => Field -> Simulator sbe m ()
             initializeField f =
@@ -1136,21 +1153,16 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
                       val <- withSBE $ \sbe -> defaultValue sbe (fieldType f)
                       setStaticFieldValue fieldId val
                   Just tp -> error $ "Unsupported field type" ++ show tp
+        dbugM' 5 . render $ "initializing class" <+> text name
         cl <- lookupClass' name
-        runCustomClassInitialization cl
         mapM_ initializeField $ classFields cl
         case cl `lookupMethod` clinit of
           Just _ -> do
-            
-            Just m <- getMem
-            setMem $ setInitializationStatus name Started m
             unless (skipInit name) $ do
---              dbugM $ "initializing class: " ++ name
               void $ execStaticMethod name clinit []
           Nothing -> return ()
         Just m <- getMem
         setMem $ setInitializationStatus name Initialized m
---        dbugM $ "class initialized: " ++ name
       Just Erroneous -> do
         createAndThrow "java/lang/NoClassDefFoundError"
       Just Started -> return ()
@@ -1284,6 +1296,12 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
         setMem (m & memRefArrays %~ M.update updateFn r)
 
   setStaticFieldValue fieldId v = do
+    let cName = fieldIdClass fieldId
+    -- this might be the first time we reference this class, so initialize
+    initializeClass cName
+
+    sbe <- use backend
+    dbugM' 6 . render $ "setting field" <+> text (ppFldId fieldId) <+> "to" <+> ppValue sbe v
     Just m <- getMem
     setMem (m & memStaticFields %~ M.insert fieldId v)
           

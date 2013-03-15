@@ -146,8 +146,8 @@ liftBB cfg bb = do
           Ifge tgt -> cmpZero pc (If_icmpge tgt) currId is il
           Ifgt tgt -> cmpZero pc (If_icmpgt tgt) currId is il
           Ifle tgt -> cmpZero pc (If_icmple tgt) currId is il
-          Ifnonnull tgt -> br currId il blk' (getBlock tgt) NonNull
-          Ifnull tgt -> br currId il blk' (getBlock tgt) Null
+          Ifnonnull tgt -> br currId il (getBlock tgt) blk' NonNull
+          Ifnull tgt -> br currId il (getBlock tgt) blk' Null
           Lookupswitch d cs -> switch currId il d (map fst cs) cs
           Tableswitch d l h cs -> switch currId il d vs (zip vs cs)
             where vs = [l..h]

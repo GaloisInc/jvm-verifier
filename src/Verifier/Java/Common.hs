@@ -849,8 +849,15 @@ ppPath sbe p =
       <>  colon
       $+$ nest 2 (text "Locals:"   $+$ nest 2 (ppLocals sbe (cf^.cfLocals)))
       $+$ nest 2 (text "Operands:" $+$ nest 2 (ppOpds sbe (cf^.cfOpds)))
+      $+$ nest 2 (text "Call Stack:" $+$ nest 2 (ppStackTrace (p^.pathStack)))
     Nothing ->
       text "Path #" <> integer (p^.pathName) <> colon <+> "stopped"
+
+ppStackTrace :: [CallFrame term] -> Doc
+ppStackTrace cfs = braces . commas $ 
+  [ text cName <> "." <> ppMethod method
+  | CallFrame { _cfClass = cName, _cfMethod = method } <- cfs
+  ]
 
 ppLocals :: Backend sbe 
          -> Map LocalVariableIndex (Value (SBETerm sbe))
