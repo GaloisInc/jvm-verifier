@@ -976,8 +976,12 @@ step ReturnVal = do
 step (PushPendingExecution bid cond ml elseInsns) = do
   sbe <- use backend
   c <- evalCond cond
+  b <- do blast <- alwaysBitBlastBranchTerms <$> use (simulationFlags)
+          if blast 
+            then liftIO (blastTerm sbe c) 
+            else return $ asBool sbe c
   dbugM' 6 $ "### PushPendingExecution (condAsBool=" ++ show (asBool sbe c) ++ ")"
-  case asBool sbe c of
+  case b of
    -- Don't bother with elseStmts as condition is true. 
    Just True  -> setCurrentBlock bid
    -- Don't bother with pending path as condition is false.

@@ -39,6 +39,7 @@ module Verifier.Java.Common
   , staticOverrides
   , StaticOverride
   , verbosity
+  , simulationFlags
   , evHandlers
   , errorPaths
   -- , lssOpts
