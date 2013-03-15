@@ -999,6 +999,13 @@ evalCond (Compare cmpTy) = do
     GE -> bNot =<< iLt x y
     GT -> bNot =<< iLeq x y
     LE -> iLeq x y
+evalCond (CompareRef cmpTy) = do
+  x <- rPop
+  y <- rPop
+  case cmpTy of
+    EQ -> rEq x y
+    NE -> bNot =<< rEq x y
+    _  -> fail "invalid reference comparison; bug in symbolic translation?"
 
 {-
 -- | Evaluate condition in current path.
