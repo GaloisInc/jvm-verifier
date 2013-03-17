@@ -11,23 +11,23 @@ import Control.Monad.Trans (liftIO)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Vector as V
-import Test.QuickCheck
-import Test.QuickCheck.Monadic as MQC
+
+import Test.HUnit hiding (Test)
+import Test.Framework
+import Test.Framework.Providers.HUnit
 
 import Verinf.SBV.Model
 import Verinf.SBV.Parser
 import Verinf.Symbolic
 
-sbvParserTests :: [(Args, Property)]
-sbvParserTests =
-  [ ( stdArgs{ maxSuccess = 1 }
-    , label "testCPlus" testCPlus
-    )
-  ]
+main = defaultMain [sbvParserTests]
 
-testCPlus :: Property
-testCPlus = monadicIO $ do
-  _ <- run $ do
+sbvParserTests :: Test
+sbvParserTests = testGroup "SBVParser" $
+  [ testCase "testCPlus" testCPlus ]
+
+testCPlus :: Assertion
+testCPlus = do
     oc <- mkOpCache
     let arrayType12 = SymArray (constantWidth 12) (SymInt (constantWidth 32))
     let abRecDef = getStructuralRecord oc (Set.fromList ["a", "b"])
@@ -52,4 +52,3 @@ testCPlus = monadicIO $ do
     let inputFn i _ = return (args V.! i)
     v <- evalDagTerm inputFn (deTermSemantics de) cPlusTerm
     v `seq` return ()
-  assert True

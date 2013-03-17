@@ -8,8 +8,9 @@ Point-of-contact : lerkok
 module Tests.PrettyPrint (prettyPrintTests) where
 
 import System.FilePath
-import Test.QuickCheck
-import Test.QuickCheck.Monadic as QC
+import Test.HUnit hiding (Test)
+import Test.Framework
+import Test.Framework.Providers.HUnit
 
 import qualified Verinf.SBV.Model as SBV
 import qualified Verinf.SBV.Parser as SBV
@@ -22,12 +23,28 @@ data TestMode = CREATE          -- create the gold files
 mode :: TestMode
 mode = CHECK
 
+main = defaultMain [prettyPrintTests]
+
+prettyPrintTests :: Test
+prettyPrintTests = testGroup "PrettyPrint" $
+      [ testCase ("depth test "   ++ show i) (testDepth i j) 
+            | (i, j) <- zip [0..] [0 .. 5]            ]
+  ++  [ testCase ("line test "    ++ show i) (testLine  i j)
+            | (i, j) <- zip [0..] [10, 80, 100, 1000] ]
+  ++  [ testCase ("literal test " ++ show i) (testLiteral i j)
+            | (i, j) <- zip [0..] [False, True]       ]
+  ++  [ testCase ("mixed test "   ++ show i) (mixedTest i j)   
+            | (i, j) <- zip [0..] mixedValues         ]
+  where mixedValues = [(d, l, b) | d <- depths, l <- lengths, b <- [False, True]]
+        depths      = [0 .. 5]
+        lengths     = [5, 10, 20, 50, 100, 500]
+
 -- location of the support files; relative to top-level JavaVerifier directory
 testDir :: FilePath
 testDir = "test" </> "src" </> "support" </> "ppSupport"
 
-testAction :: Int -> String -> PPConfig -> PropertyM IO ()
-testAction i what cfg = do res <- run $ do
+testAction :: Int -> String -> PPConfig -> Assertion
+testAction i what cfg = do res <- do
                              oc <- mkOpCache
                              let path = testDir </> "ppTest.sbv"
                              pgm <- SBV.loadSBV path
@@ -35,32 +52,21 @@ testAction i what cfg = do res <- run $ do
                              return $ prettyTermWith cfg node
                            let file = testDir </> ("pp" ++ what ++ "." ++ show i ++ ".gold")
                            case mode of
-                              CREATE -> do run $ writeFile file res
-                                           QC.assert True
-                              CHECK  -> do gold <- run $ readFile file
-                                           QC.assert (res == gold)
+                              CREATE -> writeFile file res
+                              CHECK  -> do gold <- readFile file
+                                           res @?= gold
 
-testDepth :: Int -> Int -> PropertyM IO ()
+testDepth :: Int -> Int -> Assertion
 testDepth i j = testAction i "Depth" (defaultPPConfig { ppMinSharingDepth = Just j })
 
-testLine :: Int -> Int -> PropertyM IO ()
+testLine :: Int -> Int -> Assertion
 testLine i j = testAction i "Line" (defaultPPConfig { ppLineLength = j })
 
-testLiteral :: Int -> Bool -> PropertyM IO ()
+testLiteral :: Int -> Bool -> Assertion
 testLiteral i b = testAction i "Literal" (defaultPPConfig { ppShowConstTypes = b })
 
-mixedTest :: Int -> (Int, Int, Bool) -> PropertyM IO ()
+mixedTest :: Int -> (Int, Int, Bool) -> Assertion
 mixedTest i (d, l, b) = testAction i "Mixed" (defaultPPConfig { ppMinSharingDepth = Just d, ppLineLength = l, ppShowConstTypes = b })
-
-prettyPrintTests :: [(Args, Property)]
-prettyPrintTests =
-      [ (stdArgs{ maxSuccess = 1 }, label ("depth test "    ++ show i)  $ monadicIO (testDepth i j))   | (i, j) <- zip [0..] [0 .. 5]            ]
-  ++  [ (stdArgs{ maxSuccess = 1 }, label ("line test "     ++ show i)  $ monadicIO (testLine  i j))   | (i, j) <- zip [0..] [10, 80, 100, 1000] ]
-  ++  [ (stdArgs{ maxSuccess = 1 }, label ("literal test "  ++ show i)  $ monadicIO (testLiteral i j)) | (i, j) <- zip [0..] [False, True]       ]
-  ++  [ (stdArgs{ maxSuccess = 1 }, label ("mixed test "    ++ show i)  $ monadicIO (mixedTest i j))   | (i, j) <- zip [0..] mixedValues         ]
-  where mixedValues = [(d, l, b) | d <- depths, l <- lengths, b <- [False, True]]
-        depths      = [0 .. 5]
-        lengths     = [5, 10, 20, 50, 100, 500]
 
 _ignore_nouse :: a
 _ignore_nouse = undefined CREATE

@@ -98,6 +98,7 @@ liftBB cfg bb = do
       processInsns ((pc,i):is) currId il =
         let blk' = fromMaybe (bbToBlockId BBIdExit) $ nextBlk pc
             blk'' = blk { blockN = blockN currId + 1 }
+            blk''' = if null is then blk' else blk''
             warn msg = tell $ ["warning in" <+> ppBlockId currId <> colon <+> msg]
             assertEnd :: SymTrans () -> SymTrans ()
             assertEnd m = case is of
@@ -112,26 +113,27 @@ liftBB cfg bb = do
           Ireturn -> retVal currId il
           Return -> retVoid currId il
           Invokeinterface n k -> do
+
             defineBlock currId $ reverse
-              (si (PushInvokeFrame InvInterface (ClassType n) k blk'') : il)
-            processInsns is blk'' []
+              (si (PushInvokeFrame InvInterface (ClassType n) k blk''') : il)
+            processInsns is blk''' []
           Invokespecial t k -> do
             defineBlock currId $ reverse
-              (si (PushInvokeFrame InvSpecial t k blk'') : il)
-            processInsns is blk'' []
+              (si (PushInvokeFrame InvSpecial t k blk''') : il)
+            processInsns is blk''' []
           Invokestatic n k -> do
             defineBlock currId $ reverse
-              (si (PushInvokeFrame InvStatic (ClassType n) k blk'') : il)
-            processInsns is blk'' []
+              (si (PushInvokeFrame InvStatic (ClassType n) k blk''') : il)
+            processInsns is blk''' []
           Invokevirtual t k -> do
             defineBlock currId $ reverse
-              (si (PushInvokeFrame InvVirtual t k blk'') : il)
-            processInsns is blk'' []
+              (si (PushInvokeFrame InvVirtual t k blk''') : il)
+            processInsns is blk''' []
           Goto tgt ->
             defineBlock currId $
             reverse il ++ brSymInstrs cfg (getBlock tgt)
-          If_acmpeq tgt -> br currId il (getBlock tgt) blk' (Compare EQ)
-          If_acmpne tgt -> br currId il (getBlock tgt) blk' (Compare NE)
+          If_acmpeq tgt -> br currId il (getBlock tgt) blk' (CompareRef EQ)
+          If_acmpne tgt -> br currId il (getBlock tgt) blk' (CompareRef NE)
           If_icmpeq tgt -> br currId il (getBlock tgt) blk' (Compare EQ)
           If_icmpne tgt -> br currId il (getBlock tgt) blk' (Compare NE)
           If_icmplt tgt -> br currId il (getBlock tgt) blk' (Compare LT)
@@ -144,8 +146,8 @@ liftBB cfg bb = do
           Ifge tgt -> cmpZero pc (If_icmpge tgt) currId is il
           Ifgt tgt -> cmpZero pc (If_icmpgt tgt) currId is il
           Ifle tgt -> cmpZero pc (If_icmple tgt) currId is il
-          Ifnonnull tgt -> br currId il blk' (getBlock tgt) NonNull
-          Ifnull tgt -> br currId il blk' (getBlock tgt) Null
+          Ifnonnull tgt -> br currId il (getBlock tgt) blk' NonNull
+          Ifnull tgt -> br currId il (getBlock tgt) blk' Null
           Lookupswitch d cs -> switch currId il d (map fst cs) cs
           Tableswitch d l h cs -> switch currId il d vs (zip vs cs)
             where vs = [l..h]
@@ -191,7 +193,7 @@ liftBB cfg bb = do
                 mkCase (cv, bid) rest = 
                   [ si (PushPendingExecution bid (HasConstValue cv) pd rest) ]
       br currBlk il thenBlk elseBlk cmp = do
-        let suspendBlk = currBlk { blockN = 1 }
+        let suspendBlk = currBlk { blockN = (blockN currBlk) + 1 }
         -- Add pending execution for true branch, and execute false branch.
         -- If we want to do it the other way, we can negate the condition
         defineBlock currBlk $ reverse $

@@ -11,68 +11,58 @@ import Control.Monad.Error
 import Control.Monad.State
 import Data.Typeable
 import System.IO
-import Test.QuickCheck hiding ((.&.))
-import Test.QuickCheck.Monadic
+
+import Test.HUnit hiding (Test)
+import Test.Framework
+import Test.Framework.Providers.HUnit
 
 import Tests.Common
 
--- NB: REVISIT: The poorly named "runNegTest" is what grounds to the default
--- symbolic backend; we'll want better names when we support multiple symbolic
--- backends (runNegTestSymWordRep or somesuch, perhaps, etc.)
+main :: IO ()
+main = do cb <- commonLoadCB
+          defaultMain [expErrTests cb]
 
-expErrTests :: [(Args, Property)]
-expErrTests =
+expErrTests :: Codebase -> Test
+expErrTests cb = testGroup "ExpectedErrors" $
   [
-    test1Neg exc1             "(-) on single path exception"
-  , test1Neg exc2             "(-) when all paths raise an exception"
-  , test1Neg sa1              "(-) symbolic index into array of refs"
-  , test1Neg (sa2 FloatType)  "(-) floats not supported"
-  , test1Neg (sa2 DoubleType) "(-) doubles not supported"
-  , test1Neg sa3              "(-) symbolic array sizes not supported"
-  , test1Neg sa4              "(-) update @ symidx into array of refs"
+    testCase "(-) on single path exception" $ exc1 cb
+  , testCase "(-) when all paths raise an exception" $ exc2 cb
+  , testCase "(-) symbolic index into array of refs" $ sa1 cb
+  , testCase "(-) floats not supported" $ sa2 FloatType cb
+  , testCase "(-) doubles not supported" $ sa2 DoubleType cb
+  , testCase "(-) symbolic array sizes not supported" $ sa3 cb
+  , testCase "(-) update @ symidx into array of refs" $ sa4 cb
   ]
-
--- NB: One can set verb > 0 to see the error output (stack traces, error
--- messages, etc.)  during execution of the tests.
-verb :: Int
-verb = 0
 
 go :: Codebase
    -> Simulator SymbolicMonad IO a
-   -> PropertyM IO ()
+   -> Assertion
 go cb act = do
   -- For negative test cases, we don't want to report success of *any* failure,
   -- just the failures that we want to see, so we explicitly fail if any
   -- unexpected exception escapes out of m.
-  b <- run $ do 
+  b <- do 
     oc <- mkOpCache
     withSymbolicMonadState oc $ \sms -> do
       let sbe = symbolicBackend sms
-          act' = (act >> return True) `catchError` h
+          act' = (void act) `catchError` h
           h (ErrorPathExc (FailRsn rsn) _) = succeed rsn
           h (UnknownExc (Just (FailRsn rsn))) = succeed rsn
-          h _ = succeed "unknown exception"
-      runDefSimulator cb sbe $ withVerbosity verb $ act'
+          h _ = liftIO $ assertFailure "unknown exception"
+      runDefSimulator cb sbe act'
   assert b
   where
-    succeed msg = liftIO (putStrLn msg) >> return False
-    emitErr e = do
-      run $ mapM_ (hPutStrLn stderr)
-              [ "vvv Test witnessed unexpected exception vvv"
-              , show e
-              , "^^^ Test witnessed unexpected exception ^^^"
-              ]
-      assert True -- fail
+    succeed msg = return ()
 
 --------------------------------------------------------------------------------
 -- Exception (negative) tests
 
 -- | Negative test case: fail on single path exception
-exc1 :: TrivialProp
+exc1 :: TrivialCase
 exc1 cb = go cb . void $ runStaticMethod "Trivial" "always_throws" "()V" []
 
 -- | Negative test case: expect fail when all paths raise an exception
-exc2 :: TrivialProp
+exc2 :: TrivialCase
 exc2 cb = go cb $ do
   sbe <- use backend
   b <- liftIO $ freshInt sbe
@@ -82,7 +72,7 @@ exc2 cb = go cb $ do
 -- Array (negative) tests
 
 -- -- | Expected to fail: Symbolic lookup in array of refs
-sa1 :: TrivialProp
+sa1 :: TrivialCase
 sa1 cb = go cb $ do
   sbe <- use backend
   symIdx <- liftIO $ IValue <$> freshInt sbe
@@ -93,18 +83,18 @@ sa1 cb = go cb $ do
   getIntArray r
 
 -- | Expected to fail: arrays with given element type are not supported
-sa2 :: Type -> TrivialProp
+sa2 :: Type -> TrivialCase
 sa2 ety cb = go cb $ newMultiArray (ArrayType ety) [mkCInt 32 1]
 
 -- | Expected to fail: arrays with symbolic size are not supported
-sa3 :: TrivialProp
+sa3 :: TrivialCase
 sa3 cb = go cb $ do
   sbe <- use backend
   v <- liftIO $ freshInt sbe
   newMultiArray intArrayTy [v]
 
 -- | Expected to fail: update an array of refs at a symbolic index
-sa4 :: TrivialProp
+sa4 :: TrivialCase
 sa4 cb = go cb $ do
   sbe <- use backend
   symIdx <- liftIO $ IValue <$> freshInt sbe
@@ -120,6 +110,3 @@ sa4 cb = go cb $ do
 
 _ignore_nouse :: a
 _ignore_nouse = undefined main
-
-main :: IO ()
-main = runTests expErrTests
