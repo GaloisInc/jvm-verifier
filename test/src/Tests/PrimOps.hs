@@ -7,6 +7,7 @@ Point-of-contact : jstanley
 
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -14,50 +15,49 @@ Point-of-contact : jstanley
 module Tests.PrimOps (primOpTests) where
 
 import Control.Applicative
+import Control.Lens hiding (elements)
 import Control.Monad
 import Data.Bits
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import Data.Int
-import Test.QuickCheck hiding ((.&.))
-import Test.QuickCheck.Monadic
+
+import Test.HUnit hiding (Test)
+import Test.Framework
+import Test.Framework.Providers.HUnit
+import Test.Framework.Providers.QuickCheck2
+import Test.QuickCheck as QC hiding ((.&.))
+import Test.QuickCheck.Monadic as QC
 
 import Tests.Common
 
-verb :: Int
-verb = 0
-
--- NB: This whole module could probably use a rewrite; with the move to type
--- families and attempted support for multiple symbolic backends, it's become
--- somewhat of a poster child for refactoring gone wrong. -- js 06 Jan 2011
-
-primOpTests :: [(Args, Property)]
-primOpTests =
+primOpTests :: Codebase -> Test
+primOpTests cb = mutuallyExclusive . testGroup "PrimOps" $
    [ -- 32b tests over all symbolic backends, as configured below
-     test1 t1                  "32b int and"
-   , test1 t2                  "32b int add"
-   , test1 t3                  "byte array sum"
-   , test1 t4                  "32b int sub"
-   , test1 t12a                "data-dependent branch (simple)"
-   , test1 t12b                "data-dependent branch (nested)"
-   , test1 t12c                "data-dependent branch (loop)"
-   , test 10 False qr32        "32b quotRem: dag and aig eval"
+     testCase "32b int and" $ t1 cb
+   , testCase "32b int add" $ t2 cb
+   , testCase "byte array sum" $ t3 cb
+   , testCase "32b int sub" $ t4 cb
+   , testCase "data-dependent branch (simple)" $ t12a cb
+   , testCase "data-dependent branch (nested)" $ t12b cb
+   , testCase "data-dependent branch (loop)" $ t12c cb
+   , testPropertyN 10 "32b quotRem: dag and aig eval" $ qr32 cb
      -- 64b tests over all symbolic backends, as configured below
-   , test1 t7                  "64b int and"
-   , test1 t8                  "64b int add"
-   , test1 t9                  "64b int array sum"
-   , test 10 False qr64        "64b quotRem: dag and aig eval"
-   , test 10 False ct2                 "string instantiation & simple string ops"
-   , test1 t13                         "32b int array out parameter"
-   , test1 ct1                         "superclass field assignment from subclass method"
-   , test1 fp1                         "concrete double add"
-   , test1 fp2                         "concrete double sub"
-   , test1 fp3                         "concrete double mul"
-   , test1 fp4                         "concrete double div"
-   , test1 fp5                         "concrete float add"
-   , test1 fp6                         "concrete float sub"
-   , test1 fp7                         "concrete float mul"
-   , test1 fp8                         "concrete float div"
+   , testCase "64b int and" $ t7 cb
+   , testCase "64b int add" $ t8 cb
+   , testCase "64b int array sum" $ t9 cb
+   , testPropertyN 10 "64b quotRem: dag and aig eval" $ qr64 cb
+   , testPropertyN 10 "string instantiation & simple string ops" $ ct2 cb
+   , testCase "32b int array out parameter" $ t13 cb
+   , testCase "superclass field assignment from subclass method" $ ct1 cb
+   , testCase "concrete double add" $ fp1 cb
+   , testCase "concrete double sub" $ fp2 cb
+   , testCase "concrete double mul" $ fp3 cb
+   , testCase "concrete double div" $ fp4 cb
+   , testCase "concrete float add" $ fp5 cb
+   , testCase "concrete float sub" $ fp6 cb
+   , testCase "concrete float mul" $ fp7 cb
+   , testCase "concrete float div" $ fp8 cb
    ]
   where
     qr32 cb =
@@ -74,124 +74,117 @@ primOpTests =
 -- "trivial" tests
 
 mkBinOpTest32 :: Codebase
-                 -> MethodSpec
-                 -> (Int32 -> Int32 -> Int32)
-                 -> [(Int32, Int32)]
-                 -> PropertyM IO ()
+              -> MethodSpec
+              -> (Int32 -> Int32 -> Int32)
+              -> [(Int32, Int32)]
+              -> Assertion
 mkBinOpTest32 cb ms gnd inps = do
   forM_ inps $ \(x,y) -> do
-    dagEval <- run $ evalBinOp32 cb ms x y
-    assert (dagEval == mkCInt 32 (fromIntegral (x `gnd` y)))
+    dagEval <- evalBinOp32 cb ms x y
+    dagEval @?= mkCInt 32 (fromIntegral (x `gnd` y))
 
-mkBinOpTest64 ::Codebase
+mkBinOpTest64 :: Codebase
               -> MethodSpec
               -> (Int64 -> Int64 -> Int64)
               -> [(Int64, Int64)]
-              -> PropertyM IO ()
+              -> Assertion
 mkBinOpTest64 cb ms gnd inps = do
   forM_ inps $ \(x,y) -> do
-    dagEval <- run $ evalBinOp64 cb ms x y
-    assert (dagEval == mkCInt 64 (fromIntegral (x `gnd` y)))
+    dagEval <- evalBinOp64 cb ms x y
+    dagEval @?= mkCInt 64 (fromIntegral (x `gnd` y))
 
-t1 :: TrivialProp
+t1 :: TrivialCase
 t1 cb = mkBinOpTest32 cb ("Trivial", "bool_f1", "(ZZ)Z") (.&.) [(0,0), (0,1), (1,0), (1,1)]
 
-t2 :: TrivialProp
+t2 :: TrivialCase
 t2 cb = mkBinOpTest32 cb ("Trivial", "int_f2", "(II)I") (+) [(0,0), (0,1), (1,0), (1,1), (8192,8192)]
 
-t3 :: TrivialProp
+t3 :: TrivialCase
 t3 cb =  
-  runSymTest $ \sbe -> do
+  mkSymAssertion $ \sbe -> do
     syms <- replicateM 4 $ freshByte sbe
-    [(_,ReturnVal (IValue rsltTerm))] <- runDefSimulator sbe cb $ do
-      setVerbosity verb
+    [(_,Just (IValue rsltTerm))] <- runDefSimulator cb sbe $ do
       arr <- newIntArray (ArrayType ByteType) syms
       runStaticMethod "Trivial" "byte_array_f3" "([B)B" [RValue arr]
     let inps = [[4,4,4,4], [1,2,3,4], [63,-42,1,1]]
-    forM inps $ \inp -> do
+    forM_ inps $ \inp -> do
       evalFn <- concreteEvalFn (V.map constInt (V.fromList inp))
       rslt   <- evalFn rsltTerm
-      return $ constInt (sum inp) == rslt
+      constInt (sum inp) @=? rslt
 
-t4 ::TrivialProp
+t4 ::TrivialCase
 t4 cb = mkBinOpTest32 cb ("Trivial", "int_f4", "(II)I") (-)
   [(0,0), (0,1), (7,2), (-16, -5), (1 `shiftL` 31,1)]
 
-t7 :: TrivialProp
+t7 :: TrivialCase
 t7 cb = mkBinOpTest64 cb ("Trivial", "long_f1", "(JJ)J") (.&.)
   [(0,0), (0,1), (1,0), (1,1)]
 
-t8 :: TrivialProp
+t8 :: TrivialCase
 t8 cb = mkBinOpTest64 cb ("Trivial", "long_f2", "(JJ)J") (+)
   [(0,0), (0,1), (1,0), (1,1), (8192,8192)]
 
-t9 :: TrivialProp
+t9 :: TrivialCase
 t9 cb =
-  runSymTest $ \sbe -> do
+  mkSymAssertion $ \sbe -> do
     syms <- replicateM 4 $ freshLong sbe
-    [(_,ReturnVal (LValue rsltTerm))] <- runDefSimulator sbe cb $ do
-      setVerbosity verb
+    [(_,Just (LValue rsltTerm))] <- runDefSimulator cb sbe $ do
       arr <- newLongArray syms
       runStaticMethod "Trivial" "long_array_f3" "([J)J" [RValue arr]
     let inps = [[1,1,1,1], [42,99,99,42], [39203,2033991,2930,2305843009213693951]]
-    forM inps $ \inp -> do
+    forM_ inps $ \inp -> do
       evalFn <- concreteEvalFn (V.map constLong (V.fromList inp))
       rslt <- evalFn rsltTerm
-      return $ constLong (sum inp) == rslt
+      constLong (sum inp) @=? rslt
 
-t12a :: TrivialProp
+t12a :: TrivialCase
 t12a cb =
-  runSymTest $ \sbe -> do
+  mkSymAssertion $ \sbe -> do
     sym <- freshInt sbe
-    [(_,ReturnVal (IValue rsltTerm))] <- runDefSimulator sbe cb $ do
-      setVerbosity verb
+    [(_,Just (IValue rsltTerm))] <- runDefSimulator cb sbe $ do
       runStaticMethod "Trivial" "fork_f1" "(Z)I" [IValue sym]
     let inps = [[0],[1]]
-    forM inps $ \[inp] -> do
+    forM_ inps $ \[inp] -> do
       evalFn <- concreteEvalFn (V.fromList [constInt inp])
       rslt <- evalFn rsltTerm
-      return $ constInt inp == rslt
+      constInt inp @=? rslt
 
 t12cmn
   :: MethodSpec
-  -> (Int32 -> Int32 -> CValue -> Bool)
-  -> TrivialProp
+  -> (Int32 -> Int32 -> CValue -> Assertion)
+  -> TrivialCase
 t12cmn (cNm, mNm, sig) chk cb = do
-  runSymTest $ \sbe -> do
+  mkSymAssertion $ \sbe -> do
     syms <- replicateM 2 $ IValue <$> freshInt sbe
-    [(_,ReturnVal (IValue rslt))] <- runDefSimulator sbe cb $ do
-      setVerbosity verb
+    [(_,Just (IValue rslt))] <- runDefSimulator cb sbe $ do
       runStaticMethod cNm mNm sig syms
-    forM [[0,0],[1,0],[0,1],[1,1]] $ \[b0,b1] -> do
+    forM_ [[0,0],[1,0],[0,1],[1,1]] $ \[b0,b1] -> do
       evalFn <- concreteEvalFn (V.map constInt (V.fromList [b0, b1]))
       rsltVal <- evalFn rslt
-      return $ chk b0 b1 rsltVal
+      chk b0 b1 rsltVal
 
-t12b :: TrivialProp
+t12b :: TrivialCase
 t12b cb = t12cmn ("Trivial", "fork_f2", "(ZZ)I") chk cb
-  where chk b0 b1 rslt = constInt (b0 .|. (b1 `shiftL` 1)) == rslt
+  where chk b0 b1 rslt = constInt (b0 .|. (b1 `shiftL` 1)) @=? rslt
 
-t12c :: TrivialProp
+t12c :: TrivialCase
 t12c cb = t12cmn ("Trivial", "fork_loop_f2", "(ZZ)I") chk cb
-  where chk b0 b1 rslt = constInt ((b0 .|. (b1 `shiftL` 1)) * 2) == rslt
+  where chk b0 b1 rslt = constInt ((b0 .|. (b1 `shiftL` 1)) * 2) @=? rslt
 
-t13 :: TrivialProp
+t13 :: TrivialCase
 t13 cb =
-  runWithSymbolicMonadState $ \sms -> do
+  mkAssertionWithSMS $ \sms -> do
     let sbe = symbolicBackend sms
         be = smsBitEngine sms
     let n       = 4
         cInputs = [constInt 16, constInt 4]
         expect  = map constInt [4, 64, 4, 8]
     ins <- replicateM 2 $ IValue <$> freshInt sbe
-    outVars <- runDefSimulator sbe cb $ do
-      setVerbosity verb
+    outVars <- runDefSimulator cb sbe $ do
       outArr <- newMultiArray (ArrayType IntType) [mkCInt 32 4]
-      [(pd, Terminated)] <-
-        withoutExceptions <$>
-          runStaticMethod "Trivial" "out_array" "(II[I)V"
-                          (ins ++ [RValue outArr])
-      getIntArray pd outArr
+      [(pd, _)] <- runStaticMethod "Trivial" "out_array" "(II[I)V"
+                       (ins ++ [RValue outArr])
+      getIntArray outArr
     -- DAG eval
     evalFn <- concreteEvalFn (V.fromList cInputs)
     outVals <- mapM evalFn outVars
@@ -202,42 +195,42 @@ t13 cb =
     let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
                $ SV.toList $ (SV.slice (32*k) 32 r)
              | k <- [0..(n-1)] ]
-    return [outVals == expect && rs == expect]
+    [outVals, rs] @?= [expect, expect]
 
 -- NB: This won't symbolically terminate yet.
-_t14 :: TrivialProp
-_t14 cb = runSymTest $ \sbe -> do
+_t14 :: TrivialCase
+_t14 cb = mkSymAssertion $ \sbe -> do
     a <- freshInt sbe
-    [(p,ReturnVal (IValue x))] <- 
-       runDefSimulator sbe cb $ do
-        setVerbosity verb
-        runStaticMethod "Trivial" "loop1" "(I)I" [IValue a]
-    putStrLn $ "t14: rs = " ++ show p ++ " => " ++ prettyTerm x
-    return [True]
+    [(p,Just (IValue x))] <- 
+       runDefSimulator cb sbe $
+         runStaticMethod "Trivial" "loop1" "(I)I" [IValue a]
+    return ()
+    -- putStrLn . render $ 
+    --   "t14: rs =" <+> integer (p^.pathName) <+> "=>" <+> prettyTermD sbe x
+    -- return [True]
 
 --------------------------------------------------------------------------------
 -- Class tests
 
 -- | Check assignment in a virtual subclass method to a protected superclass
 -- field
-ct1 :: TrivialProp
-ct1 cb = runSymTest $ \sbe -> do
-  outVars <- runDefSimulator sbe cb $ do
+ct1 :: TrivialCase
+ct1 cb = mkSymAssertion $ \sbe -> do
+  outVars <- runDefSimulator cb sbe $ do
     outArr <- newMultiArray (ArrayType IntType) [mkCInt 32 2]
-    [(pd, Terminated)] <-
-      runStaticMethod "IVTDriver" "go" "([I)V" [RValue outArr]
-    getIntArray pd outArr
+    [(pd, _)] <- runStaticMethod "IVTDriver" "go" "([I)V" [RValue outArr]
+    getIntArray outArr
   evalFn <- concreteEvalFn V.empty
   outVals <- mapM evalFn outVars
-  return $ [[constInt 42, constInt 42] == outVals]
+  [constInt 42, constInt 42] @=? outVals
 
 -- | Ensure that refFromString produces a usable string reference
 ct2 :: TrivialProp
 ct2 cb =
   forAllM (listOf1 $ elements $ ['a'..'z'] ++ ['A'..'Z']) $ \str -> do
-  runSymTest $ \sbe -> do
+  mkSymProp $ \sbe -> do
     inp <- termInt sbe (fromIntegral (length str))
-    [(_, ReturnVal (IValue outVar))] <- runDefSimulator sbe cb $ do
+    [(_, Just (IValue outVar))] <- runDefSimulator cb sbe $ do
       s <- refFromString str
       runStaticMethod "Trivial" "stringCheck" "(Ljava/lang/String;I)Z"
                       [RValue s, IValue inp]
@@ -252,31 +245,31 @@ testDoubleBin :: Codebase
               -> (Double -> Double -> Double)
               -> String
               -> String
-              -> PropertyM IO ()
+              -> Assertion
 testDoubleBin cb op method ty = do
   let a = 1.0
       b = 2.0
-  runSymTest $ \sbe -> do
-    [(_,ReturnVal (DValue r))] <-
-      runDefSimulator sbe cb $
+  mkSymAssertion $ \sbe -> do
+    [(_,Just (DValue r))] <-
+      runDefSimulator cb sbe $
         runStaticMethod "Trivial" method ty [DValue a, DValue b]
-    return [r == op a b]
+    r @?= op a b
 
 testFloatBin :: Codebase
              -> (Float -> Float -> Float)
              -> String
              -> String
-             -> PropertyM IO ()
+             -> Assertion
 testFloatBin cb op method ty = do
   let a = 1.0
       b = 2.0
-  runSymTest $ \sbe -> do
-    [(_,ReturnVal (FValue r))] <- 
-      runDefSimulator sbe cb $ do
+  mkSymAssertion $ \sbe -> do
+    [(_,Just (FValue r))] <- 
+      runDefSimulator cb sbe $ do
         runStaticMethod "Trivial" method ty [FValue a, FValue b]
-    return [r == op a b]
+    r @?= op a b
 
-fp1, fp2, fp3, fp4, fp5, fp6, fp7, fp8 :: TrivialProp
+fp1, fp2, fp3, fp4, fp5, fp6, fp7, fp8 :: TrivialCase
 fp1 cb = testDoubleBin cb (\a b -> a + b + 3.0) "double_f1" "(DD)D"
 fp2 cb = testDoubleBin cb (-) "double_f2" "(DD)D"
 fp3 cb = testDoubleBin cb (*) "double_f3" "(DD)D"
@@ -312,8 +305,8 @@ chkQuotRem quotSpec remSpec eval = do
       report "FAIL (aig eval): d == q * v + r violated"
     -- misc checks for alignment w/ JVM semantics
     if (d == minBound && v == (-1))
-     then assert $ dq == d
-     else when (abs d >= abs v) $ assert $ if sameSign then dq >= 0 else dq < 0
+     then QC.assert $ dq == d
+     else when (abs d >= abs v) $ QC.assert $ if sameSign then dq >= 0 else dq < 0
     assertMsg (abs dr <= abs v)
             $ report "FAIL: Absolute value check failed"
     -- run $ putStrLn $ report " PASS (dag & aig)"
@@ -333,10 +326,9 @@ evalBinOp32 cb (classNm, methodNm, sig) x y = do
     let sbe = symbolicBackend sms
     a <- IValue <$> freshInt sbe
     b <- IValue <$> freshInt sbe
-    [(_,ReturnVal (IValue rslt))] <- runDefSimulator sbe cb $ do
+    [(_,Just (IValue rslt))] <- runDefSimulator cb sbe $ do
       setVerbosity verb
-      withoutExceptions <$>
-        runStaticMethod classNm methodNm sig [a, b]
+      runStaticMethod classNm methodNm sig [a, b]
     let args = V.map (mkCInt 32 . toInteger) (V.fromList [x, y])
     evalFn <- concreteEvalFn args
     evalFn rslt
@@ -353,10 +345,9 @@ evalBinOp64 cb (classNm, methodNm, sig) x y = do
     let sbe = symbolicBackend sms
     a <- LValue <$> freshLong sbe
     b <- LValue <$> freshLong sbe
-    [(_,ReturnVal (LValue rslt))] <- runDefSimulator sbe cb $ do
+    [(_,Just (LValue rslt))] <- runDefSimulator cb sbe $ do
       setVerbosity verb
-      withoutExceptions <$>
-        runStaticMethod classNm methodNm sig [a, b]
+      runStaticMethod classNm methodNm sig [a, b]
     let args = V.map (mkCInt 64 . toInteger) (V.fromList [x, y])
     evalFn <- concreteEvalFn args
     evalFn rslt
@@ -368,5 +359,6 @@ _ignore_nouse :: a
 _ignore_nouse = undefined main
 
 main :: IO ()
-main = runTests primOpTests
+main = do cb <- commonLoadCB
+          defaultMain [primOpTests cb]
 

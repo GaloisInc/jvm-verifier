@@ -110,8 +110,13 @@ data SymCond
   -- | @TrueSymCond@ always holds.
   | TrueSymCond
   -- | @Compare ty@ holds if the given comparison is true between the
-  -- top element of the stack and the next-to-top element.
+  -- top element of the stack and the next-to-top element. Both
+  -- elements must be integers.
   | Compare CmpType
+  -- | @CompareRef ty@ is only applicable for 'EQ' and 'NE'
+  -- comparisons on references, but otherwise means the same thing as
+  -- @Compare@.
+  | CompareRef CmpType
   deriving (Eq)
 
 ppSymCond :: SymCond -> Doc
@@ -122,6 +127,7 @@ ppSymCond c = case c of
     NonNull           -> top <+> "!=" <+> null
     TrueSymCond       -> "true"
     Compare cmp       -> top <+> ppCmpType cmp <+> "<second elt of stack>"
+    CompareRef cmp    -> top <+> ppCmpType cmp <+> "<second elt of stack>"
   where top = "<top of stack>"
         null = "null"
         ppIntList = brackets . commas . map integer

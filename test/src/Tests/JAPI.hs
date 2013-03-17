@@ -14,7 +14,10 @@ module Tests.JAPI(japiTests) where
 
 import Control.Applicative
 import qualified Control.Exception as CE
-import Test.QuickCheck
+
+import Test.HUnit hiding (Test)
+import Test.Framework
+import Test.Framework.Providers.HUnit
 
 import Tests.Common
 import Overrides
@@ -24,37 +27,38 @@ import Overrides
 -- NB: It's possible to run these tests individually from the JAPI class
 -- bytecode, e.g. jss --classpath=... --opts="outarr" JAPI
 
-japiTests :: [(Args, Property)]
-japiTests =
-  [ test1 (doTest "simpleByte")   "JAPI: simple byte test"
-  , test1 (doTest "t2")           "JAPI: 32b symint add"
-  , test1 (doTest "t8")           "JAPI: 64b symlong add"
-  , test1 (doTest "tarr1")        "JAPI: symbolic int array idx/upd"
-  , test1 (doTest "tarr2")        "JAPI: symbolic long array idx/upd"
-  , test1 (doTest "t9")           "JAPI: symbolic long array sum"
-  , test1 (doTest "byteProd")     "JAPI: symbolic byte array product"
-  , test1 (doTest "outArr")       "JAPI: symbolic array out param"
+main :: IO ()
+main = do cb <- commonLoadCB
+          defaultMain [japiTests cb]
+
+japiTests :: Codebase -> Test
+japiTests cb = testGroup "JAPI" $
+  [ testCase "JAPI: simple byte test" (doTest "simpleByte" cb)
+  , testCase "JAPI: 32b symint add" (doTest "t2" cb)
+  , testCase "JAPI: 64b symlong add" (doTest "t8" cb)
+  , testCase "JAPI: symbolic int array idx/upd" (doTest "tarr1" cb)
+  , testCase "JAPI: symbolic long array idx/upd" (doTest "tarr2" cb)
+  , testCase "JAPI: symbolic long array sum" (doTest "t9" cb)
+  , testCase "JAPI: symbolic byte array product" (doTest "byteProd" cb)
+  , testCase "JAPI: symbolic array out param" (doTest "outArr" cb)
   ]
 
-mkTestArgs :: String -> Simulator SymbolicMonad [Value DagTerm]
+mkTestArgs :: String -> Simulator SymbolicMonad IO [Value DagTerm]
 mkTestArgs tn = do
   args <- newMultiArray (ArrayType (ClassType "java/lang/String")) [mkCInt 32 1]
   setArrayValue args (mkCInt 32 0) =<< (RValue <$> refFromString tn)
   return [RValue args]
 
-doTest :: String -> TrivialProp
+doTest :: String -> TrivialCase
 doTest tn cb =
-  runSymTest $ \sbe -> do
-    runDefSimulator sbe cb $ do
+  mkSymAssertion $ \sbe -> do
+    rs <- runDefSimulator cb sbe $ do
       jssOverrides
-      rs <- runMain "JAPI" =<< mkTestArgs tn
-      CE.assert (length rs == 1) $ return [True]
+      runMain "JAPI" =<< mkTestArgs tn
+    length rs @?= 1
       
 -- --------------------------------------------------------------------------------
 -- -- Scratch
 
 _ignore_nouse :: a
 _ignore_nouse = undefined main
-
-main :: IO ()
-main = runTests japiTests
