@@ -88,7 +88,7 @@ import System.IO (hFlush, stdout)
 
 import Text.PrettyPrint
 
-import Language.JVM.CFG hiding (entryBlock)
+import Language.JVM.CFG
 import Data.JVM.Symbolic.AST
 import Data.JVM.Symbolic.Translation
 
