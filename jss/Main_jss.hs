@@ -15,10 +15,9 @@ Point-of-contact : jstanley
 module Main where
 
 import Control.Applicative hiding (many)
-import Control.Exception
+import Control.Lens
 import Control.Monad
 import Control.Monad.Error
-import Control.Monad.Trans
 import Data.Char
 import System.Console.CmdArgs.Implicit hiding (verbosity, setVerbosity)
 import System.Directory
@@ -28,7 +27,10 @@ import System.Exit
 import System.IO
 import System.FilePath
 import Text.ParserCombinators.Parsec
+
+#if __GLASGOW_HASKELL__ < 706
 import Prelude hiding (catch)
+#endif
 
 import Text.PrettyPrint hiding (char)
 
@@ -43,14 +45,8 @@ import Overrides
 
 import Verinf.Utils.LogMonad
 
-#ifdef UseSAW
-import Verifier.Java.SAWBackend
-#else
-import Verifier.Java.WordBackend
-#endif
-
-simExcHndlr' :: Backend sbe -> Bool -> Doc -> InternalExc sbe m -> Simulator sbe m ()
-simExcHndlr' sbe suppressOutput failMsg exc =
+simExcHndlr' :: Bool -> Doc -> InternalExc sbe m -> Simulator sbe m ()
+simExcHndlr' suppressOutput failMsg exc =
   case exc of
     epe@ErrorPathExc{} -> liftIO $
       unless suppressOutput . hPutStr stderr . render 
@@ -87,6 +83,7 @@ data JSS = JSS
   , opts      :: String
   , blast     :: Bool
   , xlate     :: Bool
+  , errPaths  :: Bool
   , dbug      :: Int
   , mcname    :: Maybe String
   } deriving (Show, Data, Typeable)
@@ -118,7 +115,8 @@ main = do
                        ++ " (use --help for more info)")
 
         , blast  = def &= help "Always bitblast symbolic condition terms at branches (may force symbolic termination)"
-        , dbug   = def &= opt "0" &= help "Debug verbosity level (0-5)"
+        , errPaths = def &= help "Print details of symbolic execution paths that end in errors"
+        , dbug   = def &= opt "0" &= help "Debug verbosity level (0-6)"
         , xlate  = def &= help "Print the symbolic AST translation stdout and terminate"
         , mcname = def &= typ "MAIN CLASS NAME" &= args
         }
@@ -169,15 +167,14 @@ main = do
   cb <- loadCodebase jpaths' cpaths
   when (xlate args') $ do
     dumpSymASTs cb cname
---    dumpSymASTs cb "java/lang/String"
---    dumpSymASTs cb "java/lang/String$CaseInsensitiveComparator"
-    
     exitSuccess
+
   withFreshBackend $ \sbe -> do
    let fl = defaultSimFlags{ alwaysBitBlastBranchTerms = blast args' }
    let go = do tl <- liftIO $ termInt sbe (fromIntegral (length jopts))
                jssOverrides
                setVerbosity (dbug args')
+               printErrPaths .= errPaths args'
                rs <- runMain cname =<< do
                  jargs <- newMultiArray (ArrayType (ClassType "java/lang/String")) [tl]
                  forM_ ([0..length jopts - 1] `zip` jopts) $ \(i,s) -> do
@@ -191,5 +188,5 @@ main = do
                  liftIO $ putStrLn $ "Warning: Simulator could not merge all paths."
    runSimulator cb sbe defaultSEH (Just fl) $ 
      go `catchError` \e -> do
-                       simExcHndlr' sbe False (text "jss") e
+                       simExcHndlr' False (text "jss") e
                        liftIO . exitWith $ ExitFailure 1
