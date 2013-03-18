@@ -10,6 +10,7 @@ Point-of-contact : atomb, jhendrix
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE TypeFamilies         #-}
 {-# LANGUAGE ViewPatterns         #-}
+{-# LANGUAGE CPP                  #-}
 module Tests.Common 
   ( module Text.PrettyPrint
   , module Tests.Common
@@ -49,6 +50,32 @@ import Verifier.Java.Simulator hiding (run, assert, runSimulator, runDefSimulato
 import qualified Verifier.Java.Simulator as Sim 
 import Verifier.Java.Utils
 import Verifier.Java.WordBackend
+
+#if __GLASGOW_HASKELL__ < 706
+import Text.ParserCombinators.ReadP as P
+
+lookupEnv :: String -> IO (Maybe String)
+lookupEnv key = lookup key `liftM` getEnvironment
+
+readEither :: Read a => String -> Either String a
+readEither s =
+  case [ x | (x,"") <- readPrec_to_S read' minPrec s ] of
+    [x] -> Right x
+    []  -> Left "Prelude.read: no parse"
+    _   -> Left "Prelude.read: ambiguous parse"
+ where
+  read' =
+    do x <- readPrec
+       lift P.skipSpaces
+       return x
+
+-- | Parse a string using the 'Read' instance.
+-- Succeeds if there is exactly one valid result.
+readMaybe :: Read a => String -> Maybe a
+readMaybe s = case readEither s of
+                Left _  -> Nothing
+                Right a -> Just a
+#endif
 
 -- | Bake a particular verbosity level into all simulator calls for
 -- the test suite. Configurable using the environment variable
