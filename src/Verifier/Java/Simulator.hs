@@ -5,8 +5,6 @@ Stability        : stable
 Point-of-contact : jstanley
 -}
 
-{-# OPTIONS_GHC -fno-warn-missing-methods #-}
-
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -146,11 +144,11 @@ run = do
             dbugM $ showErrCnt numErrs
             dumpErrorPaths
       Nothing -> do
-        -- -- All paths ended in errors.
-        -- showEPs <- gets (optsErrorPathDetails . lssOpts)
-        -- if showEPs then
-        --   tellUser "All paths yielded errors!" >> dumpErrorPaths
-        -- else
+        -- All paths ended in errors.
+        showEPs <- use printErrPaths
+        if showEPs then
+          tellUser "All paths yielded errors!" >> dumpErrorPaths
+        else
           tellUser "All paths yielded errors! To see details, use --errpaths."
   else do
     (p :: Path sbe) <- case currentPath cs of

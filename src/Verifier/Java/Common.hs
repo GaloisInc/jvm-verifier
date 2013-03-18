@@ -42,9 +42,7 @@ module Verifier.Java.Common
   , simulationFlags
   , evHandlers
   , errorPaths
-  -- , lssOpts
-  -- , pathCounter
-  -- , aigOutputs
+  , printErrPaths
   , ppState
   , modifyCS
   , initialState
@@ -204,6 +202,7 @@ data State sbe m = State {
   , _simulationFlags   :: SimulationFlags
   , _backend           :: Backend sbe
   , _errorPaths        :: [ErrorPath sbe]
+  , _printErrPaths     :: Bool
   , _evHandlers        :: SEH sbe m
   }
 
@@ -227,6 +226,7 @@ initialState cb sbe flags seh = do
                  , _simulationFlags   = flags
                  , _backend           = sbe
                  , _errorPaths        = []
+                 , _printErrPaths     = False
                  , _evHandlers        = seh
                  }
 
