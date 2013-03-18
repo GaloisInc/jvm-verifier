@@ -6,7 +6,6 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad
 import Control.Monad.State
-import qualified Data.Map as M
 import qualified Data.Vector.Storable as SV
 
 import Text.PrettyPrint
@@ -61,7 +60,7 @@ jssOverrides = do
         pushIntArr =<< liftIO (replicateM (fromIntegral n) $ freshInt sbe)
     , sym "freshLongArray" "(I)[J" $ \[IValue (asInt sbe -> Just n)] ->
         pushLongArr =<< liftIO (replicateM (fromIntegral n) $ freshLong sbe)
-    , sym "getPathDescriptors" "(Z)[I" $ \[IValue (asInt sbe -> Just includeExc)] ->
+    , sym "getPathDescriptors" "(Z)[I" $ \[IValue (asInt sbe -> Just _)] ->
           pushIntArr []
 {- No more global map of path states, so this is kind of meaningless now
         let filterExc PathState{ finalResult = fr } =

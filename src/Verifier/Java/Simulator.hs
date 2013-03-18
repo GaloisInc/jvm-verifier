@@ -14,6 +14,9 @@ Point-of-contact : jstanley
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
+
+-- for the JavaSemantics instance of Simulator
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Verifier.Java.Simulator
   ( module Execution.JavaSemantics
   , module Verifier.Java.Backend
@@ -68,7 +71,7 @@ module Verifier.Java.Simulator
 import Prelude hiding (EQ, LT, GT)
 
 import Control.Applicative hiding (empty)
-import Control.Lens
+import Control.Lens hiding (act)
 import Control.Monad
 import Control.Monad.Error
 import Control.Monad.IO.Class
@@ -129,7 +132,7 @@ run = do
         -- inform user about error paths when present and optionally dump
         -- them.
         whenVerbosity (>=5) $ dumpCtrlStk
-        whenVerbosity (>=6) $ dumpMemory
+        whenVerbosity (>=6) $ dumpMemory "run"
         whenVerbosity (>=2) $ do
           dbugM "run terminating normally: found valid exit frame"
           case p^.pathRetVal of
@@ -436,7 +439,7 @@ getProgramFinalMem :: MonadSim sbe m
 getProgramFinalMem = do
   cs <- use ctrlStk
   if isFinished cs
-    then getMem
+    then Just <$> getMem "getProgramFinalMem"
     else return Nothing
 
 getProgramErrorPaths :: MonadSim sbe m
@@ -465,7 +468,7 @@ newSymbolicArray tp@(ArrayType eltType) cnt arr = do
   r <- genRef tp
   sbe <- use backend
   tcnt <- liftIO $ termInt sbe cnt
-  Just m <- getMem
+  m <- getMem "newSymbolicArray"
   setMem (m & memScalarArrays %~ M.insert r (cnt, arr))
   return r
 newSymbolicArray _ _ _ = fail "internal: newSymbolicArray called with invalid type"
@@ -475,7 +478,7 @@ newSymbolicArray _ _ _ = fail "internal: newSymbolicArray called with invalid ty
 getSymbolicArray :: MonadSim sbe m
                  => Ref -> Simulator sbe m (Maybe (SBETerm sbe, SBETerm sbe))
 getSymbolicArray r = do
-  Just m <- getMem
+  m <- getMem "getSymbolicArray"
   case M.lookup r (m^.memScalarArrays) of
     Just (len, a) -> do
       sbe <- use backend
@@ -489,15 +492,15 @@ setSymbolicArray :: MonadSim sbe m => Ref -> SBETerm sbe -> Simulator sbe m ()
 setSymbolicArray r arr = updateSymbolicArray r (\_ _ _ -> return arr)
 
 -- | Updates integer or long array using given update function.
--- TODO: Revisit what error should be thrown if ref is not an array refence.
 updateSymbolicArray :: MonadSim sbe m
                     => Ref
                     -> (Backend sbe -> SBETerm sbe -> SBETerm sbe -> IO (SBETerm sbe))
                     -> Simulator sbe m ()
 updateSymbolicArray r modFn = do
-  Just m <- getMem
-  let (len,arr) = maybe (error "internal: reference is not a symbolic array") id
-                      $ M.lookup r (m^.memScalarArrays)
+  m <- getMem "updateSymbolicArray"
+  (len,arr) <- 
+    maybe (fail "updateSymbolicArray: reference is not a symbolic array") return
+    $ M.lookup r (m^.memScalarArrays)
   sbe <- use backend
   len' <- liftIO $ termInt sbe len
   newArr <- liftIO $ modFn sbe len' arr
@@ -540,7 +543,7 @@ getArrayLength :: MonadSim sbe m
                => Ref -> Simulator sbe m (SBETerm sbe)
 getArrayLength ref = do
   ArrayType tp <- getType ref
-  Just m <- getMem
+  m <- getMem "getArrayLength"
   sbe <- use backend
   if isRValue tp then do
     let Just arr = M.lookup ref (m^.memRefArrays)
@@ -557,7 +560,7 @@ getArrayValue :: (AigOps sbe, Functor m, MonadIO m)
 getArrayValue r idx = do
   ArrayType tp <- getType r
   sbe <- use backend
-  Just m <- getMem
+  m <- getMem "getArrayValue"
   if isRValue tp then do
     let Just arr = M.lookup r (m^.memRefArrays)
     case asInt sbe idx of
@@ -625,7 +628,7 @@ getInstanceFieldValue :: MonadSim sbe m
                       -> FieldId
                       -> Simulator sbe m (Value (SBETerm sbe))
 getInstanceFieldValue ref fldId = do
-  Just m <- getMem
+  m <- getMem "getInstanceFieldValue"
   case M.lookup (ref, fldId) (m^.memInstanceFields) of
     Just v   -> return v
     Nothing  -> fail $ "getInstanceFieldValue: instance field " ++
@@ -639,7 +642,7 @@ getStaticFieldValue fldId = do
   -- this might be the first time we reference this class, so initialize
   initializeClass cName
   cl <- lookupClass' cName
-  Just m <- getMem
+  m <- getMem "getStaticFieldValue"
   case M.lookup fldId (m^.memStaticFields) of
     Just v  -> return v
     Nothing -> do
@@ -679,7 +682,7 @@ ppCurrentMethod p = case currentCallFrame p of
 
 warning :: (Functor m, MonadIO m) => Doc -> Simulator sbe m ()
 warning msg = do
-  mp <- getPath
+  mp <- getPathMaybe
   -- Get location information
   let prefix = do
         p <- mp
@@ -788,14 +791,14 @@ runCustomClassInitialization cName = do
       dbugM' 5 $ "initializing java/lang/System"
       -- we're only here if initializeClass found Nothing for
       -- initialization status, so we don't need to check again
-      Just m <- getMem
+      m <- getMem "runCustomClassInitialization"
       setMem $ setInitializationStatus cName Started m
       initializeClass pstreamName
       outStream <- RValue `liftM` genRef (ClassType pstreamName)
       errStream <- RValue `liftM` genRef (ClassType pstreamName)
       setStaticFieldValue (FieldId cName "out" pstreamType) outStream
       setStaticFieldValue (FieldId cName "err" pstreamType) errStream
-      Just m <- getMem
+      m <- getMem "runCustomClassInitialization"
       setMem $ setInitializationStatus cName Initialized m
     _ -> return ()
   where pstreamName = "java/io/PrintStream"
@@ -811,7 +814,7 @@ errorPath ::
 errorPath rsn = do
   sbe <- use backend
   -- Update control stack.
-  Just p <- getPath
+  p <- getPath $ "errorPath" <+> parens (ppFailRsn rsn)
   -- Log error path  
   whenVerbosity (>=3) $ do
     dbugM $ "Error path encountered: " ++ show (ppFailRsn rsn)
@@ -863,14 +866,12 @@ skipInit cname = cname `elem` [ "java/lang/System"
 
 runInsns :: MonadSim sbe m
          => [SymInsn] -> Simulator sbe m ()
-runInsns insns = do Just p <- getPath
-                    cb <- use codebase
-                    mapM_ dbugStep insns
+runInsns insns = mapM_ dbugStep insns
 
 dbugStep :: MonadSim sbe m 
          => SymInsn -> Simulator sbe m ()
 dbugStep insn = do
-  mp <- getPath
+  mp <- getPathMaybe
   case mp of
     Nothing -> dbugM' 4 . render $ "Executing: (no current path)" 
                <> colon <+> (ppSymInsn insn)
@@ -892,11 +893,9 @@ dbugStep insn = do
   step insn
   cb1 onPostStep insn
   whenVerbosity (>=6) $ do
-    mp <- getPath
+    p <- getPath "dbugStep"
     sbe <- use backend
-    case mp of
-      Nothing -> return ()
-      Just p  -> dbugM . render $ ppPath sbe p
+    dbugM . render $ ppPath sbe p
 
 -- | Execute a single LLVM-Sym AST instruction
 step :: MonadSim sbe m
@@ -1128,12 +1127,11 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   getCodebase = use codebase
 
   initializeClass name = do
-    Just m <- getMem
+    m <- getMem "initializeClass"
     case M.lookup name (m^.memInitialization) of
       Nothing | hasCustomClassInitialization name -> 
                   runCustomClassInitialization name
       Nothing | otherwise -> do
-        Just m <- getMem
         setMem $ setInitializationStatus name Started m
         let clinit = MethodKey "<clinit>" [] Nothing
             initializeField :: MonadSim sbe m => Field -> Simulator sbe m ()
@@ -1163,7 +1161,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
             unless (skipInit name) $ do
               void $ execStaticMethod name clinit []
           Nothing -> return ()
-        Just m <- getMem
+        m <- getMem "initializeClass"
         setMem $ setInitializationStatus name Initialized m
       Just Erroneous -> do
         createAndThrow "java/lang/NoClassDefFoundError"
@@ -1290,12 +1288,17 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     termSetLongArray sbe l a idx val
   setArrayValue r idx (RValue v) = do
     sbe <- use backend
-    (Just m) <- getMem
+    m <- getMem "setArrayValue"
     case asInt sbe idx of
       Nothing -> fail "Cannot update reference arrays at symbolic indices"
       Just i -> do
         let updateFn arr = Just (arr // [(fromIntegral i,v)])
         setMem (m & memRefArrays %~ M.update updateFn r)
+  setArrayValue _ _ val = do
+    whenVerbosity (>= 2) $ do
+      sbe <- use backend
+      dbugM . render $ "bad array element" <+> ppValue sbe val
+    fail "setArrayValue: unsupported array element type"
 
   setStaticFieldValue fieldId v = do
     let cName = fieldIdClass fieldId
@@ -1304,7 +1307,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
 
     sbe <- use backend
     dbugM' 6 . render $ "setting field" <+> text (ppFldId fieldId) <+> "to" <+> ppValue sbe v
-    Just m <- getMem
+    m <- getMem "setStaticFieldValue"
     setMem (m & memStaticFields %~ M.insert fieldId v)
           
   byteArrayVal arrayRef value = do
@@ -1337,7 +1340,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
       case ma of
         Nothing -> abort "Cannot create array with symbolic size"
         Just a -> do
-          Just m <- getMem
+          m <- getMem "newMultiArray"
           setMem $ m & memScalarArrays %~ M.insert ref (l', a)
       return ref
   newMultiArray (ArrayType DoubleType) _ =
@@ -1352,7 +1355,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
         ref <- genRef tp
         values <- replicateM (fromIntegral cnt) (newMultiArray eltTp rest)
         let arr = listArray (0, fromIntegral cnt-1) values
-        Just m <- getMem
+        m <- getMem "newMultiArray"
         setMem $ m & memRefArrays %~ M.insert ref arr
         return ref
   newMultiArray _ _ = abort "Cannot create array with symbolic size"
@@ -1363,7 +1366,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     -- Set fields to default value
     fields <- classFields <$> lookupClass' name
     fvals <- withSBE $ \sbe -> mapM (defaultValue sbe . fieldType) fields
-    Just m <- getMem
+    m <- getMem "newObject"
     let m' = m & memInstanceFields .~
                foldl' (\fieldMap (f,val) ->
                           let fid = FieldId name (fieldName f) (fieldType f)
@@ -1433,7 +1436,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
         return ref
 
   getClassObject cName = do
-    Just m <- getMem
+    m <- getMem "getClassObject"
     case M.lookup cName (m^.memClassObjects) of
       Just ref -> return ref
       Nothing -> do
@@ -1446,7 +1449,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   -- Pushes value of field onto stack.
   -- NOTE: Assumes ref is not null.
   pushInstanceFieldValue r fieldId = do
-    Just m <- getMem
+    m <- getMem "pushInstanceFieldValue"
     case M.lookup (r, fieldId) (m^.memInstanceFields) of
       Just value -> pushValue value
       -- Some code seems to depend on instance fields being
@@ -1461,12 +1464,12 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   -- Pushes value of field onto stack.
   -- NOTE: Assumes ref is not null.
   pushStaticFieldValue fieldId = do
-    Just m <- getMem
+    m <- getMem "pushStaticFieldValue"
     case M.lookup fieldId (m^.memStaticFields) of
       Just value -> pushValue value
       Nothing    -> do
         when (isFloatType (fieldIdType fieldId)) $
-          error $ "internal: unassigned static floating-point field " ++
+          fail $ "internal: unassigned static floating-point field " ++
                         show fieldId
         pushValue =<< withSBE (\sbe -> defaultValue sbe (fieldIdType fieldId))
 
@@ -1474,33 +1477,10 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   -- NOTE: Assumes that ref is a valid array and index is a valid index in array.
   pushArrayValue r idx = pushValue =<< getArrayValue r idx
 
-{-
-  setArrayValue r idx (IValue val) = updateSymbolicArray r $ \sbe l a ->
-    termSetIntArray  sbe l a idx val
-  setArrayValue r idx (LValue val) = updateSymbolicArray r $ \sbe l a ->
-    termSetLongArray sbe l a idx val
-  setArrayValue r idx (RValue v) = do
-    sbe <- gets backend
-    ps <- getPathState
-    case asInt sbe idx of
-      Nothing -> abort "Cannot update reference arrays at symbolic indices"
-      Just i ->
-        let updateFn arr = Just (arr // [(fromIntegral i,v)])
-            ps'          = ps{ refArrays = M.update updateFn r (refArrays ps) }
-         in refArrays ps' M.! r `seq` putPathState ps'
-  setArrayValue _ _ _ =
-    error "internal: invalid setArrayValue parameters (array type/elem mismatch?)"
--}
   setInstanceFieldValue r fieldId v = do
-    Just m <- getMem
+    m <- getMem "setInstanceFieldValue"
     setMem (m & memInstanceFields %~ M.insert (r, fieldId) v)
-{-
-  setInstanceFieldValue r fieldId v = modifyPathState $ \ps ->
-      ps{ instanceFields = v `seq` M.insert (r,fieldId) v (instanceFields ps) }
 
-  setStaticFieldValue fieldId v = modifyPathState $ \ps ->
-    ps{ staticFields = M.insert fieldId v (staticFields ps) }
--}
   -- Pop value off top of stack.
   popValue = modifyCallFrameM "popValue" $ \cf -> 
                case cf^.cfOpds of
@@ -1553,7 +1533,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
 
   createInstance clNm margs = do
       ref <- newObject clNm
-      execInstanceMethod clNm ctorKey ref (maybe [] (map snd) margs)
+      void $ execInstanceMethod clNm ctorKey ref (maybe [] (map snd) margs)
       return ref
     where
       ctorKey = MethodKey "<init>" (maybe [] (map fst) margs) Nothing
@@ -1898,10 +1878,10 @@ lookupStringRef r =
 -- contains concrete characters.
 drefString :: MonadSim sbe m => Ref -> Simulator sbe m String
 drefString strRef = do
-  Just ty       <- typeOf strRef
+  Just ty <- typeOf strRef
   assert (ty == stringTy)
 
-  Just m <- getMem
+  m <- getMem "drefString"
   let iflds  = m^.memInstanceFields
       lkup   = (`M.lookup` iflds) . (,) strRef
       fldIds = [ FieldId "java/lang/String" "value"  (ArrayType CharType)
@@ -2019,7 +1999,6 @@ dynBind' :: MonadSim sbe m
          -> Simulator sbe m [String]
 dynBind' clName key objectRef = do
   dbugM' 6 . render $ "dynBind" <+> text clName <+> ppMethodKey key
-  sbe <- use backend
   mty <- typeOf objectRef
   case mty of
     Nothing -> fail . render $ "dynBind': could not determine type of reference"
