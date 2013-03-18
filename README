@@ -11,10 +11,11 @@ To use the ABC backend (recommended):
 into the parent directory of the Verifier repo root.)
 
 1. Check out the abcBridge repo.
-2. $ cabal-dev install . ../Verinf <abcBridge location>
+1. Check out the jvm-parser repo.
+2. $ cabal-dev install . ../Verinf <abcBridge location> <jvm-parser location>
 
 --------------------------------------------------------------------------------
 To DISABLE the ABC backend (uses the Aiger package):
 
 1. Check out the Aiger repo.
-2. $ cabal-dev install . ../Verinf <Aiger location> --flags=-abc-backend
+2. $ cabal-dev install . ../Verinf <Aiger location> <jvm-parser location> --flags=-abc-backend

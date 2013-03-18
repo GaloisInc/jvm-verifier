@@ -122,8 +122,8 @@ main = do
         , xlate  = def &= help "Print the symbolic AST translation stdout and terminate"
         , mcname = def &= typ "MAIN CLASS NAME" &= args
         }
-    &= summary ("Java Symbolic Simulator (jss) 0.1d Jan 2012. "
-                ++ "Copyright 2010-2012 Galois, Inc. All rights reserved.")
+    &= summary ("Java Symbolic Simulator (jss) 0.2 Mar 2013. "
+                ++ "Copyright 2010-2013 Galois, Inc. All rights reserved.")
 
   let
     cname  = case mcname args' of
