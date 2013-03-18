@@ -84,6 +84,7 @@ module Verifier.Java.Common
   , pathRetVal
   , addPathAssertion
   , getPath
+  , getPathMaybe
   , ppPath
   
   , Memory
@@ -496,15 +497,25 @@ modifyPathM f =
 
 modifyPathM_ f = modifyPathM (\p -> ((),) <$> f p)
 
--- | Obtain the current path; @Nothing@ means that the control stack
--- is empty or the top entry of the control stack has no pending paths
--- recorded.
-getPath :: (Functor m, Monad m) => Simulator sbe m (Maybe (Path sbe))
-getPath = uses ctrlStk currentPath
+-- | Obtain the current path. If there is no current path, this fails.
+getPath :: (Functor m, Monad m) => Doc -> Simulator sbe m (Path sbe)
+getPath ctx = do
+  mp <- getPathMaybe
+  case mp of
+    Just p -> return p
+    _      -> fail . render $ ctx <> ":" <+> "no current path"
 
--- @getMem@ yields the memory model of the current path, which must exist.
-getMem :: (Functor m, Monad m) => Simulator sbe m (Maybe (Memory (SBETerm sbe)))
-getMem = fmap (view pathMemory <$>) getPath
+-- | Obtain the current path, if present.
+getPathMaybe :: (Functor m, Monad m) => Simulator sbe m (Maybe (Path sbe))
+getPathMaybe = uses ctrlStk currentPath
+  
+
+-- | Get the memory model of the current path. If there is no current
+-- path, this fails.
+getMem :: (Functor m, Monad m) => Doc -> Simulator sbe m (Memory (SBETerm sbe))
+getMem ctx = do
+  p <- getPath ctx
+  return $ p^.pathMemory
 
 modifyCallFrameM :: 
      String
@@ -888,11 +899,11 @@ ppMemory sbe mem = hang ("memory" <> colon) 2 (brackets . commas $ rest)
               ppMap text ppRef (mem^.memClassObjects)
           ]
 
-dumpMemory :: (Functor m, MonadIO m) => Simulator sbe m ()
-dumpMemory = do
+dumpMemory :: (Functor m, MonadIO m) => Doc -> Simulator sbe m ()
+dumpMemory ctx = do
   sbe <- use backend
-  Just m <- getMem
-  liftIO . putStrLn . render . ppMemory sbe $ m  
+  m <- getMem ctx
+  liftIO . putStrLn . render $ ctx <> ":" <+> (ppMemory sbe m)
 
 ppInstanceFieldRef :: InstanceFieldRef -> Doc
 ppInstanceFieldRef (ref, fld) = text (ppFldId fld) <> (braces . ppRef $ ref)
