@@ -1,6 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
-module Verifier.Java.Backend 
+module Verifier.Java.Backend
   ( Typeable
   , UnaryOp
   , BinaryOp
@@ -27,7 +27,7 @@ class ( PrettyTerm (SBETerm m)
       , Show (SBETerm m)
       , Typeable (SBETerm m)
       ) => AigOps m where
- 
+
 data Backend sbe = Backend {
           -- | Allocates a fresh variable where the 8 low-order bits are fresh
           -- lits and the upper bits are zero.
@@ -37,7 +37,7 @@ data Backend sbe = Backend {
        , asBool :: SBETerm sbe -> Maybe Bool
        , asInt :: SBETerm sbe -> Maybe Int32
        , asLong :: SBETerm sbe -> Maybe Int64
-       , termBool :: Bool  -> IO (SBETerm sbe)  
+       , termBool :: Bool  -> IO (SBETerm sbe)
        , termInt  :: Int32 -> IO (SBETerm sbe)
        , termLong :: Int64 -> IO (SBETerm sbe)
        , termByteFromInt :: UnaryOp sbe
@@ -45,7 +45,7 @@ data Backend sbe = Backend {
        , termIntFromLong :: UnaryOp sbe
          -- | Complement argument.
        , termNot :: UnaryOp sbe
-         -- | Return conjunction of two arguments. 
+         -- | Return conjunction of two arguments.
        , termAnd :: BinaryOp sbe
          -- | Compare equality of arguments.
        , termEq :: BinaryOp sbe
@@ -109,46 +109,51 @@ data Backend sbe = Backend {
          -- | Returns signed remainder of two 64bit integers.
        , termLRem :: BinaryOp sbe
 
-         -- | @termIntArray l@ returns an integer array of zeros with length
-         -- @l@.  Will return @Nothing@ is operation cannot be performed because
-         -- length is symbolic and symbolic lengths are unsupported. 
+         -- | @termIntArray l@ returns an integer array of zeros with
+         -- length @l@.  Will return @Nothing@ is operation cannot be
+         -- performed because length is symbolic and symbolic lengths
+         -- are unsupported.
        , termIntArray :: SBETerm sbe -> IO (Maybe (SBETerm sbe))
          -- | @termLongArray l@ returns a long array of zeros with length @l@.
        , termLongArray :: SBETerm sbe -> IO (Maybe (SBETerm sbe))
-         -- | @termGetIntArray l arr i@ returns value at @arr[i]@.  The length is
-         -- the expected length of the array.  The length is passed in case the backend
-         -- needs it.
-       , termGetIntArray :: SBETerm sbe -- ^ length
-                         -> SBETerm sbe -- ^ array
-                         -> SBETerm sbe -- ^ index
+         -- | @termGetIntArray l arr i@ returns value at @arr[i]@.
+         -- The length @l@ is the expected length of the array.  The
+         -- length is passed in case the backend needs it.
+       , termGetIntArray :: SBETerm sbe
+                         -> SBETerm sbe
+                         -> SBETerm sbe
                          -> IO (SBETerm sbe)
-         -- | @termGetLongArray l arr i@ returns value at @arr[i]@.
-       , termGetLongArray :: SBETerm sbe -- ^ length
-                          -> SBETerm sbe -- ^ array
-                          -> SBETerm sbe -- ^ index
+         -- | @termGetLongArray l arr i@ returns value at @arr[i]@,
+         -- where @l@ is the expected lengthe array.
+       , termGetLongArray :: SBETerm sbe
+                          -> SBETerm sbe
+                          -> SBETerm sbe
                           -> IO (SBETerm sbe)
-         -- | @termSetIntArray l arr i v@ returns value at @arr[i] = v@.
-       , termSetIntArray :: SBETerm sbe -- ^ length
-                         -> SBETerm sbe -- ^ array
-                         -> SBETerm sbe -- ^ index
-                         -> SBETerm sbe -- ^ value
+         -- | @termSetIntArray l arr i v@ returns value at @arr[i] =
+         -- v@, where @l@ is the expected lengthe array.
+       , termSetIntArray :: SBETerm sbe
+                         -> SBETerm sbe
+                         -> SBETerm sbe
+                         -> SBETerm sbe
                          -> IO (SBETerm sbe)
-         -- | @termSetLongArray l arr i v@ returns value at @arr[i] = v@.
-       , termSetLongArray :: SBETerm sbe -- ^ length
-                          -> SBETerm sbe -- ^ array
-                          -> SBETerm sbe -- ^ index
-                          -> SBETerm sbe -- ^ value
+         -- | @termSetLongArray l arr i v@ returns value at @arr[i] =
+         -- v@, where @l@ is the expected lengthe array.
+       , termSetLongArray :: SBETerm sbe
+                          -> SBETerm sbe
+                          -> SBETerm sbe
+                          -> SBETerm sbe
                           -> IO (SBETerm sbe)
-         -- | @blastTerm t@ bitblasts the Boolean term @t@ and returns a maybe value indicating
-         -- if it is equivalent to the constant true or false.
+         -- | @blastTerm t@ bitblasts the Boolean term @t@ and returns
+         -- a 'Maybe' value indicating if it is equivalent to the
+         -- constant 'True' or 'False'.
        , blastTerm :: SBETerm sbe -> IO (Maybe Bool)
         -- TODO: we may, at some point, want to get back a satisfying assignment
        , satTerm :: SBETerm sbe -> IO Bool
-         -- | @evalAigIntegral f ins out@ applies concrete inputs @ins@ to the 
+         -- | @evalAigIntegral f ins out@ applies concrete inputs @ins@ to the
          -- AIG at the given symbolic output term @out@, applying @f@ to the
          -- @ins@ bit sequence
        , evalAigIntegral :: ([Bool] -> [Bool])
-                         -> [SBETerm sbe] 
+                         -> [SBETerm sbe]
                          -> SBETerm sbe
                          -> IO (SBETerm sbe)
          -- | @evalAigArray w ins outs@ applies concrete inputs @ins@ to the

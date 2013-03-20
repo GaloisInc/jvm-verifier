@@ -15,124 +15,135 @@ Point-of-contact : acfoltzer
 {-# LANGUAGE TupleSections #-}
 
 module Verifier.Java.Common
-  ( Simulator(SM)
+  ( -- * Core types
+    -- ** Simulator
+    Simulator(..)
   , MonadSim
-  , runSM
-  , dumpCtrlStk
-
-  , SimulationFlags(..)
-  , defaultSimFlags
-
-  , Value
-  , Value'
-  , Ref(..)
-
-  , State(State)
+    -- ** Simulator state
+  , State
+  , initialState
+    -- *** Lenses
   , codebase
-  , backend
+  , instanceOverrides
+  , staticOverrides
   , ctrlStk
-  , nextRef
   , nextPSS
   , strings
-  , instanceOverrides
-  , InstanceOverride
-  , staticOverrides
-  , StaticOverride
+  , nextRef
   , verbosity
   , simulationFlags
-  , evHandlers
+  , backend
   , errorPaths
   , printErrPaths
-  , ppState
-  , modifyCS
-  , initialState
+  , evHandlers
 
+    -- ** Simulator configuration
+  , SimulationFlags(..)
+  , defaultSimFlags
+  , InstanceOverride
+  , StaticOverride
+
+    -- ** Simulator control stack and continuations
   , CS(..)
   , initialCtrlStk
+  , SimCont(..)
+    -- *** Utilities
   , isFinished
+  , modifyCS
+  , modifyCSM
+  , modifyCSM_
+
+    -- ** Symbolic execution paths
+  , Path
+  , Path'
+    -- *** Lenses
+  , pathStack
+  , pathStackHt
+  , pathBlockId
+  , pathRetVal
+  , pathException
+  , pathMemory
+  , pathAssertions
+  , pathName
+  , pathStartingPC
+  , pathBreakpoints
+  , pathInsnCount
+    -- *** Utilities
+  , getPath
+  , getPathMaybe
   , currentPath
   , modifyPath
   , modifyCurrentPath
   , modifyCurrentPathM
-  , modifyCSM
-  , modifyCSM_
   , modifyPathM
   , modifyPathM_
+  , addPathAssertion
+
+    -- ** Java call frames
+  , CallFrame
+    -- *** Lenses
+  , cfReturnBlock
+  , cfClass
+  , cfMethod
+  , cfLocals
+  , cfOpds
+    -- *** Utilities
+  , currentCallFrame
   , modifyCallFrameM
   , modifyCallFrameM_
   , getCurrentClassName
-  , pushCallFrame
-  , addCtrlBranch
-  , jumpCurrentPath
-  , returnCurrentPath
-  , markCurrentPathAsError
- 
-  , SimCont(..)
+  , getCurrentMethod
 
-
-  , BlockId
-
-  , Path
-  , Path'
-  , pathStack
-  , pathStackHt
-  , pathBlockId
-  , pathName
-  , pathMemory
-  , pathAssertions
-  , pathException
-  , pathRetVal
-  , addPathAssertion
-  , getPath
-  , getPathMaybe
-  , ppPath
-  
+    -- ** Value and memory representation
+  , Value
+  , Value'
+  , Ref(..)
   , Memory
+  , InitializationStatus(..)
+    -- *** Lenses
   , memInitialization
   , memStaticFields
   , memInstanceFields
   , memScalarArrays
   , memRefArrays
   , memClassObjects
+    -- *** Utilities
   , getMem
-  , ppMemory
-  , dumpMemory
-
-  , InitializationStatus(..)
   , setInitializationStatus
 
-  , CallFrame
-  , cfReturnBlock
-  , cfClass
-  , cfMethod
-  , cfLocals
-  , cfOpds
-  , currentCallFrame
-
+    -- ** Exceptions and errors
   , FailRsn(FailRsn)
-  , ppFailRsn
-
   , JavaException(..)
-  , ppJavaException
-
+  , excRef
+  , excStack
   , ErrorPath(EP)
   , epRsn
   , epPath
-
   , InternalExc(ErrorPathExc, UnknownExc)
-  , ppInternalExc
   , SEH(..)
-  --      , onPostOverrideReg
-  --      , onPreStep
-  --      , onPostStep
-  --      , onMkGlobTerm
-  --      , onPreGlobInit
-  --      , onPostGlobInit
-  --      )
-  -- , ppTuple
+
+    -- ** Pretty-printers
+  , ppPath
   , ppMethod
   , ppValue
   , ppCurrentPath
+  , ppState
+  , ppMemory
+  , ppFailRsn
+  , ppJavaException
+  , ppInternalExc
+
+    -- * Control flow primitives
+  , pushCallFrame
+  , addCtrlBranch
+  , jumpCurrentPath
+  , returnCurrentPath
+  , markCurrentPathAsError
+
+    -- * Miscellaneous & debugging
+  , lookupClass
+  , dumpCtrlStk
+  , dumpMemory
   , dumpCurrentPath
   , assert
   ) where
@@ -140,24 +151,19 @@ module Verifier.Java.Common
 import Prelude hiding (EQ, GT, LT)
 import qualified Prelude as P
 
-import Control.Applicative (Applicative, (<$>), pure, (<*>))
+import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Arrow ((***))
-import qualified Control.Arrow as CA
-import Control.Exception (Exception)
 import Control.Lens
 import Control.Monad.Error 
 import Control.Monad.State hiding (State)
 
-import Data.Array (Array, Ix, elems, assocs)
+import Data.Array (Array, Ix, assocs)
 import qualified Data.Foldable as DF
 import Data.Int (Int32)
-import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Set (Set)
 import qualified Data.Set as S
-import qualified Data.Traversable as T
-import Data.Typeable (Typeable)
 import Data.Word (Word32)
 
 import Text.PrettyPrint
@@ -165,8 +171,10 @@ import Text.PrettyPrint
 import Language.JVM.Common (ppFldId, ppType)
 import Data.JVM.Symbolic.AST
 import Execution.JavaSemantics (AtomicValue(..), JSValue)
+
 import Verifier.Java.Backend
-import Verifier.Java.Codebase 
+import Verifier.Java.Codebase hiding (lookupClass)
+import qualified Verifier.Java.Codebase as Codebase
 import Verifier.Java.Utils
 
 -- | A Simulator is a monad transformer around a symbolic backend
@@ -181,6 +189,9 @@ newtype Simulator sbe (m :: * -> *) a =
     , MonadError (InternalExc sbe m)
     )
 
+-- | These constraints are common to monads with a symbolic execution
+-- backend. Enable @{-# LANGUAGE ConstraintKinds #-}@ to use this in
+-- client code.
 type MonadSim sbe m = (AigOps sbe, Functor m, MonadIO m)
 
 -- | Overrides for instance methods
@@ -252,24 +263,26 @@ data MergePoint
 -- computation. This type is essentially the environment of the
 -- 'SimCont' "closure".
 data BranchAction sbe
-  -- | Continuation after finishing a path for the @else@ of a branch;
-  -- starts running the @then@ branch
-  = BranchRunTrue (SBETerm sbe) -- ^ Branch condition
-                  (Path sbe)      -- ^ Path to run for @then@ branch
-  -- | Continuation after finishing a path for the @then@ of a branch;
-  -- merges with finished @else@ path
-  | BranchMerge   (SBETerm sbe) -- ^ Assertions before merge
-                  (SBETerm sbe) -- ^ Branch condition
-                  (Path sbe)      -- ^ Completed @else@ branch
+  -- | @BranchRunTrue cond p@ is the continuation after finishing a
+  -- path for the @else@ of a branch with condition @cond@. When
+  -- applied, it starts running the @then@ branch with the suspended
+  -- path @p@.
+  = BranchRunTrue (SBETerm sbe) (Path sbe)   
+  -- | @BranchMerge a cond p@ is the continuation after finishing a
+  -- path for the @then@ of a branch with condition cond. When
+  -- applied, the finished path @p@ from the @else@ branch is merged
+  -- with the current path and the pre-branch assertions @a@.
+  | BranchMerge (SBETerm sbe) (SBETerm sbe) (Path sbe)
 
 -- | First-order continuations for the symbolic simulation.
 data SimCont sbe
   -- | Empty continuation: there are no remaining paths to run
   = EmptyCont
-  -- | Handle part of a branch, then continue
-  | HandleBranch MergePoint         -- ^ merge point of this branch
-                 (BranchAction sbe) -- ^ action to take at merge point
-                 (SimCont sbe)      -- ^ next continuation
+  -- | @HandleBranch mp ba k@ is a handler for part of a branch. The
+  -- 'BranchAction' @ba@ will be applied when the current path reaches
+  -- the 'MergePoint' @mp@. The 'SimCont' @k@ represents the simulator
+  -- continuation after all paths of the branch are merged.
+  | HandleBranch MergePoint (BranchAction sbe) (SimCont sbe)
 
 -- | A control stack 'CS' is a stack of first-order continuations. It
 -- represents either a computation with no work remaining, or a pair
@@ -277,9 +290,8 @@ data SimCont sbe
 data CS sbe 
   -- | A completed computation, potentially with a successful result path
   = CompletedCS (Maybe (Path sbe))
-  -- | An active computation with remaining continuations
-  | ActiveCS (Path sbe)    -- ^ The active path
-             (SimCont sbe) -- ^ Continuation once current path finishes
+  -- | @ActiveCS p k@ is an active computation on path @p@ with the pending continuation @k@
+  | ActiveCS (Path sbe) (SimCont sbe)
 
 initialCtrlStk :: Backend sbe -> IO (CS sbe)
 initialCtrlStk sbe = do
@@ -449,12 +461,12 @@ modifyPath f cs =
     CompletedCS mp -> (CompletedCS . Just . f) <$> mp
     ActiveCS p k -> Just (ActiveCS (f p) k)
 
--- | Apply @f@ to the current path, if one exists.
+-- | Apply @f@ to the current path, if one exists
 modifyCurrentPath :: (Path sbe -> Path sbe) -> CS sbe -> CS sbe
 modifyCurrentPath f (CompletedCS mp) = CompletedCS (f <$> mp)
 modifyCurrentPath f (ActiveCS p k)   = ActiveCS (f p) k
 
--- | Modify current path in control stack, returning an extra value.
+-- | Modify current path in control stack, returning an extra value
 modifyCurrentPathM :: forall m sbe a .
                       Functor m
                    => CS sbe
@@ -468,10 +480,13 @@ modifyCurrentPathM cs f =
  where run :: (Path sbe -> CS sbe) -> Path sbe -> m (a, CS sbe) 
        run csfn = fmap (id *** csfn) . f
 
+-- | Return the topmost path from a control stack, if any
 currentPath :: CS sbe -> Maybe (Path sbe)
 currentPath (CompletedCS mp) = mp
 currentPath (ActiveCS p _) = Just p
 
+-- | Modify the current control stack with the given function, which
+-- may also return a result.
 modifyCSM :: (CS sbe -> Simulator sbe m (a, (CS sbe)))
           -> Simulator sbe m a
 modifyCSM f = do
@@ -480,14 +495,19 @@ modifyCSM f = do
   ctrlStk .= cs'
   return x
 
+-- | Modify the current control stack with the given function
+modifyCSM_ :: (CS sbe -> Simulator sbe m (CS sbe)) -> Simulator sbe m ()
 modifyCSM_ f = modifyCSM (\cs -> ((),) <$> f cs)
 
-modifyPathM :: (Path sbe -> Simulator sbe m (a, (Path sbe)))
+-- | Modify the current path with the given function, which may
+-- also return a result. Fails if there is no current path.
+modifyPathM :: Doc
+            -> (Path sbe -> Simulator sbe m (a, (Path sbe)))
             -> Simulator sbe m a
-modifyPathM f = 
+modifyPathM ctx f = 
   modifyCSM $ \cs ->
       case cs of 
-        CompletedCS Nothing -> fail "modifyPathM: no paths"
+        CompletedCS Nothing -> fail . render $ ctx <> ": no current paths"
         CompletedCS (Just p) -> do
                 (x, p') <- f p
                 return $ (x, CompletedCS (Just p'))
@@ -495,9 +515,14 @@ modifyPathM f =
                 (x, p') <- f p
                 return $ (x, ActiveCS p' k)
 
-modifyPathM_ f = modifyPathM (\p -> ((),) <$> f p)
+-- | Modify the current path with the given function. Fails if there
+-- is no current path.
+modifyPathM_ :: Doc 
+             -> (Path sbe -> Simulator sbe m (Path sbe)) 
+             -> Simulator sbe m ()
+modifyPathM_ ctx f = modifyPathM ctx (\p -> ((),) <$> f p)
 
--- | Obtain the current path. If there is no current path, this fails.
+-- | Obtain the current path. Fails if there is no current path.
 getPath :: (Functor m, Monad m) => Doc -> Simulator sbe m (Path sbe)
 getPath ctx = do
   mp <- getPathMaybe
@@ -517,21 +542,45 @@ getMem ctx = do
   p <- getPath ctx
   return $ p^.pathMemory
 
+-- | Modify the current call frame with the given function, which may
+-- also return a result. Fails if there is no current call frame.
 modifyCallFrameM :: 
-     String
+     Doc
   -> (CallFrame (SBETerm sbe) -> Simulator sbe m (a, (CallFrame (SBETerm sbe))))
   -> Simulator sbe m a
 modifyCallFrameM ctx f = 
-  modifyPathM $ \p ->
+  modifyPathM ctx $ \p ->
     case p^.pathStack of
-      [] -> fail $ ctx ++ ": no stack frames"
+      [] -> fail . render $ ctx <> ": no stack frames"
       (cf:cfs) -> do
         (x, cf') <- f cf
         return (x, p & pathStack .~ (cf':cfs))
 
+-- | Modify the current call frame with the given function. Fails if
+-- there is no current call frame.
+modifyCallFrameM_ :: 
+     Doc
+  -> (CallFrame (SBETerm sbe) -> Simulator sbe m (CallFrame (SBETerm sbe)))
+  -> Simulator sbe m ()
 modifyCallFrameM_ ctx f = modifyCallFrameM ctx (\cf -> ((),) <$> f cf)
 
-getCurrentClassName = modifyCallFrameM "getCurrentClassName" $ \cf -> return (cf^.cfClass, cf)
+-- | Return the enclosing class of the method being executed by the
+-- current path
+getCurrentClassName :: Simulator sbe m String
+getCurrentClassName = 
+  modifyCallFrameM "getCurrentClassName" $ \cf -> return (cf^.cfClass, cf)
+
+-- | Return the method being executed by the current path
+getCurrentMethod :: Simulator sbe m Method
+getCurrentMethod = 
+  modifyCallFrameM "getCurrentClassName" $ \cf -> return (cf^.cfMethod, cf)
+
+-- | Resolve the given class in the simulator's current codebase
+lookupClass :: String -> Simulator sbe m Class
+lookupClass cName = do
+  cb <- use codebase
+  liftIO $ Codebase.lookupClass cb cName
+
 
 -- | Push a new call frame to the current path, if any. Needs the
 -- initial function arguments, and basic block (in the caller's
@@ -645,10 +694,6 @@ addPathAssertion sbe t p =
 currentCallFrame :: Path' term -> Maybe (CallFrame term)
 currentCallFrame p = p^.pathStack^?_head
 
--- | Get operand stack of top call frame from a path
-currentOpds :: Path' term -> Maybe [Value term]
-currentOpds p = view cfOpds <$> currentCallFrame p
-
 -- | Called at symbolic return instructions and jumps to new basic
 -- blocks to check whether it is time to merge a path and move on to
 -- the next continuation. There are three cases:
@@ -682,7 +727,6 @@ mergeNextCont p (HandleBranch point ba h)
       let ba' = BranchMerge (tp^.pathAssertions) c p
       return $ ActiveCS tp' (HandleBranch point ba' h) 
     BranchMerge a c pf -> do
-      let assertions = p^.pathAssertions
       mergedCallStack <- 
         case (p^.pathStack, pf^.pathStack) of
           ([]      , []   ) -> return []
@@ -695,7 +739,7 @@ mergeNextCont p (HandleBranch point ba h)
       mergedMemory <- mergeMemories c (p^.pathMemory) (pf^.pathMemory)
       mergedAssertions <- 
           liftIO $ termIte sbe c (p^.pathAssertions) (pf^.pathAssertions)
-      mergedRetVal <- mergeRetVals sbe c (p^.pathRetVal) (pf^.pathRetVal)
+      mergedRetVal <- mergeRetVals c (p^.pathRetVal) (pf^.pathRetVal)
       a' <- liftIO $ termAnd sbe a mergedAssertions
       let p' = p & pathStack      .~ mergedCallStack
                  & pathMemory     .~ mergedMemory
@@ -713,9 +757,14 @@ p `atMergePoint` point = case point of
   PostdomPoint n b -> 
     n == p^.pathStackHt && Just b == p^.pathBlockId
 
-mergeRetVals sbe c (Just rv1) (Just rv2) = Just <$> mergeValues c rv1 rv2
-mergeRetVals _   _ Nothing    Nothing    = return Nothing
-mergeRetVals _   _ _          _          = 
+mergeRetVals :: MonadIO m 
+             => SBETerm sbe
+             -> Maybe (Value (SBETerm sbe))
+             -> Maybe (Value (SBETerm sbe))
+             -> Simulator sbe m (Maybe (Value (SBETerm sbe)))
+mergeRetVals c (Just rv1) (Just rv2) = Just <$> mergeValues c rv1 rv2
+mergeRetVals _ Nothing    Nothing    = return Nothing
+mergeRetVals _ _          _          = 
     throwError $ strMsg "return value mismatch when merging paths"
 
 mergeMemories :: MonadIO m

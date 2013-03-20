@@ -1,16 +1,16 @@
 {- |
 Module           : $Header$
-Description      :
+Description      : A basic subset of the JSS API for basic execution
 Stability        : provisional
-Point-of-contact : jhendrix, jstanley
+Point-of-contact : jhendrix, jstanley, acfoltzer
 -}
 
 {-# LANGUAGE ConstraintKinds #-}
 
-module Execution
-  ( AtomicValue(..)
-  , Codebase
-  , JavaSemantics(..)
+module Execution 
+{-# DEPRECATED "use Execution.JavaSemantics with Verifier.Java.Simulator" #-}
+  ( Codebase
+  , AtomicValue(..)
   , JSDouble
   , JSFloat
   , JSInt
@@ -19,22 +19,19 @@ module Execution
   , JSBool
   , JSRslt
   , JSValue
-  , createAndThrow
+  , JavaSemantics(..)
   , dynBind
   , isSubtype
   , loadClass
   , loadCodebase
-  , lookupClass
-  , run
-  , step
-  , throwNullPtrExc
   , runMain
   , runStaticMethod
+  , createAndThrow
+  , throwNullPtrExc
   )
 where
 
 import Execution.JavaSemantics
-import Execution.Stepper
 import Verifier.Java.Codebase
 import Verifier.Java.Simulator
 
