@@ -1,16 +1,24 @@
 {- |
 Module           : $Header$
-Description      :
+Description      : JVM instruction semantics
 Stability        : stable
-Point-of-contact : jhendrix, jstanley
+Point-of-contact : jhendrix, jstanley, acfoltzer
+
+This module defines the semantics of individual JVM instructions in
+terms of the 'Execution.JavaSemantics.JavaSemantics' operators. We
+assume our input has been translated into the @Data.JVM.Symbolic@ AST,
+and so the instructions that affect control flow are only partially
+implemented here.
 -}
+
+{-# LANGUAGE OverloadedStrings #-}
 
 module Execution.Stepper (step) where
 
 import Control.Monad
 import Control.Monad.Trans (liftIO)
 
-import Data.Maybe
+import Text.PrettyPrint ()
 
 import Execution.JavaSemantics
 import Verifier.Java.Codebase
@@ -566,11 +574,11 @@ step (Putstatic fieldId) = {-# SCC "Putstatic" #-}  do
       _           -> popValue
   setStaticFieldValue fieldId value
 
-step (Ret index) = {-# SCC "Ret" #-}  do
-  AValue newPc <- getLocal index
-  setPc newPc
+step (Ret _index) = {-# SCC "Ret" #-}  do
+  warning "jsr/ret not implemented" 
+  return ()
 
-step Return = {-# SCC "Return" #-}  execReturn Nothing
+step Return = {-# SCC "Return" #-}  return ()
 
 step Saload = {-# SCC "Saload" #-}  do
   index <- iPop

@@ -1,14 +1,37 @@
 {- |
 Module           : $Header$
-Description      :
+Description      : An interface for implementing JVM bytecode interpreters
 Stability        : stable
-Point-of-contact : jhendrix, jstanley
+Point-of-contact : jhendrix, jstanley, acfoltzer
 -}
 
 {-# LANGUAGE FlexibleContexts       #-}
 {-# LANGUAGE TypeFamilies           #-}
 
-module Execution.JavaSemantics where
+module Execution.JavaSemantics (
+    -- * Values
+    AtomicValue(..)
+  , JSDouble
+  , JSFloat
+  , JSInt
+  , JSLong
+  , JSRef
+  , JSBool
+  , JSRslt
+  , JSValue
+    -- * Semantics
+  , JavaSemantics(..)
+    -- * Miscellaneous
+  , createAndThrow
+  , isNull
+  , throwNullPtrExc
+  , throwIfRefNull
+  , assertFalseM
+  , guardArray
+  , popType1
+  , popType2
+  , pushValues
+) where
 
 import Control.Monad
 import Control.Monad.State
@@ -16,8 +39,12 @@ import Control.Monad.State
 import Data.Int
 import Data.Maybe
 
+import Text.PrettyPrint
+
 import Verifier.Java.Codebase
 
+-- | A sum used to distinguish value types without knowledge of their
+-- underlying representation
 data AtomicValue double float int long ref
   = DValue double
   | FValue float
@@ -34,6 +61,8 @@ type family JSRef    (m :: * -> *)
 type family JSBool   (m :: * -> *)
 type family JSRslt   (m :: * -> *)
 
+-- | We usually use the same index to each value type function; using
+-- this type enforces that
 type JSValue m = AtomicValue (JSDouble m) (JSFloat m) (JSInt m) (JSLong m) (JSRef m)
 
 -- | This typeclass defines the underlying semantics for the parameterized JVM
@@ -59,23 +88,11 @@ class ( Monad m
   -- | Returns current method
   getCurrentMethod :: m Method
 
-  -- | Returns current program counter value
-  getPc :: m PC
-
-  -- | Sets program counter in top frame.
-  setPc :: PC -> m ()
-
   -- | Ensures class with given name is initialized.
   initializeClass :: String -> m ()
 
-  -- | Runs an instance method call.
-  runInstanceMethodCall :: String -> Method -> JSRef m -> [JSValue m] -> m ()
-
-  -- | Pushes a static method call to the stack.
-  pushStaticMethodCall :: String -> Method -> [JSValue m] -> m ()
-
-  -- | Pops frame from stack and pushes value to operand stack.
-  execReturn :: Maybe (JSValue m) -> m ()
+  -- | Emit a warning during execution
+  warning :: Doc -> m ()
 
   -- | Throws ref as an exception.
   --
@@ -83,7 +100,7 @@ class ( Monad m
   throw :: JSRef m -> m ()
 
   -- | Reports a fatal error and halts execution
-  fatal :: String -> m a
+--  fatal :: String -> m a
 
   -- | Negate a Boolean value
   bNot :: JSBool m -> m (JSBool m)
@@ -100,8 +117,6 @@ class ( Monad m
   (|||) :: m (JSBool m) -> m (JSBool m) -> m (JSBool m)
   infixr 2 |||
   mx ||| my = bNot =<< (bNot =<< mx) &&& (bNot =<< my)
-
-  toBool :: JSBool m -> m (Maybe Bool)
 
   -- Conversion functions {{{1
 
@@ -497,52 +512,23 @@ class ( Monad m
   -- a newline when @nl@ is True, and in binary when @binary@ is true.
   printStream :: Bool -> Bool -> [JSValue m] -> m ()
 
-  die :: String -> m ()
-
-  doStep :: m ()
-
   createInstance :: String -> Maybe [(Type, JSValue m)] -> m (JSRef m)
-
-  dynBind' :: JavaSemantics m
-           => String                -- ^ Name of 'this''s class
-           -> MethodKey             -- ^ Key of method to invoke
-           -> JSRef m               -- ^ 'this'
-           -> (String -> Case m ()) -- ^ case generator for method dispatch
-           -> m ()
-
-  -- | Invokes an instance method in a particular class.
-  invokeInstanceMethod :: String      -- ^ Name of class
-                       -> MethodKey   -- ^ Key of method to invoke
-                       -> JSRef m     -- ^ Reference to use for this parameter.
-                       -> [JSValue m] -- ^ Operands to pass method
-                       -> m ()
-
-  -- | Invokes a static method in a particular class.
-  invokeStaticMethod :: String      -- ^ Name of class
-                     -> MethodKey   -- ^ Key of method to invoke
-                     -> [JSValue m] -- ^ Operands to pass to method
-                     -> m ()
 
   -- | Check an assertion in the current exection state. 
   assertTrueM :: m (JSBool m) -- ^ Condition to check
-              -> String       -- ^ Name of exception to throw if condition fails
+              -> String       -- ^ Name of exception to throw if condition is false
               -> m ()
+  
+  -- | Check a negated assertion in the current execution state.
+  assertFalseM :: m (JSBool m) -- ^ Condition to check
+               -> String       -- ^ Name of exception to throw if condition is true
+               -> m ()
+  assertFalseM cond exc = assertTrueM (bNot =<< cond) exc
 
 --------------------------------------------------------------------------------
 -- Control flow primitives and helpers
 
-assertFalseM :: JavaSemantics m 
-             => m (JSBool m)
-             -> String
-             -> m ()
-assertFalseM cond exc = assertTrueM (bNot =<< cond) exc
-
-data Case m v = Case (m (JSBool m)) (m v)
-(|->) :: m (JSBool m) -> m v -> Case m v
-cond |-> fn = Case cond fn
-infix 1 |->
-
--- | Returns true if reference is null.
+-- | Returns true if reference is @null@.
 isNull :: JavaSemantics m => JSRef m -> m (JSBool m)
 isNull ref = rEq ref =<< rNull
 
@@ -567,25 +553,13 @@ nullPtrExc :: String
 nullPtrExc = "java/lang/NullPointerException"
 
 throwNullPtrExc :: JavaSemantics m => m a
-throwNullPtrExc = createAndThrow "java/lang/NullPointerException" >> error "unreachable"
+throwNullPtrExc = do
+  createAndThrow "java/lang/NullPointerException"
+  error "unreachable"
 
+-- | If the given reference is @null@, throw a @java.lang.NullPointerException@
 throwIfRefNull :: JavaSemantics m => JSRef m -> m ()
 throwIfRefNull ref = assertFalseM (isNull ref) nullPtrExc
-
---------------------------------------------------------------------------------
--- Instance creation, query, and method dispatch
-
--- | (dynBind cln meth r act) provides to 'act' the class name that defines r's
--- implementation of 'meth'
-dynBind :: JavaSemantics m
-        => String           -- ^ Name of 'this''s class
-        -> MethodKey        -- ^ Key of method to invoke
-        -> JSRef m          -- ^ 'this'
-        -> (String -> m ()) -- ^ e.g., an invokeInstanceMethod invocation.
-         -> m ()
-dynBind clName key objectRef act =
-  dynBind' clName key objectRef $ \cl ->
-    objectRef `hasType` ClassType cl |-> act cl
 
 --------------------------------------------------------------------------------
 -- Instruction/stack manip

@@ -51,18 +51,16 @@ library
   hs-source-dirs: src
 
   exposed-modules:
-    Execution
     Data.JVM.Symbolic.AST
     Data.JVM.Symbolic.Translation
+    Execution
+    Execution.JavaSemantics
+    Execution.Stepper
     Verifier.Java.Backend
     Verifier.Java.Codebase
     Verifier.Java.Common
     Verifier.Java.Simulator
     Verifier.Java.Utils
- 
-  other-modules:
-    Execution.JavaSemantics
-    Execution.Stepper
 
   if flag(use-saw)
     build-depends:
