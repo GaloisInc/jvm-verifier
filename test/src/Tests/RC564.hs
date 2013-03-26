@@ -13,6 +13,7 @@ module Tests.RC564 (rc564Tests) where
 import Control.Applicative
 import Control.Monad
 import qualified Data.Vector as V
+import qualified Data.Vector.Storable as SV
 import System.Process
 
 import Test.Framework
@@ -92,7 +93,7 @@ _makeAigerRC564 filepath = do
     putStrLn "Creating RC564 aiger..."
     outLits <- mapM (getVarLit sbe) outValues
     putStrLn $ "Writing RC564 aiger to '" ++ filepath ++ "'"
-    writeAiger be filepath $ concat (map (take 8 . toLsbf_lit) outLits)
+    writeAiger be filepath $ concat (map (take 8 . SV.toList) outLits)
 
 runRC564 :: MonadSim sbe m =>
             [SBETerm sbe] -> [SBETerm sbe] -> Simulator sbe m [SBETerm sbe]

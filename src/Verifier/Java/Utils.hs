@@ -15,14 +15,13 @@ module Verifier.Java.Utils
   , dbugV
   , headf
   , safeHead
-  , boolSeqToValue
   , splitN
-  , hexToByteSeq
-  , byteSeqToHex
-  , hexToByteSeq
-  , hexToIntSeq
+  , boolSeqToValue
   , boolSeqToHex
-  , byteSeqToHex
+  , hexToBoolSeq
+  , hexToByteSeq
+  , hexToNumSeq
+  , hexToIntSeq
   )
 where
 
@@ -32,8 +31,6 @@ import Data.Int
 import Data.List (foldl')
 import Data.Word
 import Numeric
-
-import Verinf.Symbolic
 
 import Data.Maybe          (listToMaybe)
 import Control.Monad.Trans
@@ -82,19 +79,6 @@ boolSeqToHex bs = reverse (impl bs)
                      (second',s2) = splitAt 4 s1
                   in ch first' : ch second' : impl s2
 
-byteSeqToHex :: [CValue] -> String
-byteSeqToHex ((getSValW -> Just (32, c)) : r)
-  = (intToDigit $ fromIntegral $ ((fromIntegral c :: Word32) `quot` 16) `rem` 16)
-    : (intToDigit $ fromIntegral $ (fromIntegral c :: Word32) `rem`  16)
-    : byteSeqToHex r
-byteSeqToHex ((getSValW -> Just (w,_c)) : _r)
-  = error $ "internal: byteSeqToHex unexpected width " ++ show w
-byteSeqToHex (CArray _ : _) = error "internal: byteSeqToHex CArray"
-byteSeqToHex (CBool _ : _) = error "internal: byteSeqToHex CBool"
-byteSeqToHex (CRec{} : _) = error "internal: byteSeqToHex CRec"
-byteSeqToHex [] = []
-byteSeqToHex _ = error "internal: byteSeqToHex bad value"
-
 hexToBoolSeq :: String -> [Bool]
 hexToBoolSeq s =
   let ch c = map (testBit $ digitToInt c) [0..3]
@@ -134,18 +118,3 @@ hexToIntSeq = reverse . impl
            : impl r
         impl [] = []
         impl _ = error "internal: hexToIntSeq invalid input string"
-        
-intToHex :: CValue -> String
-intToHex (getSValW -> Just (32, c)) =
-  let r = showHex (fromIntegral c :: Word32) ""
-   in replicate (8 - length r) '0' ++ r
-intToHex (getSValW -> Just (64, c)) =
-  let r = showHex (fromIntegral c :: Word64) ""
-   in replicate (16 - length r) '0' ++ r
-intToHex _ = error $ "internal: Undefined intToHex for type"
-
-intSeqToHex :: [CValue] -> String
-intSeqToHex = foldl (\s c -> intToHex c ++ s) []
-
-intSeqToBoolSeq :: [CValue] -> [Bool]
-intSeqToBoolSeq = hexToBoolSeq . intSeqToHex

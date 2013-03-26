@@ -175,7 +175,6 @@ import Execution.JavaSemantics (AtomicValue(..), JSValue)
 import Verifier.Java.Backend
 import Verifier.Java.Codebase hiding (lookupClass)
 import qualified Verifier.Java.Codebase as Codebase
-import Verifier.Java.Utils
 
 -- | A Simulator is a monad transformer around a symbolic backend
 newtype Simulator sbe (m :: * -> *) a = 
@@ -891,10 +890,6 @@ ppRef (Ref n ty) = integer (fromIntegral n) <> "::" <> ppType ty
 ppMethod :: Method -> Doc
 ppMethod = text . methodKeyName . methodKey
 
-instance LogMonad (Simulator sbe m) where
-  getVerbosity = use verbosity
-  setVerbosity = assign verbosity
-
 ppState :: State sbe m -> Doc
 ppState s = hang (text "state" <+> lbrace) 2 (ppCtrlStk (s^.backend) (s^.ctrlStk)) $+$ rbrace
 
@@ -1000,7 +995,9 @@ ppMergePoint (PostdomPoint n b) =
 dumpCtrlStk :: (MonadIO m) => Simulator sbe m ()
 dumpCtrlStk = do
   (sbe, cs) <- (,) <$> use backend <*> use ctrlStk
-  banners $ show $ ppCtrlStk sbe cs
+  liftIO $ putStrLn $ replicate 80 '-'
+  liftIO $ putStrLn $ show $ ppCtrlStk sbe cs
+  liftIO $ putStrLn $ replicate 80 '-'
 
 ppFailRsn :: FailRsn -> Doc
 ppFailRsn (FailRsn msg) = text msg

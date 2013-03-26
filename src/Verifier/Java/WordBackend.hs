@@ -83,7 +83,8 @@ mkSymbolicMonadState oc be de = do
 
 data SymbolicMonad
 instance AigOps SymbolicMonad where
-type instance SBETerm SymbolicMonad  = DagTerm
+type instance SBETerm SymbolicMonad = DagTerm
+type instance SBELit SymbolicMonad  = Lit
 
 withBitEngine :: (BitEngine Lit -> IO a) -> IO a
 withBitEngine = bracket createBitEngine beFree
@@ -254,7 +255,7 @@ symbolicBackend sms = do
         bbits <- lEvalAig (SV.fromList (concatMap (f . intToBoolSeq . fromJust . termConst) ins))
                           (toLsbfV outLits)
         return $ mkCInt (Wx (SV.length bbits)) $ boolSeqToValue (SV.toList bbits)
-    , evalAigArray = \(Wx n) ins outs -> do
+    , evalAigArray = \n ins outs -> do
         -- TODO: Report sensible error if ins is not constants.
         let bits = case n of
                      8  -> evalAigArgs8  $ map (fromInteger . fromJust . getSVal) ins
@@ -271,7 +272,7 @@ symbolicBackend sms = do
           64 -> return $ map (mkCInt 64 . boolSeqToValue) $ splitN 64 rsl
           _  -> error $ "evalAigArray: input array elements have unexpected bit width"
    , writeAigToFile = \fname res -> lWriteAiger fname [res]
-   , getVarLit = getTermLit
+   , getVarLit = \t -> toLsbfV <$> getTermLit t
    , Verifier.Java.Backend.prettyTermD = Verinf.Symbolic.prettyTermD
    }
 

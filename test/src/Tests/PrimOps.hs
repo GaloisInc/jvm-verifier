@@ -191,7 +191,7 @@ t13 cb =
     -- AIG eval
     outLits <- mapM (getVarLit sbe) outVars
     r <- beEvalAigV be (SV.fromList $ concatMap intToBoolSeq cInputs)
-                       (SV.fromList $ concatMap toLsbf_lit outLits)
+                       (SV.fromList $ concatMap SV.toList outLits)
     let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
                $ SV.toList $ (SV.slice (32*k) 32 r)
              | k <- [0..(n-1)] ]
