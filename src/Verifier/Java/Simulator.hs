@@ -115,6 +115,10 @@ import Verifier.Java.Common hiding (getCurrentClassName, getCurrentMethod)
 import qualified Verifier.Java.Common as Common
 import Verifier.Java.Utils
 
+instance LogMonad (Simulator sbe m) where
+  getVerbosity = use verbosity
+  setVerbosity = assign verbosity
+
 -- | Run a static method with the given arguments. Class, method name,
 -- and method type are given in JVM internal format, e.g.,
 -- @\"com\/example\/App\" \"main\" \"([Ljava\/lang\/String;)V\"@. Returns all

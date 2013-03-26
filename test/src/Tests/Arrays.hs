@@ -10,6 +10,7 @@ module Tests.Arrays (arrayTests) where
 import Control.Applicative
 import Control.Monad
 import Data.Int
+import qualified Data.Vector.Storable as SV
 import Test.HUnit hiding (Test)
 import Test.Framework
 import Test.Framework.Providers.HUnit
@@ -46,7 +47,7 @@ sa1 cb =
         [(_, Just (IValue rslt))] <-
           runStaticMethod "Arrays" "index" "(I[I)I" [idx, RValue inpArr]
         return rslt
-      outIntLit <- toLsbf_lit <$> getVarLit sbe outVar
+      outIntLit <- SV.toList <$> getVarLit sbe outVar
       let getAt = fmap (boolSeqToValue :: [Bool] -> Int32)
                 . (\inp -> evalAig be inp outIntLit)
                 . intToBoolSeq
@@ -70,7 +71,7 @@ sa2 cb =
                            [idx, val, RValue arr]
       getIntArray arr
       -- Overwrite a random index with 42 and check it
-    rsltLits <- concatMap toLsbf_lit <$> mapM (getVarLit sbe) rslt
+    rsltLits <- concatMap SV.toList <$> mapM (getVarLit sbe) rslt
     ((:[]) . elem 42)
       <$> (map (boolSeqToValue :: [Bool] -> Int32) . splitN 32)
       <$> evalAig be (evalAigArgs32 [overwriteIdx, 42]) rsltLits
@@ -92,7 +93,7 @@ sa3 cb =
           [IValue (mkCInt 32 $ fromIntegral n - 1), val, RValue arr]
       getIntArray arr
     -- Overwrite the last index with 42 and check it
-    rsltLits <- concatMap toLsbf_lit <$> mapM (getVarLit sbe) rslt
+    rsltLits <- concatMap SV.toList <$> mapM (getVarLit sbe) rslt
     (@=?) (replicate (n-1) fill ++ [42])
         =<< (map boolSeqToValue . splitN 32)
         <$> evalAig be (evalAigArgs32 (42 : replicate n fill)) rsltLits
@@ -119,7 +120,7 @@ sa4 cb =
           (map (IValue . tint) [0, 0, 42] ++ [RValue twodim])
       concat <$> (mapM getIntArray =<< getRefArray twodim)
     -- Overwrite the first index with 42 and check it
-    rsltLits <- concatMap toLsbf_lit <$> mapM (getVarLit sbe) rslt
+    rsltLits <- concatMap SV.toList <$> mapM (getVarLit sbe) rslt
     (@=?) ((42 :: Int32) : replicate (numElems - 1) (fromIntegral fill))
         =<< (map boolSeqToValue . splitN 32)
         <$> evalAig be (concatMap intToBoolSeq $ replicate numElems (mkCInt 32 fill)) rsltLits

@@ -42,7 +42,7 @@ jssOverrides = do
                        ++ "not refer to a constant string"
           Just fn -> liftIO $
             writeAigToFile sbe fn . SV.concat
-              =<< mapM (fmap (f . toLsbfV) . getVarLit sbe) outs
+              =<< mapM (fmap f . getVarLit sbe) outs
   mapM_ (\(cn, key, impl) -> overrideStaticMethod cn key impl)
       --------------------------------------------------------------------------------
       -- fresh vars & path info

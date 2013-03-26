@@ -20,14 +20,22 @@ module Tests.Common
   , module Verifier.Java.Utils
   , module Verifier.Java.WordBackend
   , BitEngine(..)
+  , byteSeqToHex
+  , intToHex
+  , intSeqToHex
+  , intSeqToBoolSeq
   ) where
 
 import Control.Applicative
 import Control.Monad
 import qualified Control.Exception as CE
+import Data.Bits
+import Data.Char
 import Data.Int
 import Data.Maybe
 import Data.Monoid
+import Data.Word
+import Numeric
 import Prelude hiding (catch)
 import System.Environment
 import System.IO.Unsafe
@@ -50,6 +58,8 @@ import Verifier.Java.Simulator hiding (run, assert, runSimulator, runDefSimulato
 import qualified Verifier.Java.Simulator as Sim 
 import Verifier.Java.Utils
 import Verifier.Java.WordBackend
+
+import Verinf.Symbolic
 
 #if __GLASGOW_HASKELL__ < 706
 import Text.ParserCombinators.ReadP as P
@@ -86,7 +96,6 @@ verb = fromMaybe 0 . unsafePerformIO $ do
          case mvs of
            Just vs -> return $ readMaybe vs
            Nothing -> return Nothing
-           
 
 runSimulator cb sbe seh msf m =
   Sim.runSimulator cb sbe seh msf (setVerbosity verb >> m)
@@ -160,3 +169,31 @@ integralRandomR :: (Integral a, RandomGen g) => (a,a) -> g -> (a,g)
 integralRandomR (a,b) g =
   case randomR (fromIntegral a :: Integer, fromIntegral b :: Integer) g of
     (x, g') -> (fromIntegral x, g')
+
+byteSeqToHex :: [CValue] -> String
+byteSeqToHex ((getSValW -> Just (32, c)) : r)
+  = (intToDigit $ fromIntegral $ ((fromIntegral c :: Word32) `quot` 16) `rem` 16)
+    : (intToDigit $ fromIntegral $ (fromIntegral c :: Word32) `rem`  16)
+    : byteSeqToHex r
+byteSeqToHex ((getSValW -> Just (w,_c)) : _r)
+  = error $ "internal: byteSeqToHex unexpected width " ++ show w
+byteSeqToHex (CArray _ : _) = error "internal: byteSeqToHex CArray"
+byteSeqToHex (CBool _ : _) = error "internal: byteSeqToHex CBool"
+byteSeqToHex (CRec{} : _) = error "internal: byteSeqToHex CRec"
+byteSeqToHex [] = []
+byteSeqToHex _ = error "internal: byteSeqToHex bad value"
+
+intToHex :: CValue -> String
+intToHex (getSValW -> Just (32, c)) =
+  let r = showHex (fromIntegral c :: Word32) ""
+   in replicate (8 - length r) '0' ++ r
+intToHex (getSValW -> Just (64, c)) =
+  let r = showHex (fromIntegral c :: Word64) ""
+   in replicate (16 - length r) '0' ++ r
+intToHex _ = error $ "internal: Undefined intToHex for type"
+
+intSeqToHex :: [CValue] -> String
+intSeqToHex = foldl (\s c -> intToHex c ++ s) []
+
+intSeqToBoolSeq :: [CValue] -> [Bool]
+intSeqToBoolSeq = hexToBoolSeq . intSeqToHex

@@ -85,7 +85,7 @@ evalAigSHA384 msg = do
     let be = smsBitEngine sms
     msgVars <- replicateM msgLen $ freshByte sbe
     outVars <- runDefSimulator cb sbe $ runSHA384 msgVars
-    outLits <- concat <$> mapM (fmap toLsbf_lit . getVarLit sbe) outVars
+    outLits <- concat <$> mapM (fmap SV.toList . getVarLit sbe) outVars
     -- | Word-level inputs
     let cinps = map constInt $ hexToByteSeq msg
     -- | Boolean inputs to evalAig

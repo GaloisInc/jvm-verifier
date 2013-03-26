@@ -4,10 +4,10 @@ module Verifier.Java.Backend
   ( Typeable
   , UnaryOp
   , BinaryOp
+  , SBELit
   , SBETerm
   , AigOps
   , Backend(..)
-  , toLsbfV
   ) where
 
 import Data.Int
@@ -15,15 +15,14 @@ import Data.Typeable
 import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint (Doc)
 
-import Verinf.Symbolic (BitWidth, PrettyTerm(..), Lit, LitResult, toLsbfV)
-
 type UnaryOp sbe = SBETerm sbe -> IO (SBETerm sbe)
 type BinaryOp sbe = SBETerm sbe -> SBETerm sbe -> IO (SBETerm sbe)
 
 -- | Returns term type associated with monad.
 type family SBETerm (sbe :: *)
+type family SBELit (sbe :: *)
 
-class ( PrettyTerm (SBETerm m)
+class ( SV.Storable (SBELit m)
       , Show (SBETerm m)
       , Typeable (SBETerm m)
       ) => AigOps m where
@@ -159,10 +158,10 @@ data Backend sbe = Backend {
          -- | @evalAigArray w ins outs@ applies concrete inputs @ins@ to the
          -- AIG at the given symbolic output terms @outs@.  Each output is
          -- assumed to be w bits.  If @ins@ is not a constant, then this fails.
-       , evalAigArray :: BitWidth -> [SBETerm sbe] -> [SBETerm sbe] -> IO [SBETerm sbe]
-       , writeAigToFile :: FilePath -> SV.Vector Lit -> IO ()
+       , evalAigArray :: Int -> [SBETerm sbe] -> [SBETerm sbe] -> IO [SBETerm sbe]
+       , writeAigToFile :: FilePath -> SV.Vector (SBELit sbe) -> IO ()
          -- | Returns lit vector associated with given term, or fails
          -- if term cannot be bitblasted.
-       , getVarLit :: SBETerm sbe -> IO (LitResult Lit)
+       , getVarLit :: SBETerm sbe -> IO (SV.Vector (SBELit sbe))
        , prettyTermD :: SBETerm sbe -> Doc
        }
