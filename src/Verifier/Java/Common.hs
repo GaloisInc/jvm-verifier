@@ -437,12 +437,13 @@ instance Ord Ref where
   _ `compare` NullRef = P.GT
   (Ref x _) `compare` (Ref y _) = x `compare` y
 
-makeLenses ''State
-makeLenses ''Path'
-makeLenses ''Memory
-makeLenses ''CallFrame
-makeLenses ''ErrorPath
-makeLenses ''JavaException
+-- SEE BOTTOM OF FILE FOR LENS IMPLEMENTATIONS
+-- makeLenses ''State
+-- makeLenses ''Path'
+-- makeLenses ''Memory
+-- makeLenses ''CallFrame
+-- makeLenses ''ErrorPath
+-- makeLenses ''JavaException
 
 -- | Manipulate the control stack
 modifyCS :: (CS sbe -> CS sbe) -> (State sbe m -> State sbe m)
@@ -1031,3 +1032,1057 @@ ppInternalExc exc = case exc of
       "unknown error"
   UnknownExc (Just rsn) -> 
       "unknown error" <> colon <+> ppFailRsn rsn
+
+--------------------------------------------------------------------------------
+-- Manual lens implementations. These are captured by using
+-- -ddump-splices output from makeLenses, but is reproduced here
+-- statically in order to avoid having to link libabc at compile
+-- time. Note that these will have to be regenerated whenever fields
+-- are changed for the relevant types.
+
+-- TODO: fix linking problems so we can do this with TH
+
+-- src/Verifier/Java/Common.hs:1:1: Splicing declarations
+--     makeLenses ''State
+--   ======>
+--     src/Verifier/Java/Common.hs:440:1-18
+backend ::
+  forall sbe_a3Ep m_a3Eq.
+  Lens' (State sbe_a3Ep m_a3Eq) (Backend sbe_a3Ep)
+backend
+  _f_a5uF
+  (State __codebase_a5uG
+         __instanceOverrides_a5uH
+         __staticOverrides_a5uI
+         __ctrlStk_a5uJ
+         __nextPSS_a5uK
+         __strings_a5uL
+         __nextRef_a5uM
+         __verbosity_a5uN
+         __simulationFlags_a5uO
+         __backend'_a5uP
+         __errorPaths_a5uR
+         __printErrPaths_a5uS
+         __evHandlers_a5uT)
+  = ((\ __backend_a5uQ
+        -> State
+             __codebase_a5uG
+             __instanceOverrides_a5uH
+             __staticOverrides_a5uI
+             __ctrlStk_a5uJ
+             __nextPSS_a5uK
+             __strings_a5uL
+             __nextRef_a5uM
+             __verbosity_a5uN
+             __simulationFlags_a5uO
+             __backend_a5uQ
+             __errorPaths_a5uR
+             __printErrPaths_a5uS
+             __evHandlers_a5uT)
+     <$> (_f_a5uF __backend'_a5uP))
+{-# INLINE backend #-}
+codebase ::
+  forall sbe_a3Ep m_a3Eq. Lens' (State sbe_a3Ep m_a3Eq) Codebase
+codebase
+  _f_a5uU
+  (State __codebase'_a5uV
+         __instanceOverrides_a5uX
+         __staticOverrides_a5uY
+         __ctrlStk_a5uZ
+         __nextPSS_a5v0
+         __strings_a5v1
+         __nextRef_a5v2
+         __verbosity_a5v3
+         __simulationFlags_a5v4
+         __backend_a5v5
+         __errorPaths_a5v6
+         __printErrPaths_a5v7
+         __evHandlers_a5v8)
+  = ((\ __codebase_a5uW
+        -> State
+             __codebase_a5uW
+             __instanceOverrides_a5uX
+             __staticOverrides_a5uY
+             __ctrlStk_a5uZ
+             __nextPSS_a5v0
+             __strings_a5v1
+             __nextRef_a5v2
+             __verbosity_a5v3
+             __simulationFlags_a5v4
+             __backend_a5v5
+             __errorPaths_a5v6
+             __printErrPaths_a5v7
+             __evHandlers_a5v8)
+     <$> (_f_a5uU __codebase'_a5uV))
+{-# INLINE codebase #-}
+ctrlStk ::
+  forall sbe_a3Ep m_a3Eq. Lens' (State sbe_a3Ep m_a3Eq) (CS sbe_a3Ep)
+ctrlStk
+  _f_a5v9
+  (State __codebase_a5va
+         __instanceOverrides_a5vb
+         __staticOverrides_a5vc
+         __ctrlStk'_a5vd
+         __nextPSS_a5vf
+         __strings_a5vg
+         __nextRef_a5vh
+         __verbosity_a5vi
+         __simulationFlags_a5vj
+         __backend_a5vk
+         __errorPaths_a5vl
+         __printErrPaths_a5vm
+         __evHandlers_a5vn)
+  = ((\ __ctrlStk_a5ve
+        -> State
+             __codebase_a5va
+             __instanceOverrides_a5vb
+             __staticOverrides_a5vc
+             __ctrlStk_a5ve
+             __nextPSS_a5vf
+             __strings_a5vg
+             __nextRef_a5vh
+             __verbosity_a5vi
+             __simulationFlags_a5vj
+             __backend_a5vk
+             __errorPaths_a5vl
+             __printErrPaths_a5vm
+             __evHandlers_a5vn)
+     <$> (_f_a5v9 __ctrlStk'_a5vd))
+{-# INLINE ctrlStk #-}
+errorPaths ::
+  forall sbe_a3Ep m_a3Eq.
+  Lens' (State sbe_a3Ep m_a3Eq) [ErrorPath sbe_a3Ep]
+errorPaths
+  _f_a5vo
+  (State __codebase_a5vp
+         __instanceOverrides_a5vq
+         __staticOverrides_a5vr
+         __ctrlStk_a5vs
+         __nextPSS_a5vt
+         __strings_a5vu
+         __nextRef_a5vv
+         __verbosity_a5vw
+         __simulationFlags_a5vx
+         __backend_a5vy
+         __errorPaths'_a5vz
+         __printErrPaths_a5vB
+         __evHandlers_a5vC)
+  = ((\ __errorPaths_a5vA
+        -> State
+             __codebase_a5vp
+             __instanceOverrides_a5vq
+             __staticOverrides_a5vr
+             __ctrlStk_a5vs
+             __nextPSS_a5vt
+             __strings_a5vu
+             __nextRef_a5vv
+             __verbosity_a5vw
+             __simulationFlags_a5vx
+             __backend_a5vy
+             __errorPaths_a5vA
+             __printErrPaths_a5vB
+             __evHandlers_a5vC)
+     <$> (_f_a5vo __errorPaths'_a5vz))
+{-# INLINE errorPaths #-}
+evHandlers ::
+  forall sbe_a3Ep m_a3Eq.
+  Lens' (State sbe_a3Ep m_a3Eq) (SEH sbe_a3Ep m_a3Eq)
+evHandlers
+  _f_a5vD
+  (State __codebase_a5vE
+         __instanceOverrides_a5vF
+         __staticOverrides_a5vG
+         __ctrlStk_a5vH
+         __nextPSS_a5vI
+         __strings_a5vJ
+         __nextRef_a5vK
+         __verbosity_a5vL
+         __simulationFlags_a5vM
+         __backend_a5vN
+         __errorPaths_a5vO
+         __printErrPaths_a5vP
+         __evHandlers'_a5vQ)
+  = ((\ __evHandlers_a5vR
+        -> State
+             __codebase_a5vE
+             __instanceOverrides_a5vF
+             __staticOverrides_a5vG
+             __ctrlStk_a5vH
+             __nextPSS_a5vI
+             __strings_a5vJ
+             __nextRef_a5vK
+             __verbosity_a5vL
+             __simulationFlags_a5vM
+             __backend_a5vN
+             __errorPaths_a5vO
+             __printErrPaths_a5vP
+             __evHandlers_a5vR)
+     <$> (_f_a5vD __evHandlers'_a5vQ))
+{-# INLINE evHandlers #-}
+instanceOverrides ::
+  forall sbe_a3Ep m_a3Eq.
+  Lens' (State sbe_a3Ep m_a3Eq) (Map (String,
+                                      MethodKey) (InstanceOverride sbe_a3Ep m_a3Eq))
+instanceOverrides
+  _f_a5vS
+  (State __codebase_a5vT
+         __instanceOverrides'_a5vU
+         __staticOverrides_a5vW
+         __ctrlStk_a5vX
+         __nextPSS_a5vY
+         __strings_a5vZ
+         __nextRef_a5w0
+         __verbosity_a5w1
+         __simulationFlags_a5w2
+         __backend_a5w3
+         __errorPaths_a5w4
+         __printErrPaths_a5w5
+         __evHandlers_a5w6)
+  = ((\ __instanceOverrides_a5vV
+        -> State
+             __codebase_a5vT
+             __instanceOverrides_a5vV
+             __staticOverrides_a5vW
+             __ctrlStk_a5vX
+             __nextPSS_a5vY
+             __strings_a5vZ
+             __nextRef_a5w0
+             __verbosity_a5w1
+             __simulationFlags_a5w2
+             __backend_a5w3
+             __errorPaths_a5w4
+             __printErrPaths_a5w5
+             __evHandlers_a5w6)
+     <$> (_f_a5vS __instanceOverrides'_a5vU))
+{-# INLINE instanceOverrides #-}
+nextPSS ::
+  forall sbe_a3Ep m_a3Eq.
+  Lens' (State sbe_a3Ep m_a3Eq) PathDescriptor
+nextPSS
+  _f_a5w7
+  (State __codebase_a5w8
+         __instanceOverrides_a5w9
+         __staticOverrides_a5wa
+         __ctrlStk_a5wb
+         __nextPSS'_a5wc
+         __strings_a5we
+         __nextRef_a5wf
+         __verbosity_a5wg
+         __simulationFlags_a5wh
+         __backend_a5wi
+         __errorPaths_a5wj
+         __printErrPaths_a5wk
+         __evHandlers_a5wl)
+  = ((\ __nextPSS_a5wd
+        -> State
+             __codebase_a5w8
+             __instanceOverrides_a5w9
+             __staticOverrides_a5wa
+             __ctrlStk_a5wb
+             __nextPSS_a5wd
+             __strings_a5we
+             __nextRef_a5wf
+             __verbosity_a5wg
+             __simulationFlags_a5wh
+             __backend_a5wi
+             __errorPaths_a5wj
+             __printErrPaths_a5wk
+             __evHandlers_a5wl)
+     <$> (_f_a5w7 __nextPSS'_a5wc))
+{-# INLINE nextPSS #-}
+nextRef ::
+  forall sbe_a3Ep m_a3Eq. Lens' (State sbe_a3Ep m_a3Eq) Word32
+nextRef
+  _f_a5wm
+  (State __codebase_a5wn
+         __instanceOverrides_a5wo
+         __staticOverrides_a5wp
+         __ctrlStk_a5wq
+         __nextPSS_a5wr
+         __strings_a5ws
+         __nextRef'_a5wt
+         __verbosity_a5wv
+         __simulationFlags_a5ww
+         __backend_a5wx
+         __errorPaths_a5wy
+         __printErrPaths_a5wz
+         __evHandlers_a5wA)
+  = ((\ __nextRef_a5wu
+        -> State
+             __codebase_a5wn
+             __instanceOverrides_a5wo
+             __staticOverrides_a5wp
+             __ctrlStk_a5wq
+             __nextPSS_a5wr
+             __strings_a5ws
+             __nextRef_a5wu
+             __verbosity_a5wv
+             __simulationFlags_a5ww
+             __backend_a5wx
+             __errorPaths_a5wy
+             __printErrPaths_a5wz
+             __evHandlers_a5wA)
+     <$> (_f_a5wm __nextRef'_a5wt))
+{-# INLINE nextRef #-}
+printErrPaths ::
+  forall sbe_a3Ep m_a3Eq. Lens' (State sbe_a3Ep m_a3Eq) Bool
+printErrPaths
+  _f_a5wB
+  (State __codebase_a5wC
+         __instanceOverrides_a5wD
+         __staticOverrides_a5wE
+         __ctrlStk_a5wF
+         __nextPSS_a5wG
+         __strings_a5wH
+         __nextRef_a5wI
+         __verbosity_a5wJ
+         __simulationFlags_a5wK
+         __backend_a5wL
+         __errorPaths_a5wM
+         __printErrPaths'_a5wN
+         __evHandlers_a5wP)
+  = ((\ __printErrPaths_a5wO
+        -> State
+             __codebase_a5wC
+             __instanceOverrides_a5wD
+             __staticOverrides_a5wE
+             __ctrlStk_a5wF
+             __nextPSS_a5wG
+             __strings_a5wH
+             __nextRef_a5wI
+             __verbosity_a5wJ
+             __simulationFlags_a5wK
+             __backend_a5wL
+             __errorPaths_a5wM
+             __printErrPaths_a5wO
+             __evHandlers_a5wP)
+     <$> (_f_a5wB __printErrPaths'_a5wN))
+{-# INLINE printErrPaths #-}
+simulationFlags ::
+  forall sbe_a3Ep m_a3Eq.
+  Lens' (State sbe_a3Ep m_a3Eq) SimulationFlags
+simulationFlags
+  _f_a5wQ
+  (State __codebase_a5wR
+         __instanceOverrides_a5wS
+         __staticOverrides_a5wT
+         __ctrlStk_a5wU
+         __nextPSS_a5wV
+         __strings_a5wW
+         __nextRef_a5wX
+         __verbosity_a5wY
+         __simulationFlags'_a5wZ
+         __backend_a5x1
+         __errorPaths_a5x2
+         __printErrPaths_a5x3
+         __evHandlers_a5x4)
+  = ((\ __simulationFlags_a5x0
+        -> State
+             __codebase_a5wR
+             __instanceOverrides_a5wS
+             __staticOverrides_a5wT
+             __ctrlStk_a5wU
+             __nextPSS_a5wV
+             __strings_a5wW
+             __nextRef_a5wX
+             __verbosity_a5wY
+             __simulationFlags_a5x0
+             __backend_a5x1
+             __errorPaths_a5x2
+             __printErrPaths_a5x3
+             __evHandlers_a5x4)
+     <$> (_f_a5wQ __simulationFlags'_a5wZ))
+{-# INLINE simulationFlags #-}
+staticOverrides ::
+  forall sbe_a3Ep m_a3Eq.
+  Lens' (State sbe_a3Ep m_a3Eq) (Map (String,
+                                      MethodKey) (StaticOverride sbe_a3Ep m_a3Eq))
+staticOverrides
+  _f_a5x5
+  (State __codebase_a5x6
+         __instanceOverrides_a5x7
+         __staticOverrides'_a5x8
+         __ctrlStk_a5xa
+         __nextPSS_a5xb
+         __strings_a5xc
+         __nextRef_a5xd
+         __verbosity_a5xe
+         __simulationFlags_a5xf
+         __backend_a5xg
+         __errorPaths_a5xh
+         __printErrPaths_a5xi
+         __evHandlers_a5xj)
+  = ((\ __staticOverrides_a5x9
+        -> State
+             __codebase_a5x6
+             __instanceOverrides_a5x7
+             __staticOverrides_a5x9
+             __ctrlStk_a5xa
+             __nextPSS_a5xb
+             __strings_a5xc
+             __nextRef_a5xd
+             __verbosity_a5xe
+             __simulationFlags_a5xf
+             __backend_a5xg
+             __errorPaths_a5xh
+             __printErrPaths_a5xi
+             __evHandlers_a5xj)
+     <$> (_f_a5x5 __staticOverrides'_a5x8))
+{-# INLINE staticOverrides #-}
+strings ::
+  forall sbe_a3Ep m_a3Eq.
+  Lens' (State sbe_a3Ep m_a3Eq) (Map String Ref)
+strings
+  _f_a5xk
+  (State __codebase_a5xl
+         __instanceOverrides_a5xm
+         __staticOverrides_a5xn
+         __ctrlStk_a5xo
+         __nextPSS_a5xp
+         __strings'_a5xq
+         __nextRef_a5xs
+         __verbosity_a5xt
+         __simulationFlags_a5xu
+         __backend_a5xv
+         __errorPaths_a5xw
+         __printErrPaths_a5xx
+         __evHandlers_a5xy)
+  = ((\ __strings_a5xr
+        -> State
+             __codebase_a5xl
+             __instanceOverrides_a5xm
+             __staticOverrides_a5xn
+             __ctrlStk_a5xo
+             __nextPSS_a5xp
+             __strings_a5xr
+             __nextRef_a5xs
+             __verbosity_a5xt
+             __simulationFlags_a5xu
+             __backend_a5xv
+             __errorPaths_a5xw
+             __printErrPaths_a5xx
+             __evHandlers_a5xy)
+     <$> (_f_a5xk __strings'_a5xq))
+{-# INLINE strings #-}
+verbosity ::
+  forall sbe_a3Ep m_a3Eq. Lens' (State sbe_a3Ep m_a3Eq) Int
+verbosity
+  _f_a5xz
+  (State __codebase_a5xA
+         __instanceOverrides_a5xB
+         __staticOverrides_a5xC
+         __ctrlStk_a5xD
+         __nextPSS_a5xE
+         __strings_a5xF
+         __nextRef_a5xG
+         __verbosity'_a5xH
+         __simulationFlags_a5xJ
+         __backend_a5xK
+         __errorPaths_a5xL
+         __printErrPaths_a5xM
+         __evHandlers_a5xN)
+  = ((\ __verbosity_a5xI
+        -> State
+             __codebase_a5xA
+             __instanceOverrides_a5xB
+             __staticOverrides_a5xC
+             __ctrlStk_a5xD
+             __nextPSS_a5xE
+             __strings_a5xF
+             __nextRef_a5xG
+             __verbosity_a5xI
+             __simulationFlags_a5xJ
+             __backend_a5xK
+             __errorPaths_a5xL
+             __printErrPaths_a5xM
+             __evHandlers_a5xN)
+     <$> (_f_a5xz __verbosity'_a5xH))
+{-# INLINE verbosity #-}
+-- src/Verifier/Java/Common.hs:1:1: Splicing declarations
+--     makeLenses ''Path'
+--   ======>
+--     src/Verifier/Java/Common.hs:441:1-18
+pathAssertions ::
+  forall term_a3vM. Lens' (Path' term_a3vM) term_a3vM
+pathAssertions
+  _f_a5Bi
+  (Path __pathStack_a5Bj
+        __pathStackHt_a5Bk
+        __pathBlockId_a5Bl
+        __pathRetVal_a5Bm
+        __pathException_a5Bn
+        __pathMemory_a5Bo
+        __pathAssertions'_a5Bp
+        __pathName_a5Br
+        __pathStartingPC_a5Bs
+        __pathBreakpoints_a5Bt
+        __pathInsnCount_a5Bu)
+  = ((\ __pathAssertions_a5Bq
+        -> Path
+             __pathStack_a5Bj
+             __pathStackHt_a5Bk
+             __pathBlockId_a5Bl
+             __pathRetVal_a5Bm
+             __pathException_a5Bn
+             __pathMemory_a5Bo
+             __pathAssertions_a5Bq
+             __pathName_a5Br
+             __pathStartingPC_a5Bs
+             __pathBreakpoints_a5Bt
+             __pathInsnCount_a5Bu)
+     <$> (_f_a5Bi __pathAssertions'_a5Bp))
+{-# INLINE pathAssertions #-}
+pathBlockId ::
+  forall term_a3vM. Lens' (Path' term_a3vM) (Maybe BlockId)
+pathBlockId
+  _f_a5Bv
+  (Path __pathStack_a5Bw
+        __pathStackHt_a5Bx
+        __pathBlockId'_a5By
+        __pathRetVal_a5BA
+        __pathException_a5BB
+        __pathMemory_a5BC
+        __pathAssertions_a5BD
+        __pathName_a5BE
+        __pathStartingPC_a5BF
+        __pathBreakpoints_a5BG
+        __pathInsnCount_a5BH)
+  = ((\ __pathBlockId_a5Bz
+        -> Path
+             __pathStack_a5Bw
+             __pathStackHt_a5Bx
+             __pathBlockId_a5Bz
+             __pathRetVal_a5BA
+             __pathException_a5BB
+             __pathMemory_a5BC
+             __pathAssertions_a5BD
+             __pathName_a5BE
+             __pathStartingPC_a5BF
+             __pathBreakpoints_a5BG
+             __pathInsnCount_a5BH)
+     <$> (_f_a5Bv __pathBlockId'_a5By))
+{-# INLINE pathBlockId #-}
+pathBreakpoints ::
+  forall term_a3vM.
+  Lens' (Path' term_a3vM) (Set (String, MethodKey, PC))
+pathBreakpoints
+  _f_a5BI
+  (Path __pathStack_a5BJ
+        __pathStackHt_a5BK
+        __pathBlockId_a5BL
+        __pathRetVal_a5BM
+        __pathException_a5BN
+        __pathMemory_a5BO
+        __pathAssertions_a5BP
+        __pathName_a5BQ
+        __pathStartingPC_a5BR
+        __pathBreakpoints'_a5BS
+        __pathInsnCount_a5BU)
+  = ((\ __pathBreakpoints_a5BT
+        -> Path
+             __pathStack_a5BJ
+             __pathStackHt_a5BK
+             __pathBlockId_a5BL
+             __pathRetVal_a5BM
+             __pathException_a5BN
+             __pathMemory_a5BO
+             __pathAssertions_a5BP
+             __pathName_a5BQ
+             __pathStartingPC_a5BR
+             __pathBreakpoints_a5BT
+             __pathInsnCount_a5BU)
+     <$> (_f_a5BI __pathBreakpoints'_a5BS))
+{-# INLINE pathBreakpoints #-}
+pathException ::
+  forall term_a3vM.
+  Lens' (Path' term_a3vM) (Maybe (JavaException term_a3vM))
+pathException
+  _f_a5BV
+  (Path __pathStack_a5BW
+        __pathStackHt_a5BX
+        __pathBlockId_a5BY
+        __pathRetVal_a5BZ
+        __pathException'_a5C0
+        __pathMemory_a5C2
+        __pathAssertions_a5C3
+        __pathName_a5C4
+        __pathStartingPC_a5C5
+        __pathBreakpoints_a5C6
+        __pathInsnCount_a5C7)
+  = ((\ __pathException_a5C1
+        -> Path
+             __pathStack_a5BW
+             __pathStackHt_a5BX
+             __pathBlockId_a5BY
+             __pathRetVal_a5BZ
+             __pathException_a5C1
+             __pathMemory_a5C2
+             __pathAssertions_a5C3
+             __pathName_a5C4
+             __pathStartingPC_a5C5
+             __pathBreakpoints_a5C6
+             __pathInsnCount_a5C7)
+     <$> (_f_a5BV __pathException'_a5C0))
+{-# INLINE pathException #-}
+pathInsnCount :: forall term_a3vM. Lens' (Path' term_a3vM) Int
+pathInsnCount
+  _f_a5C8
+  (Path __pathStack_a5C9
+        __pathStackHt_a5Ca
+        __pathBlockId_a5Cb
+        __pathRetVal_a5Cc
+        __pathException_a5Cd
+        __pathMemory_a5Ce
+        __pathAssertions_a5Cf
+        __pathName_a5Cg
+        __pathStartingPC_a5Ch
+        __pathBreakpoints_a5Ci
+        __pathInsnCount'_a5Cj)
+  = ((\ __pathInsnCount_a5Ck
+        -> Path
+             __pathStack_a5C9
+             __pathStackHt_a5Ca
+             __pathBlockId_a5Cb
+             __pathRetVal_a5Cc
+             __pathException_a5Cd
+             __pathMemory_a5Ce
+             __pathAssertions_a5Cf
+             __pathName_a5Cg
+             __pathStartingPC_a5Ch
+             __pathBreakpoints_a5Ci
+             __pathInsnCount_a5Ck)
+     <$> (_f_a5C8 __pathInsnCount'_a5Cj))
+{-# INLINE pathInsnCount #-}
+pathMemory ::
+  forall term_a3vM. Lens' (Path' term_a3vM) (Memory term_a3vM)
+pathMemory
+  _f_a5Cl
+  (Path __pathStack_a5Cm
+        __pathStackHt_a5Cn
+        __pathBlockId_a5Co
+        __pathRetVal_a5Cp
+        __pathException_a5Cq
+        __pathMemory'_a5Cr
+        __pathAssertions_a5Ct
+        __pathName_a5Cu
+        __pathStartingPC_a5Cv
+        __pathBreakpoints_a5Cw
+        __pathInsnCount_a5Cx)
+  = ((\ __pathMemory_a5Cs
+        -> Path
+             __pathStack_a5Cm
+             __pathStackHt_a5Cn
+             __pathBlockId_a5Co
+             __pathRetVal_a5Cp
+             __pathException_a5Cq
+             __pathMemory_a5Cs
+             __pathAssertions_a5Ct
+             __pathName_a5Cu
+             __pathStartingPC_a5Cv
+             __pathBreakpoints_a5Cw
+             __pathInsnCount_a5Cx)
+     <$> (_f_a5Cl __pathMemory'_a5Cr))
+{-# INLINE pathMemory #-}
+pathName ::
+  forall term_a3vM. Lens' (Path' term_a3vM) PathDescriptor
+pathName
+  _f_a5Cy
+  (Path __pathStack_a5Cz
+        __pathStackHt_a5CA
+        __pathBlockId_a5CB
+        __pathRetVal_a5CC
+        __pathException_a5CD
+        __pathMemory_a5CE
+        __pathAssertions_a5CF
+        __pathName'_a5CG
+        __pathStartingPC_a5CI
+        __pathBreakpoints_a5CJ
+        __pathInsnCount_a5CK)
+  = ((\ __pathName_a5CH
+        -> Path
+             __pathStack_a5Cz
+             __pathStackHt_a5CA
+             __pathBlockId_a5CB
+             __pathRetVal_a5CC
+             __pathException_a5CD
+             __pathMemory_a5CE
+             __pathAssertions_a5CF
+             __pathName_a5CH
+             __pathStartingPC_a5CI
+             __pathBreakpoints_a5CJ
+             __pathInsnCount_a5CK)
+     <$> (_f_a5Cy __pathName'_a5CG))
+{-# INLINE pathName #-}
+pathRetVal ::
+  forall term_a3vM. Lens' (Path' term_a3vM) (Maybe (Value term_a3vM))
+pathRetVal
+  _f_a5CL
+  (Path __pathStack_a5CM
+        __pathStackHt_a5CN
+        __pathBlockId_a5CO
+        __pathRetVal'_a5CP
+        __pathException_a5CR
+        __pathMemory_a5CS
+        __pathAssertions_a5CT
+        __pathName_a5CU
+        __pathStartingPC_a5CV
+        __pathBreakpoints_a5CW
+        __pathInsnCount_a5CX)
+  = ((\ __pathRetVal_a5CQ
+        -> Path
+             __pathStack_a5CM
+             __pathStackHt_a5CN
+             __pathBlockId_a5CO
+             __pathRetVal_a5CQ
+             __pathException_a5CR
+             __pathMemory_a5CS
+             __pathAssertions_a5CT
+             __pathName_a5CU
+             __pathStartingPC_a5CV
+             __pathBreakpoints_a5CW
+             __pathInsnCount_a5CX)
+     <$> (_f_a5CL __pathRetVal'_a5CP))
+{-# INLINE pathRetVal #-}
+pathStack ::
+  forall term_a3vM. Lens' (Path' term_a3vM) [CallFrame term_a3vM]
+pathStack
+  _f_a5CY
+  (Path __pathStack'_a5CZ
+        __pathStackHt_a5D1
+        __pathBlockId_a5D2
+        __pathRetVal_a5D3
+        __pathException_a5D4
+        __pathMemory_a5D5
+        __pathAssertions_a5D6
+        __pathName_a5D7
+        __pathStartingPC_a5D8
+        __pathBreakpoints_a5D9
+        __pathInsnCount_a5Da)
+  = ((\ __pathStack_a5D0
+        -> Path
+             __pathStack_a5D0
+             __pathStackHt_a5D1
+             __pathBlockId_a5D2
+             __pathRetVal_a5D3
+             __pathException_a5D4
+             __pathMemory_a5D5
+             __pathAssertions_a5D6
+             __pathName_a5D7
+             __pathStartingPC_a5D8
+             __pathBreakpoints_a5D9
+             __pathInsnCount_a5Da)
+     <$> (_f_a5CY __pathStack'_a5CZ))
+{-# INLINE pathStack #-}
+pathStackHt :: forall term_a3vM. Lens' (Path' term_a3vM) Int
+pathStackHt
+  _f_a5Db
+  (Path __pathStack_a5Dc
+        __pathStackHt'_a5Dd
+        __pathBlockId_a5Df
+        __pathRetVal_a5Dg
+        __pathException_a5Dh
+        __pathMemory_a5Di
+        __pathAssertions_a5Dj
+        __pathName_a5Dk
+        __pathStartingPC_a5Dl
+        __pathBreakpoints_a5Dm
+        __pathInsnCount_a5Dn)
+  = ((\ __pathStackHt_a5De
+        -> Path
+             __pathStack_a5Dc
+             __pathStackHt_a5De
+             __pathBlockId_a5Df
+             __pathRetVal_a5Dg
+             __pathException_a5Dh
+             __pathMemory_a5Di
+             __pathAssertions_a5Dj
+             __pathName_a5Dk
+             __pathStartingPC_a5Dl
+             __pathBreakpoints_a5Dm
+             __pathInsnCount_a5Dn)
+     <$> (_f_a5Db __pathStackHt'_a5Dd))
+{-# INLINE pathStackHt #-}
+pathStartingPC :: forall term_a3vM. Lens' (Path' term_a3vM) PC
+pathStartingPC
+  _f_a5Do
+  (Path __pathStack_a5Dp
+        __pathStackHt_a5Dq
+        __pathBlockId_a5Dr
+        __pathRetVal_a5Ds
+        __pathException_a5Dt
+        __pathMemory_a5Du
+        __pathAssertions_a5Dv
+        __pathName_a5Dw
+        __pathStartingPC'_a5Dx
+        __pathBreakpoints_a5Dz
+        __pathInsnCount_a5DA)
+  = ((\ __pathStartingPC_a5Dy
+        -> Path
+             __pathStack_a5Dp
+             __pathStackHt_a5Dq
+             __pathBlockId_a5Dr
+             __pathRetVal_a5Ds
+             __pathException_a5Dt
+             __pathMemory_a5Du
+             __pathAssertions_a5Dv
+             __pathName_a5Dw
+             __pathStartingPC_a5Dy
+             __pathBreakpoints_a5Dz
+             __pathInsnCount_a5DA)
+     <$> (_f_a5Do __pathStartingPC'_a5Dx))
+{-# INLINE pathStartingPC #-}
+-- src/Verifier/Java/Common.hs:1:1: Splicing declarations
+--     makeLenses ''Memory
+--   ======>
+-- src/Verifier/Java/Common.hs:442:1-19
+memClassObjects ::
+  forall term_a3sz. Lens' (Memory term_a3sz) (Map String Ref)
+memClassObjects
+  _f_a5Ex
+  (Memory __memInitialization_a5Ey
+          __memStaticFields_a5Ez
+          __memInstanceFields_a5EA
+          __memScalarArrays_a5EB
+          __memRefArrays_a5EC
+          __memClassObjects'_a5ED)
+  = ((\ __memClassObjects_a5EE
+        -> Memory
+             __memInitialization_a5Ey
+             __memStaticFields_a5Ez
+             __memInstanceFields_a5EA
+             __memScalarArrays_a5EB
+             __memRefArrays_a5EC
+             __memClassObjects_a5EE)
+     <$> (_f_a5Ex __memClassObjects'_a5ED))
+{-# INLINE memClassObjects #-}
+memInitialization ::
+  forall term_a3sz.
+  Lens' (Memory term_a3sz) (Map String InitializationStatus)
+memInitialization
+  _f_a5EF
+  (Memory __memInitialization'_a5EG
+          __memStaticFields_a5EI
+          __memInstanceFields_a5EJ
+          __memScalarArrays_a5EK
+          __memRefArrays_a5EL
+          __memClassObjects_a5EM)
+  = ((\ __memInitialization_a5EH
+        -> Memory
+             __memInitialization_a5EH
+             __memStaticFields_a5EI
+             __memInstanceFields_a5EJ
+             __memScalarArrays_a5EK
+             __memRefArrays_a5EL
+             __memClassObjects_a5EM)
+     <$> (_f_a5EF __memInitialization'_a5EG))
+{-# INLINE memInitialization #-}
+memInstanceFields ::
+  forall term_a3sz.
+  Lens' (Memory term_a3sz) (Map InstanceFieldRef (Value term_a3sz))
+memInstanceFields
+  _f_a5EN
+  (Memory __memInitialization_a5EO
+          __memStaticFields_a5EP
+          __memInstanceFields'_a5EQ
+          __memScalarArrays_a5ES
+          __memRefArrays_a5ET
+          __memClassObjects_a5EU)
+  = ((\ __memInstanceFields_a5ER
+        -> Memory
+             __memInitialization_a5EO
+             __memStaticFields_a5EP
+             __memInstanceFields_a5ER
+             __memScalarArrays_a5ES
+             __memRefArrays_a5ET
+             __memClassObjects_a5EU)
+     <$> (_f_a5EN __memInstanceFields'_a5EQ))
+{-# INLINE memInstanceFields #-}
+memRefArrays ::
+  forall term_a3sz.
+  Lens' (Memory term_a3sz) (Map Ref (Array Int32 Ref))
+memRefArrays
+  _f_a5EV
+  (Memory __memInitialization_a5EW
+          __memStaticFields_a5EX
+          __memInstanceFields_a5EY
+          __memScalarArrays_a5EZ
+          __memRefArrays'_a5F0
+          __memClassObjects_a5F2)
+  = ((\ __memRefArrays_a5F1
+        -> Memory
+             __memInitialization_a5EW
+             __memStaticFields_a5EX
+             __memInstanceFields_a5EY
+             __memScalarArrays_a5EZ
+             __memRefArrays_a5F1
+             __memClassObjects_a5F2)
+     <$> (_f_a5EV __memRefArrays'_a5F0))
+{-# INLINE memRefArrays #-}
+memScalarArrays ::
+  forall term_a3sz.
+  Lens' (Memory term_a3sz) (Map Ref (Int32, term_a3sz))
+memScalarArrays
+  _f_a5F3
+  (Memory __memInitialization_a5F4
+          __memStaticFields_a5F5
+          __memInstanceFields_a5F6
+          __memScalarArrays'_a5F7
+          __memRefArrays_a5F9
+          __memClassObjects_a5Fa)
+  = ((\ __memScalarArrays_a5F8
+        -> Memory
+             __memInitialization_a5F4
+             __memStaticFields_a5F5
+             __memInstanceFields_a5F6
+             __memScalarArrays_a5F8
+             __memRefArrays_a5F9
+             __memClassObjects_a5Fa)
+     <$> (_f_a5F3 __memScalarArrays'_a5F7))
+{-# INLINE memScalarArrays #-}
+memStaticFields ::
+  forall term_a3sz.
+  Lens' (Memory term_a3sz) (Map FieldId (Value term_a3sz))
+memStaticFields
+  _f_a5Fb
+  (Memory __memInitialization_a5Fc
+          __memStaticFields'_a5Fd
+          __memInstanceFields_a5Ff
+          __memScalarArrays_a5Fg
+          __memRefArrays_a5Fh
+          __memClassObjects_a5Fi)
+  = ((\ __memStaticFields_a5Fe
+        -> Memory
+             __memInitialization_a5Fc
+             __memStaticFields_a5Fe
+             __memInstanceFields_a5Ff
+             __memScalarArrays_a5Fg
+             __memRefArrays_a5Fh
+             __memClassObjects_a5Fi)
+     <$> (_f_a5Fb __memStaticFields'_a5Fd))
+{-# INLINE memStaticFields #-}
+-- src/Verifier/Java/Common.hs:1:1: Splicing declarations
+--     makeLenses ''CallFrame
+--   ======>
+--    src/Verifier/Java/Common.hs:443:1-22
+cfClass :: forall term_a3sy. Lens' (CallFrame term_a3sy) String
+cfClass
+  _f_a5FV
+  (CallFrame __cfClass'_a5FW
+             __cfMethod_a5FY
+             __cfReturnBlock_a5FZ
+             __cfLocals_a5G0
+             __cfOpds_a5G1)
+  = ((\ __cfClass_a5FX
+        -> CallFrame
+             __cfClass_a5FX
+             __cfMethod_a5FY
+             __cfReturnBlock_a5FZ
+             __cfLocals_a5G0
+             __cfOpds_a5G1)
+     <$> (_f_a5FV __cfClass'_a5FW))
+{-# INLINE cfClass #-}
+cfLocals ::
+  forall term_a3sy.
+  Lens' (CallFrame term_a3sy) (Map LocalVariableIndex (Value term_a3sy))
+cfLocals
+  _f_a5G2
+  (CallFrame __cfClass_a5G3
+             __cfMethod_a5G4
+             __cfReturnBlock_a5G5
+             __cfLocals'_a5G6
+             __cfOpds_a5G8)
+  = ((\ __cfLocals_a5G7
+        -> CallFrame
+             __cfClass_a5G3
+             __cfMethod_a5G4
+             __cfReturnBlock_a5G5
+             __cfLocals_a5G7
+             __cfOpds_a5G8)
+     <$> (_f_a5G2 __cfLocals'_a5G6))
+{-# INLINE cfLocals #-}
+cfMethod :: forall term_a3sy. Lens' (CallFrame term_a3sy) Method
+cfMethod
+  _f_a5G9
+  (CallFrame __cfClass_a5Ga
+             __cfMethod'_a5Gb
+             __cfReturnBlock_a5Gd
+             __cfLocals_a5Ge
+             __cfOpds_a5Gf)
+  = ((\ __cfMethod_a5Gc
+        -> CallFrame
+             __cfClass_a5Ga
+             __cfMethod_a5Gc
+             __cfReturnBlock_a5Gd
+             __cfLocals_a5Ge
+             __cfOpds_a5Gf)
+     <$> (_f_a5G9 __cfMethod'_a5Gb))
+{-# INLINE cfMethod #-}
+cfOpds ::
+  forall term_a3sy. Lens' (CallFrame term_a3sy) [Value term_a3sy]
+cfOpds
+  _f_a5Gg
+  (CallFrame __cfClass_a5Gh
+             __cfMethod_a5Gi
+             __cfReturnBlock_a5Gj
+             __cfLocals_a5Gk
+             __cfOpds'_a5Gl)
+  = ((\ __cfOpds_a5Gm
+        -> CallFrame
+             __cfClass_a5Gh
+             __cfMethod_a5Gi
+             __cfReturnBlock_a5Gj
+             __cfLocals_a5Gk
+             __cfOpds_a5Gm)
+     <$> (_f_a5Gg __cfOpds'_a5Gl))
+{-# INLINE cfOpds #-}
+cfReturnBlock ::
+  forall term_a3sy. Lens' (CallFrame term_a3sy) BlockId
+cfReturnBlock
+  _f_a5Gn
+  (CallFrame __cfClass_a5Go
+             __cfMethod_a5Gp
+             __cfReturnBlock'_a5Gq
+             __cfLocals_a5Gs
+             __cfOpds_a5Gt)
+  = ((\ __cfReturnBlock_a5Gr
+        -> CallFrame
+             __cfClass_a5Go
+             __cfMethod_a5Gp
+             __cfReturnBlock_a5Gr
+             __cfLocals_a5Gs
+             __cfOpds_a5Gt)
+     <$> (_f_a5Gn __cfReturnBlock'_a5Gq))
+{-# INLINE cfReturnBlock #-}
+-- src/Verifier/Java/Common.hs:1:1: Splicing declarations
+--     makeLenses ''ErrorPath
+--   ======>
+--    src/Verifier/Java/Common.hs:444:1-22
+epPath ::
+  forall sbe_a3sx sbe_a5H2.
+  Lens (ErrorPath sbe_a3sx) (ErrorPath sbe_a5H2) (Path sbe_a3sx) (Path sbe_a5H2)
+epPath _f_a5H3 (EP __epRsn_a5H4 __epPath'_a5H5)
+  = ((\ __epPath_a5H6 -> EP __epRsn_a5H4 __epPath_a5H6)
+     <$> (_f_a5H3 __epPath'_a5H5))
+{-# INLINE epPath #-}
+epRsn :: forall sbe_a3sx. Lens' (ErrorPath sbe_a3sx) FailRsn
+epRsn _f_a5H7 (EP __epRsn'_a5H8 __epPath_a5Ha)
+  = ((\ __epRsn_a5H9 -> EP __epRsn_a5H9 __epPath_a5Ha)
+     <$> (_f_a5H7 __epRsn'_a5H8))
+{-# INLINE epRsn #-}
+-- src/Verifier/Java/Common.hs:1:1: Splicing declarations
+--     makeLenses ''JavaException
+--   ======>
+--    src/Verifier/Java/Common.hs:445:1-26
+excRef :: forall term_a3ss. Lens' (JavaException term_a3ss) Ref
+excRef _f_a5HA (JavaException __excRef'_a5HB __excStack_a5HD)
+  = ((\ __excRef_a5HC -> JavaException __excRef_a5HC __excStack_a5HD)
+     <$> (_f_a5HA __excRef'_a5HB))
+{-# INLINE excRef #-}
+excStack ::
+  forall term_a3ss term_a5HE.
+  Lens (JavaException term_a3ss) (JavaException term_a5HE) [CallFrame term_a3ss] [CallFrame term_a5HE]
+excStack _f_a5HF (JavaException __excRef_a5HG __excStack'_a5HH)
+  = ((\ __excStack_a5HI
+        -> JavaException __excRef_a5HG __excStack_a5HI)
+     <$> (_f_a5HF __excStack'_a5HH))
+{-# INLINE excStack #-}
