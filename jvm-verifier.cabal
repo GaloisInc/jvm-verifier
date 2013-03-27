@@ -190,7 +190,7 @@ executable Tests
     , transformers >= 0.3.0.0
     , vector >= 0.7
     , QuickCheck >= 2.4
-    , HUnit >= 1.2
+    , HUnit >= 1.2.5.0
     , test-framework >= 0.8
     , test-framework-hunit >= 0.3
     , test-framework-quickcheck2 >= 0.3
