@@ -7,7 +7,7 @@ Point-of-contact : acfoltzer
 
 {-# LANGUAGE ViewPatterns #-}
 module Verifier.Java.Utils
-  ( module Verinf.Utils.LogMonad
+  ( LogMonad(..)
   , banners
   , banners'
   , dbugM
@@ -25,6 +25,7 @@ module Verifier.Java.Utils
   )
 where
 
+import Control.Monad
 import Data.Bits
 import Data.Char
 import Data.Int
@@ -34,7 +35,25 @@ import Numeric
 
 import Data.Maybe          (listToMaybe)
 import Control.Monad.Trans
-import Verinf.Utils.LogMonad
+
+class Monad m => LogMonad m where
+  -- | Gets verbosity of logging
+  getVerbosity :: m Int
+  -- | Set verbosity of logging
+  setVerbosity :: Int -> m ()
+  -- | Execute term computation with given verbosity.
+  withVerbosity :: Int -> m a -> m a
+  withVerbosity v m = do
+    old <- getVerbosity
+    setVerbosity v
+    res <- m
+    setVerbosity old
+    return res
+  -- | Execute computation when verbosity has specific level.
+  whenVerbosity :: (Int -> Bool) -> m () -> m ()
+  whenVerbosity f act = do
+    v <- getVerbosity
+    when (f v) act
 
 headf :: [a] -> (a -> a) -> [a]
 headf [] _     = error "headf: empty list"

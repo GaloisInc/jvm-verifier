@@ -40,10 +40,9 @@ import Execution
 import Data.JVM.Symbolic.Translation
 import Verifier.Java.Codebase
 import Verifier.Java.Simulator
+import Verifier.Java.Utils
 import Verifier.Java.WordBackend
 import Overrides
-
-import Verinf.Utils.LogMonad
 
 simExcHndlr' :: Bool -> Doc -> InternalExc sbe m -> Simulator sbe m ()
 simExcHndlr' suppressOutput failMsg exc =
