@@ -10,9 +10,8 @@ import qualified Data.Vector.Storable as SV
 
 import Text.PrettyPrint
 
-import Verinf.Utils.LogMonad
-
 import Verifier.Java.Simulator
+import Verifier.Java.Utils
 
 -- | Register all predefined overrides for the com.galois.symbolic.Symbolic
 -- API.
