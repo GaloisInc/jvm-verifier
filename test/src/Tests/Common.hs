@@ -102,10 +102,6 @@ runSimulator cb sbe seh msf m =
 runDefSimulator cb sbe m = 
   Sim.runDefSimulator cb sbe (setVerbosity verb >> m)
 
-expectFailure :: String -> Assertion -> Assertion
-expectFailure msg a = CE.catch (a >> assertFailure msg)
-                               (\(_ :: HUnitFailure) -> return ())
-
 assertMsg :: Bool -> String -> PropertyM IO ()
 assertMsg b s = when (not b) (run $ putStrLn s) >> QC.assert b
 
