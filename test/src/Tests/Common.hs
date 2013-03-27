@@ -45,7 +45,6 @@ import Text.PrettyPrint
 import Text.Read
 
 import Test.HUnit as HUnit hiding (test)
-import Test.HUnit.Lang (HUnitFailure)
 import Test.Framework as TF
 import Test.Framework.Providers.HUnit
 import Test.Framework.Providers.QuickCheck2
