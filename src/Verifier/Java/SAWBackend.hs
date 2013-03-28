@@ -217,5 +217,6 @@ sawBackend sc preludeSyms = do
                  , evalAigIntegral    = \_ _ _ -> undefined
                  , evalAigArray       = \_ _ _ -> undefined
                  , writeAigToFile     = \_ _ -> undefined
+                 , writeCnfToFile     = \_ _ -> undefined
                  , getVarLit          = \_ -> undefined
                  }
