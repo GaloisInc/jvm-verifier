@@ -272,6 +272,7 @@ symbolicBackend sms = do
           64 -> return $ map (mkCInt 64 . boolSeqToValue) $ splitN 64 rsl
           _  -> error $ "evalAigArray: input array elements have unexpected bit width"
    , writeAigToFile = \fname res -> lWriteAiger fname [res]
+   , writeCnfToFile = \fname res -> error "writeCnfToFile not yet implemented"
    , getVarLit = \t -> toLsbfV <$> getTermLit t
    , Verifier.Java.Backend.prettyTermD = Verinf.Symbolic.prettyTermD
    }

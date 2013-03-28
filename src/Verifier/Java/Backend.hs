@@ -160,6 +160,9 @@ data Backend sbe = Backend {
          -- assumed to be w bits.  If @ins@ is not a constant, then this fails.
        , evalAigArray :: Int -> [SBETerm sbe] -> [SBETerm sbe] -> IO [SBETerm sbe]
        , writeAigToFile :: FilePath -> SV.Vector (SBELit sbe) -> IO ()
+
+       , writeCnfToFile :: FilePath -> SV.Vector (SBELit sbe) -> IO ()
+
          -- | Returns lit vector associated with given term, or fails
          -- if term cannot be bitblasted.
        , getVarLit :: SBETerm sbe -> IO (SV.Vector (SBELit sbe))
