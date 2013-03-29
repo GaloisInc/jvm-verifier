@@ -161,7 +161,7 @@ data Backend sbe = Backend {
        , evalAigArray :: Int -> [SBETerm sbe] -> [SBETerm sbe] -> IO [SBETerm sbe]
        , writeAigToFile :: FilePath -> SV.Vector (SBELit sbe) -> IO ()
 
-       , writeCnfToFile :: FilePath -> SV.Vector (SBELit sbe) -> IO ()
+       , writeCnfToFile :: FilePath -> SBELit sbe -> IO ()
 
          -- | Returns lit vector associated with given term, or fails
          -- if term cannot be bitblasted.
