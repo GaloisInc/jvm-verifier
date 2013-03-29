@@ -123,8 +123,7 @@ public class Symbolic
     }
 
     /** Write the AIG with the given boolean output to the named file.
-     * When invoked in the context of the symbolic simulator, does
-     * nothing.
+     * When invoked in a standard JVM, does nothing.
      *
      * @param fname the file name to store the AIG data
      * @param out the variable to symbolically represent as an AIG file
@@ -132,16 +131,15 @@ public class Symbolic
     public static void writeAiger(String fname, boolean out) { return; }
 
     /** Write the AIG with the given byte output to the named file.
-     * When invoked in the context of the symbolic simulator, does
-     * nothing.
+     * When invoked in a standard JVM, does nothing.
      *
      * @param fname the file name to store the AIG data
      * @param out the variable to symbolically represent as an AIG file
      */
     public static void writeAiger(String fname, byte out)    { return; }
 
-    /** Write the AIG with the given int output to the named file.  When
-     * invoked in the context of the symbolic simulator, does nothing.
+    /** Write the AIG with the given int output to the named file.
+     * When invoked in a standard JVM, does nothing.
      *
      * @param fname the file name to store the AIG data
      * @param out the variable to symbolically represent as an AIG file
@@ -149,8 +147,7 @@ public class Symbolic
     public static void writeAiger(String fname, int out)     { return; }
 
     /** Write the AIG with the given long output to the named file.
-     * When invoked in the context of the symbolic simulator, does
-     * nothing.
+     * When invoked in a standard JVM, does nothing.
      *
      * @param fname the file name to store the AIG data
      * @param out the variable to symbolically represent as an AIG file
@@ -158,8 +155,7 @@ public class Symbolic
     public static void writeAiger(String fname, long out)    { return; }
 
     /** Write the AIG with the given byte outputs to the named file.
-     * When invoked in the context of the symbolic simulator, does
-     * nothing.
+     * When invoked in a standard JVM, does nothing.
      *
      * @param fname the file name to store the AIG data
      * @param outs the variables to symbolically represent as an AIG file
@@ -167,8 +163,7 @@ public class Symbolic
     public static void writeAiger(String fname, byte[] outs) { return; }
 
     /** Write the AIG with the given int outputs to the named file.
-     * When invoked in the context of the symbolic simulator, does
-     * nothing.
+     * When invoked in the context of the standard JVM, does nothing.
      *
      * @param fname the file name to store the AIG data
      * @param outs the variables to symbolically represent as an AIG file
@@ -176,13 +171,21 @@ public class Symbolic
     public static void writeAiger(String fname, int[] outs)  { return; }
 
     /** Write the AIG with the given long outputs to the named file.
-     * When invoked in the context of the symbolic simulator, does
-     * nothing.
+     * When invoked in a standard JVM, does nothing.
      *
      * @param fname the file name to store the AIG data
      * @param outs the variables to symbolically represent as an AIG file
      */
     public static void writeAiger(String fname, long[] outs) { return; }
+
+    /** Write a CNF encoding of the given boolean to the named file
+     * such that an "unsatisfiable" result indicates that the boolean
+     * is always true. When invoked in a standard JVM, does nothing.
+     *
+     * @param fname the file name to store the CNF data
+     * @param out the variable to symbolically represent as a CNF file
+     */
+    public static void writeCnf(String fname, boolean out)   { return; }
 
     /**
      * When invoked in a standard JVM, this function always returns

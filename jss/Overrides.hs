@@ -33,6 +33,16 @@ jssOverrides = do
                                (map dtor ins)
                                outLits)
       evalAigArrayBody _ _ _ _ _ _ = error "invalid evalAigArrayBody parameters"
+  let writeCnf fnameRef out = do
+        mfn <- lookupStringRef fnameRef
+        case mfn of
+          Nothing -> abort $ "writeCnf filename parameter does "
+                       ++ "not refer to a constant string"
+          Just fn -> liftIO $ do
+            zero <- termInt sbe 0
+            cEq <- termEq sbe out zero
+            l <- getVarLit sbe cEq
+            writeCnfToFile sbe fn (SV.head l)
   let writeAigerBody f fnameRef outs = do
 --        abortWhenMultiPath "AIGER write"
         mfn <- lookupStringRef fnameRef
@@ -114,6 +124,8 @@ jssOverrides = do
         writeAigerBody id fnameRef =<< getIntArray outs
     , sym "writeAiger" "(Ljava/lang/String;[J)V" $ \([RValue fnameRef, RValue outs]) ->
         writeAigerBody id fnameRef =<< getLongArray outs
+    , sym "writeCnf" "(Ljava/lang/String;Z)V" $ \([RValue fnameRef, IValue out]) ->
+        writeCnf fnameRef out
 
       --------------------------------------------------------------------------------
       -- debugging
