@@ -13,11 +13,13 @@ OLDSPELL  = ${TMPDIR}/${TARGET}.SPELLOLD
 SPELL     = aspell -t -l
 PDFARGS   = -H ${MAINTARGET}-head.tex \
             -B ${MAINTARGET}-before.tex \
-	    -A ${MAINTARGET}-after.tex \
-	    --latex-engine=xelatex
+            -A ${MAINTARGET}-after.tex \
+            --latex-engine=xelatex \
+            --bibliography=bib/${TARGET}.bib
 HTMLARGS  = --css ${MAIN}/doc.css \
             --standalone \
-	    --self-contained
+            --self-contained \
+            --bibliography=bib/${TARGET}.bib
 AUX       = ${wildcard ${TMP}/*.blg} ${wildcard ${TMP}/*.bbl} ${wildcard ${TMP}/*.aux} \
             ${wildcard ${TMP}/*.eps} ${wildcard ${TMP}/*.log} ${wildcard ${TMP}/*.toc} \
 	    ${wildcard ${TMP}/*.out} ${wildcard ${TMP}/*.idx} ${wildcard ${TMP}/*.ilg} \
