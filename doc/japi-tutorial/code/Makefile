@@ -8,9 +8,12 @@ CRYPTOL=cryptol
 all: JavaSHA384.aig SHA384-ref.aig JavaMD5.aig MD5-ref.aig
 
 %.class: %.java
-	javac -cp ${USER_CP} $<
+	javac -g -cp ${USER_CP}:${SUPPORT_CP} $<
 
 %.aig: %.class
+	${JSS} -c ${USER_CP}:${JDK_CP}:. -j ${SUPPORT_CP} $*
+
+%.cnf: %.class
 	${JSS} -c ${USER_CP}:${JDK_CP}:. -j ${SUPPORT_CP} $*
 
 eval: JavaMD5Eval.class
