@@ -52,19 +52,23 @@ The JDK JAR File
 
 The location of the JDK JAR file is platform-dependent.
 
-*If you're on Windows or Linux*, download the appropriate Java 6 SDK
-via the web forms at (TODO: check this URL):
+*If you're on Windows or Linux*, download the appropriate Java SE 6 JDK
+via the web forms at:
 
     http://www.oracle.com/technetwork/java/javase/downloads/index.html
 
-The JDK jar (called `rt.jar`) can be found at:
+The page lists the Java 7 JDK first, which hasn't been thoroughly tested
+with `jss`. For now, the Java 6 JDK is recommended.
+
+Once the JDK is is installed, the main runtime library (called `rt.jar`)
+can be found at:
 
     <JDK INSTALLATION ROOT>\jre\lib\rt.jar
 
 e.g.: `C:\Program Files\Java\jdk1.6.0_22\jre\lib\rt.jar`
 
 On Linux, the path is as above, rooted at the location where the Java
-6 SDK was extracted, and using forward slashes (`/`) to separate path
+6 JDK was extracted, and using forward slashes (`/`) to separate path
 components.
 
 *If you're on Mac OS X*, the JDK should already be installed along
@@ -265,15 +269,11 @@ the appropriate JAR file names for your system, as described earlier.
 
     # jss -c . -j BC_JAR:JDK_JAR JavaMD5
 
-**NB:** The colon character (`:`) is used to delimit JAR file names on
-UNIX systems (including Mac OS X). On Windows systems, the semicolon
-character (`;`) is used instead. For example, assuming that `jss` is
-in a directory listed the `%PATH%` environment variable, an invocation
-on a Windows system may look like:
+**NB:** As mentioned earlier, the path separator is different on Windows
+than on UNIX-based systems. On Windows, the command line will look
+something like the following:
 
     # jss -c . -j bcprov-jdk16-145.jar;"C:\Program Files\Java\jdk1.6.0_22\jre\lib\rt.jar" JavaMD5
-
-TODO: abbreviate this and refer to earlier mention of Windows.
 
 This will result in a file called `JavaMD5.aig` that can be furthier
 analyzed using a variety of tools, including the Galois Cryptol tool
@@ -459,7 +459,22 @@ example.
 ```
 # javac -g -j BC_JAR:JDK_JAR JavaMD5Eval
 # jss -c . -j BC_JAR:JDK_JAR JavaMD5Eval
-TODO: provide concrete output example
+149
+205
+6
+99
+121
+234
+137
+128
+62
+136
+212
+85
+72
+225
+82
+213
 ```
 
 Checking Boolean Properties
