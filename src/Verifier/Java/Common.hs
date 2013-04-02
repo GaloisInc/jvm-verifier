@@ -281,15 +281,25 @@ data SimCont sbe
   -- the 'MergePoint' @mp@. The 'SimCont' @k@ represents the simulator
   -- continuation after all paths of the branch are merged.
   | HandleBranch MergePoint (BranchAction sbe) (SimCont sbe)
+  -- | @SuspCont rsn cs'@ represents a delimeter in the continuation stack
+  -- introduced by some "unusual" manipulation of control flow. It
+  -- represents the suspended control stack, along with a textual
+  -- reason for its suspension. The common case for this is executing
+  -- symbolic instructions for an override or to run class
+  -- initialization logic.
+  | SuspCont String (CS sbe)
 
 -- | A control stack 'CS' is a stack of first-order continuations. It
 -- represents either a computation with no work remaining, or a pair
 -- of the current path and its continuation.
-data CS sbe 
+data CS sbe
   -- | A completed computation, potentially with a successful result path
   = CompletedCS (Maybe (Path sbe))
   -- | @ActiveCS p k@ is an active computation on path @p@ with the pending continuation @k@
   | ActiveCS (Path sbe) (SimCont sbe)
+  -- | @ResumedCS mp cs'@ represents a completed sub-computiation
+  -- corresponding to the application of a @SuspCS@ continuation.
+  | ResumedCS (Maybe (Path sbe)) (CS sbe)
 
 initialCtrlStk :: Backend sbe -> IO (CS sbe)
 initialCtrlStk sbe = do
@@ -455,15 +465,17 @@ isFinished _ = False
 
 -- | For consistency with LSS api... probably not needed
 modifyPath :: (Path sbe -> Path sbe) -> CS sbe -> Maybe (CS sbe)
-modifyPath f cs = 
+modifyPath f cs =
   case cs of
     CompletedCS mp -> (CompletedCS . Just . f) <$> mp
+    ResumedCS mp cs' -> (flip ResumedCS cs' . Just . f) <$> mp
     ActiveCS p k -> Just (ActiveCS (f p) k)
 
 -- | Apply @f@ to the current path, if one exists
 modifyCurrentPath :: (Path sbe -> Path sbe) -> CS sbe -> CS sbe
-modifyCurrentPath f (CompletedCS mp) = CompletedCS (f <$> mp)
-modifyCurrentPath f (ActiveCS p k)   = ActiveCS (f p) k
+modifyCurrentPath f (CompletedCS mp)   = CompletedCS (f <$> mp)
+modifyCurrentPath f (ResumedCS mp cs') = ResumedCS (f <$> mp) cs'
+modifyCurrentPath f (ActiveCS p k)     = ActiveCS (f p) k
 
 -- | Modify current path in control stack, returning an extra value
 modifyCurrentPathM :: forall m sbe a .
@@ -474,15 +486,17 @@ modifyCurrentPathM :: forall m sbe a .
 modifyCurrentPathM cs f =
   case cs of
     CompletedCS mp -> (run (CompletedCS . Just)) <$> mp
+    ResumedCS mp cs' -> (run (flip ResumedCS cs' . Just)) <$> mp
     ActiveCS p h -> Just (run fn p)
       where fn p' = ActiveCS p' h
- where run :: (Path sbe -> CS sbe) -> Path sbe -> m (a, CS sbe) 
+ where run :: (Path sbe -> CS sbe) -> Path sbe -> m (a, CS sbe)
        run csfn = fmap (id *** csfn) . f
 
 -- | Return the topmost path from a control stack, if any
 currentPath :: CS sbe -> Maybe (Path sbe)
 currentPath (CompletedCS mp) = mp
-currentPath (ActiveCS p _) = Just p
+currentPath (ResumedCS mp _) = mp
+currentPath (ActiveCS p _)   = Just p
 
 -- | Modify the current control stack with the given function, which
 -- may also return a result.
@@ -503,13 +517,17 @@ modifyCSM_ f = modifyCSM (\cs -> ((),) <$> f cs)
 modifyPathM :: Doc
             -> (Path sbe -> Simulator sbe m (a, (Path sbe)))
             -> Simulator sbe m a
-modifyPathM ctx f = 
+modifyPathM ctx f =
   modifyCSM $ \cs ->
-      case cs of 
+      case cs of
         CompletedCS Nothing -> fail . render $ ctx <> ": no current paths"
         CompletedCS (Just p) -> do
                 (x, p') <- f p
                 return $ (x, CompletedCS (Just p'))
+        ResumedCS Nothing _ -> fail . render $ ctx <> ": no current paths"
+        ResumedCS (Just p) cs' -> do
+                (x, p') <- f p
+                return $ (x, ResumedCS (Just p') cs')
         ActiveCS p k -> do
                 (x, p') <- f p
                 return $ (x, ActiveCS p' k)
@@ -614,11 +632,13 @@ addCtrlBranch :: SBETerm sbe   -- ^ Condition to branch on.
               -> Integer       -- ^ Name of new path
               -> MergeLocation -- ^ Control point to merge at.
               -> CS sbe        -- ^ Current control stack.
-              -> Maybe (CS sbe) 
+              -> Maybe (CS sbe)
 addCtrlBranch c nb nm ml cs =
     case cs of
-      CompletedCS{} -> fail "Path is completed"
-      ActiveCS p k -> return . ActiveCS p $ HandleBranch point (BranchRunTrue c pt) k
+      CompletedCS{} -> fail "path is completed"
+      ResumedCS{}   -> fail "path is completed"
+      ActiveCS p k  ->
+          return . ActiveCS p $ HandleBranch point (BranchRunTrue c pt) k
         where point = case ml of
                        Just b -> PostdomPoint (p^.pathStackHt) b
                        Nothing -> ReturnPoint (p^.pathStackHt - 1)
@@ -628,8 +648,9 @@ addCtrlBranch c nb nm ml cs =
 -- | Move current path to target block, checking for merge points.
 jumpCurrentPath :: (Functor m, MonadIO m)
                 => BlockId -> CS sbe -> Simulator sbe m (CS sbe)
-jumpCurrentPath _ CompletedCS{} = fail "Path is completed"
-jumpCurrentPath b (ActiveCS p k) = 
+jumpCurrentPath _ CompletedCS{}  = fail "path is completed"
+jumpCurrentPath _ ResumedCS{}    = fail "path is completed"
+jumpCurrentPath b (ActiveCS p k) =
   mergeNextCont (p & pathBlockId .~ Just b) k
 
 -- | Return from current path, checking for merge points, and putting
@@ -638,7 +659,8 @@ returnCurrentPath :: forall sbe m . (Functor m, MonadIO m)
                   => Maybe (Value (SBETerm sbe))
                   -> CS sbe 
                   -> Simulator sbe m (CS sbe)
-returnCurrentPath _ CompletedCS{} = fail "Path is completed"
+returnCurrentPath _ CompletedCS{} = fail "path is completed"
+returnCurrentPath _ ResumedCS{}   = fail "path is completed"
 returnCurrentPath retVal (ActiveCS p k) = do
   let cf : cfs = p^.pathStack
       cfs' = case retVal of
@@ -668,18 +690,21 @@ branchError ba k = do
       a1   <- liftIO $ termAnd sbe a (pf^.pathAssertions)
       cNot <- liftIO $ termNot sbe c
       a2   <- liftIO $ termAnd sbe a1 cNot
-      let pf' = pf & pathAssertions .~ a2 
+      let pf' = pf & pathAssertions .~ a2
       -- Try to merge states that may have been waiting for the current path to terminate.
       mergeNextCont pf' k
 
 -- | Mark the current path as an error path.
 markCurrentPathAsError :: (Functor m, MonadIO m)
-                       => CS sbe 
+                       => CS sbe
                        -> Simulator sbe m (CS sbe)
 markCurrentPathAsError cs = case cs of
   CompletedCS{}                   -> fail "path is completed"
+  ResumedCS{}                     -> fail "path is completed"
   ActiveCS _ (HandleBranch _ a k) -> branchError a k
   ActiveCS _ EmptyCont            -> return $ CompletedCS Nothing
+  -- we're throwing away the rest of the control stack here, but that's ok
+  ActiveCS _ (SuspCont _ _)       -> return $ CompletedCS Nothing
 
 addPathAssertion :: (MonadIO m, Functor m)
                  => Backend sbe 
@@ -698,8 +723,11 @@ currentCallFrame p = p^.pathStack^?_head
 -- the next continuation. There are three cases:
 -- 
 --   1. There are no more call frames on the stack, and the
---   continuation is empty. This leaves us with a completed control
---   stack containing the current path.
+--   continuation is empty. This leaves us with a completed or resumed
+--   control stack containing the current path.
+--
+--   1a. If we are resuming a parent computation, merge appropriate
+--   fields from the path.
 -- 
 --   2. We've reached the current path's 'MergePoint', so the current
 --   continuation is complete. Depending on the type of continuation,
@@ -715,6 +743,14 @@ mergeNextCont :: (Functor m, MonadIO m)
 -- 1.
 mergeNextCont p EmptyCont | 0 == p^.pathStackHt =
   return (CompletedCS (Just p))
+-- 1a.
+mergeNextCont p (SuspCont _rsn cs') | 0 == p^.pathStackHt = do
+  let Just suspPath = currentPath cs'
+      p' = p & pathStack   .~ suspPath^.pathStack
+             & pathStackHt .~ suspPath^.pathStackHt
+  case modifyPath (const p') cs' of
+    Just cs'' -> return cs''
+    Nothing   -> fail "all paths failed in resumed computation"
 -- 2.
 mergeNextCont p (HandleBranch point ba h) 
   | p `atMergePoint` point = do
@@ -965,32 +1001,33 @@ ppOpds sbe = brackets . commas . map (ppValue sbe)
 
 ppCtrlStk :: Backend sbe -> CS sbe -> Doc
 ppCtrlStk sbe (CompletedCS mp) =
-  "Completed stack:" <+> maybe (text "All paths failed") (ppPath sbe) mp
+  "Completed stack:" <+> maybe "All paths failed" (ppPath sbe) mp
 ppCtrlStk sbe (ActiveCS p k) =
-  text "Active path:" $$
-  ppPath sbe p $$
-  ppSimCont sbe k
+  "Active path:" $$ ppPath sbe p $$ ppSimCont sbe k
+ppCtrlStk sbe (ResumedCS mp cs') =
+  "Resume stack:" <+> maybe "All paths failed" (ppPath sbe) mp
+  $$ nest 2 (ppCtrlStk sbe cs')
 
 ppSimCont :: Backend sbe -> SimCont sbe -> Doc
-ppSimCont sbe (HandleBranch point ba h) = 
-  text "on" <+> ppMergePoint point <+> text "do" $$
+ppSimCont sbe (HandleBranch point ba h) =
+  "on" <+> ppMergePoint point <+> "do" $$
   nest 2 (ppBranchAction sbe ba) $$
   ppSimCont sbe h
-ppSimCont _ EmptyCont = text "stop"
+ppSimCont _ EmptyCont = "stop"
+ppSimCont _ (SuspCont rsn _cs) = "resume:" <+> text rsn
 
 ppBranchAction :: Backend sbe -> BranchAction sbe -> Doc
-ppBranchAction sbe (BranchRunTrue c p) = 
-  text "runTrue" <+> prettyTermD sbe c $$
-  nest 2 (ppPath sbe p)
+ppBranchAction sbe (BranchRunTrue c p) =
+  "runTrue" <+> prettyTermD sbe c $$ nest 2 (ppPath sbe p)
 ppBranchAction sbe (BranchMerge a c p) =
-  text "mergeBranch" <+> prettyTermD sbe c $$
-  nest 2 (text "assumptions:" <+> prettyTermD sbe a) $$
+  "mergeBranch" <+> prettyTermD sbe c $$
+  nest 2 ("assumptions:" <+> prettyTermD sbe a) $$
   nest 2 (ppPath sbe p)
 
 ppMergePoint :: MergePoint -> Doc
-ppMergePoint (ReturnPoint n) = text "return" <> parens (int n)
+ppMergePoint (ReturnPoint n) = "return" <> parens (int n)
 ppMergePoint (PostdomPoint n b) =
-    text "postdom" <> parens (int n <+> ppBlockId b)
+    "postdom" <> parens (int n <+> ppBlockId b)
 
 dumpCtrlStk :: (MonadIO m) => Simulator sbe m ()
 dumpCtrlStk = do
@@ -1006,7 +1043,7 @@ setInitializationStatus :: String
                         -> InitializationStatus
                         -> Memory term
                         -> Memory term
-setInitializationStatus clName status = 
+setInitializationStatus clName status =
   memInitialization %~ M.insert clName status
 
 ppCurrentPath :: MonadSim sbe m => Simulator sbe m Doc
@@ -1014,9 +1051,12 @@ ppCurrentPath = do
   cs <- use ctrlStk
   sbe <- use backend
   return $ case cs of
-    CompletedCS Nothing  -> "all paths failed"
-    CompletedCS (Just p) -> "completed path" <> colon <+> ppPath sbe p
-    ActiveCS p _         -> "active path" <> colon <+> ppPath sbe p
+    CompletedCS Nothing   -> "all paths failed"
+    CompletedCS (Just p)  -> "completed path" <> colon <+> ppPath sbe p
+    ActiveCS p _          -> "active path" <> colon <+> ppPath sbe p
+    ResumedCS Nothing  _  -> "all paths in subcomputation failed"
+    ResumedCS (Just p) _  -> "completed subcomputation path"
+                             <> colon <+> ppPath sbe p
 
 dumpCurrentPath :: MonadSim sbe m => Simulator sbe m ()
 dumpCurrentPath = do

@@ -674,7 +674,7 @@ safeCast = impl minBound maxBound . toInteger
 -- overrides. For top-level invocations, use 'runStaticMethod' instead.
 execStaticMethod :: MonadSim sbe m
                  => String
-                 -> MethodKey                 
+                 -> MethodKey
                  -> [Value (SBETerm sbe)]
                  -> Simulator sbe m (Maybe (Value (SBETerm sbe)))
 execStaticMethod cName key args = do
@@ -702,16 +702,16 @@ execInstanceMethod cName key ref args = do
 -- prescribed by the symbolic instructions. This arises mainly in
 -- class initialization, as well as synthetic code as for
 -- printStreams. Does not check for overrides.
-execMethod :: MonadSim sbe m 
+execMethod :: MonadSim sbe m
            => String
            -> MethodKey
-           -> M.Map LocalVariableIndex (Value (SBETerm sbe)) 
+           -> M.Map LocalVariableIndex (Value (SBETerm sbe))
            -> Simulator sbe m (Maybe (Path sbe, (Maybe (Value (SBETerm sbe)))))
 execMethod cName key locals = do
   cl <- lookupClass cName
   method <- case cl `lookupMethod` key of
               Just m -> return m
-              Nothing -> fail . render 
+              Nothing -> fail . render
                 $ "runMethod: could not find method" <+> text cName
                 <> "." <> ppMethodKey key
 
@@ -726,10 +726,10 @@ execMethod cName key locals = do
   -- replace the suspended continuation with the new path and the
   -- original path's call stack.
   suspCS <- use ctrlStk
-  let Just suspPath  = currentPath suspCS 
+  let Just suspPath  = currentPath suspCS
       p = suspPath & pathStack   .~ []
                    & pathStackHt .~ 0
-      Just cs = pushCallFrame cName 
+      Just cs = pushCallFrame cName
                               method
                               entryBlock
                               locals
@@ -741,7 +741,7 @@ execMethod cName key locals = do
   case currentPath cs' of
     Just p' -> let p'' = p' & pathStack   .~ suspPath^.pathStack
                             & pathStackHt .~ suspPath^.pathStackHt
-               in Just <$> (modifyPathM "execMethod" 
+               in Just <$> (modifyPathM "execMethod"
                               $ \_ -> return ((p'', p''^.pathRetVal), p''))
     Nothing -> return Nothing
 
