@@ -736,7 +736,7 @@ execMethod cName key locals = do
   run
   finishedCS <- use ctrlStk
   case currentPath finishedCS of
-    Just p -> modifyPathM "execMethod" $ \p -> do
+    Just _ -> modifyPathM "execMethod" $ \p -> do
                 let p' = p -- p & pathRetVal .~ Nothing
                 return (Just (p', p^.pathRetVal), p')
     Nothing -> return Nothing
@@ -1002,25 +1002,6 @@ evalCond (CompareRef cmpTy) = do
     NE -> bNot =<< rEq x y
     _  -> fail "invalid reference comparison; bug in symbolic translation?"
 
-{-
--- | Evaluate condition in current path.
-evalCond :: (Functor sbe, Functor m, MonadIO m) => SymCond -> Simulator sbe m (SBETerm sbe)
-evalCond TrueSymCond = withSBE $ \sbe -> termBool sbe True
-evalCond (HasConstValue typedTerm i) = do
-  Typed (L.PrimType (L.Integer w)) v <- getTypedTerm "evalCond" typedTerm
-  sbe <- gets symBE
-  iv <- liftSBE $ termInt sbe (fromIntegral w) i
-  liftSBE $ applyIEq sbe (fromIntegral w) v iv
-evalCond (NotConstValues typedTerm is) = do
-  Typed (L.PrimType (L.Integer w)) t <- getTypedTerm "evalCond" typedTerm
-  sbe <- gets symBE
-  true <- liftSBE $ termBool sbe True
-  il <- mapM (liftSBE . termInt sbe (fromIntegral w)) is
-  ir <- mapM (liftSBE . applyIne sbe (fromIntegral w) t) il
-  let fn r v = liftSBE $ applyAnd sbe r v
-  foldM fn true ir
--}
-
 --------------------------------------------------------------------------------
 -- Callbacks and event handlers
 
@@ -1028,11 +1009,11 @@ cb1 :: (Functor m, Monad m)
   => (SEH sbe m -> a -> Simulator sbe m ()) -> a -> Simulator sbe m ()
 cb1 f x = join (f <$> use evHandlers <*> pure x)
 
-{-
+
 cb2 :: (Functor m, Monad m)
   => (SEH sbe m -> a -> b -> Simulator sbe m ()) -> a -> b -> Simulator sbe m ()
-cb2 f x y = join $ gets (f . evHandlers) <*> pure x <*> pure y
--}
+cb2 f x y = join (f <$> use evHandlers <*> pure x <*> pure y)
+
 defaultSEH :: Monad m => SEH sbe m
 defaultSEH = SEH
                (return ())
