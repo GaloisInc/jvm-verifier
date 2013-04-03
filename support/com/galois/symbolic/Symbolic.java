@@ -187,24 +187,6 @@ public class Symbolic
      */
     public static void writeCnf(String fname, boolean out)   { return; }
 
-    /**
-     * When invoked in a standard JVM, this function always returns
-     * null. When invoked in the context of the symbolic simulator,
-     * function returns an array populated with (opaque) path state
-     * descriptors for all paths (including those that have no
-     * terminated!), subject to inclusion constraints. These values
-     * can be used in tandem with other API functions to obtain
-     * information incrementally about the simulation results of
-     * particular paths.
-     *
-     * @param includeExc include descriptors for paths that have
-     * terminated but have resulted in an exception.
-     */
-    public static int[] getPathDescriptors(boolean includeExc)
-    {
-        return null;
-    }
-
     /** Debugging helpers for interaction with the Java Symbolic Simulator */
     public static class Debug
     {
@@ -232,11 +214,10 @@ public class Symbolic
         public static void abort() { return; }
 
         /**
-         * Print the set of all path states currently being simulated
-         * are printed to stdout.  When invoked in a standard JVM, this
-         * function does nothing.
+         * Print the path state currently being simulated to stdout.
+         * When invoked in a standard JVM, this function does nothing.
          */
-        public static void dumpPathStates() { return; }
+        public static void dumpPathState() { return; }
 
         /**
          * Set debug verbosity to the requested level.  When invoked in

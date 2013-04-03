@@ -48,6 +48,7 @@ module Verifier.Java.Common
   , SimCont(..)
     -- *** Utilities
   , isFinished
+  , isResumed
   , modifyCS
   , modifyCSM
   , modifyCSM_
@@ -134,6 +135,7 @@ module Verifier.Java.Common
 
     -- * Control flow primitives
   , pushCallFrame
+  , suspendCS
   , addCtrlBranch
   , jumpCurrentPath
   , returnCurrentPath
@@ -297,9 +299,9 @@ data CS sbe
   = CompletedCS (Maybe (Path sbe))
   -- | @ActiveCS p k@ is an active computation on path @p@ with the pending continuation @k@
   | ActiveCS (Path sbe) (SimCont sbe)
-  -- | @ResumedCS mp cs'@ represents a completed sub-computiation
+  -- | @ResumedCS p cs'@ represents a completed sub-computiation
   -- corresponding to the application of a @SuspCS@ continuation.
-  | ResumedCS (Maybe (Path sbe)) (CS sbe)
+  | ResumedCS (Path sbe) (CS sbe)
 
 initialCtrlStk :: Backend sbe -> IO (CS sbe)
 initialCtrlStk sbe = do
@@ -463,19 +465,23 @@ isFinished :: CS sbe -> Bool
 isFinished CompletedCS{} = True
 isFinished _ = False
 
+isResumed :: CS sbe -> Bool
+isResumed ResumedCS{} = True
+isResumed _ = False
+
 -- | For consistency with LSS api... probably not needed
 modifyPath :: (Path sbe -> Path sbe) -> CS sbe -> Maybe (CS sbe)
 modifyPath f cs =
   case cs of
     CompletedCS mp -> (CompletedCS . Just . f) <$> mp
-    ResumedCS mp cs' -> (flip ResumedCS cs' . Just . f) <$> mp
+    ResumedCS p cs' -> Just (ResumedCS (f p) cs')
     ActiveCS p k -> Just (ActiveCS (f p) k)
 
 -- | Apply @f@ to the current path, if one exists
 modifyCurrentPath :: (Path sbe -> Path sbe) -> CS sbe -> CS sbe
-modifyCurrentPath f (CompletedCS mp)   = CompletedCS (f <$> mp)
-modifyCurrentPath f (ResumedCS mp cs') = ResumedCS (f <$> mp) cs'
-modifyCurrentPath f (ActiveCS p k)     = ActiveCS (f p) k
+modifyCurrentPath f (CompletedCS mp)  = CompletedCS (f <$> mp)
+modifyCurrentPath f (ResumedCS p cs') = ResumedCS (f p) cs'
+modifyCurrentPath f (ActiveCS p k)    = ActiveCS (f p) k
 
 -- | Modify current path in control stack, returning an extra value
 modifyCurrentPathM :: forall m sbe a .
@@ -486,7 +492,8 @@ modifyCurrentPathM :: forall m sbe a .
 modifyCurrentPathM cs f =
   case cs of
     CompletedCS mp -> (run (CompletedCS . Just)) <$> mp
-    ResumedCS mp cs' -> (run (flip ResumedCS cs' . Just)) <$> mp
+    ResumedCS p cs' -> Just (run fn p)
+      where fn p' = ResumedCS p' cs'
     ActiveCS p h -> Just (run fn p)
       where fn p' = ActiveCS p' h
  where run :: (Path sbe -> CS sbe) -> Path sbe -> m (a, CS sbe)
@@ -495,7 +502,7 @@ modifyCurrentPathM cs f =
 -- | Return the topmost path from a control stack, if any
 currentPath :: CS sbe -> Maybe (Path sbe)
 currentPath (CompletedCS mp) = mp
-currentPath (ResumedCS mp _) = mp
+currentPath (ResumedCS p _)  = Just p
 currentPath (ActiveCS p _)   = Just p
 
 -- | Modify the current control stack with the given function, which
@@ -524,10 +531,9 @@ modifyPathM ctx f =
         CompletedCS (Just p) -> do
                 (x, p') <- f p
                 return $ (x, CompletedCS (Just p'))
-        ResumedCS Nothing _ -> fail . render $ ctx <> ": no current paths"
-        ResumedCS (Just p) cs' -> do
+        ResumedCS p cs' -> do
                 (x, p') <- f p
-                return $ (x, ResumedCS (Just p') cs')
+                return $ (x, ResumedCS p' cs')
         ActiveCS p k -> do
                 (x, p') <- f p
                 return $ (x, ActiveCS p' k)
@@ -623,6 +629,19 @@ pushCallFrame clname method retBB locals cs =
                 p' = p & pathStack   %~ (cf :)
                        & pathStackHt +~ 1
                        & pathBlockId .~ Just entryBlock
+
+-- | Suspend the control stack with the given suspension reason.
+suspendCS :: String -> CS sbe -> Maybe (CS sbe)
+suspendCS rsn cs = do
+  let suspend suspPath = ActiveCS p (SuspCont rsn cs)
+        where p = suspPath & pathStack   .~ []
+                           & pathStackHt .~ 0
+  case cs of
+    CompletedCS Nothing -> fail "suspendCS: all paths failed"
+    -- if we're already a finished computation, don't do anything fancy
+    CompletedCS (Just _) -> return cs
+    ActiveCS suspPath _ -> return $ suspend suspPath
+    ResumedCS suspPath _ -> return $ suspend suspPath
 
 -- | Push a new continuation onto the control stack for a branching
 -- computation. A new path is created and suspended for the @then@
@@ -745,14 +764,9 @@ mergeNextCont p EmptyCont | 0 == p^.pathStackHt =
   return (CompletedCS (Just p))
 -- 1a.
 mergeNextCont p (SuspCont _rsn cs') | 0 == p^.pathStackHt = do
-  let Just suspPath = currentPath cs'
-      p' = p & pathStack   .~ suspPath^.pathStack
-             & pathStackHt .~ suspPath^.pathStackHt
-  case modifyPath (const p') cs' of
-    Just cs'' -> return cs''
-    Nothing   -> fail "all paths failed in resumed computation"
+  return $ ResumedCS p cs'
 -- 2.
-mergeNextCont p (HandleBranch point ba h) 
+mergeNextCont p (HandleBranch point ba h)
   | p `atMergePoint` point = do
   sbe <- use backend
   case ba of
@@ -760,19 +774,19 @@ mergeNextCont p (HandleBranch point ba h)
       true <- liftIO $ termBool sbe True
       let tp' = tp & pathAssertions .~ true
       let ba' = BranchMerge (tp^.pathAssertions) c p
-      return $ ActiveCS tp' (HandleBranch point ba' h) 
+      return $ ActiveCS tp' (HandleBranch point ba' h)
     BranchMerge a c pf -> do
-      mergedCallStack <- 
+      mergedCallStack <-
         case (p^.pathStack, pf^.pathStack) of
           ([]      , []   ) -> return []
           -- TODO is it right to ignore the other frames on one path?
           -- That's what old sim did...
-          (cf1:cfs1, cf2:_) -> do 
+          (cf1:cfs1, cf2:_) -> do
             cf' <- mergeCallFrames c cf1 cf2
             return (cf':cfs1)
           _ -> throwError $ strMsg "call frame mismatch when merging paths"
       mergedMemory <- mergeMemories c (p^.pathMemory) (pf^.pathMemory)
-      mergedAssertions <- 
+      mergedAssertions <-
           liftIO $ termIte sbe c (p^.pathAssertions) (pf^.pathAssertions)
       mergedRetVal <- mergeRetVals c (p^.pathRetVal) (pf^.pathRetVal)
       a' <- liftIO $ termAnd sbe a mergedAssertions
@@ -1004,8 +1018,8 @@ ppCtrlStk sbe (CompletedCS mp) =
   "Completed stack:" <+> maybe "All paths failed" (ppPath sbe) mp
 ppCtrlStk sbe (ActiveCS p k) =
   "Active path:" $$ ppPath sbe p $$ ppSimCont sbe k
-ppCtrlStk sbe (ResumedCS mp cs') =
-  "Resume stack:" <+> maybe "All paths failed" (ppPath sbe) mp
+ppCtrlStk sbe (ResumedCS p cs') =
+  "Resume stack:" <+> ppPath sbe p
   $$ nest 2 (ppCtrlStk sbe cs')
 
 ppSimCont :: Backend sbe -> SimCont sbe -> Doc
@@ -1051,12 +1065,11 @@ ppCurrentPath = do
   cs <- use ctrlStk
   sbe <- use backend
   return $ case cs of
-    CompletedCS Nothing   -> "all paths failed"
-    CompletedCS (Just p)  -> "completed path" <> colon <+> ppPath sbe p
-    ActiveCS p _          -> "active path" <> colon <+> ppPath sbe p
-    ResumedCS Nothing  _  -> "all paths in subcomputation failed"
-    ResumedCS (Just p) _  -> "completed subcomputation path"
-                             <> colon <+> ppPath sbe p
+    CompletedCS Nothing  -> "all paths failed"
+    CompletedCS (Just p) -> "completed path" <> colon <+> ppPath sbe p
+    ActiveCS p _         -> "active path" <> colon <+> ppPath sbe p
+    ResumedCS p _        -> "completed subcomputation path"
+                            <> colon <+> ppPath sbe p
 
 dumpCurrentPath :: MonadSim sbe m => Simulator sbe m ()
 dumpCurrentPath = do

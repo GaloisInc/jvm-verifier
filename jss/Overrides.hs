@@ -54,11 +54,10 @@ jssOverrides = do
               =<< mapM (fmap f . getVarLit sbe) outs
   mapM_ (\(cn, key, impl) -> overrideStaticMethod cn key impl)
       --------------------------------------------------------------------------------
-      -- fresh vars & path info
+      -- fresh vars
 
       -- TODO: Make the overriden functions be total and handle errors if, e.g.,
       -- user passes a symbolic value where a concrete one is expected
-      -- (getPathDescriptors, for instance).
     [ sym "freshByte" "(B)B"    $ \_ -> freshByte `pushAs` IValue
     , sym "freshInt" "(I)I"     $ \_ -> freshInt  `pushAs` IValue
     , sym "freshBoolean" "(Z)Z" $ \_ -> freshInt  `pushAs` IValue
@@ -69,17 +68,6 @@ jssOverrides = do
         pushIntArr =<< liftIO (replicateM (fromIntegral n) $ freshInt sbe)
     , sym "freshLongArray" "(I)[J" $ \[IValue (asInt sbe -> Just n)] ->
         pushLongArr =<< liftIO (replicateM (fromIntegral n) $ freshLong sbe)
-    , sym "getPathDescriptors" "(Z)[I" $ \[IValue (asInt sbe -> Just _)] ->
-          pushIntArr []
-{- No more global map of path states, so this is kind of meaningless now
-        let filterExc PathState{ finalResult = fr } =
-              if includeExc /= 0
-                then True
-                else case fr of Exc{} -> False; _ -> True
-        in pushIntArr
-             =<< mapM (liftIO . termInt sbe . fromIntegral . unPSS)
-               =<< (M.keys . M.filter filterExc <$> gets pathStates)
--}
       --------------------------------------------------------------------------------
       -- evalAig
 
@@ -144,7 +132,7 @@ jssOverrides = do
           _ -> error "Symbolic.Debug.trace expects interned message strings"
 
     , dbg "abort" "()V"          $ \_ -> abort "Abort explicitly triggered (via JAPI)."
-    , dbg "dumpPathStates" "()V" $ \_ -> dumpCurrentPath
+    , dbg "dumpPathState" "()V" $ \_ -> dumpCurrentPath
     , dbg "setVerbosity" "(I)V"  $ \[IValue (asInt sbe -> Just v)] ->
         setVerbosity (fromIntegral v)
     , dbg "eval" "(I[Lcom/galois/symbolic/CValue;)I" $ \[IValue _out, RValue _cvArr] -> do

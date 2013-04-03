@@ -135,12 +135,12 @@ runStaticMethod cName mName mType args = do
   run
   cs <- use ctrlStk
   when (not $ isFinished cs) 
-    $ fail "unexpected active control stack after executing method"
+    $ fail "runStaticMethod: unexpected active control stack after executing method"
   case currentPath cs of
     Just p -> do
       rv <- getProgramReturnValue
       return [(p, rv)]
-    Nothing -> fail "all paths failed"
+    Nothing -> return []--    Nothing -> fail "runStaticMethod: all paths failed"
 
 -- | Low-level function. If you do not know you need to call this, you
 -- likely do not need to! This is the main loop of the simulator which
@@ -149,7 +149,17 @@ runStaticMethod cName mName mType args = do
 run :: forall sbe m . MonadSim sbe m => Simulator sbe m ()
 run = do
   cs <- use ctrlStk
-  if isFinished cs then
+  if isResumed cs then do
+    dbugM' 5 "run: subcomputation finished, resuming outer computation"
+    let ResumedCS p cs' = cs
+        Just suspPath = currentPath cs'
+        p' = p & pathStack   .~ suspPath^.pathStack
+               & pathStackHt .~ suspPath^.pathStackHt
+       --        & pathRetVal  .~ Nothing
+    case modifyPath (const p') cs' of
+      Just cs'' -> ctrlStk .= cs''
+      Nothing   -> fail "all paths failed in resumed computation"
+  else if isFinished cs then
     case currentPath cs of
       Just (p :: Path sbe) -> do
         -- Normal program termination on at least one path.
@@ -164,13 +174,13 @@ run = do
             Nothing -> dbugM "Program had no return value."
             Just rv -> dbugValue "Program returned value" rv
           numErrs <- uses errorPaths length
-          showEPs <- use printErrPaths        
+          showEPs <- use printErrPaths
           when (numErrs > 0 && showEPs) $ do
             dbugM $ showErrCnt numErrs
             dumpErrorPaths
       Nothing -> do
         -- All paths ended in errors.
-        showEPs <- use printErrPaths        
+        showEPs <- use printErrPaths
         if showEPs then
           tellUser "All paths yielded errors!" >> dumpErrorPaths
         else
@@ -715,34 +725,20 @@ execMethod cName key locals = do
                 $ "runMethod: could not find method" <+> text cName
                 <> "." <> ppMethodKey key
 
-  -- Horrendous Hack Alert: Since we may need to
-  -- resume execution from the middle of a basic block, we
-  -- are going to make a recursive call to `run` while
-  -- executing the symbolic instruction that originally
-  -- triggered the class initialization.
-  --
-  -- We save the current continuation, use its path in a new empty
-  -- continuation and an empty call stack, run the init method, then
-  -- replace the suspended continuation with the new path and the
-  -- original path's call stack.
-  suspCS <- use ctrlStk
-  let Just suspPath  = currentPath suspCS
-      p = suspPath & pathStack   .~ []
-                   & pathStackHt .~ 0
-      Just cs = pushCallFrame cName
-                              method
-                              entryBlock
-                              locals
-                              (CompletedCS (Just p))
-  ctrlStk .= cs
+  -- suspend the current computation so we can do a nested invocation of @run@
+  cs <- use ctrlStk
+  cs' <- maybe (fail "execMethod: no active path") return
+         $ suspendCS "execMethod" cs
+  -- partial pattern OK: already handled no-path case
+  let Just cs'' = pushCallFrame cName method entryBlock locals cs'
+  -- set suspended control stack
+  ctrlStk .= cs''
   run
-  cs' <- use ctrlStk
-  ctrlStk .= suspCS
-  case currentPath cs' of
-    Just p' -> let p'' = p' & pathStack   .~ suspPath^.pathStack
-                            & pathStackHt .~ suspPath^.pathStackHt
-               in Just <$> (modifyPathM "execMethod"
-                              $ \_ -> return ((p'', p''^.pathRetVal), p''))
+  finishedCS <- use ctrlStk
+  case currentPath finishedCS of
+    Just p -> modifyPathM "execMethod" $ \p -> do
+                let p' = p -- p & pathRetVal .~ Nothing
+                return (Just (p', p^.pathRetVal), p')
     Nothing -> return Nothing
 
 hasCustomClassInitialization :: String -> Bool
