@@ -56,7 +56,7 @@ doTest tn cb =
       jssOverrides
       runMain "JAPI" =<< mkTestArgs tn
     length rs @?= 1
-      
+
 -- --------------------------------------------------------------------------------
 -- -- Scratch
 

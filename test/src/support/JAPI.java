@@ -11,7 +11,6 @@ public class JAPI
 {
     public static class BadTestNameException         extends Exception {}
     public static class NoTestNameException          extends Exception {}
-    public static class UnexpectedPathCountException extends Exception {}
 
     public static void main(String[] args) throws Exception
     {
@@ -67,8 +66,6 @@ public class JAPI
         int[] arr = Symbolic.freshIntArray(3);
         arr[0] = arr[1] + arr[2];
 
-        int[] pds = Symbolic.getPathDescriptors(true);
-        if (pds.length != 1) { throw new UnexpectedPathCountException(); }
         int[] rslt = Symbolic.evalAig(
             arr,
             new CValue[] {
@@ -85,8 +82,6 @@ public class JAPI
     public static void tarr2() throws Exception {
         long[] arr = Symbolic.freshLongArray(3);
         arr[2]     = arr[0] * arr[1];
-        int[] pds  = Symbolic.getPathDescriptors(true);
-        if (pds.length != 1) { throw new UnexpectedPathCountException(); }
         long[] rslt = Symbolic.evalAig(
             arr,
             new CValue[] {
