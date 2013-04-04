@@ -40,6 +40,7 @@ library
     , containers
     , directory
     , filepath
+    , haskeline >= 0.7
     , jvm-parser >= 0.2
     , lens >= 3.8
     , mtl >= 2.1
@@ -176,12 +177,13 @@ executable Tests
   if !flag(build-tests)
     buildable: False
 
-  build-depends: 
+  build-depends:
       base >= 4
     , array
     , containers
     , directory
     , filepath
+    , haskeline >= 0.7
     , jvm-parser
     , lens >= 3.8
     , mtl >= 2.1
