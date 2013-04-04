@@ -59,6 +59,7 @@ library
     Verifier.Java.Backend
     Verifier.Java.Codebase
     Verifier.Java.Common
+    Verifier.Java.Debugger
     Verifier.Java.Simulator
     Verifier.Java.Utils
 

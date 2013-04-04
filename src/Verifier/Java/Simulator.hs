@@ -1,7 +1,7 @@
 {- |
 Module           : $Header$
-Description      : JVM Symbolic Simulatior implementation
-Stability        : stable
+Description      : JVM Symbolic Simulator implementation
+Stability        : provisional
 Point-of-contact : jstanley, acfoltzer
 
 Implementation of the JVM Symbolic Simulator. This module exposes an
@@ -70,9 +70,11 @@ module Verifier.Java.Simulator
     -- * Dynamic binding
   , dynBind
   , dynBindSuper
-    -- * Pretty-printing and debugging 
+    -- * Pretty-printing and debugging
+  , addBreakpoint
+  , removeBreakpoint
   , dbugM
-  , abort  
+  , abort
   , prettyTermSBE
     -- * Re-exported modules
   , module Execution.JavaSemantics
