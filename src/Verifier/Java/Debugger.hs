@@ -10,10 +10,7 @@ implementations of the 'SEH' event handlers.
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
-module Verifier.Java.Debugger
-  (
-    breakpointLogger
-  ) where
+module Verifier.Java.Debugger where
 
 import Control.Applicative
 import Control.Lens
@@ -27,6 +24,10 @@ import Data.JVM.Symbolic.AST
 
 import Verifier.Java.Common
 import Verifier.Java.Simulator hiding (getCurrentClassName, getCurrentMethod)
+
+-- | Add a breakpoint to the @main@ method of the given class
+breakOnMain :: String -> Simulator sbe m ()
+breakOnMain clName = addBreakpoint clName mainKey BreakEntry
 
 -- | Given a step handler, return a new step handler that runs it when
 -- breakpoints are encountered
@@ -49,7 +50,10 @@ runAtBreakpoints sh (Just pc) insn = do
         Just True -> sh (Just pc) insn
 runAtBreakpoints _  _         _    = return ()
 
-breakpointLogger :: (Functor m, Monad m) => Maybe PC -> SymInsn -> Simulator sbe m ()
+breakpointLogger :: (Functor m, Monad m)
+                 => Maybe PC
+                 -> SymInsn
+                 -> Simulator sbe m ()
 breakpointLogger = runAtBreakpoints f
   where f mpc insn = do
           clName <- getCurrentClassName
@@ -60,3 +64,7 @@ breakpointLogger = runAtBreakpoints f
           dbugM . render $
             "hit breakpoint at" <+> text clName <> "." <>
             ppMethod method <> colon <> lineNum <> "%" <> pc
+
+debuggerREPL :: Maybe PC -> SymInsn -> Simulator sbe m ()
+debuggerREPL mpc insn = do
+  undefined

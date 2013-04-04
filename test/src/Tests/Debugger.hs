@@ -26,9 +26,10 @@ debuggerTests :: Codebase -> Test
 debuggerTests cb = testGroup "Debugger" $
   [
     testCase "tbp" $ tbp cb
+  , testCase "tmain" $ tmain cb
   ]
 
-
+-- | Test entry and line number breakpoints for arbitrary methods
 tbp :: TrivialCase
 tbp cb =
   mkSymAssertion $ \sbe -> do
@@ -42,4 +43,17 @@ tbp cb =
       addBreakpoint clName mKey BreakEntry
       addBreakpoint clName mKey (BreakLineNum 125)
       runStaticMethod clName mName mType [IValue sym]
+    return ()
+
+-- | Test break on main
+tmain :: TrivialCase
+tmain cb =
+  mkSymAssertion $ \sbe -> do
+    sym <- freshInt sbe
+    let clName = "IVTDriver"
+        mKey   = mainKey
+        dbgSEH = defaultSEH { onPreStep = breakpointLogger }
+    _ <- runSimulator cb sbe dbgSEH Nothing $ do
+      breakOnMain clName
+      runStaticMethod clName (methodKeyName mKey) (unparseMethodDescriptor mKey) [IValue sym]
     return ()
