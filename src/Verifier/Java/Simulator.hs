@@ -95,6 +95,8 @@ import Data.Int
 import Data.List (find, foldl')
 import qualified Data.Map as M
 import Data.Maybe
+import Data.Set (Set)
+import qualified Data.Set as S
 import qualified Data.Vector as V
 
 import System.IO (hFlush, stdout)
@@ -213,7 +215,7 @@ run = do
       case lookupSymBlock bid symBlocks of
         Just symBlock -> do
           dbugM' 6 . render $ "run:" <+> ppSymBlock symBlock
-          runInsns . map snd $ sbInsns symBlock
+          runInsns $ sbInsns symBlock
         Nothing -> fail . render 
           $ "invalid basic block" <+> ppBlockId bid 
           <+> "for method" <+> ppMethod method
@@ -812,12 +814,12 @@ skipInit cname = cname `elem` [ "java/lang/System"
                               ]
 
 runInsns :: MonadSim sbe m
-         => [SymInsn] -> Simulator sbe m ()
+         => [(Maybe PC, SymInsn)] -> Simulator sbe m ()
 runInsns insns = mapM_ dbugStep insns
 
-dbugStep :: MonadSim sbe m 
-         => SymInsn -> Simulator sbe m ()
-dbugStep insn = do
+dbugStep :: MonadSim sbe m
+         => (Maybe PC, SymInsn) -> Simulator sbe m ()
+dbugStep (pc, insn) = do
   mp <- getPathMaybe
   case mp of
     Nothing -> dbugM' 4 . render $ "Executing: (no current path)" 
@@ -835,9 +837,9 @@ dbugStep insn = do
         "Executing" <+> parens ("#" <> integer (p^.pathName))
         <+> loc <> colon <+> (ppSymInsn insn)
 --  repl
-  cb1 onPreStep insn
+  cb2 onPreStep pc insn
   step insn
-  cb1 onPostStep insn
+  cb2 onPostStep pc insn
   whenVerbosity (>=6) $ do
     p <- getPath "dbugStep"
     sbe <- use backend
@@ -948,14 +950,14 @@ step (PushPendingExecution bid cond ml elseInsns) = do
    -- Don't bother with elseStmts as condition is true. 
    Just True  -> setCurrentBlock bid
    -- Don't bother with pending path as condition is false.
-   Just False -> runInsns (map snd elseInsns)
+   Just False -> runInsns elseInsns
    Nothing -> do
      nm <- use nextPSS
      nextPSS += 1
      modifyCSM_ $ \cs -> case addCtrlBranch c bid nm ml cs of
                            Just cs' -> return cs'
                            Nothing -> fail "addCtrlBranch"
-     runInsns (map snd elseInsns)
+     runInsns elseInsns
 
 step (SetCurrentBlock bid) = setCurrentBlock bid
 
@@ -1009,7 +1011,6 @@ cb1 :: (Functor m, Monad m)
   => (SEH sbe m -> a -> Simulator sbe m ()) -> a -> Simulator sbe m ()
 cb1 f x = join (f <$> use evHandlers <*> pure x)
 
-
 cb2 :: (Functor m, Monad m)
   => (SEH sbe m -> a -> b -> Simulator sbe m ()) -> a -> b -> Simulator sbe m ()
 cb2 f x y = join (f <$> use evHandlers <*> pure x <*> pure y)
@@ -1017,8 +1018,8 @@ cb2 f x y = join (f <$> use evHandlers <*> pure x <*> pure y)
 defaultSEH :: Monad m => SEH sbe m
 defaultSEH = SEH
                (return ())
-               (\_   -> return ())
-               (\_   -> return ())
+               (\_ _ -> return ())
+               (\_ _ -> return ())
 
 --------------------------------------------------------------------------------
 -- Conversions
@@ -1057,7 +1058,7 @@ newString s = do
     ref
     (FieldId "java/lang/String" "offset" IntType)
     (IValue arrayOffset)
-  alen <- liftIO $ termInt sbe $ fromIntegral (length s)  
+  alen <- liftIO $ termInt sbe $ fromIntegral (length s)
   setInstanceFieldValue
     ref
     (FieldId "java/lang/String" "count" IntType)
@@ -1081,7 +1082,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   initializeClass name = do
     m <- getMem "initializeClass"
     case M.lookup name (m^.memInitialization) of
-      Nothing | hasCustomClassInitialization name -> 
+      Nothing | hasCustomClassInitialization name ->
                   runCustomClassInitialization name
       Nothing | otherwise -> do
         setMem $ setInitializationStatus name Started m
@@ -1973,6 +1974,42 @@ dynBind' clName key objectRef = do
 
 --------------------------------------------------------------------------------
 -- Debugging
+
+-- | Add a breakpoint for the given method
+addBreakpoint :: String
+              -- ^ class name
+              -> MethodKey
+              -> Breakpoint
+              -> Simulator sbe m ()
+addBreakpoint = toggleBreakpoint S.insert
+
+-- | Remove a breakpoint for the given method, doing nothing if one is not present
+removeBreakpoint :: String
+                 -- ^ class name
+                 -> MethodKey
+                 -> Breakpoint
+                 -> Simulator sbe m ()
+removeBreakpoint = toggleBreakpoint S.delete
+
+toggleBreakpoint :: (PC -> Set PC -> Set PC)
+                 -> String
+                 -- ^ class name
+                 -> MethodKey
+                 -> Breakpoint
+                 -> Simulator sbe m ()
+toggleBreakpoint fn clName key bp = do
+  cl <- lookupClass clName
+  let methodDoc = text clName <> "." <> ppMethodKey key
+  method <- case lookupMethod cl key of
+              Nothing -> fail . render $ "unknown method:" <+> methodDoc
+              Just m -> return m
+  bp' <- case breakpointToPC method bp of
+           Just pc -> return pc
+           Nothing -> fail . render $
+             "line number not availble for method:" <+> methodDoc
+  mbps <- M.lookup (clName, method) <$> use breakpoints
+  let bps = fn bp' $ fromMaybe S.empty mbps
+  breakpoints %= M.insert (clName, method) bps
 
 -- | Pretty-prints a symbolic value with an accompanying description
 dbugValue :: MonadSim sbe m => String -> Value (SBETerm sbe) -> Simulator sbe m ()
