@@ -1,4 +1,5 @@
 USER_CP=../../../user
+BC_JAR=${USER_CP}/bcprov-jdk16-145.jar
 SUPPORT_CP=../../../support/galois.jar
 JDK_CP=../../../jdk1.6
 JSS=../../../dist/build/jss/jss
@@ -8,7 +9,7 @@ CRYPTOL=cryptol
 all: JavaSHA384.aig SHA384-ref.aig JavaMD5.aig MD5-ref.aig
 
 %.class: %.java
-	javac -g -cp ${USER_CP}:${SUPPORT_CP} $<
+	javac -g -cp ${USER_CP}:${SUPPORT_CP}:${BC_JAR} $<
 
 %.aig: %.class
 	${JSS} -c ${USER_CP}:${JDK_CP}:. -j ${SUPPORT_CP} $*

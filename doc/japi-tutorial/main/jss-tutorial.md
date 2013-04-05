@@ -2,8 +2,6 @@
 % Galois, Inc. | 421 SW 6th Avenue, Suite 300 | Portland, OR 97204
 % \includegraphics[height=1in]{images/Galois_logo_blue_box.pdf}
 
-TODO: include mention of galois.jar (rename sym-api.jar?)
-
 Introduction
 ============
 
@@ -21,8 +19,8 @@ We assume knowledge of Java, and a rough understanding of
 cryptography. However, we do not assume familiarity with symbolic
 simulation, formal modeling, or theorem proving. Additionally,
 following along with the entire tutorial will require the use of the
-Cryptol tool set [@cryptol] and the ABC logic synthesis system from UC
-Berkeley [@abc].
+Cryptol tool set [^cryptol] and the ABC logic synthesis system from UC
+Berkeley [^abc].
 
 Installation and configuration of those tools is outside the scope of
 this tutorial. However, instructions on setting up the environment for
@@ -35,6 +33,12 @@ angle bracket (such as `abc 01>`) indicate command-line prompts, and
 the following text is input provided by the user. All other uses of
 monospaced text indicate representative output of running a program,
 or the contents of a program source file.
+
+[^abc]: Berkeley Logic Synthesis and Verification Group. {ABC}: A
+    System for Sequential Synthesis and Verification
+    <http://www.eecs.berkeley.edu/~alanmi/abc/>
+
+[^cryptol]: Galois, Inc. Cryptol. <http://corp.galois.com/cryptol>
 
 Setting up the Environment
 ==========================
@@ -55,7 +59,7 @@ The location of the JDK JAR file is platform-dependent.
 *If you're on Windows or Linux*, download the appropriate Java SE 6 JDK
 via the web forms at:
 
-    http://www.oracle.com/technetwork/java/javase/downloads/index.html
+<http://www.oracle.com/technetwork/java/javase/downloads/index.html>
 
 The page lists the Java 7 JDK first, which hasn't been thoroughly tested
 with `jss`. For now, the Java 6 JDK is recommended.
@@ -65,7 +69,7 @@ can be found at:
 
     <JDK INSTALLATION ROOT>\jre\lib\rt.jar
 
-e.g.: `C:\Program Files\Java\jdk1.6.0_22\jre\lib\rt.jar`
+e.g.: `C:\jdk1.6.0_22\jre\lib\rt.jar`
 
 On Linux, the path is as above, rooted at the location where the Java
 6 JDK was extracted, and using forward slashes (`/`) to separate path
@@ -88,10 +92,22 @@ The Bouncy Castle JAR File
 To obtain code needed for the Bouncy Castle MD5 implementation employed
 in this tutorial, download the Bouncy Castle JAR file via
 
-    http://www.bouncycastle.org/download/bcprov-jdk16-145.jar
+<http://www.bouncycastle.org/download/bcprov-jdk16-145.jar>
 
 This should be the file substituted for `BC_JAR` in the command line
 invocations shown in subsequent sections.
+
+Galois Symbolic API
+-------------------
+
+The final component necessary for successful symbolic simulation of a
+Java program is the JAR file for Galois symbolic simulator API, which
+provides a collection of utility methods useful for controlling
+symbolic simulation.
+
+The simulator control API is in the file `galois.jar` in the `bin`
+directory of the distribution archive for `jss`. This should be the
+file substituted for `SYM_JAR` in the command lines shown later.
 
 Compiling the Example
 ---------------------
@@ -108,7 +124,7 @@ Machine (JVM), using the following command (replacing `JDK_JAR` and
 `BC_JAR` with the appropriate JAR file names for your system, as
 described earlier):
 
-    # javac -g -cp BC_JAR:JDK_JAR JavaMD5.java
+    # javac -g -cp SYM_JAR:BC_JAR:JDK_JAR JavaMD5.java
 
 This will result in a new file, `JavaMD5.class` in the same directory
 as the source file. The `-cp` option tells the compiler where to find
@@ -127,7 +143,7 @@ character (`;`) is used instead. For example, assuming that `jss` is
 in a directory listed the `%PATH%` environment variable, an invocation
 on a Windows system may look like:
 
-    # javac -g -j bcprov-jdk16-145.jar;"C:\Program Files\Java\jdk1.6.0_22\jre\lib\rt.jar" JavaMD5.java
+    # javac -g -j galois.jar;bcprov-jdk16-145.jar;"C:\jdk1.6.0_22\jre\lib\rt.jar" JavaMD5.java
 
 Symbolic Simulation
 ===================
@@ -267,18 +283,17 @@ Given a compiled `JavaMD5.class` files, the following command will run
 `jss` to create a formal model; substitute `JDK_JAR` and `BC_JAR` with
 the appropriate JAR file names for your system, as described earlier.
 
-    # jss -c . -j BC_JAR:JDK_JAR JavaMD5
+    # jss -c . -j SYM_JAR:BC_JAR:JDK_JAR JavaMD5
 
 **NB:** As mentioned earlier, the path separator is different on Windows
 than on UNIX-based systems. On Windows, the command line will look
 something like the following:
 
-    # jss -c . -j bcprov-jdk16-145.jar;"C:\Program Files\Java\jdk1.6.0_22\jre\lib\rt.jar" JavaMD5
+    # jss -c . -j galois.jar;bcprov-jdk16-145.jar;"C:\jdk1.6.0_22\jre\lib\rt.jar" JavaMD5
 
 This will result in a file called `JavaMD5.aig` that can be furthier
 analyzed using a variety of tools, including the Galois Cryptol tool
-set [@cryptol], and the ABC logic synthesis system from UC Berkeley
-[@abc].
+set, and the ABC logic synthesis system from UC Berkeley.
 
 Verifying the Formal Model Using Cryptol
 ========================================
@@ -286,11 +301,11 @@ Verifying the Formal Model Using Cryptol
 One easy way to verify a Java implementation against a reference
 specification is through the Cryptol tool set. Cryptol is a
 domain-specific language created by Galois for the purpose of writing
-high-level but precise specifications of cryptographic algorithms
-[@cryptol]. The Cryptol tool set has built-in support for checking the
-equivalence of different Cryptol implementations, as well as comparing
-Cryptol implementations to external formal models, including models in
-AIG form.
+high-level but precise specifications of cryptographic algorithms. The
+Cryptol tool set has built-in support for checking the equivalence of
+different Cryptol implementations, as well as comparing Cryptol
+implementations to external formal models, including models in AIG
+form.
 
 This tutorial comes with two Cryptol files, `MD5.cry` and
 `compare-md5.cry`. The former is a Cryptol specification of the MD5
@@ -373,7 +388,7 @@ Verifying the Formal Model Using ABC
 ====================================
 
 ABC is a tool for logic synthesis and verification developed by
-researchers at UC Berkeley [@abc]. It can perform a wide variety of
+researchers at UC Berkeley. It can perform a wide variety of
 transformations and queries on logic circuits, including those in the
 AIG form discussed earlier.
 
@@ -488,25 +503,22 @@ about some intermediate value). In the context of Java, this can
 amount to reasoning about expressions of type `boolean`, and which can
 therefore be represented in a model using a single output bit.
 
-TODO: example 
-
 For properties of this sort, it is possible to generate AIG models
-using the approach described earlier. TODO: say more
+using the approach described earlier. Alternatively, models with a
+single output bit can also be translated into DIMACS CNF format, the
+standard input format for boolean satisfiability (SAT) solvers. As a
+simple example, consider the problem of showing that, in the Java
+semantics of integer math, multiplying a byte by two is the same as
+adding it to itself. The example file `ExampleCNF.java` contains the
+following lines:
 
-Alternatively, models with a single output bit can also be translated
-into DIMACS CNF format, the standard input format for boolean
-satisfiability (SAT) solvers. TODO: example.
+```
+byte x = Symbolic.freshByte((byte)0);
+Symbolic.writeCnf("ExampleCNF.cnf", x + x == 2 * x);
+```
 
-The formulas emitted for boolean expressions can be translated
-directly (TODO: example), in which case a result of "unsatisfiable"
-from a SAT solver indicates that there are no inputs for which the
-expression evaluates to ``true``, or translated in negated form (TODO:
-example), in which case a result of "unsatisfiable" means that there
-are no inputs for which the expression evaluates to ``false``. The
-latter form can be used to conveniently prove that some property of
-interest is always true.
-
-References
-==========
-
-TODO: Cryptol, ABC
+The formulas emitted in CNF format for boolean expressions are
+negated, with the rationale that they tend to be used to prove the
+validity of expressions, rather than satisfiability. Therefore, a
+result of "unsatisfiable" from a SAT solver indicates that the formula
+passed to `writeCnf` is valid (always true).
