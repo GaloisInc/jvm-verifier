@@ -16,10 +16,13 @@ module Verifier.Java.Debugger where
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Error
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Lens hiding (createInstance)
 
+import Data.List
+import Data.List.Split
 import qualified Data.Map as M
 import qualified Data.Set as S
 
@@ -132,7 +135,12 @@ debuggerREPL mpc insn = do
         doCmd (cmd:args) = do
           case M.lookup cmd commandMap of
             Just cmd -> do
-              continue <- lift $ cmdAction cmd mpc insn args
+              let go = cmdAction cmd mpc insn args
+                  handleErr epe@(ErrorPathExc _ _) = throwError epe
+                  handleErr (UnknownExc (Just (FailRsn rsn))) = do
+                    dbugM $ "error: " ++ rsn
+                    return False
+              continue <- lift $ catchError go handleErr
               unless continue loop
             Nothing -> do
               outputStrLn $ "unknown command '" ++ cmd ++ "'"
@@ -160,6 +168,7 @@ cmds = [
   , contCmd
   , killCmd
   , exitCmd
+  , stopinCmd
   , stepCmd
   , stepupCmd
   , stepiCmd
@@ -205,6 +214,38 @@ contCmd = Cmd {
   , cmdAction = \_ _ _-> return True
   }
 
+stopinCmd :: MonadSim sbe m => Command (Simulator sbe m)
+stopinCmd = Cmd {
+    cmdNames = ["stopin"]
+  , cmdArgs = ["<class id>.<method>[<type_descriptor>]"]
+  , cmdDesc = "set a breakpoint in a method; type descriptor is optional"
+  , cmdCompletion = noCompletion
+  , cmdAction = \_ _ args -> do
+      (clName, keys) <- keysForArg (unwords args)
+      forM_ keys $ \key -> addBreakpoint clName key BreakEntry
+      return False
+  }
+
+-- | Given a string expected to be a method signature of the form
+-- @com.Foo.bar@ or @com.Foo.bar(I)V@, return the class name and a
+-- list of method keys that correspond to that method
+keysForArg :: String -> Simulator sbe m (String, [MethodKey])
+keysForArg arg = do
+  let (sig, desc) = break (== '(') arg
+      ids = reverse (splitOn "." sig)
+  clName <- case ids of
+              (_methStr:rest) -> return . intercalate "/" . reverse $ rest
+              _ -> fail $ "invalid method signature " ++ arg
+  methName <- case ids of
+                (methStr:_) -> return methStr
+                _ -> fail $ "invalid method signature " ++ arg
+  cl <- lookupClass clName
+  let keys | not (null desc) = [makeMethodKey methName desc]
+           | otherwise = concatMap (makeKeys . methodKey) (classMethods cl)
+      makeKeys key = if thisName == methName then [key] else []
+        where thisName = methodKeyName key
+  return (clName, keys)
+
 stepCmd :: (Functor m, Monad m) => Command (Simulator sbe m)
 stepCmd = Cmd {
     cmdNames = ["step", "s"]
@@ -227,6 +268,7 @@ stepupCmd = Cmd {
       breakCurrentMethodReturn
       return True
   }
+
 
 stepiCmd :: (Functor m, Monad m) => Command (Simulator sbe m)
 stepiCmd = Cmd {
