@@ -37,6 +37,7 @@ module Verifier.Java.Common
   , printErrPaths
   , evHandlers
   , breakpoints
+  , trBreakpoints
 
     -- ** Simulator configuration
   , SimulationFlags(..)
@@ -92,6 +93,7 @@ module Verifier.Java.Common
   , modifyCallFrameM_
   , getCurrentClassName
   , getCurrentMethod
+  , getCurrentLineNumber
 
     -- ** Value and memory representation
   , Value
@@ -124,6 +126,7 @@ module Verifier.Java.Common
   , SEH(..)
   , Breakpoint(..)
   , breakpointToPC
+  , TransientBreakpoint(..)
 
     -- ** Pretty-printers
   , ppPath
@@ -159,7 +162,8 @@ import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Arrow ((***))
 import Control.Lens
 import Control.Monad.Error
-import Control.Monad.State hiding (State)
+import Control.Monad.State.Class
+import Control.Monad.Trans.State.Strict hiding (State)
 
 import Data.Array (Array, Ix, assocs)
 import qualified Data.Foldable as DF
@@ -170,6 +174,8 @@ import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Word (Word16, Word32)
+
+import System.Console.Haskeline.MonadException (MonadException)
 
 import Text.PrettyPrint
 
@@ -191,6 +197,7 @@ newtype Simulator sbe (m :: * -> *) a =
     , MonadIO
     , MonadState (State sbe m)
     , MonadError (InternalExc sbe m)
+    , MonadException
     )
 
 -- | These constraints are common to monads with a symbolic execution
@@ -220,6 +227,7 @@ data State sbe m = State {
   , _errorPaths        :: [ErrorPath sbe]
   , _printErrPaths     :: Bool
   , _breakpoints       :: Map (String, Method) (Set PC)
+  , _trBreakpoints     :: S.Set TransientBreakpoint
   , _evHandlers        :: SEH sbe m
   }
 
@@ -245,6 +253,7 @@ initialState cb sbe flags seh = do
                  , _errorPaths        = []
                  , _printErrPaths     = False
                  , _breakpoints       = M.empty
+                 , _trBreakpoints     = S.empty
                  , _evHandlers        = seh
                  }
 
@@ -409,6 +418,15 @@ instance Error (InternalExc sbe m) where
 
 -- | Types of breakpoints
 data Breakpoint = BreakEntry | BreakPC PC | BreakLineNum Word16
+  deriving (Eq, Ord, Show)
+
+-- | Transient breakpoints for interactive debugging
+data TransientBreakpoint = BreakNextInsn
+                         -- ^ Break at the next instruction
+                         | BreakReturnFrom Method
+                         -- ^ Break when returning from a method
+                         | BreakLineChange (Maybe Word16)
+                         -- ^ Break when line number changes or becomes known
   deriving (Eq, Ord, Show)
 
 -- | Simulation event handlers, useful for debugging nontrivial codes.
@@ -588,13 +606,19 @@ modifyCallFrameM_ ctx f = modifyCallFrameM ctx (\cf -> ((),) <$> f cf)
 -- | Return the enclosing class of the method being executed by the
 -- current path
 getCurrentClassName :: Simulator sbe m String
-getCurrentClassName = 
+getCurrentClassName =
   modifyCallFrameM "getCurrentClassName" $ \cf -> return (cf^.cfClass, cf)
 
 -- | Return the method being executed by the current path
 getCurrentMethod :: Simulator sbe m Method
-getCurrentMethod = 
+getCurrentMethod =
   modifyCallFrameM "getCurrentClassName" $ \cf -> return (cf^.cfMethod, cf)
+
+-- | Get the current line number, if there is one associated in the code
+getCurrentLineNumber :: PC -> Simulator sbe m (Maybe Word16)
+getCurrentLineNumber pc = do
+  method <- getCurrentMethod
+  return $ sourceLineNumberOrPrev method pc
 
 -- | Resolve the given class in the simulator's current codebase
 lookupClass :: String -> Simulator sbe m Class
@@ -1103,521 +1127,586 @@ ppInternalExc exc = case exc of
 -- src/Verifier/Java/Common.hs:1:1: Splicing declarations
 --     makeLenses ''State
 backend ::
-  forall sbe_a9G5A m_a9G5B.
-  Lens' (State sbe_a9G5A m_a9G5B) (Backend sbe_a9G5A)
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) (Backend sbe_aDu4)
 backend
-  _f_a9GjE
-  (State __codebase_a9GjF
-         __instanceOverrides_a9GjG
-         __staticOverrides_a9GjH
-         __ctrlStk_a9GjI
-         __nextPSS_a9GjJ
-         __strings_a9GjK
-         __nextRef_a9GjL
-         __verbosity_a9GjM
-         __simulationFlags_a9GjN
-         __backend'_a9GjO
-         __errorPaths_a9GjQ
-         __printErrPaths_a9GjR
-         __breakpoints_a9GjS
-         __evHandlers_a9GjT)
-  = ((\ __backend_a9GjP
+  _f_aEmM
+  (State __codebase_aEmN
+         __instanceOverrides_aEmO
+         __staticOverrides_aEmP
+         __ctrlStk_aEmQ
+         __nextPSS_aEmR
+         __strings_aEmS
+         __nextRef_aEmT
+         __verbosity_aEmU
+         __simulationFlags_aEmV
+         __backend'_aEmW
+         __errorPaths_aEmY
+         __printErrPaths_aEmZ
+         __breakpoints_aEn0
+         __trBreakpoints_aEn1
+         __evHandlers_aEn2)
+  = ((\ __backend_aEmX
         -> State
-             __codebase_a9GjF
-             __instanceOverrides_a9GjG
-             __staticOverrides_a9GjH
-             __ctrlStk_a9GjI
-             __nextPSS_a9GjJ
-             __strings_a9GjK
-             __nextRef_a9GjL
-             __verbosity_a9GjM
-             __simulationFlags_a9GjN
-             __backend_a9GjP
-             __errorPaths_a9GjQ
-             __printErrPaths_a9GjR
-             __breakpoints_a9GjS
-             __evHandlers_a9GjT)
-     <$> (_f_a9GjE __backend'_a9GjO))
+             __codebase_aEmN
+             __instanceOverrides_aEmO
+             __staticOverrides_aEmP
+             __ctrlStk_aEmQ
+             __nextPSS_aEmR
+             __strings_aEmS
+             __nextRef_aEmT
+             __verbosity_aEmU
+             __simulationFlags_aEmV
+             __backend_aEmX
+             __errorPaths_aEmY
+             __printErrPaths_aEmZ
+             __breakpoints_aEn0
+             __trBreakpoints_aEn1
+             __evHandlers_aEn2)
+     <$> (_f_aEmM __backend'_aEmW))
 {-# INLINE backend #-}
 breakpoints ::
-  forall sbe_a9G5A m_a9G5B.
-  Lens' (State sbe_a9G5A m_a9G5B) (Map (String,
-                                        Method) (Set PC))
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) (Map (String, Method) (Set PC))
 breakpoints
-  _f_a9GjU
-  (State __codebase_a9GjV
-         __instanceOverrides_a9GjW
-         __staticOverrides_a9GjX
-         __ctrlStk_a9GjY
-         __nextPSS_a9GjZ
-         __strings_a9Gk0
-         __nextRef_a9Gk1
-         __verbosity_a9Gk2
-         __simulationFlags_a9Gk3
-         __backend_a9Gk4
-         __errorPaths_a9Gk5
-         __printErrPaths_a9Gk6
-         __breakpoints'_a9Gk7
-         __evHandlers_a9Gk9)
-  = ((\ __breakpoints_a9Gk8
+  _f_aEn3
+  (State __codebase_aEn4
+         __instanceOverrides_aEn5
+         __staticOverrides_aEn6
+         __ctrlStk_aEn7
+         __nextPSS_aEn8
+         __strings_aEn9
+         __nextRef_aEna
+         __verbosity_aEnb
+         __simulationFlags_aEnc
+         __backend_aEnd
+         __errorPaths_aEne
+         __printErrPaths_aEnf
+         __breakpoints'_aEng
+         __trBreakpoints_aEni
+         __evHandlers_aEnj)
+  = ((\ __breakpoints_aEnh
         -> State
-             __codebase_a9GjV
-             __instanceOverrides_a9GjW
-             __staticOverrides_a9GjX
-             __ctrlStk_a9GjY
-             __nextPSS_a9GjZ
-             __strings_a9Gk0
-             __nextRef_a9Gk1
-             __verbosity_a9Gk2
-             __simulationFlags_a9Gk3
-             __backend_a9Gk4
-             __errorPaths_a9Gk5
-             __printErrPaths_a9Gk6
-             __breakpoints_a9Gk8
-             __evHandlers_a9Gk9)
-     <$> (_f_a9GjU __breakpoints'_a9Gk7))
+             __codebase_aEn4
+             __instanceOverrides_aEn5
+             __staticOverrides_aEn6
+             __ctrlStk_aEn7
+             __nextPSS_aEn8
+             __strings_aEn9
+             __nextRef_aEna
+             __verbosity_aEnb
+             __simulationFlags_aEnc
+             __backend_aEnd
+             __errorPaths_aEne
+             __printErrPaths_aEnf
+             __breakpoints_aEnh
+             __trBreakpoints_aEni
+             __evHandlers_aEnj)
+     <$> (_f_aEn3 __breakpoints'_aEng))
 {-# INLINE breakpoints #-}
 codebase ::
-  forall sbe_a9G5A m_a9G5B. Lens' (State sbe_a9G5A m_a9G5B) Codebase
+  forall sbe_aDu4 m_aDu5. Lens' (State sbe_aDu4 m_aDu5) Codebase
 codebase
-  _f_a9Gka
-  (State __codebase'_a9Gkb
-         __instanceOverrides_a9Gkd
-         __staticOverrides_a9Gke
-         __ctrlStk_a9Gkf
-         __nextPSS_a9Gkg
-         __strings_a9Gkh
-         __nextRef_a9Gki
-         __verbosity_a9Gkj
-         __simulationFlags_a9Gkk
-         __backend_a9Gkl
-         __errorPaths_a9Gkm
-         __printErrPaths_a9Gkn
-         __breakpoints_a9Gko
-         __evHandlers_a9Gkp)
-  = ((\ __codebase_a9Gkc
+  _f_aEnk
+  (State __codebase'_aEnl
+         __instanceOverrides_aEnn
+         __staticOverrides_aEno
+         __ctrlStk_aEnp
+         __nextPSS_aEnq
+         __strings_aEnr
+         __nextRef_aEns
+         __verbosity_aEnt
+         __simulationFlags_aEnu
+         __backend_aEnv
+         __errorPaths_aEnw
+         __printErrPaths_aEnx
+         __breakpoints_aEny
+         __trBreakpoints_aEnz
+         __evHandlers_aEnA)
+  = ((\ __codebase_aEnm
         -> State
-             __codebase_a9Gkc
-             __instanceOverrides_a9Gkd
-             __staticOverrides_a9Gke
-             __ctrlStk_a9Gkf
-             __nextPSS_a9Gkg
-             __strings_a9Gkh
-             __nextRef_a9Gki
-             __verbosity_a9Gkj
-             __simulationFlags_a9Gkk
-             __backend_a9Gkl
-             __errorPaths_a9Gkm
-             __printErrPaths_a9Gkn
-             __breakpoints_a9Gko
-             __evHandlers_a9Gkp)
-     <$> (_f_a9Gka __codebase'_a9Gkb))
+             __codebase_aEnm
+             __instanceOverrides_aEnn
+             __staticOverrides_aEno
+             __ctrlStk_aEnp
+             __nextPSS_aEnq
+             __strings_aEnr
+             __nextRef_aEns
+             __verbosity_aEnt
+             __simulationFlags_aEnu
+             __backend_aEnv
+             __errorPaths_aEnw
+             __printErrPaths_aEnx
+             __breakpoints_aEny
+             __trBreakpoints_aEnz
+             __evHandlers_aEnA)
+     <$> (_f_aEnk __codebase'_aEnl))
 {-# INLINE codebase #-}
 ctrlStk ::
-  forall sbe_a9G5A m_a9G5B.
-  Lens' (State sbe_a9G5A m_a9G5B) (CS sbe_a9G5A)
+  forall sbe_aDu4 m_aDu5. Lens' (State sbe_aDu4 m_aDu5) (CS sbe_aDu4)
 ctrlStk
-  _f_a9Gkq
-  (State __codebase_a9Gkr
-         __instanceOverrides_a9Gks
-         __staticOverrides_a9Gkt
-         __ctrlStk'_a9Gku
-         __nextPSS_a9Gkw
-         __strings_a9Gkx
-         __nextRef_a9Gky
-         __verbosity_a9Gkz
-         __simulationFlags_a9GkA
-         __backend_a9GkB
-         __errorPaths_a9GkC
-         __printErrPaths_a9GkD
-         __breakpoints_a9GkE
-         __evHandlers_a9GkF)
-  = ((\ __ctrlStk_a9Gkv
+  _f_aEnB
+  (State __codebase_aEnC
+         __instanceOverrides_aEnD
+         __staticOverrides_aEnE
+         __ctrlStk'_aEnF
+         __nextPSS_aEnH
+         __strings_aEnI
+         __nextRef_aEnJ
+         __verbosity_aEnK
+         __simulationFlags_aEnL
+         __backend_aEnM
+         __errorPaths_aEnN
+         __printErrPaths_aEnO
+         __breakpoints_aEnP
+         __trBreakpoints_aEnQ
+         __evHandlers_aEnR)
+  = ((\ __ctrlStk_aEnG
         -> State
-             __codebase_a9Gkr
-             __instanceOverrides_a9Gks
-             __staticOverrides_a9Gkt
-             __ctrlStk_a9Gkv
-             __nextPSS_a9Gkw
-             __strings_a9Gkx
-             __nextRef_a9Gky
-             __verbosity_a9Gkz
-             __simulationFlags_a9GkA
-             __backend_a9GkB
-             __errorPaths_a9GkC
-             __printErrPaths_a9GkD
-             __breakpoints_a9GkE
-             __evHandlers_a9GkF)
-     <$> (_f_a9Gkq __ctrlStk'_a9Gku))
+             __codebase_aEnC
+             __instanceOverrides_aEnD
+             __staticOverrides_aEnE
+             __ctrlStk_aEnG
+             __nextPSS_aEnH
+             __strings_aEnI
+             __nextRef_aEnJ
+             __verbosity_aEnK
+             __simulationFlags_aEnL
+             __backend_aEnM
+             __errorPaths_aEnN
+             __printErrPaths_aEnO
+             __breakpoints_aEnP
+             __trBreakpoints_aEnQ
+             __evHandlers_aEnR)
+     <$> (_f_aEnB __ctrlStk'_aEnF))
 {-# INLINE ctrlStk #-}
 errorPaths ::
-  forall sbe_a9G5A m_a9G5B.
-  Lens' (State sbe_a9G5A m_a9G5B) [ErrorPath sbe_a9G5A]
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) [ErrorPath sbe_aDu4]
 errorPaths
-  _f_a9GkG
-  (State __codebase_a9GkH
-         __instanceOverrides_a9GkI
-         __staticOverrides_a9GkJ
-         __ctrlStk_a9GkK
-         __nextPSS_a9GkL
-         __strings_a9GkM
-         __nextRef_a9GkN
-         __verbosity_a9GkO
-         __simulationFlags_a9GkP
-         __backend_a9GkQ
-         __errorPaths'_a9GkR
-         __printErrPaths_a9GkT
-         __breakpoints_a9GkU
-         __evHandlers_a9GkV)
-  = ((\ __errorPaths_a9GkS
+  _f_aEnS
+  (State __codebase_aEnT
+         __instanceOverrides_aEnU
+         __staticOverrides_aEnV
+         __ctrlStk_aEnW
+         __nextPSS_aEnX
+         __strings_aEnY
+         __nextRef_aEnZ
+         __verbosity_aEo0
+         __simulationFlags_aEo1
+         __backend_aEo2
+         __errorPaths'_aEo3
+         __printErrPaths_aEo5
+         __breakpoints_aEo6
+         __trBreakpoints_aEo7
+         __evHandlers_aEo8)
+  = ((\ __errorPaths_aEo4
         -> State
-             __codebase_a9GkH
-             __instanceOverrides_a9GkI
-             __staticOverrides_a9GkJ
-             __ctrlStk_a9GkK
-             __nextPSS_a9GkL
-             __strings_a9GkM
-             __nextRef_a9GkN
-             __verbosity_a9GkO
-             __simulationFlags_a9GkP
-             __backend_a9GkQ
-             __errorPaths_a9GkS
-             __printErrPaths_a9GkT
-             __breakpoints_a9GkU
-             __evHandlers_a9GkV)
-     <$> (_f_a9GkG __errorPaths'_a9GkR))
+             __codebase_aEnT
+             __instanceOverrides_aEnU
+             __staticOverrides_aEnV
+             __ctrlStk_aEnW
+             __nextPSS_aEnX
+             __strings_aEnY
+             __nextRef_aEnZ
+             __verbosity_aEo0
+             __simulationFlags_aEo1
+             __backend_aEo2
+             __errorPaths_aEo4
+             __printErrPaths_aEo5
+             __breakpoints_aEo6
+             __trBreakpoints_aEo7
+             __evHandlers_aEo8)
+     <$> (_f_aEnS __errorPaths'_aEo3))
 {-# INLINE errorPaths #-}
 evHandlers ::
-  forall sbe_a9G5A m_a9G5B.
-  Lens' (State sbe_a9G5A m_a9G5B) (SEH sbe_a9G5A m_a9G5B)
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) (SEH sbe_aDu4 m_aDu5)
 evHandlers
-  _f_a9GkW
-  (State __codebase_a9GkX
-         __instanceOverrides_a9GkY
-         __staticOverrides_a9GkZ
-         __ctrlStk_a9Gl0
-         __nextPSS_a9Gl1
-         __strings_a9Gl2
-         __nextRef_a9Gl3
-         __verbosity_a9Gl4
-         __simulationFlags_a9Gl5
-         __backend_a9Gl6
-         __errorPaths_a9Gl7
-         __printErrPaths_a9Gl8
-         __breakpoints_a9Gl9
-         __evHandlers'_a9Gla)
-  = ((\ __evHandlers_a9Glb
+  _f_aEo9
+  (State __codebase_aEoa
+         __instanceOverrides_aEob
+         __staticOverrides_aEoc
+         __ctrlStk_aEod
+         __nextPSS_aEoe
+         __strings_aEof
+         __nextRef_aEog
+         __verbosity_aEoh
+         __simulationFlags_aEoi
+         __backend_aEoj
+         __errorPaths_aEok
+         __printErrPaths_aEol
+         __breakpoints_aEom
+         __trBreakpoints_aEon
+         __evHandlers'_aEoo)
+  = ((\ __evHandlers_aEop
         -> State
-             __codebase_a9GkX
-             __instanceOverrides_a9GkY
-             __staticOverrides_a9GkZ
-             __ctrlStk_a9Gl0
-             __nextPSS_a9Gl1
-             __strings_a9Gl2
-             __nextRef_a9Gl3
-             __verbosity_a9Gl4
-             __simulationFlags_a9Gl5
-             __backend_a9Gl6
-             __errorPaths_a9Gl7
-             __printErrPaths_a9Gl8
-             __breakpoints_a9Gl9
-             __evHandlers_a9Glb)
-     <$> (_f_a9GkW __evHandlers'_a9Gla))
+             __codebase_aEoa
+             __instanceOverrides_aEob
+             __staticOverrides_aEoc
+             __ctrlStk_aEod
+             __nextPSS_aEoe
+             __strings_aEof
+             __nextRef_aEog
+             __verbosity_aEoh
+             __simulationFlags_aEoi
+             __backend_aEoj
+             __errorPaths_aEok
+             __printErrPaths_aEol
+             __breakpoints_aEom
+             __trBreakpoints_aEon
+             __evHandlers_aEop)
+     <$> (_f_aEo9 __evHandlers'_aEoo))
 {-# INLINE evHandlers #-}
 instanceOverrides ::
-  forall sbe_a9G5A m_a9G5B.
-  Lens' (State sbe_a9G5A m_a9G5B) (Map (String,
-                                        MethodKey) (InstanceOverride sbe_a9G5A m_a9G5B))
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) (Map (String,
+                                      MethodKey) (InstanceOverride sbe_aDu4 m_aDu5))
 instanceOverrides
-  _f_a9Glc
-  (State __codebase_a9Gld
-         __instanceOverrides'_a9Gle
-         __staticOverrides_a9Glg
-         __ctrlStk_a9Glh
-         __nextPSS_a9Gli
-         __strings_a9Glj
-         __nextRef_a9Glk
-         __verbosity_a9Gll
-         __simulationFlags_a9Glm
-         __backend_a9Gln
-         __errorPaths_a9Glo
-         __printErrPaths_a9Glp
-         __breakpoints_a9Glq
-         __evHandlers_a9Glr)
-  = ((\ __instanceOverrides_a9Glf
+  _f_aEoq
+  (State __codebase_aEor
+         __instanceOverrides'_aEos
+         __staticOverrides_aEou
+         __ctrlStk_aEov
+         __nextPSS_aEow
+         __strings_aEox
+         __nextRef_aEoy
+         __verbosity_aEoz
+         __simulationFlags_aEoA
+         __backend_aEoB
+         __errorPaths_aEoC
+         __printErrPaths_aEoD
+         __breakpoints_aEoE
+         __trBreakpoints_aEoF
+         __evHandlers_aEoG)
+  = ((\ __instanceOverrides_aEot
         -> State
-             __codebase_a9Gld
-             __instanceOverrides_a9Glf
-             __staticOverrides_a9Glg
-             __ctrlStk_a9Glh
-             __nextPSS_a9Gli
-             __strings_a9Glj
-             __nextRef_a9Glk
-             __verbosity_a9Gll
-             __simulationFlags_a9Glm
-             __backend_a9Gln
-             __errorPaths_a9Glo
-             __printErrPaths_a9Glp
-             __breakpoints_a9Glq
-             __evHandlers_a9Glr)
-     <$> (_f_a9Glc __instanceOverrides'_a9Gle))
+             __codebase_aEor
+             __instanceOverrides_aEot
+             __staticOverrides_aEou
+             __ctrlStk_aEov
+             __nextPSS_aEow
+             __strings_aEox
+             __nextRef_aEoy
+             __verbosity_aEoz
+             __simulationFlags_aEoA
+             __backend_aEoB
+             __errorPaths_aEoC
+             __printErrPaths_aEoD
+             __breakpoints_aEoE
+             __trBreakpoints_aEoF
+             __evHandlers_aEoG)
+     <$> (_f_aEoq __instanceOverrides'_aEos))
 {-# INLINE instanceOverrides #-}
 nextPSS ::
-  forall sbe_a9G5A m_a9G5B.
-  Lens' (State sbe_a9G5A m_a9G5B) PathDescriptor
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) PathDescriptor
 nextPSS
-  _f_a9Gls
-  (State __codebase_a9Glt
-         __instanceOverrides_a9Glu
-         __staticOverrides_a9Glv
-         __ctrlStk_a9Glw
-         __nextPSS'_a9Glx
-         __strings_a9Glz
-         __nextRef_a9GlA
-         __verbosity_a9GlB
-         __simulationFlags_a9GlC
-         __backend_a9GlD
-         __errorPaths_a9GlE
-         __printErrPaths_a9GlF
-         __breakpoints_a9GlG
-         __evHandlers_a9GlH)
-  = ((\ __nextPSS_a9Gly
+  _f_aEoH
+  (State __codebase_aEoI
+         __instanceOverrides_aEoJ
+         __staticOverrides_aEoK
+         __ctrlStk_aEoL
+         __nextPSS'_aEoM
+         __strings_aEoO
+         __nextRef_aEoP
+         __verbosity_aEoQ
+         __simulationFlags_aEoR
+         __backend_aEoS
+         __errorPaths_aEoT
+         __printErrPaths_aEoU
+         __breakpoints_aEoV
+         __trBreakpoints_aEoW
+         __evHandlers_aEoX)
+  = ((\ __nextPSS_aEoN
         -> State
-             __codebase_a9Glt
-             __instanceOverrides_a9Glu
-             __staticOverrides_a9Glv
-             __ctrlStk_a9Glw
-             __nextPSS_a9Gly
-             __strings_a9Glz
-             __nextRef_a9GlA
-             __verbosity_a9GlB
-             __simulationFlags_a9GlC
-             __backend_a9GlD
-             __errorPaths_a9GlE
-             __printErrPaths_a9GlF
-             __breakpoints_a9GlG
-             __evHandlers_a9GlH)
-     <$> (_f_a9Gls __nextPSS'_a9Glx))
+             __codebase_aEoI
+             __instanceOverrides_aEoJ
+             __staticOverrides_aEoK
+             __ctrlStk_aEoL
+             __nextPSS_aEoN
+             __strings_aEoO
+             __nextRef_aEoP
+             __verbosity_aEoQ
+             __simulationFlags_aEoR
+             __backend_aEoS
+             __errorPaths_aEoT
+             __printErrPaths_aEoU
+             __breakpoints_aEoV
+             __trBreakpoints_aEoW
+             __evHandlers_aEoX)
+     <$> (_f_aEoH __nextPSS'_aEoM))
 {-# INLINE nextPSS #-}
 nextRef ::
-  forall sbe_a9G5A m_a9G5B. Lens' (State sbe_a9G5A m_a9G5B) Word32
+  forall sbe_aDu4 m_aDu5. Lens' (State sbe_aDu4 m_aDu5) Word32
 nextRef
-  _f_a9GlI
-  (State __codebase_a9GlJ
-         __instanceOverrides_a9GlK
-         __staticOverrides_a9GlL
-         __ctrlStk_a9GlM
-         __nextPSS_a9GlN
-         __strings_a9GlO
-         __nextRef'_a9GlP
-         __verbosity_a9GlR
-         __simulationFlags_a9GlS
-         __backend_a9GlT
-         __errorPaths_a9GlU
-         __printErrPaths_a9GlV
-         __breakpoints_a9GlW
-         __evHandlers_a9GlX)
-  = ((\ __nextRef_a9GlQ
+  _f_aEoY
+  (State __codebase_aEoZ
+         __instanceOverrides_aEp0
+         __staticOverrides_aEp1
+         __ctrlStk_aEp2
+         __nextPSS_aEp3
+         __strings_aEp4
+         __nextRef'_aEp5
+         __verbosity_aEp7
+         __simulationFlags_aEp8
+         __backend_aEp9
+         __errorPaths_aEpa
+         __printErrPaths_aEpb
+         __breakpoints_aEpc
+         __trBreakpoints_aEpd
+         __evHandlers_aEpe)
+  = ((\ __nextRef_aEp6
         -> State
-             __codebase_a9GlJ
-             __instanceOverrides_a9GlK
-             __staticOverrides_a9GlL
-             __ctrlStk_a9GlM
-             __nextPSS_a9GlN
-             __strings_a9GlO
-             __nextRef_a9GlQ
-             __verbosity_a9GlR
-             __simulationFlags_a9GlS
-             __backend_a9GlT
-             __errorPaths_a9GlU
-             __printErrPaths_a9GlV
-             __breakpoints_a9GlW
-             __evHandlers_a9GlX)
-     <$> (_f_a9GlI __nextRef'_a9GlP))
+             __codebase_aEoZ
+             __instanceOverrides_aEp0
+             __staticOverrides_aEp1
+             __ctrlStk_aEp2
+             __nextPSS_aEp3
+             __strings_aEp4
+             __nextRef_aEp6
+             __verbosity_aEp7
+             __simulationFlags_aEp8
+             __backend_aEp9
+             __errorPaths_aEpa
+             __printErrPaths_aEpb
+             __breakpoints_aEpc
+             __trBreakpoints_aEpd
+             __evHandlers_aEpe)
+     <$> (_f_aEoY __nextRef'_aEp5))
 {-# INLINE nextRef #-}
 printErrPaths ::
-  forall sbe_a9G5A m_a9G5B. Lens' (State sbe_a9G5A m_a9G5B) Bool
+  forall sbe_aDu4 m_aDu5. Lens' (State sbe_aDu4 m_aDu5) Bool
 printErrPaths
-  _f_a9GlY
-  (State __codebase_a9GlZ
-         __instanceOverrides_a9Gm0
-         __staticOverrides_a9Gm1
-         __ctrlStk_a9Gm2
-         __nextPSS_a9Gm3
-         __strings_a9Gm4
-         __nextRef_a9Gm5
-         __verbosity_a9Gm6
-         __simulationFlags_a9Gm7
-         __backend_a9Gm8
-         __errorPaths_a9Gm9
-         __printErrPaths'_a9Gma
-         __breakpoints_a9Gmc
-         __evHandlers_a9Gmd)
-  = ((\ __printErrPaths_a9Gmb
+  _f_aEpf
+  (State __codebase_aEpg
+         __instanceOverrides_aEph
+         __staticOverrides_aEpi
+         __ctrlStk_aEpj
+         __nextPSS_aEpk
+         __strings_aEpl
+         __nextRef_aEpm
+         __verbosity_aEpn
+         __simulationFlags_aEpo
+         __backend_aEpp
+         __errorPaths_aEpq
+         __printErrPaths'_aEpr
+         __breakpoints_aEpt
+         __trBreakpoints_aEpu
+         __evHandlers_aEpv)
+  = ((\ __printErrPaths_aEps
         -> State
-             __codebase_a9GlZ
-             __instanceOverrides_a9Gm0
-             __staticOverrides_a9Gm1
-             __ctrlStk_a9Gm2
-             __nextPSS_a9Gm3
-             __strings_a9Gm4
-             __nextRef_a9Gm5
-             __verbosity_a9Gm6
-             __simulationFlags_a9Gm7
-             __backend_a9Gm8
-             __errorPaths_a9Gm9
-             __printErrPaths_a9Gmb
-             __breakpoints_a9Gmc
-             __evHandlers_a9Gmd)
-     <$> (_f_a9GlY __printErrPaths'_a9Gma))
+             __codebase_aEpg
+             __instanceOverrides_aEph
+             __staticOverrides_aEpi
+             __ctrlStk_aEpj
+             __nextPSS_aEpk
+             __strings_aEpl
+             __nextRef_aEpm
+             __verbosity_aEpn
+             __simulationFlags_aEpo
+             __backend_aEpp
+             __errorPaths_aEpq
+             __printErrPaths_aEps
+             __breakpoints_aEpt
+             __trBreakpoints_aEpu
+             __evHandlers_aEpv)
+     <$> (_f_aEpf __printErrPaths'_aEpr))
 {-# INLINE printErrPaths #-}
 simulationFlags ::
-  forall sbe_a9G5A m_a9G5B.
-  Lens' (State sbe_a9G5A m_a9G5B) SimulationFlags
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) SimulationFlags
 simulationFlags
-  _f_a9Gme
-  (State __codebase_a9Gmf
-         __instanceOverrides_a9Gmg
-         __staticOverrides_a9Gmh
-         __ctrlStk_a9Gmi
-         __nextPSS_a9Gmj
-         __strings_a9Gmk
-         __nextRef_a9Gml
-         __verbosity_a9Gmm
-         __simulationFlags'_a9Gmn
-         __backend_a9Gmp
-         __errorPaths_a9Gmq
-         __printErrPaths_a9Gmr
-         __breakpoints_a9Gms
-         __evHandlers_a9Gmt)
-  = ((\ __simulationFlags_a9Gmo
+  _f_aEpw
+  (State __codebase_aEpx
+         __instanceOverrides_aEpy
+         __staticOverrides_aEpz
+         __ctrlStk_aEpA
+         __nextPSS_aEpB
+         __strings_aEpC
+         __nextRef_aEpD
+         __verbosity_aEpE
+         __simulationFlags'_aEpF
+         __backend_aEpH
+         __errorPaths_aEpI
+         __printErrPaths_aEpJ
+         __breakpoints_aEpK
+         __trBreakpoints_aEpL
+         __evHandlers_aEpM)
+  = ((\ __simulationFlags_aEpG
         -> State
-             __codebase_a9Gmf
-             __instanceOverrides_a9Gmg
-             __staticOverrides_a9Gmh
-             __ctrlStk_a9Gmi
-             __nextPSS_a9Gmj
-             __strings_a9Gmk
-             __nextRef_a9Gml
-             __verbosity_a9Gmm
-             __simulationFlags_a9Gmo
-             __backend_a9Gmp
-             __errorPaths_a9Gmq
-             __printErrPaths_a9Gmr
-             __breakpoints_a9Gms
-             __evHandlers_a9Gmt)
-     <$> (_f_a9Gme __simulationFlags'_a9Gmn))
+             __codebase_aEpx
+             __instanceOverrides_aEpy
+             __staticOverrides_aEpz
+             __ctrlStk_aEpA
+             __nextPSS_aEpB
+             __strings_aEpC
+             __nextRef_aEpD
+             __verbosity_aEpE
+             __simulationFlags_aEpG
+             __backend_aEpH
+             __errorPaths_aEpI
+             __printErrPaths_aEpJ
+             __breakpoints_aEpK
+             __trBreakpoints_aEpL
+             __evHandlers_aEpM)
+     <$> (_f_aEpw __simulationFlags'_aEpF))
 {-# INLINE simulationFlags #-}
 staticOverrides ::
-  forall sbe_a9G5A m_a9G5B.
-  Lens' (State sbe_a9G5A m_a9G5B) (Map (String,
-                                        MethodKey) (StaticOverride sbe_a9G5A m_a9G5B))
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) (Map (String,
+                                      MethodKey) (StaticOverride sbe_aDu4 m_aDu5))
 staticOverrides
-  _f_a9Gmu
-  (State __codebase_a9Gmv
-         __instanceOverrides_a9Gmw
-         __staticOverrides'_a9Gmx
-         __ctrlStk_a9Gmz
-         __nextPSS_a9GmA
-         __strings_a9GmB
-         __nextRef_a9GmC
-         __verbosity_a9GmD
-         __simulationFlags_a9GmE
-         __backend_a9GmF
-         __errorPaths_a9GmG
-         __printErrPaths_a9GmH
-         __breakpoints_a9GmI
-         __evHandlers_a9GmJ)
-  = ((\ __staticOverrides_a9Gmy
+  _f_aEpN
+  (State __codebase_aEpO
+         __instanceOverrides_aEpP
+         __staticOverrides'_aEpQ
+         __ctrlStk_aEpS
+         __nextPSS_aEpT
+         __strings_aEpU
+         __nextRef_aEpV
+         __verbosity_aEpW
+         __simulationFlags_aEpX
+         __backend_aEpY
+         __errorPaths_aEpZ
+         __printErrPaths_aEq0
+         __breakpoints_aEq1
+         __trBreakpoints_aEq2
+         __evHandlers_aEq3)
+  = ((\ __staticOverrides_aEpR
         -> State
-             __codebase_a9Gmv
-             __instanceOverrides_a9Gmw
-             __staticOverrides_a9Gmy
-             __ctrlStk_a9Gmz
-             __nextPSS_a9GmA
-             __strings_a9GmB
-             __nextRef_a9GmC
-             __verbosity_a9GmD
-             __simulationFlags_a9GmE
-             __backend_a9GmF
-             __errorPaths_a9GmG
-             __printErrPaths_a9GmH
-             __breakpoints_a9GmI
-             __evHandlers_a9GmJ)
-     <$> (_f_a9Gmu __staticOverrides'_a9Gmx))
+             __codebase_aEpO
+             __instanceOverrides_aEpP
+             __staticOverrides_aEpR
+             __ctrlStk_aEpS
+             __nextPSS_aEpT
+             __strings_aEpU
+             __nextRef_aEpV
+             __verbosity_aEpW
+             __simulationFlags_aEpX
+             __backend_aEpY
+             __errorPaths_aEpZ
+             __printErrPaths_aEq0
+             __breakpoints_aEq1
+             __trBreakpoints_aEq2
+             __evHandlers_aEq3)
+     <$> (_f_aEpN __staticOverrides'_aEpQ))
 {-# INLINE staticOverrides #-}
 strings ::
-  forall sbe_a9G5A m_a9G5B.
-  Lens' (State sbe_a9G5A m_a9G5B) (Map String Ref)
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) (Map String Ref)
 strings
-  _f_a9GmK
-  (State __codebase_a9GmL
-         __instanceOverrides_a9GmM
-         __staticOverrides_a9GmN
-         __ctrlStk_a9GmO
-         __nextPSS_a9GmP
-         __strings'_a9GmQ
-         __nextRef_a9GmS
-         __verbosity_a9GmT
-         __simulationFlags_a9GmU
-         __backend_a9GmV
-         __errorPaths_a9GmW
-         __printErrPaths_a9GmX
-         __breakpoints_a9GmY
-         __evHandlers_a9GmZ)
-  = ((\ __strings_a9GmR
+  _f_aEq4
+  (State __codebase_aEq5
+         __instanceOverrides_aEq6
+         __staticOverrides_aEq7
+         __ctrlStk_aEq8
+         __nextPSS_aEq9
+         __strings'_aEqa
+         __nextRef_aEqc
+         __verbosity_aEqd
+         __simulationFlags_aEqe
+         __backend_aEqf
+         __errorPaths_aEqg
+         __printErrPaths_aEqh
+         __breakpoints_aEqi
+         __trBreakpoints_aEqj
+         __evHandlers_aEqk)
+  = ((\ __strings_aEqb
         -> State
-             __codebase_a9GmL
-             __instanceOverrides_a9GmM
-             __staticOverrides_a9GmN
-             __ctrlStk_a9GmO
-             __nextPSS_a9GmP
-             __strings_a9GmR
-             __nextRef_a9GmS
-             __verbosity_a9GmT
-             __simulationFlags_a9GmU
-             __backend_a9GmV
-             __errorPaths_a9GmW
-             __printErrPaths_a9GmX
-             __breakpoints_a9GmY
-             __evHandlers_a9GmZ)
-     <$> (_f_a9GmK __strings'_a9GmQ))
+             __codebase_aEq5
+             __instanceOverrides_aEq6
+             __staticOverrides_aEq7
+             __ctrlStk_aEq8
+             __nextPSS_aEq9
+             __strings_aEqb
+             __nextRef_aEqc
+             __verbosity_aEqd
+             __simulationFlags_aEqe
+             __backend_aEqf
+             __errorPaths_aEqg
+             __printErrPaths_aEqh
+             __breakpoints_aEqi
+             __trBreakpoints_aEqj
+             __evHandlers_aEqk)
+     <$> (_f_aEq4 __strings'_aEqa))
 {-# INLINE strings #-}
-verbosity ::
-  forall sbe_a9G5A m_a9G5B. Lens' (State sbe_a9G5A m_a9G5B) Int
-verbosity
-  _f_a9Gn0
-  (State __codebase_a9Gn1
-         __instanceOverrides_a9Gn2
-         __staticOverrides_a9Gn3
-         __ctrlStk_a9Gn4
-         __nextPSS_a9Gn5
-         __strings_a9Gn6
-         __nextRef_a9Gn7
-         __verbosity'_a9Gn8
-         __simulationFlags_a9Gna
-         __backend_a9Gnb
-         __errorPaths_a9Gnc
-         __printErrPaths_a9Gnd
-         __breakpoints_a9Gne
-         __evHandlers_a9Gnf)
-  = ((\ __verbosity_a9Gn9
+trBreakpoints ::
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) (Set TransientBreakpoint)
+trBreakpoints
+  _f_aEql
+  (State __codebase_aEqm
+         __instanceOverrides_aEqn
+         __staticOverrides_aEqo
+         __ctrlStk_aEqp
+         __nextPSS_aEqq
+         __strings_aEqr
+         __nextRef_aEqs
+         __verbosity_aEqt
+         __simulationFlags_aEqu
+         __backend_aEqv
+         __errorPaths_aEqw
+         __printErrPaths_aEqx
+         __breakpoints_aEqy
+         __trBreakpoints'_aEqz
+         __evHandlers_aEqB)
+  = ((\ __trBreakpoints_aEqA
         -> State
-             __codebase_a9Gn1
-             __instanceOverrides_a9Gn2
-             __staticOverrides_a9Gn3
-             __ctrlStk_a9Gn4
-             __nextPSS_a9Gn5
-             __strings_a9Gn6
-             __nextRef_a9Gn7
-             __verbosity_a9Gn9
-             __simulationFlags_a9Gna
-             __backend_a9Gnb
-             __errorPaths_a9Gnc
-             __printErrPaths_a9Gnd
-             __breakpoints_a9Gne
-             __evHandlers_a9Gnf)
-     <$> (_f_a9Gn0 __verbosity'_a9Gn8))
+             __codebase_aEqm
+             __instanceOverrides_aEqn
+             __staticOverrides_aEqo
+             __ctrlStk_aEqp
+             __nextPSS_aEqq
+             __strings_aEqr
+             __nextRef_aEqs
+             __verbosity_aEqt
+             __simulationFlags_aEqu
+             __backend_aEqv
+             __errorPaths_aEqw
+             __printErrPaths_aEqx
+             __breakpoints_aEqy
+             __trBreakpoints_aEqA
+             __evHandlers_aEqB)
+     <$> (_f_aEql __trBreakpoints'_aEqz))
+{-# INLINE trBreakpoints #-}
+verbosity ::
+  forall sbe_aDu4 m_aDu5. Lens' (State sbe_aDu4 m_aDu5) Int
+verbosity
+  _f_aEqC
+  (State __codebase_aEqD
+         __instanceOverrides_aEqE
+         __staticOverrides_aEqF
+         __ctrlStk_aEqG
+         __nextPSS_aEqH
+         __strings_aEqI
+         __nextRef_aEqJ
+         __verbosity'_aEqK
+         __simulationFlags_aEqM
+         __backend_aEqN
+         __errorPaths_aEqO
+         __printErrPaths_aEqP
+         __breakpoints_aEqQ
+         __trBreakpoints_aEqR
+         __evHandlers_aEqS)
+  = ((\ __verbosity_aEqL
+        -> State
+             __codebase_aEqD
+             __instanceOverrides_aEqE
+             __staticOverrides_aEqF
+             __ctrlStk_aEqG
+             __nextPSS_aEqH
+             __strings_aEqI
+             __nextRef_aEqJ
+             __verbosity_aEqL
+             __simulationFlags_aEqM
+             __backend_aEqN
+             __errorPaths_aEqO
+             __printErrPaths_aEqP
+             __breakpoints_aEqQ
+             __trBreakpoints_aEqR
+             __evHandlers_aEqS)
+     <$> (_f_aEqC __verbosity'_aEqK))
 {-# INLINE verbosity #-}
 
 -- src/Verifier/Java/Common.hs:1:1: Splicing declarations
