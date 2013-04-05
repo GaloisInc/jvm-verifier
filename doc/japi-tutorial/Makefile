@@ -14,12 +14,11 @@ SPELL     = aspell -t -l
 PDFARGS   = -H ${MAINTARGET}-head.tex \
             -B ${MAINTARGET}-before.tex \
             -A ${MAINTARGET}-after.tex \
-            --latex-engine=xelatex \
-            --bibliography=bib/${TARGET}.bib
+            --latex-engine=xelatex
 HTMLARGS  = --css ${MAIN}/doc.css \
+            -B ${MAINTARGET}-before.html \
             --standalone \
-            --self-contained \
-            --bibliography=bib/${TARGET}.bib
+            --self-contained
 AUX       = ${wildcard ${TMP}/*.blg} ${wildcard ${TMP}/*.bbl} ${wildcard ${TMP}/*.aux} \
             ${wildcard ${TMP}/*.eps} ${wildcard ${TMP}/*.log} ${wildcard ${TMP}/*.toc} \
 	    ${wildcard ${TMP}/*.out} ${wildcard ${TMP}/*.idx} ${wildcard ${TMP}/*.ilg} \
@@ -33,6 +32,8 @@ MAKEINDEX = makeindex
 all: pdf
 
 pdf: ${TARGET}.pdf
+
+html: ${TARGET}.html
 
 ${TARGET}.pdf: ${SRCS}
 	pandoc ${PDFARGS} -o $@ ${MAINTARGET}.md
