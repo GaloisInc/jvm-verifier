@@ -25,12 +25,14 @@ import Data.List
 import Data.List.Split
 import qualified Data.Map as M
 import qualified Data.Set as S
+import Data.Word (Word16)
 
 import System.Console.Haskeline
 import System.Console.Haskeline.History
 import System.Exit
 
 import Text.PrettyPrint
+import Text.Read (readMaybe)
 
 import Data.JVM.Symbolic.AST
 
@@ -169,6 +171,7 @@ cmds = [
   , killCmd
   , exitCmd
   , stopinCmd
+  , stopatCmd
   , stepCmd
   , stepupCmd
   , stepiCmd
@@ -223,6 +226,27 @@ stopinCmd = Cmd {
   , cmdAction = \_ _ args -> do
       (clName, keys) <- keysForArg (unwords args)
       forM_ keys $ \key -> addBreakpoint clName key BreakEntry
+      return False
+  }
+
+stopatCmd :: MonadSim sbe m => Command (Simulator sbe m)
+stopatCmd = Cmd {
+    cmdNames = ["stopat"]
+  , cmdArgs = ["<class id>:<line>"]
+  , cmdDesc = "set a breakpoint at a line"
+  , cmdCompletion = noCompletion
+  , cmdAction = \_ _ args -> do
+      let (clName, lnStr) = break (== ':') (unwords args)
+      lineNum <- case readMaybe (drop 1 lnStr) of
+                   Just (n :: Word16) -> return n
+                   Nothing -> fail $ "invalid line number " ++ lnStr
+      cl <- lookupClass clName
+      case lookupLineMethodStartPC cl lineNum of
+        Just (method, pc) ->
+          addBreakpoint clName (methodKey method) (BreakLineNum lineNum)
+        Nothing -> fail . render $
+          "line number" <+> integer (fromIntegral lineNum) <+> "not found in"
+          <+> text clName $$ "were class files compiled with debugging symbols?"
       return False
   }
 
