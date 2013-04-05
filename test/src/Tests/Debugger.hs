@@ -57,3 +57,16 @@ tmain cb =
       breakOnMain clName
       runStaticMethod clName (methodKeyName mKey) (unparseMethodDescriptor mKey) [IValue sym]
     return ()
+
+-- | Temporary: go into repl manually. TODO: feed repl a script
+trepl :: TrivialCase
+trepl cb =
+  mkSymAssertion $ \sbe -> do
+    sym <- freshInt sbe
+    let clName = "IVTDriver"
+        mKey   = mainKey
+        dbgSEH = defaultSEH { onPreStep = runAtBreakpoints debuggerREPL }
+    _ <- runSimulator cb sbe dbgSEH Nothing $ do
+      breakOnMain clName
+      runStaticMethod clName (methodKeyName mKey) (unparseMethodDescriptor mKey) [IValue sym]
+    return ()

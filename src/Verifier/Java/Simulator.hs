@@ -89,7 +89,8 @@ import Control.Applicative hiding (empty)
 import Control.Lens hiding (act)
 import Control.Monad
 import Control.Monad.Error
-import Control.Monad.State (evalStateT, get, put)
+import Control.Monad.State.Class (get, put)
+import Control.Monad.Trans.State.Strict (evalStateT)
 
 import Data.Array
 import Data.Char
@@ -100,6 +101,7 @@ import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as S
 import qualified Data.Vector as V
+import Data.Word (Word16)
 
 import System.IO (hFlush, stdout)
 

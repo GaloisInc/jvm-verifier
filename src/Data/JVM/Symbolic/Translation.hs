@@ -167,8 +167,6 @@ liftBB cfg bb = do
       cmpZero pc i' currId is il =
         processInsns ((pc, i'):is) currId
           (si (NormalInsn (Ldc (Integer 0))) : il)
-      -- return instructions are still there to push the value on the stack,
-      -- but do the ReturnVal actually pops the frame
       retVal pc currId il =
         defineBlock currId $ reverse ((Just pc, ReturnVal) : il)
       retVoid pc currId il =
