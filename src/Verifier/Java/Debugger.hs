@@ -9,14 +9,16 @@ implementations of the 'SEH' event handlers.
 
 -}
 
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Verifier.Java.Debugger where
 
 import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
-import Control.Lens
+import Control.Lens hiding (createInstance)
 
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -109,7 +111,7 @@ printLoc msg mpc insn = do
     ppMethod method <> colon <> lineNum <> "%" <> pc <> colon <>
     ppSymInsn insn
 
-debuggerREPL :: (Functor m, Monad m)
+debuggerREPL :: (MonadSim sbe m)
              => Maybe PC
              -> SymInsn
              -> Simulator sbe m ()
@@ -139,30 +141,65 @@ debuggerREPL mpc insn = do
         doCmd [] = error "unreachable"
 
 data Command m = Cmd { cmdNames :: [String]
+                     , cmdArgs :: [String]
                      , cmdDesc :: String
                      , cmdCompletion :: CompletionFunc m
                      , cmdAction :: Maybe PC -> SymInsn -> [String] -> m Bool
                      }
 
-commandMap :: (Functor m, Monad m) => M.Map String (Command (Simulator sbe m))
+commandMap :: (MonadSim sbe m) => M.Map String (Command (Simulator sbe m))
 commandMap = M.fromList . concatMap expandNames $ cmds
   where expandNames cmd = do
           name <- cmdNames cmd
           return (name, cmd)
 
-cmds :: (Functor m, Monad m) => [Command (Simulator sbe m)]
+cmds :: (MonadSim sbe m) => [Command (Simulator sbe m)]
 cmds = [
-    contCmd
+    helpCmd
+  , whereCmd
+  , contCmd
+  , killCmd
   , exitCmd
-  , helpCmd
   , stepCmd
   , stepupCmd
   , stepiCmd
   ]
 
+killCmd :: (MonadSim sbe m) => Command (Simulator sbe m)
+killCmd = Cmd {
+    cmdNames = ["kill"]
+  , cmdArgs = ["[<msg>]"]
+  , cmdDesc = "throw an exception on the current execution path"
+  , cmdCompletion = noCompletion
+  , cmdAction = \_ _ args -> do
+      let rte = "java/lang/RuntimeException"
+      when (null args) $ createAndThrow rte
+
+      msgStr@(Ref _ ty) <- refFromString (unwords args)
+      let params = Just [(ty, RValue msgStr)]
+      excRef <- createInstance rte params
+      throw excRef
+      return True
+  }
+
+whereCmd :: (Functor m, Monad m) => Command (Simulator sbe m)
+whereCmd = Cmd {
+    cmdNames = ["where", "w"]
+  , cmdArgs = []
+  , cmdDesc = "print call stack"
+  , cmdCompletion = noCompletion
+  , cmdAction = \_ _ _ -> do
+      mp <- getPathMaybe
+      case mp of
+        Nothing -> dbugM "no active execution path"
+        Just p -> dbugM . render . ppStackTrace $ p^.pathStack
+      return False
+  }
+
 contCmd :: Monad m => Command m
 contCmd = Cmd {
     cmdNames = ["cont", "c"]
+  , cmdArgs = []
   , cmdDesc = "continue execution"
   , cmdCompletion = noCompletion
   , cmdAction = \_ _ _-> return True
@@ -170,7 +207,8 @@ contCmd = Cmd {
 
 stepCmd :: (Functor m, Monad m) => Command (Simulator sbe m)
 stepCmd = Cmd {
-    cmdNames = ["step"]
+    cmdNames = ["step", "s"]
+  , cmdArgs = []
   , cmdDesc = "execute current line"
   , cmdCompletion = noCompletion
   , cmdAction = \mpc _ _ -> do
@@ -182,6 +220,7 @@ stepCmd = Cmd {
 stepupCmd :: (Functor m, Monad m) => Command (Simulator sbe m)
 stepupCmd = Cmd {
     cmdNames = ["stepup"]
+  , cmdArgs = []
   , cmdDesc = "execute until current method returns to its caller"
   , cmdCompletion = noCompletion
   , cmdAction = \_ _ _ -> do
@@ -192,6 +231,7 @@ stepupCmd = Cmd {
 stepiCmd :: (Functor m, Monad m) => Command (Simulator sbe m)
 stepiCmd = Cmd {
     cmdNames = ["stepi"]
+  , cmdArgs = []
   , cmdDesc = "execute current symbolic instruction"
   , cmdCompletion = noCompletion
   , cmdAction = \_ _ _ -> do
@@ -202,26 +242,28 @@ stepiCmd = Cmd {
 exitCmd :: MonadIO m => Command m
 exitCmd = Cmd {
     cmdNames = ["exit", "quit"]
+  , cmdArgs = []
   , cmdDesc = "exit JSS"
   , cmdCompletion = noCompletion
   , cmdAction = \_ _ _ -> liftIO $ exitWith ExitSuccess
   }
 
-helpCmd :: MonadIO m => Command m
+helpCmd :: forall sbe m . MonadSim sbe m => Command (Simulator sbe m)
 helpCmd = Cmd {
     cmdNames = ["help", "?"]
+  , cmdArgs = []
   , cmdDesc = "show this help"
   , cmdCompletion = noCompletion
   , cmdAction = \_ _ _ -> do
-      liftIO $ putStrLn helpString
+      dbugM $ helpString (cmds :: [Command (Simulator sbe m)])
       return False
   }
 
-helpString :: String
-helpString = render . vcat $
-  [ (hsep . punctuate "," $ map text names) <> colon $$ nest 2 (text desc)
-  | Cmd { cmdNames = names, cmdDesc = desc }
-      <- (cmds :: [Command (Simulator sbe IO)])
+helpString :: [Command m] -> String
+helpString cmds = render . vcat $
+  [ invs <> colon $$ nest 2 (text $ cmdDesc cmd)
+  | cmd <- cmds
+  , let invs = hsep . map text $ (cmdNames cmd ++ cmdArgs cmd)
   ]
 
 breakNextInsn :: Simulator sbe m ()
