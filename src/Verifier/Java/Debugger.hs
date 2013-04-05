@@ -22,6 +22,7 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 
 import System.Console.Haskeline
+import System.Console.Haskeline.History
 import System.Exit
 
 import Text.PrettyPrint
@@ -114,27 +115,33 @@ debuggerREPL :: (Functor m, Monad m)
              -> Simulator sbe m ()
 debuggerREPL mpc insn = do
     printLoc "at" mpc insn
-    runInputT defaultSettings loop
+    runInputT (defaultSettings { historyFile = Just ".jssdb" }) loop
   where loop = do
           mline <- getInputLine "jss% "
           case mline of
             Nothing -> return ()
-            Just "" -> loop
-            Just input -> do
-              let (cmd:args) = words input
-              case M.lookup cmd commandMap of
-                Just cmd -> do
-                  continue <- lift $ cmdAction cmd args
-                  unless continue loop
-                Nothing -> do
-                  outputStrLn $ "unknown command '" ++ cmd ++ "'"
-                  outputStrLn $ "type 'help' for more info"
-                  loop
+            Just "" -> do
+              -- repeat last command if nothing entered
+              hist <- getHistory
+              case historyLines hist of
+                (l:_) -> doCmd (words l)
+                _ -> loop
+            Just input -> doCmd (words input)
+        doCmd (cmd:args) = do
+          case M.lookup cmd commandMap of
+            Just cmd -> do
+              continue <- lift $ cmdAction cmd mpc insn args
+              unless continue loop
+            Nothing -> do
+              outputStrLn $ "unknown command '" ++ cmd ++ "'"
+              outputStrLn $ "type 'help' for more info"
+              loop
+        doCmd [] = error "unreachable"
 
 data Command m = Cmd { cmdNames :: [String]
                      , cmdDesc :: String
                      , cmdCompletion :: CompletionFunc m
-                     , cmdAction :: [String] -> m Bool
+                     , cmdAction :: Maybe PC -> SymInsn -> [String] -> m Bool
                      }
 
 commandMap :: (Functor m, Monad m) => M.Map String (Command (Simulator sbe m))
@@ -148,6 +155,8 @@ cmds = [
     contCmd
   , exitCmd
   , helpCmd
+  , stepCmd
+  , stepupCmd
   , stepiCmd
   ]
 
@@ -156,7 +165,28 @@ contCmd = Cmd {
     cmdNames = ["cont", "c"]
   , cmdDesc = "continue execution"
   , cmdCompletion = noCompletion
-  , cmdAction = \_ -> return True
+  , cmdAction = \_ _ _-> return True
+  }
+
+stepCmd :: (Functor m, Monad m) => Command (Simulator sbe m)
+stepCmd = Cmd {
+    cmdNames = ["step"]
+  , cmdDesc = "execute current line"
+  , cmdCompletion = noCompletion
+  , cmdAction = \mpc _ _ -> do
+      case mpc of
+        Just pc -> breakLineChange pc >> return True
+        Nothing -> dbugM "unknown current line (try 'stepi')" >> return False
+  }
+
+stepupCmd :: (Functor m, Monad m) => Command (Simulator sbe m)
+stepupCmd = Cmd {
+    cmdNames = ["stepup"]
+  , cmdDesc = "execute until current method returns to its caller"
+  , cmdCompletion = noCompletion
+  , cmdAction = \_ _ _ -> do
+      breakCurrentMethodReturn
+      return True
   }
 
 stepiCmd :: (Functor m, Monad m) => Command (Simulator sbe m)
@@ -164,7 +194,7 @@ stepiCmd = Cmd {
     cmdNames = ["stepi"]
   , cmdDesc = "execute current symbolic instruction"
   , cmdCompletion = noCompletion
-  , cmdAction = \_ -> do
+  , cmdAction = \_ _ _ -> do
       breakNextInsn
       return True
   }
@@ -174,7 +204,7 @@ exitCmd = Cmd {
     cmdNames = ["exit", "quit"]
   , cmdDesc = "exit JSS"
   , cmdCompletion = noCompletion
-  , cmdAction = \_ -> liftIO $ exitWith ExitSuccess
+  , cmdAction = \_ _ _ -> liftIO $ exitWith ExitSuccess
   }
 
 helpCmd :: MonadIO m => Command m
@@ -182,8 +212,9 @@ helpCmd = Cmd {
     cmdNames = ["help", "?"]
   , cmdDesc = "show this help"
   , cmdCompletion = noCompletion
-  , cmdAction = \_ -> do liftIO $ putStrLn helpString
-                         return False
+  , cmdAction = \_ _ _ -> do
+      liftIO $ putStrLn helpString
+      return False
   }
 
 helpString :: String
