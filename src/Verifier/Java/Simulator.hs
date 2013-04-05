@@ -76,6 +76,8 @@ module Verifier.Java.Simulator
   , dbugM
   , abort
   , prettyTermSBE
+  , ppValueFull
+  , ppNamedLocals
     -- * Re-exported modules
   , module Execution.JavaSemantics
   , module Verifier.Java.Backend
@@ -1037,8 +1039,6 @@ floatRem :: (RealFrac a) => a -> a -> a
 floatRem x y = fromIntegral z
   where z :: Integer
         z = truncate x `rem` truncate y
-
---refFromString :: MonadSim sbe m => String -> Simulator sbe m Ref
 
 newString :: MonadSim sbe m => String -> Simulator sbe m Ref
 newString s = do
@@ -2043,3 +2043,28 @@ dumpSymASTs cb cname = do
         dumpBlock b = do
           putStrLn . render . ppBlockId . sbId $ b
           mapM_ (\i -> putStrLn $ "  " ++ ppSymInst' i) $ sbInsns b
+
+ppValueFull :: MonadSim sbe m => Value (SBETerm sbe) -> Simulator sbe m Doc
+ppValueFull (RValue r@(Ref n (ArrayType _))) = do
+    val <- rVal
+    return $ ppRef r <+> "=>" <+> val
+  where rVal = do
+          sbe <- use backend
+          thunks <- getArray ppValueFull r
+          docs <- sequence thunks
+          return . brackets . commas $ docs
+ppValueFull v = withSBE' $ \sbe -> ppValue sbe v
+
+-- | Pretty-print locals if names are available; otherwise uses indexes
+ppNamedLocals :: MonadSim sbe m
+              => Method
+              -> PC
+              -> M.Map LocalVariableIndex (Value (SBETerm sbe))
+              -> Simulator sbe m Doc
+ppNamedLocals method pc locals = do
+    pairs <- forM (M.toList locals) ppPair
+    return . braces . commas $ pairs
+  where ppPair (idx, val) = do pVal <- ppValueFull val
+                               return $ name idx <+> ":=" <+> pVal
+        name idx = fromMaybe (int . fromIntegral $ idx)
+                     (text . localName <$> lookupLocalVariableByIdx method pc idx)

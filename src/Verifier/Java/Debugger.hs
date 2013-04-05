@@ -12,19 +12,19 @@ implementations of the 'SEH' event handlers.
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 module Verifier.Java.Debugger where
 
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Error
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
 import Control.Lens hiding (createInstance)
 
 import Data.List
 import Data.List.Split
 import qualified Data.Map as M
 import qualified Data.Set as S
+import Data.Tuple.Curry
 import Data.Word (Word16)
 
 import System.Console.Haskeline
@@ -167,11 +167,18 @@ cmds :: (MonadSim sbe m) => [Command (Simulator sbe m)]
 cmds = [
     helpCmd
   , whereCmd
+  , localsCmd
+  , dumpCmd
   , contCmd
   , killCmd
   , exitCmd
+  , clearCmd
   , stopinCmd
+  , clearinCmd
   , stopatCmd
+  , clearatCmd
+  , stoppcCmd
+  , clearpcCmd
   , stepCmd
   , stepupCmd
   , stepiCmd
@@ -208,13 +215,31 @@ whereCmd = Cmd {
       return False
   }
 
+localsCmd :: MonadSim sbe m => Command (Simulator sbe m)
+localsCmd = Cmd {
+    cmdNames = ["locals"]
+  , cmdArgs = []
+  , cmdDesc = "print local variables in current stack frame"
+  , cmdCompletion = noCompletion
+  , cmdAction = \mpc _ _ -> do
+      locals <- modifyCallFrameM "debugger" $ \cf ->
+                  return (cf^.cfLocals, cf)
+      sbe <- use backend
+      case mpc of
+        Nothing -> dbugM . render $ ppLocals sbe locals
+        Just pc -> do
+          method <- getCurrentMethod
+          dbugM . render =<< ppNamedLocals method pc locals
+      return False
+  }
+
 contCmd :: Monad m => Command m
 contCmd = Cmd {
     cmdNames = ["cont", "c"]
   , cmdArgs = []
   , cmdDesc = "continue execution"
   , cmdCompletion = noCompletion
-  , cmdAction = \_ _ _-> return True
+  , cmdAction = \_ _ _ -> return True
   }
 
 stopinCmd :: MonadSim sbe m => Command (Simulator sbe m)
@@ -223,32 +248,34 @@ stopinCmd = Cmd {
   , cmdArgs = ["<class id>.<method>[<type_descriptor>]"]
   , cmdDesc = "set a breakpoint in a method; type descriptor is optional"
   , cmdCompletion = noCompletion
-  , cmdAction = \_ _ args -> do
-      (clName, keys) <- keysForArg (unwords args)
-      forM_ keys $ \key -> addBreakpoint clName key BreakEntry
-      return False
+  , cmdAction = \_ _ args ->
+      case args of
+        [arg] -> do
+          bps <- entriesForArg arg
+          forM_ bps $ uncurryN addBreakpoint
+          return False
+        _ -> failHelp
   }
 
-stopatCmd :: MonadSim sbe m => Command (Simulator sbe m)
-stopatCmd = Cmd {
-    cmdNames = ["stopat"]
-  , cmdArgs = ["<class id>:<line>"]
-  , cmdDesc = "set a breakpoint at a line"
+clearinCmd :: MonadSim sbe m => Command (Simulator sbe m)
+clearinCmd = Cmd {
+    cmdNames = ["clearin"]
+  , cmdArgs = ["<class id>.<method>[<type_descriptor>]"]
+  , cmdDesc = "clear a breakpoint in a method; type descriptor is optional"
   , cmdCompletion = noCompletion
-  , cmdAction = \_ _ args -> do
-      let (clName, lnStr) = break (== ':') (unwords args)
-      lineNum <- case readMaybe (drop 1 lnStr) of
-                   Just (n :: Word16) -> return n
-                   Nothing -> fail $ "invalid line number " ++ lnStr
-      cl <- lookupClass clName
-      case lookupLineMethodStartPC cl lineNum of
-        Just (method, pc) ->
-          addBreakpoint clName (methodKey method) (BreakLineNum lineNum)
-        Nothing -> fail . render $
-          "line number" <+> integer (fromIntegral lineNum) <+> "not found in"
-          <+> text clName $$ "were class files compiled with debugging symbols?"
-      return False
+  , cmdAction = \_ _ args ->
+      case args of
+        [arg] -> do
+          bps <- entriesForArg arg
+          forM_ bps $ uncurryN removeBreakpoint
+          return False
+        _ -> failHelp
   }
+
+entriesForArg :: String -> Simulator sbe m [(String, MethodKey, Breakpoint)]
+entriesForArg arg = do
+  (clName, keys) <- keysForArg arg
+  return . map (clName, , BreakEntry) $ keys
 
 -- | Given a string expected to be a method signature of the form
 -- @com.Foo.bar@ or @com.Foo.bar(I)V@, return the class name and a
@@ -269,6 +296,118 @@ keysForArg arg = do
       makeKeys key = if thisName == methName then [key] else []
         where thisName = methodKeyName key
   return (clName, keys)
+
+stopatCmd :: MonadSim sbe m => Command (Simulator sbe m)
+stopatCmd = Cmd {
+    cmdNames = ["stopat"]
+  , cmdArgs = ["<class id>:<line>"]
+  , cmdDesc = "set a breakpoint at a line"
+  , cmdCompletion = noCompletion
+  , cmdAction = \_ _ args ->
+      case args of
+        [arg] -> do
+          uncurryN removeBreakpoint =<< lineNumForArg arg
+          return False
+        _ -> failHelp
+  }
+
+clearatCmd :: MonadSim sbe m => Command (Simulator sbe m)
+clearatCmd = Cmd {
+    cmdNames = ["clearat"]
+  , cmdArgs = ["<class id>:<line>"]
+  , cmdDesc = "clear a breakpoint at a line"
+  , cmdCompletion = noCompletion
+  , cmdAction = \_ _ args ->
+      case args of
+        [arg] -> do
+          uncurryN removeBreakpoint =<< lineNumForArg arg
+          return False
+        _ -> failHelp
+  }
+
+stoppcCmd :: MonadSim sbe m => Command (Simulator sbe m)
+stoppcCmd = Cmd {
+    cmdNames = ["stoppc"]
+  , cmdArgs = ["<class id>.<method>[<type_descriptor>]%pc"]
+  , cmdDesc = "set a breakpoint at a program counter"
+  , cmdCompletion = noCompletion
+  , cmdAction = \_ _ args ->
+      case args of
+        [arg] -> do
+          bps <- pcsForArg arg
+          forM_ bps $ uncurryN addBreakpoint
+          return False
+        _ -> failHelp
+  }
+
+clearpcCmd :: MonadSim sbe m => Command (Simulator sbe m)
+clearpcCmd = Cmd {
+    cmdNames = ["clearpc"]
+  , cmdArgs = ["<class id>.<method>[<type_descriptor>]%pc"]
+  , cmdDesc = "clear a breakpoint at a program counter"
+  , cmdCompletion = noCompletion
+  , cmdAction = \_ _ args ->
+      case args of
+        [arg] -> do
+          bps <- pcsForArg arg
+          forM_ bps $ uncurryN removeBreakpoint
+          return False
+        _ -> failHelp
+  }
+
+clearCmd :: Command (Simulator sbe m)
+clearCmd = Cmd {
+    cmdNames = ["clear"]
+  , cmdArgs = []
+  , cmdDesc = "list breakpoints"
+  , cmdCompletion = noCompletion
+  , cmdAction = \_ _ _ -> dumpBPs >> return False
+  }
+
+dumpBPs :: Simulator sbe m ()
+dumpBPs = do
+  bps <- use breakpoints
+  if all S.null (M.elems bps)
+     then dbugM "no breakpoints set"
+     else dbugM . render . ppBreakpoints $ bps
+
+pcsForArg :: String -> Simulator sbe m [(String, MethodKey, Breakpoint)]
+pcsForArg arg = do
+  let (method, pcStr) = break (== '%') arg
+  pc <- case readMaybe (drop 1 pcStr) of
+          Just (n :: Word16) -> return n
+          Nothing -> fail $ "invalid program counter " ++ pcStr
+  (clName, keys) <- keysForArg method
+  return . map (clName, , BreakPC pc) $ keys
+
+lineNumForArg :: String -> Simulator sbe m (String, MethodKey, Breakpoint)
+lineNumForArg arg = do
+  let (clName, lnStr) = break (== ':') arg
+  lineNum <- case readMaybe (drop 1 lnStr) of
+               Just (n :: Word16) -> return n
+               Nothing -> fail $ "invalid line number " ++ lnStr
+  cl <- lookupClass clName
+  case lookupLineMethodStartPC cl lineNum of
+    Just (method, pc) ->
+      return (clName, (methodKey method), (BreakLineNum lineNum))
+    Nothing -> fail . render $
+      "line number" <+> integer (fromIntegral lineNum) <+> "not found in"
+      <+> text clName $$ "were class files compiled with debugging symbols?"
+
+dumpCmd :: MonadSim sbe m => Command (Simulator sbe m)
+dumpCmd = Cmd {
+    cmdNames = ["dump", "d"]
+  , cmdArgs = ["[ctrlstk | memory | path]"]
+  , cmdDesc = "dump an object in the simulator"
+  , cmdCompletion = noCompletion
+  , cmdAction = \_ _ args -> do
+      case args of
+        ["ctrlstk"] -> dumpCtrlStk
+        ["memory"] -> dumpMemory "debugger"
+        ["path"] -> dumpCurrentPath
+        _ -> dbugM $ "dump: unsupported object " ++ unwords args
+      return False
+  }
 
 stepCmd :: (Functor m, Monad m) => Command (Simulator sbe m)
 stepCmd = Cmd {
@@ -324,6 +463,9 @@ helpCmd = Cmd {
       dbugM $ helpString (cmds :: [Command (Simulator sbe m)])
       return False
   }
+
+failHelp :: Monad m => m a
+failHelp = fail "invalid arguments; type 'help' for details"
 
 helpString :: [Command m] -> String
 helpString cmds = render . vcat $
