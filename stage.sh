@@ -22,8 +22,10 @@ cp RELEASE_README                              ${TARGET}/README
 cp ../../abcBridge/abc/copyright.txt           ${TARGET}/ABC_LICENSE
 cp -R doc/japi                                 ${TARGET}/doc
 cp doc/jss-usage.txt                           ${TARGET}/doc
+cp doc/jss.1                                   ${TARGET}/doc
 cp doc/japi-tutorial/jss-tutorial.pdf          ${TARGET}/tutorial
 cp doc/japi-tutorial/code/*.{class,cry,java}   ${TARGET}/tutorial
+cp -R doc/japi-tutorial/images                 ${TARGET}/tutorial
 cp dist/build/jss/jss                          ${TARGET}/bin
 cp support/galois.jar                          ${TARGET}/bin
 

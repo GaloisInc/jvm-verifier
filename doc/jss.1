@@ -1,0 +1,88 @@
+.TH JSS 1 "March 18, 2013" "JSS User Guide"
+.SH NAME
+.PP
+jss - Java symbolic simulator
+.SH SYNOPSIS
+.PP
+jss [\f[I]OPTIONS\f[]] [\f[I]CLASS NAME\f[]]
+.SH DESCRIPTION
+.PP
+The Java Symbolic Simulator, jss, interprets a Java class file but
+treats certain designated program variables as arbitrary, symbolic
+expressions rather than concrete values.
+Therefore, the resulting values of certain program variables may be
+described as symbolic expressions in terms of the initial values of
+symbolic input values.
+.PP
+The symbolic expressions representing the values of particular program
+variables can be stored in the form of And-Inverter Graphs (AIGs) for
+further processing by external tools.
+.PP
+Example usage:
+.IP
+.nf
+\f[C]
+jss\ -c\ .\ -j\ /usr/java/jdk1.6.jar:/path/to/galois.jar\ Main
+\f[]
+.fi
+.PP
+will simulate the function \f[C]main()\f[] from the class file
+\f[C]Main.class\f[] in the current directory, and expect to find
+additonal support classes in the supplied jar files.
+.SH OPTIONS
+.TP
+.B -b, --blast
+Always bitblast symbolic condition terms at branches.
+This may force symbolic termination, but can incur a simulator
+performance cost.
+.RS
+.RE
+.TP
+.B -c \f[I]PATH\f[], --classpath=\f[I]PATH\f[]
+A colon-delimited list of directories to search for class files.
+Use semicolon delimiters on Windows.
+.RS
+.RE
+.TP
+.B -d \f[I]INT\f[], --dbug[=\f[I]INT\f[]]
+Specify the verbosity level for debugging messages.
+Valid values are in the range 0-5.
+.RS
+.RE
+.TP
+.B -j \f[I]JARS\f[], --jars=\f[I]JARS\f[]
+A colon-delimited list of jar files to search for class files.
+The jdk1.6 jar be explicitly given using this option.
+Use semicolon delimiters on Windows.
+.RS
+.PP
+NB: jss expects to find the file \f[C]galois.jar\f[] in the same
+directory as the jss executable itself.
+If this is not the case on your system, you may use this option to
+specify an alternate location for the file.
+.RE
+.TP
+.B -o \f[I]ARGS\f[], --opts=\f[I]ARGS\f[]
+Specify the space-delimited list of arguments to pass to the main()
+method.
+.RS
+.RE
+.TP
+.B -V, --version
+Print out the version of the simulator.
+.RS
+.RE
+.TP
+.B -?, --help
+Print a help message.
+.RS
+.RE
+.SH SEE ALSO
+.PP
+\f[C]cryptol\f[] (1).
+.PP
+\f[C]lss\f[] (1).
+.PP
+\f[C]sawscript\f[] (1).
+.SH AUTHORS
+Galois, Inc.
