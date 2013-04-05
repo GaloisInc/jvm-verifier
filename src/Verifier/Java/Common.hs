@@ -133,6 +133,7 @@ module Verifier.Java.Common
   , ppMethod
   , ppValue
   , ppCurrentPath
+  , ppStackTrace
   , ppState
   , ppMemory
   , ppFailRsn
@@ -968,7 +969,9 @@ ppRef NullRef    = "null"
 ppRef (Ref n ty) = integer (fromIntegral n) <> "::" <> ppType ty
 
 ppMethod :: Method -> Doc
-ppMethod = text . methodKeyName . methodKey
+ppMethod method =
+  text (methodKeyName (methodKey method)) <>
+  text (unparseMethodDescriptor (methodKey method))
 
 ppState :: State sbe m -> Doc
 ppState s = hang (text "state" <+> lbrace) 2 (ppCtrlStk (s^.backend) (s^.ctrlStk)) $+$ rbrace
@@ -976,7 +979,7 @@ ppState s = hang (text "state" <+> lbrace) 2 (ppCtrlStk (s^.backend) (s^.ctrlStk
 ppPath :: Backend sbe -> Path sbe -> Doc
 ppPath sbe p =
   case currentCallFrame p of
-    Just cf -> 
+    Just cf ->
       text "Path #"
       <>  integer (p^.pathName)
       <>  brackets ( text (cf^.cfClass) <> "." <> ppMethod (cf^.cfMethod)
@@ -990,7 +993,7 @@ ppPath sbe p =
       text "Path #" <> integer (p^.pathName) <> colon <+> "stopped"
 
 ppStackTrace :: [CallFrame term] -> Doc
-ppStackTrace cfs = braces . commas $ 
+ppStackTrace cfs = braces . vcat $
   [ text cName <> "." <> ppMethod method
   | CallFrame { _cfClass = cName, _cfMethod = method } <- cfs
   ]
