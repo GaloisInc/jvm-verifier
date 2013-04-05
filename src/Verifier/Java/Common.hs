@@ -132,6 +132,7 @@ module Verifier.Java.Common
   , ppPath
   , ppMethod
   , ppValue
+  , ppRef
   , ppCurrentPath
   , ppStackTrace
   , ppState
@@ -139,6 +140,8 @@ module Verifier.Java.Common
   , ppFailRsn
   , ppJavaException
   , ppInternalExc
+  , ppBreakpoints
+  , ppLocals
 
     -- * Control flow primitives
   , pushCallFrame
@@ -998,7 +1001,7 @@ ppStackTrace cfs = braces . vcat $
   | CallFrame { _cfClass = cName, _cfMethod = method } <- cfs
   ]
 
-ppLocals :: Backend sbe 
+ppLocals :: Backend sbe
          -> Map LocalVariableIndex (Value (SBETerm sbe))
          -> Doc
 ppLocals sbe = braces . commas . M.elems . M.mapWithKey ppPair
@@ -1117,6 +1120,14 @@ ppInternalExc exc = case exc of
       "unknown error"
   UnknownExc (Just rsn) -> 
       "unknown error" <> colon <+> ppFailRsn rsn
+
+ppBreakpoints :: Map (String, Method) (Set PC) -> Doc
+ppBreakpoints bps =
+  hang "breakpoints set:" 2 . vcat $
+    [ text clName <> "." <> ppMethod method <> "%" <> text (show pc)
+    | ((clName, method), pcs) <- M.toList bps
+    , pc <- S.toList pcs
+    ]
 
 --------------------------------------------------------------------------------
 -- Manual lens implementations. These are captured by using
