@@ -13,7 +13,13 @@ implementations of the 'SEH' event handlers.
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
-module Verifier.Java.Debugger where
+module Verifier.Java.Debugger
+  (
+    breakOnMain
+  , breakpointLogger
+  , debuggerREPL
+  , runAtBreakpoints
+  ) where
 
 import Control.Applicative
 import Control.Monad
