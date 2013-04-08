@@ -403,13 +403,14 @@ lineNumForArg arg = do
 dumpCmd :: MonadSim sbe m => Command (Simulator sbe m)
 dumpCmd = Cmd {
     cmdNames = ["dump", "d"]
-  , cmdArgs = ["[ctrlstk | memory | path]"]
+  , cmdArgs = ["[ctrlstk | memory | method | path]"]
   , cmdDesc = "dump an object in the simulator"
   , cmdCompletion = noCompletion
   , cmdAction = \_ _ args -> do
       case args of
         ["ctrlstk"] -> dumpCtrlStk
         ["memory"] -> dumpMemory "debugger"
+        ["method"] -> dumpCurrentMethod
         ["path"] -> dumpCurrentPath
         _ -> dbugM $ "dump: unsupported object " ++ unwords args
       return False
