@@ -78,6 +78,7 @@ module Verifier.Java.Simulator
   , prettyTermSBE
   , ppValueFull
   , ppNamedLocals
+  , dumpCurrentMethod
     -- * Re-exported modules
   , module Execution.JavaSemantics
   , module Verifier.Java.Backend
@@ -97,7 +98,7 @@ import Control.Monad.Trans.State.Strict (evalStateT)
 import Data.Array
 import Data.Char
 import Data.Int
-import Data.List (find, foldl')
+import Data.List (find, foldl', sort)
 import qualified Data.Map as M
 import Data.Maybe
 import Data.Set (Set)
@@ -212,11 +213,11 @@ run = do
       cb <- use codebase
       whenVerbosity (>= 6) $ do
          liftIO $ dumpSymASTs cb cName
-      symBlocks <- do 
+      symBlocks <- do
          mblocks <- liftIO $ lookupSymbolicMethod cb cName (methodKey method)
          case mblocks of
            Just blocks -> return blocks
-           _ -> fail . render $ "unable to symbolically translate" 
+           _ -> fail . render $ "unable to symbolically translate"
                 <+> text cName <+> ppMethod method
       case lookupSymBlock bid symBlocks of
         Just symBlock -> do
@@ -2026,23 +2027,6 @@ dumpSymASTs cb cname = do
   case mc of
     Just c -> mapM_ (dumpMethod c) $ classMethods c
     Nothing -> putStrLn $ "Main class " ++ cname ++ " not found."
-  where ppInst' (pc, i) = show pc ++ ": " ++ ppInst i
-        ppSymInst' (mpc, i) =
-          maybe "" (\pc -> show pc ++ ": ") mpc ++ render (ppSymInsn i)
-        dumpMethod c m =
-          case methodBody m of
-            Code _ _ cfg _ _ _ _ -> do
-              putStrLn ""
-              putStrLn . className $ c
-              putStrLn . show . methodKey $ m
-              putStrLn ""
-              mapM_ (putStrLn . ppInst') . concatMap bbInsts $ allBBs cfg
-              putStrLn ""
-              mapM_ dumpBlock . fst $ liftCFG cfg
-            _ -> return ()
-        dumpBlock b = do
-          putStrLn . render . ppBlockId . sbId $ b
-          mapM_ (\i -> putStrLn $ "  " ++ ppSymInst' i) $ sbInsns b
 
 ppValueFull :: MonadSim sbe m => Value (SBETerm sbe) -> Simulator sbe m Doc
 ppValueFull (RValue r@(Ref n (ArrayType _))) = do
@@ -2068,3 +2052,38 @@ ppNamedLocals method pc locals = do
                                return $ name idx <+> ":=" <+> pVal
         name idx = fromMaybe (int . fromIntegral $ idx)
                      (text . localName <$> lookupLocalVariableByIdx method pc idx)
+
+ppInst' (pc, i) = show pc ++ ": " ++ ppInst i
+ppSymInst' (mpc, i) =
+  maybe "" (\pc -> show pc ++ ": ") mpc ++ render (ppSymInsn i)
+
+dumpMethod :: Class -> Method -> IO ()
+dumpMethod c m =
+  case methodBody m of
+    Code _ _ cfg _ _ _ _ -> do
+      putStrLn ""
+      putStrLn . className $ c
+      putStrLn . show . methodKey $ m
+      putStrLn ""
+      mapM_ (putStrLn . ppInst') . concatMap bbInsts $ allBBs cfg
+      putStrLn ""
+      mapM_ dumpBlock . fst $ liftCFG cfg
+    _ -> return ()
+
+dumpBlock :: SymBlock -> IO ()
+dumpBlock b = do
+  putStrLn . render . ppBlockId . sbId $ b
+  mapM_ (\i -> putStrLn $ "  " ++ ppSymInst' i) $ sbInsns b
+
+dumpCurrentMethod :: MonadSim sbe m => Simulator sbe m ()
+dumpCurrentMethod = do
+  cb <- use codebase
+  cName <- getCurrentClassName
+  method <- getCurrentMethod
+  symBlocks <- do
+    mblocks <- liftIO $ lookupSymbolicMethod cb cName (methodKey method)
+    case mblocks of
+      Just blocks -> return blocks
+      _ -> fail . render $ "unable to symbolically translate"
+           <+> text cName <+> ppMethod method
+  liftIO . mapM_ dumpBlock . sort $ symBlocks
