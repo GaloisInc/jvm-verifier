@@ -628,7 +628,8 @@ getCurrentLineNumber pc = do
 lookupClass :: String -> Simulator sbe m Class
 lookupClass cName = do
   cb <- use codebase
-  liftIO $ Codebase.lookupClass cb cName
+  mcl <- liftIO $ Codebase.tryLookupClass cb cName
+  maybe (fail . render $ "class not found:" <+> text cName) return mcl
 
 
 -- | Push a new call frame to the current path, if any. Needs the
