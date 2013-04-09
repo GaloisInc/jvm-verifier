@@ -13,6 +13,8 @@ ghc --version
 ghc-pkg --version
 alex --version
 happy --version
+which c2hs
+c2hs --version
 
 mkdir -p ./build
 git clone ssh://builder@src.galois.com/abcBridge ./build/abcBridge
@@ -20,6 +22,6 @@ git clone ssh://builder@src.galois.com/jvm-parser ./build/jvm-parser
 # git clone ssh://builder@src.galois.com/Aiger ./build/Aiger
 # cabal-dev add-source ./build/abcBridge
 # cabal-dev add-source ./build/Aiger
-cabal-dev install . ../Verinf ./build/abcBridge ./build/jvm-parser --constraint=hashable==1.1.2.5 --reinstall --flags='build-tests'
+cabal-dev install . ../Verinf ./build/abcBridge ./build/jvm-parser --constraint=hashable==1.1.2.5 --flags='build-tests'
 ./cabal-dev/bin/Tests
 bash stage.sh
