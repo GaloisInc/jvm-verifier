@@ -13,6 +13,7 @@ implementations of the 'SEH' event handlers.
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE CPP #-}
 module Verifier.Java.Debugger
   (
     breakOnMain
@@ -38,12 +39,36 @@ import System.Console.Haskeline.History
 import System.Exit
 
 import Text.PrettyPrint
-import Text.Read (readMaybe)
 
 import Data.JVM.Symbolic.AST
 
 import Verifier.Java.Common
 import Verifier.Java.Simulator hiding (getCurrentClassName, getCurrentMethod)
+
+#if __GLASGOW_HASKELL__ < 706
+import qualified Text.ParserCombinators.ReadP as P
+import qualified Text.Read as R
+readEither :: Read a => String -> Either String a
+readEither s =
+  case [ x | (x,"") <- R.readPrec_to_S read' R.minPrec s ] of
+    [x] -> Right x
+    []  -> Left "Prelude.read: no parse"
+    _   -> Left "Prelude.read: ambiguous parse"
+ where
+  read' =
+    do x <- R.readPrec
+       R.lift P.skipSpaces
+       return x
+
+-- | Parse a string using the 'Read' instance.
+-- Succeeds if there is exactly one valid result.
+readMaybe :: Read a => String -> Maybe a
+readMaybe s = case readEither s of
+                Left _  -> Nothing
+                Right a -> Just a
+#else
+import Text.Read (readMaybe)
+#endif
 
 -- | Add a breakpoint to the @main@ method of the given class
 breakOnMain :: String -> Simulator sbe m ()
