@@ -8,7 +8,7 @@ Point-of-contact : jstanley
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE CPP #-}
 
-module Tests.RC564 (rc564Tests) where
+module Tests.RC564 (rc564Tests, runRC564) where
 
 import Control.Applicative
 import Control.Monad

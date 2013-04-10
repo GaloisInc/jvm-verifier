@@ -82,6 +82,7 @@ data JSS = JSS
   , jars          :: String
   , opts          :: String
   , blast         :: Bool
+  , sat           :: Bool
   , xlate         :: Bool
   , errPaths      :: Bool
   , dbug          :: Int
@@ -116,6 +117,7 @@ main = do
                        ++ " (use --help for more info)")
 
         , blast  = def &= help "Always bitblast symbolic condition terms at branches (may force symbolic termination)"
+        , sat = def &= help "Always check satisfiability of symbolic path assertions at branches (subsumes bitblasting)"
         , errPaths = def &= help "Print details of symbolic execution paths that end in errors"
         , dbug   = def &= opt "0" &= help "Debug verbosity level (0-6)"
         , xlate  = def &= help "Print the symbolic AST translation stdout and terminate"
@@ -172,7 +174,9 @@ main = do
     exitSuccess
 
   withFreshBackend $ \sbe -> do
-   let fl  = defaultSimFlags{ alwaysBitBlastBranchTerms = blast args' }
+   let fl  = defaultSimFlags { alwaysBitBlastBranchTerms = blast args'
+                             , satAtBranches             = sat args'
+                             }
        seh = defaultSEH { onPreStep = runAtBreakpoints debuggerREPL }
    let go = do tl <- liftIO $ termInt sbe (fromIntegral (length jopts))
                jssOverrides
