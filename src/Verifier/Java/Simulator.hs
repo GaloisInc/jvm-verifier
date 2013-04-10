@@ -948,23 +948,43 @@ step ReturnVal = do
 step (PushPendingExecution bid cond ml elseInsns) = do
   sbe <- use backend
   c <- evalCond cond
-  b <- do blast <- alwaysBitBlastBranchTerms <$> use (simulationFlags)
-          if blast 
-            then liftIO (blastTerm sbe c) 
-            else return $ asBool sbe c
-  dbugM' 6 $ "### PushPendingExecution (condAsBool=" ++ show (asBool sbe c) ++ ")"
-  case b of
-   -- Don't bother with elseStmts as condition is true. 
-   Just True  -> setCurrentBlock bid
-   -- Don't bother with pending path as condition is false.
-   Just False -> runInsns elseInsns
-   Nothing -> do
-     nm <- use nextPSS
-     nextPSS += 1
-     modifyCSM_ $ \cs -> case addCtrlBranch c bid nm ml cs of
-                           Just cs' -> return cs'
-                           Nothing -> fail "addCtrlBranch"
-     runInsns elseInsns
+  flags <- use simulationFlags
+  p <- getPath "PushPendingExecution"
+  tsat <- if satAtBranches flags
+            then liftIO $ satTerm sbe =<< termAnd sbe c (p^.pathAssertions)
+            else return True
+  fsat <- if satAtBranches flags
+            then liftIO $ do
+              cnot <- termNot sbe c
+              satTerm sbe =<< termAnd sbe cnot (p^.pathAssertions)
+            else return True
+  b <- if alwaysBitBlastBranchTerms flags
+         then liftIO (blastTerm sbe c)
+         else return (asBool sbe c)
+  let b' = if tsat then b else Just False
+  dbugM' 6 $ "### PushPendingExecution (condAsBool=" ++ show b' ++ ")"
+  -- if neither path is satisfiable, just error out. But then how did
+  -- we get here?
+  when (not (tsat || fsat)) $ do
+    dbugM' 3 "both branch conditions unsatisfiable -- should have been caught earlier"
+    errorPath $ FailRsn "no satisfiable branch assertions"
+  case b' of
+    -- Don't bother with elseStmts as condition is true.
+    Just True -> setCurrentBlock bid
+    -- Don't bother with elseStmts if negated condition is unsat
+    Nothing | not fsat -> setCurrentBlock bid
+    -- Don't bother with pending path as condition is false.
+    Just False -> runInsns elseInsns
+    -- Don't bother with pending path as condition is unsat
+    Nothing | not tsat -> runInsns elseInsns
+    -- Don't know condition result, but both branches are sat
+    Nothing -> do
+      nm <- use nextPSS
+      nextPSS += 1
+      modifyCSM_ $ \cs -> case addCtrlBranch c bid nm ml cs of
+                            Just cs' -> return cs'
+                            Nothing -> fail "addCtrlBranch"
+      runInsns elseInsns
 
 step (SetCurrentBlock bid) = setCurrentBlock bid
 

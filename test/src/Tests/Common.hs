@@ -192,3 +192,9 @@ intSeqToHex = foldl (\s c -> intToHex c ++ s) []
 
 intSeqToBoolSeq :: [CValue] -> [Bool]
 intSeqToBoolSeq = hexToBoolSeq . intSeqToHex
+
+bitblastFlags :: SimulationFlags
+bitblastFlags = defaultSimFlags { alwaysBitBlastBranchTerms = True }
+
+satFlags :: SimulationFlags
+satFlags = defaultSimFlags { satAtBranches = True }

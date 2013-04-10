@@ -5,7 +5,7 @@ Stability        : provisional
 Point-of-contact : atomb, jhendrix
 -}
 
-module Tests.PathStateMerges(psmsTests) where
+module Tests.PathStateMerges (psmsTests, mul2WithFlags) where
 
 import Control.Applicative
 import Control.Monad
@@ -109,16 +109,19 @@ psmsTests cb = testGroup "PathMerges" $
       (@=?) [4, 20, 4158] . map (fromJust . asInt sbe)
         =<< mapM (\(x,y) -> evalAigIntegral sbe id [mkCInt 32 x, mkCInt 32 y] out)
                  [(2,2), (4,5), (42,99)]
-  , testCase "mul2" . mkSymAssertion $ \sbe -> do
-      [a, b] <- replicateM 2 $ IValue <$> freshInt sbe
-      rs <- runSimulator cb sbe defaultSEH (Just (defaultSimFlags { alwaysBitBlastBranchTerms = True })) $
-              runStaticMethod "PathStateMerges" "mul2" "(II)I" [a, b]
-      when (length rs /= 1) $ error "psmsTests.mul2: failed path state merge"
-      let [(_, Just (IValue out))] = rs
-      (@=?) [4, 20, 4158, 77137830] . map (fromJust . asInt sbe)
-        =<< mapM (\(x,y) -> evalAigIntegral sbe id [mkCInt 32 x, mkCInt 32 y] out)
-                 [(2,2), (4,5), (42,99), (2310, 33393)]
+  , testCase "mul2-blast" . mul2WithFlags cb $ bitblastFlags
+  , testCase "mul2-sat" . mul2WithFlags cb $ satFlags
   ]
+
+mul2WithFlags cb flags = mkSymAssertion $ \sbe -> do
+  [a, b] <- replicateM 2 $ IValue <$> freshInt sbe
+  rs <- runSimulator cb sbe defaultSEH (Just flags) $
+          runStaticMethod "PathStateMerges" "mul2" "(II)I" [a, b]
+  assertEqual "failed path state merge" 1 (length rs)
+  let [(_, Just (IValue out))] = rs
+  (@=?) [4, 20, 4158, 77137830] . map (fromJust . asInt sbe)
+    =<< mapM (\(x,y) -> evalAigIntegral sbe id [mkCInt 32 x, mkCInt 32 y] out)
+             [(2,2), (4,5), (42,99), (2310, 33393)]
 
 --------------------------------------------------------------------------------
 -- Scratch

@@ -339,11 +339,15 @@ initialCtrlStk sbe = do
 type PathDescriptor = Integer
 
 data SimulationFlags =
-  SimulationFlags { alwaysBitBlastBranchTerms :: Bool }
+  SimulationFlags { alwaysBitBlastBranchTerms :: Bool
+                  , satAtBranches             :: Bool
+                  }
   deriving Show
 
 defaultSimFlags :: SimulationFlags
-defaultSimFlags = SimulationFlags { alwaysBitBlastBranchTerms = False }
+defaultSimFlags = SimulationFlags { alwaysBitBlastBranchTerms = False
+                                  , satAtBranches             = False
+                                  }
 
 type Path sbe = Path' (SBETerm sbe)
 
