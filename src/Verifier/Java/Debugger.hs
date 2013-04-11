@@ -27,6 +27,7 @@ import Control.Monad
 import Control.Monad.Error
 import Control.Lens hiding (createInstance)
 
+import Data.Char
 import Data.List
 import Data.List.Split
 import qualified Data.Map as M
@@ -35,6 +36,7 @@ import Data.Tuple.Curry
 import Data.Word (Word16)
 
 import System.Console.Haskeline
+import System.Console.Haskeline.Completion
 import System.Console.Haskeline.History
 import System.Exit
 
@@ -153,7 +155,9 @@ debuggerREPL :: (MonadSim sbe m)
              -> Simulator sbe m ()
 debuggerREPL mpc insn = do
     printLoc "at" mpc insn
-    runInputT (defaultSettings { historyFile = Just ".jssdb" }) loop
+    let settings = setComplete completer $
+                     defaultSettings { historyFile = Just ".jssdb" }
+    runInputT settings loop
   where loop = do
           mline <- getInputLine "jss% "
           case mline of
@@ -188,13 +192,13 @@ data Command m = Cmd { cmdNames :: [String]
                      , cmdAction :: Maybe PC -> SymInsn -> [String] -> m Bool
                      }
 
-commandMap :: (MonadSim sbe m) => M.Map String (Command (Simulator sbe m))
+commandMap :: MonadSim sbe m => M.Map String (Command (Simulator sbe m))
 commandMap = M.fromList . concatMap expandNames $ cmds
   where expandNames cmd = do
           name <- cmdNames cmd
           return (name, cmd)
 
-cmds :: (MonadSim sbe m) => [Command (Simulator sbe m)]
+cmds :: MonadSim sbe m => [Command (Simulator sbe m)]
 cmds = [
     helpCmd
   , whereCmd
@@ -202,6 +206,7 @@ cmds = [
   , dumpCmd
   , contCmd
   , killCmd
+  , satpathCmd
   , exitCmd
   , clearCmd
   , stopinCmd
@@ -229,7 +234,24 @@ killCmd = Cmd {
       let params = Just [(ty, RValue msgStr)]
       excRef <- createInstance rte params
       throw excRef
-      return True
+      error "unreachable"
+  }
+
+satpathCmd :: (MonadSim sbe m) => Command (Simulator sbe m)
+satpathCmd = Cmd {
+    cmdNames = ["satpath"]
+  , cmdArgs = []
+  , cmdDesc = "check whether the current path's assertions are satisfiable, killing this path if they are not"
+  , cmdCompletion = noCompletion
+  , cmdAction = \_ _ _ -> do
+      p <- getPath "debugger"
+      sbe <- use backend
+      sat <- liftIO $ satTerm sbe (p^.pathAssertions)
+      if sat
+         then do dbugM "path assertions satisfiable"
+                 return False
+         else do dbugM "path assertions unsatisfiable; killed"
+                 errorPath $ FailRsn "path assertions unsatisfiable: killed by debugger"
   }
 
 whereCmd :: (Functor m, Monad m) => Command (Simulator sbe m)
@@ -426,11 +448,13 @@ lineNumForArg arg = do
       <+> text clName $$ "were class files compiled with debugging symbols?"
 
 dumpCmd :: MonadSim sbe m => Command (Simulator sbe m)
-dumpCmd = Cmd {
+dumpCmd = let args = ["ctrlstk", "memory", "method", "path"]
+          in Cmd {
     cmdNames = ["dump", "d"]
-  , cmdArgs = ["[ctrlstk | memory | method | path]"]
+  , cmdArgs = args
   , cmdDesc = "dump an object in the simulator"
-  , cmdCompletion = noCompletion
+  , cmdCompletion = completeWord Nothing " " $ \word ->
+                      return . map simpleCompletion . filter (word `isPrefixOf`) $ args
   , cmdAction = \_ _ args -> do
       case args of
         ["ctrlstk"] -> dumpCtrlStk
@@ -518,3 +542,17 @@ breakLineChange :: PC -> Simulator sbe m ()
 breakLineChange pc = do
   mline <- getCurrentLineNumber pc
   trBreakpoints %= S.insert (BreakLineChange mline)
+
+completer :: forall sbe m . MonadSim sbe m => CompletionFunc (Simulator sbe m)
+completer = completeWordWithPrev Nothing " " fn
+  where
+    fn revleft word | all isSpace revleft =
+      return . map simpleCompletion . filter (word `isPrefixOf`) . M.keys $ m
+    fn revleft word | otherwise = do
+      let (cmd:args) = words . reverse $ revleft
+      case M.lookup cmd m of
+        Just c -> snd <$> cmdCompletion c (revleft ++ reverse word, "")
+        Nothing -> return []
+    m :: M.Map String (Command (Simulator sbe m))
+    m = commandMap
+
