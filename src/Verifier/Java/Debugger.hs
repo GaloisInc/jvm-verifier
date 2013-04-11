@@ -453,8 +453,13 @@ dumpCmd = let args = ["ctrlstk", "memory", "method", "path"]
     cmdNames = ["dump", "d"]
   , cmdArgs = args
   , cmdDesc = "dump an object in the simulator"
-  , cmdCompletion = completeWord Nothing " " $ \word ->
-                      return . map simpleCompletion . filter (word `isPrefixOf`) $ args
+  , cmdCompletion = completeWordWithPrev Nothing " " $ \revleft word -> do
+                      case length . words $ revleft of
+                        -- only dump one thing at a time
+                        1 -> return
+                           . map simpleCompletion
+                           . filter (word `isPrefixOf`) $ args
+                        _ -> return []
   , cmdAction = \_ _ args -> do
       case args of
         ["ctrlstk"] -> dumpCtrlStk
@@ -544,15 +549,20 @@ breakLineChange pc = do
   trBreakpoints %= S.insert (BreakLineChange mline)
 
 completer :: forall sbe m . MonadSim sbe m => CompletionFunc (Simulator sbe m)
-completer = completeWordWithPrev Nothing " " fn
+completer (revleft, right) = do
+    let (revword, revleft') = break isSpace revleft
+        word = reverse revword
+        cmdComps = map simpleCompletion . filter (word `isPrefixOf`) . M.keys $ m
+    case all isSpace revleft' of
+      True -> return (revleft', cmdComps)
+      False -> do
+        -- partial pattern ok:
+        --   not (all isSpace revleft') => not (null (words revleft))
+        let (cmd:args) = words (reverse revleft)
+        case M.lookup cmd m of
+          Nothing -> return (revleft, [])
+          Just c -> cmdCompletion c (revleft, right)
   where
-    fn revleft word | all isSpace revleft =
-      return . map simpleCompletion . filter (word `isPrefixOf`) . M.keys $ m
-    fn revleft word | otherwise = do
-      let (cmd:args) = words . reverse $ revleft
-      case M.lookup cmd m of
-        Just c -> snd <$> cmdCompletion c (revleft ++ reverse word, "")
-        Nothing -> return []
     m :: M.Map String (Command (Simulator sbe m))
     m = commandMap
 
