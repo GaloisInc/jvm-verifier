@@ -44,8 +44,8 @@ import Text.PrettyPrint
 
 import Data.JVM.Symbolic.AST
 
-import Verifier.Java.Common
-import Verifier.Java.Simulator hiding (getCurrentClassName, getCurrentMethod)
+import Verifier.Java.Common hiding (isFinished)
+import Verifier.Java.Simulator hiding (getCurrentClassName, getCurrentMethod, isFinished)
 
 #if __GLASGOW_HASKELL__ < 706
 import qualified Text.ParserCombinators.ReadP as P
@@ -177,6 +177,7 @@ debuggerREPL mpc insn = do
                   handleErr (UnknownExc (Just (FailRsn rsn))) = do
                     dbugM $ "error: " ++ rsn
                     return False
+                  handleErr _ = do dbugM "unknown error"; return False
               continue <- lift $ catchError go handleErr
               unless continue loop
             Nothing -> do
@@ -300,7 +301,7 @@ stopinCmd = Cmd {
     cmdNames = ["stopin"]
   , cmdArgs = ["<class id>.<method>[<type_descriptor>]"]
   , cmdDesc = "set a breakpoint in a method; type descriptor is optional"
-  , cmdCompletion = noCompletion
+  , cmdCompletion = methodCompletion
   , cmdAction = \_ _ args ->
       case args of
         [arg] -> do
@@ -315,7 +316,7 @@ clearinCmd = Cmd {
     cmdNames = ["clearin"]
   , cmdArgs = ["<class id>.<method>[<type_descriptor>]"]
   , cmdDesc = "clear a breakpoint in a method; type descriptor is optional"
-  , cmdCompletion = noCompletion
+  , cmdCompletion = methodCompletion
   , cmdAction = \_ _ args ->
       case args of
         [arg] -> do
@@ -355,7 +356,7 @@ stopatCmd = Cmd {
     cmdNames = ["stopat"]
   , cmdArgs = ["<class id>:<line>"]
   , cmdDesc = "set a breakpoint at a line"
-  , cmdCompletion = noCompletion
+  , cmdCompletion = classCompletion
   , cmdAction = \_ _ args ->
       case args of
         [arg] -> do
@@ -369,7 +370,7 @@ clearatCmd = Cmd {
     cmdNames = ["clearat"]
   , cmdArgs = ["<class id>:<line>"]
   , cmdDesc = "clear a breakpoint at a line"
-  , cmdCompletion = noCompletion
+  , cmdCompletion = classCompletion
   , cmdAction = \_ _ args ->
       case args of
         [arg] -> do
@@ -383,7 +384,7 @@ stoppcCmd = Cmd {
     cmdNames = ["stoppc"]
   , cmdArgs = ["<class id>.<method>[<type_descriptor>]%pc"]
   , cmdDesc = "set a breakpoint at a program counter"
-  , cmdCompletion = noCompletion
+  , cmdCompletion = methodCompletion
   , cmdAction = \_ _ args ->
       case args of
         [arg] -> do
@@ -398,7 +399,7 @@ clearpcCmd = Cmd {
     cmdNames = ["clearpc"]
   , cmdArgs = ["<class id>.<method>[<type_descriptor>]%pc"]
   , cmdDesc = "clear a breakpoint at a program counter"
-  , cmdCompletion = noCompletion
+  , cmdCompletion = methodCompletion
   , cmdAction = \_ _ args ->
       case args of
         [arg] -> do
@@ -407,6 +408,52 @@ clearpcCmd = Cmd {
           return False
         _ -> failHelp
   }
+
+-- | Complete a class name as the current word
+classCompletion :: MonadSim sbe m => CompletionFunc (Simulator sbe m)
+classCompletion = completeWordWithPrev Nothing " " fn
+  where
+    fn _revleft word = do
+      cb <- use codebase
+      classes <- liftIO $ getClasses cb
+      return . map (notFinished . simpleCompletion)
+             . filter (word `isPrefixOf`)
+             . map (slashesToDots . className)
+             $ classes
+
+-- | Complete a method signature as the current word
+methodCompletion :: MonadSim sbe m => CompletionFunc (Simulator sbe m)
+methodCompletion = completeWordWithPrev Nothing " " fn
+  where
+    fn _revleft word = do
+      cb <- use codebase
+      classes <- liftIO $ getClasses cb
+      let classNames = map (slashesToDots . className) classes
+          strictPrefixOf pre xs = pre `isPrefixOf` xs && pre /= xs
+          matches = filter (word `strictPrefixOf`) classNames
+      case matches of
+        -- still working on a class name
+        _:_ -> return . map (notFinished . simpleCompletion) $ matches
+        -- otherwise on a method, so figure out which classes we completed
+        [] -> do
+          let matches' = filter (`isPrefixOf` word) classNames
+          concat <$> forM matches' (\clName -> do
+            cl <- lookupClass clName
+            -- expect methods in their pretty-printed form
+            let methodNames = map (render . ppMethod) . classMethods $ cl
+                cleanup = notFinished . simpleCompletion . ((clName ++ ".") ++)
+            case stripPrefix clName word of
+              Just prefix -> do
+                let prefix' = case prefix of
+                                '.':rest -> rest
+                                _ -> prefix
+                return . map cleanup . filter (prefix' `isPrefixOf`) $ methodNames
+              Nothing ->
+                return . map cleanup $ methodNames
+              _ -> return [])
+
+notFinished :: Completion -> Completion
+notFinished c = c { isFinished = False }
 
 clearCmd :: Command (Simulator sbe m)
 clearCmd = Cmd {
@@ -454,12 +501,10 @@ dumpCmd = let args = ["ctrlstk", "memory", "method", "path"]
   , cmdArgs = args
   , cmdDesc = "dump an object in the simulator"
   , cmdCompletion = completeWordWithPrev Nothing " " $ \revleft word -> do
-                      case length . words $ revleft of
-                        -- only dump one thing at a time
-                        1 -> return
-                           . map simpleCompletion
-                           . filter (word `isPrefixOf`) $ args
-                        _ -> return []
+      case length . words $ revleft of
+        -- only dump one thing at a time
+        1 -> return . map simpleCompletion . filter (word `isPrefixOf`) $ args
+        _ -> return []
   , cmdAction = \_ _ args -> do
       case args of
         ["ctrlstk"] -> dumpCtrlStk
