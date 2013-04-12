@@ -25,6 +25,10 @@ Flag build-tests
   description: Build the test executables
   default: True
 
+Flag build-benchmarks
+  description: Build the benchmark executables
+  default: True
+
 Flag build-SAWScript
   description: Build the SAWScript interface
   default: False
@@ -40,11 +44,14 @@ library
     , containers
     , directory
     , filepath
+    , haskeline >= 0.7
     , jvm-parser >= 0.2
     , lens >= 3.8
     , mtl >= 2.1
     , pretty >= 1.1
+    , split >= 0.2
     , transformers >= 0.3
+    , tuple >= 0.2
     , vector >= 0.7
     , Verinf >= 0.2
 
@@ -59,6 +66,7 @@ library
     Verifier.Java.Backend
     Verifier.Java.Codebase
     Verifier.Java.Common
+    Verifier.Java.Debugger
     Verifier.Java.Simulator
     Verifier.Java.Utils
 
@@ -175,12 +183,13 @@ executable Tests
   if !flag(build-tests)
     buildable: False
 
-  build-depends: 
+  build-depends:
       base >= 4
     , array
     , containers
     , directory
     , filepath
+    , haskeline >= 0.7
     , jvm-parser
     , lens >= 3.8
     , mtl >= 2.1
@@ -201,6 +210,38 @@ executable Tests
   hs-source-dirs   : jss test/src
   ghc-options      : -O2 -Wall -fno-ignore-asserts
   ghc-prof-options : -prof -auto-all
+
+executable Benchmarks
+  if !flag(build-benchmarks)
+    buildable: False
+
+  build-depends:
+      base >= 4
+    , array
+    , containers
+    , criterion >= 0.6
+    , directory
+    , filepath
+    , haskeline >= 0.7
+    , jvm-parser
+    , lens >= 3.8
+    , mtl >= 2.1
+    , pretty
+    , process
+    , random >= 1.0.1.0
+    , transformers >= 0.3.0.0
+    , vector >= 0.7
+    , QuickCheck >= 2.4
+    , HUnit >= 1.2
+    , test-framework >= 0.8
+    , test-framework-hunit >= 0.3
+    , test-framework-quickcheck2 >= 0.3
+    , Verinf
+    , jvm-verifier
+
+  main-is          : Benchmarks.hs
+  hs-source-dirs   : jss test/src
+  ghc-options      : -O2 -Wall -fno-ignore-asserts
 
 executable ExampleAIG
   if !flag(build-examples)

@@ -54,7 +54,7 @@ import Test.QuickCheck.Monadic as QC
 import Execution (runMain)
 import Language.JVM.Parser
 import Verifier.Java.Simulator hiding (run, assert, runSimulator, runDefSimulator)
-import qualified Verifier.Java.Simulator as Sim 
+import qualified Verifier.Java.Simulator as Sim
 import Verifier.Java.Utils
 import Verifier.Java.WordBackend
 
@@ -192,3 +192,9 @@ intSeqToHex = foldl (\s c -> intToHex c ++ s) []
 
 intSeqToBoolSeq :: [CValue] -> [Bool]
 intSeqToBoolSeq = hexToBoolSeq . intSeqToHex
+
+bitblastFlags :: SimulationFlags
+bitblastFlags = defaultSimFlags { alwaysBitBlastBranchTerms = True }
+
+satFlags :: SimulationFlags
+satFlags = defaultSimFlags { satAtBranches = True }
