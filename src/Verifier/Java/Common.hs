@@ -11,6 +11,7 @@ Point-of-contact : acfoltzer
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 
 module Verifier.Java.Common
@@ -35,6 +36,8 @@ module Verifier.Java.Common
   , errorPaths
   , printErrPaths
   , evHandlers
+  , breakpoints
+  , trBreakpoints
 
     -- ** Simulator configuration
   , SimulationFlags(..)
@@ -65,9 +68,6 @@ module Verifier.Java.Common
   , pathMemory
   , pathAssertions
   , pathName
-  , pathStartingPC
-  , pathBreakpoints
-  , pathInsnCount
     -- *** Utilities
   , getPath
   , getPathMaybe
@@ -93,6 +93,7 @@ module Verifier.Java.Common
   , modifyCallFrameM_
   , getCurrentClassName
   , getCurrentMethod
+  , getCurrentLineNumber
 
     -- ** Value and memory representation
   , Value
@@ -120,18 +121,27 @@ module Verifier.Java.Common
   , epRsn
   , epPath
   , InternalExc(ErrorPathExc, UnknownExc)
+
+    -- ** Event handlers and debug interface
   , SEH(..)
+  , Breakpoint(..)
+  , breakpointToPC
+  , TransientBreakpoint(..)
 
     -- ** Pretty-printers
   , ppPath
   , ppMethod
   , ppValue
+  , ppRef
   , ppCurrentPath
+  , ppStackTrace
   , ppState
   , ppMemory
   , ppFailRsn
   , ppJavaException
   , ppInternalExc
+  , ppBreakpoints
+  , ppLocals
 
     -- * Control flow primitives
   , pushCallFrame
@@ -155,21 +165,25 @@ import qualified Prelude as P
 import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Arrow ((***))
 import Control.Lens
-import Control.Monad.Error 
-import Control.Monad.State hiding (State)
+import Control.Monad.Error
+import Control.Monad.State.Class
+import Control.Monad.Trans.State.Strict hiding (State)
 
 import Data.Array (Array, Ix, assocs)
 import qualified Data.Foldable as DF
 import Data.Int (Int32)
 import Data.Map (Map)
 import qualified Data.Map as M
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import qualified Data.Set as S
-import Data.Word (Word32)
+import Data.Word (Word16, Word32)
+
+import System.Console.Haskeline.MonadException (MonadException)
 
 import Text.PrettyPrint
 
-import Language.JVM.Common (ppFldId, ppType)
+import Language.JVM.Common (ppFldId, ppMethodKey, ppType)
 import Data.JVM.Symbolic.AST
 import Execution.JavaSemantics (AtomicValue(..), JSValue)
 
@@ -187,6 +201,7 @@ newtype Simulator sbe (m :: * -> *) a =
     , MonadIO
     , MonadState (State sbe m)
     , MonadError (InternalExc sbe m)
+    , MonadException
     )
 
 -- | These constraints are common to monads with a symbolic execution
@@ -215,6 +230,8 @@ data State sbe m = State {
   , _backend           :: Backend sbe
   , _errorPaths        :: [ErrorPath sbe]
   , _printErrPaths     :: Bool
+  , _breakpoints       :: Map (String, Method) (Set PC)
+  , _trBreakpoints     :: S.Set TransientBreakpoint
   , _evHandlers        :: SEH sbe m
   }
 
@@ -239,6 +256,8 @@ initialState cb sbe flags seh = do
                  , _backend           = sbe
                  , _errorPaths        = []
                  , _printErrPaths     = False
+                 , _breakpoints       = M.empty
+                 , _trBreakpoints     = S.empty
                  , _evHandlers        = seh
                  }
 
@@ -314,20 +333,21 @@ initialCtrlStk sbe = do
                , _pathMemory      = emptyMemory
                , _pathAssertions  = true
                , _pathName        = 0
-               , _pathStartingPC  = 0
-               , _pathBreakpoints = S.empty
-               , _pathInsnCount   = 0
                }
   return $ CompletedCS (Just p)
 
 type PathDescriptor = Integer
 
 data SimulationFlags =
-  SimulationFlags { alwaysBitBlastBranchTerms :: Bool }
+  SimulationFlags { alwaysBitBlastBranchTerms :: Bool
+                  , satAtBranches             :: Bool
+                  }
   deriving Show
 
 defaultSimFlags :: SimulationFlags
-defaultSimFlags = SimulationFlags { alwaysBitBlastBranchTerms = False }
+defaultSimFlags = SimulationFlags { alwaysBitBlastBranchTerms = False
+                                  , satAtBranches             = False
+                                  }
 
 type Path sbe = Path' (SBETerm sbe)
 
@@ -347,15 +367,6 @@ data Path' term = Path {
     -- ^ facts assumed to be true on this path
   , _pathName           :: !PathDescriptor
     -- ^ a unique name for this path
-  , _pathStartingPC     :: !PC
-    -- ^ the program counter where this path began (TODO: this might not make sense with new branching)
-  , _pathBreakpoints    :: !(Set (String, MethodKey, PC))
-  -- ^ Breakpoint locations. REVISIT: might want to have a map in
-  -- state from (String, MethodKey) to Map PC (..., ...), and then
-  -- this map could just be Map PC (..., ...), and would get set every
-  -- time we modify the frame list.
-  , _pathInsnCount      :: !Int
-  -- ^ The number of instructions executed so far on this path.
   }
 
 data Memory term = Memory {
@@ -379,15 +390,15 @@ emptyMemory = Memory M.empty M.empty M.empty M.empty M.empty M.empty
 -- | A JVM call frame
 data CallFrame term
   = CallFrame {
-      _cfClass       :: !String                               
+      _cfClass       :: !String
       -- ^ Name of the class containing the current method
     , _cfMethod      :: !Method
       -- ^ The current method
     , _cfReturnBlock :: !BlockId
       -- ^ The basic block to return to
-    , _cfLocals      :: !(Map LocalVariableIndex (Value term)) 
+    , _cfLocals      :: !(Map LocalVariableIndex (Value term))
       -- ^ The current local variables (<http://docs.oracle.com/javase/specs/jvms/se7/html/jvms-2.html#jvms-2.6.1>)
-    , _cfOpds        :: ![Value term]                          
+    , _cfOpds        :: ![Value term]
       -- ^ The current operand stack
     }
     deriving (Eq)
@@ -413,15 +424,28 @@ instance Error (InternalExc sbe m) where
   noMsg  = UnknownExc Nothing
   strMsg = UnknownExc . Just . FailRsn
 
+-- | Types of breakpoints
+data Breakpoint = BreakEntry | BreakPC PC | BreakLineNum Word16
+  deriving (Eq, Ord, Show)
+
+-- | Transient breakpoints for interactive debugging
+data TransientBreakpoint = BreakNextInsn
+                         -- ^ Break at the next instruction
+                         | BreakReturnFrom Method
+                         -- ^ Break when returning from a method
+                         | BreakLineChange (Maybe Word16)
+                         -- ^ Break when line number changes or becomes known
+  deriving (Eq, Ord, Show)
+
 -- | Simulation event handlers, useful for debugging nontrivial codes.
 data SEH sbe m = SEH
   {
     -- | Invoked after function overrides have been registered
     onPostOverrideReg :: Simulator sbe m ()
     -- | Invoked before each instruction executes
-  , onPreStep         :: SymInsn -> Simulator sbe m ()
+  , onPreStep         :: Maybe PC -> SymInsn -> Simulator sbe m ()
     -- | Invoked after each instruction executes
-  , onPostStep        :: SymInsn -> Simulator sbe m ()
+  , onPostStep        :: Maybe PC -> SymInsn -> Simulator sbe m ()
   }
 
 assert :: Bool -> Simulator sbe m ()
@@ -590,19 +614,26 @@ modifyCallFrameM_ ctx f = modifyCallFrameM ctx (\cf -> ((),) <$> f cf)
 -- | Return the enclosing class of the method being executed by the
 -- current path
 getCurrentClassName :: Simulator sbe m String
-getCurrentClassName = 
+getCurrentClassName =
   modifyCallFrameM "getCurrentClassName" $ \cf -> return (cf^.cfClass, cf)
 
 -- | Return the method being executed by the current path
 getCurrentMethod :: Simulator sbe m Method
-getCurrentMethod = 
+getCurrentMethod =
   modifyCallFrameM "getCurrentClassName" $ \cf -> return (cf^.cfMethod, cf)
+
+-- | Get the current line number, if there is one associated in the code
+getCurrentLineNumber :: PC -> Simulator sbe m (Maybe Word16)
+getCurrentLineNumber pc = do
+  method <- getCurrentMethod
+  return $ sourceLineNumberOrPrev method pc
 
 -- | Resolve the given class in the simulator's current codebase
 lookupClass :: String -> Simulator sbe m Class
 lookupClass cName = do
   cb <- use codebase
-  liftIO $ Codebase.lookupClass cb cName
+  mcl <- liftIO $ Codebase.tryLookupClass cb cName
+  maybe (fail . render $ "class not found:" <+> text cName) return mcl
 
 
 -- | Push a new call frame to the current path, if any. Needs the
@@ -917,6 +948,14 @@ mergeValues assertions x y = do
   mergeV x y
 
 --------------------------------------------------------------------------------
+-- Debugging support
+
+breakpointToPC :: Method -> Breakpoint -> Maybe PC
+breakpointToPC _      BreakEntry       = return 0
+breakpointToPC _      (BreakPC pc)     = return pc
+breakpointToPC method (BreakLineNum n) = lookupLineStartPC method n
+
+--------------------------------------------------------------------------------
 -- Pretty printers
 
 ppJavaException :: JavaException term -> Doc
@@ -938,7 +977,9 @@ ppRef NullRef    = "null"
 ppRef (Ref n ty) = integer (fromIntegral n) <> "::" <> ppType ty
 
 ppMethod :: Method -> Doc
-ppMethod = text . methodKeyName . methodKey
+ppMethod method =
+  text (methodKeyName (methodKey method)) <>
+  text (unparseMethodDescriptor (methodKey method))
 
 ppState :: State sbe m -> Doc
 ppState s = hang (text "state" <+> lbrace) 2 (ppCtrlStk (s^.backend) (s^.ctrlStk)) $+$ rbrace
@@ -946,7 +987,7 @@ ppState s = hang (text "state" <+> lbrace) 2 (ppCtrlStk (s^.backend) (s^.ctrlStk
 ppPath :: Backend sbe -> Path sbe -> Doc
 ppPath sbe p =
   case currentCallFrame p of
-    Just cf -> 
+    Just cf ->
       text "Path #"
       <>  integer (p^.pathName)
       <>  brackets ( text (cf^.cfClass) <> "." <> ppMethod (cf^.cfMethod)
@@ -960,12 +1001,12 @@ ppPath sbe p =
       text "Path #" <> integer (p^.pathName) <> colon <+> "stopped"
 
 ppStackTrace :: [CallFrame term] -> Doc
-ppStackTrace cfs = braces . commas $ 
+ppStackTrace cfs = braces . vcat $
   [ text cName <> "." <> ppMethod method
   | CallFrame { _cfClass = cName, _cfMethod = method } <- cfs
   ]
 
-ppLocals :: Backend sbe 
+ppLocals :: Backend sbe
          -> Map LocalVariableIndex (Value (SBETerm sbe))
          -> Doc
 ppLocals sbe = braces . commas . M.elems . M.mapWithKey ppPair
@@ -1085,6 +1126,14 @@ ppInternalExc exc = case exc of
   UnknownExc (Just rsn) -> 
       "unknown error" <> colon <+> ppFailRsn rsn
 
+ppBreakpoints :: Map (String, Method) (Set PC) -> Doc
+ppBreakpoints bps =
+  hang "breakpoints set:" 2 . vcat $
+    [ text clName <> "." <> ppMethod method <> "%" <> text (show pc)
+    | ((clName, method), pcs) <- M.toList bps
+    , pc <- S.toList pcs
+    ]
+
 --------------------------------------------------------------------------------
 -- Manual lens implementations. These are captured by using
 -- -ddump-splices output from makeLenses, but is reproduced here
@@ -1096,793 +1145,786 @@ ppInternalExc exc = case exc of
 
 -- src/Verifier/Java/Common.hs:1:1: Splicing declarations
 --     makeLenses ''State
---   ======>
---     src/Verifier/Java/Common.hs:440:1-18
 backend ::
-  forall sbe_a3Ep m_a3Eq.
-  Lens' (State sbe_a3Ep m_a3Eq) (Backend sbe_a3Ep)
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) (Backend sbe_aDu4)
 backend
-  _f_a5uF
-  (State __codebase_a5uG
-         __instanceOverrides_a5uH
-         __staticOverrides_a5uI
-         __ctrlStk_a5uJ
-         __nextPSS_a5uK
-         __strings_a5uL
-         __nextRef_a5uM
-         __verbosity_a5uN
-         __simulationFlags_a5uO
-         __backend'_a5uP
-         __errorPaths_a5uR
-         __printErrPaths_a5uS
-         __evHandlers_a5uT)
-  = ((\ __backend_a5uQ
+  _f_aEmM
+  (State __codebase_aEmN
+         __instanceOverrides_aEmO
+         __staticOverrides_aEmP
+         __ctrlStk_aEmQ
+         __nextPSS_aEmR
+         __strings_aEmS
+         __nextRef_aEmT
+         __verbosity_aEmU
+         __simulationFlags_aEmV
+         __backend'_aEmW
+         __errorPaths_aEmY
+         __printErrPaths_aEmZ
+         __breakpoints_aEn0
+         __trBreakpoints_aEn1
+         __evHandlers_aEn2)
+  = ((\ __backend_aEmX
         -> State
-             __codebase_a5uG
-             __instanceOverrides_a5uH
-             __staticOverrides_a5uI
-             __ctrlStk_a5uJ
-             __nextPSS_a5uK
-             __strings_a5uL
-             __nextRef_a5uM
-             __verbosity_a5uN
-             __simulationFlags_a5uO
-             __backend_a5uQ
-             __errorPaths_a5uR
-             __printErrPaths_a5uS
-             __evHandlers_a5uT)
-     <$> (_f_a5uF __backend'_a5uP))
+             __codebase_aEmN
+             __instanceOverrides_aEmO
+             __staticOverrides_aEmP
+             __ctrlStk_aEmQ
+             __nextPSS_aEmR
+             __strings_aEmS
+             __nextRef_aEmT
+             __verbosity_aEmU
+             __simulationFlags_aEmV
+             __backend_aEmX
+             __errorPaths_aEmY
+             __printErrPaths_aEmZ
+             __breakpoints_aEn0
+             __trBreakpoints_aEn1
+             __evHandlers_aEn2)
+     <$> (_f_aEmM __backend'_aEmW))
 {-# INLINE backend #-}
-codebase ::
-  forall sbe_a3Ep m_a3Eq. Lens' (State sbe_a3Ep m_a3Eq) Codebase
-codebase
-  _f_a5uU
-  (State __codebase'_a5uV
-         __instanceOverrides_a5uX
-         __staticOverrides_a5uY
-         __ctrlStk_a5uZ
-         __nextPSS_a5v0
-         __strings_a5v1
-         __nextRef_a5v2
-         __verbosity_a5v3
-         __simulationFlags_a5v4
-         __backend_a5v5
-         __errorPaths_a5v6
-         __printErrPaths_a5v7
-         __evHandlers_a5v8)
-  = ((\ __codebase_a5uW
+breakpoints ::
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) (Map (String, Method) (Set PC))
+breakpoints
+  _f_aEn3
+  (State __codebase_aEn4
+         __instanceOverrides_aEn5
+         __staticOverrides_aEn6
+         __ctrlStk_aEn7
+         __nextPSS_aEn8
+         __strings_aEn9
+         __nextRef_aEna
+         __verbosity_aEnb
+         __simulationFlags_aEnc
+         __backend_aEnd
+         __errorPaths_aEne
+         __printErrPaths_aEnf
+         __breakpoints'_aEng
+         __trBreakpoints_aEni
+         __evHandlers_aEnj)
+  = ((\ __breakpoints_aEnh
         -> State
-             __codebase_a5uW
-             __instanceOverrides_a5uX
-             __staticOverrides_a5uY
-             __ctrlStk_a5uZ
-             __nextPSS_a5v0
-             __strings_a5v1
-             __nextRef_a5v2
-             __verbosity_a5v3
-             __simulationFlags_a5v4
-             __backend_a5v5
-             __errorPaths_a5v6
-             __printErrPaths_a5v7
-             __evHandlers_a5v8)
-     <$> (_f_a5uU __codebase'_a5uV))
+             __codebase_aEn4
+             __instanceOverrides_aEn5
+             __staticOverrides_aEn6
+             __ctrlStk_aEn7
+             __nextPSS_aEn8
+             __strings_aEn9
+             __nextRef_aEna
+             __verbosity_aEnb
+             __simulationFlags_aEnc
+             __backend_aEnd
+             __errorPaths_aEne
+             __printErrPaths_aEnf
+             __breakpoints_aEnh
+             __trBreakpoints_aEni
+             __evHandlers_aEnj)
+     <$> (_f_aEn3 __breakpoints'_aEng))
+{-# INLINE breakpoints #-}
+codebase ::
+  forall sbe_aDu4 m_aDu5. Lens' (State sbe_aDu4 m_aDu5) Codebase
+codebase
+  _f_aEnk
+  (State __codebase'_aEnl
+         __instanceOverrides_aEnn
+         __staticOverrides_aEno
+         __ctrlStk_aEnp
+         __nextPSS_aEnq
+         __strings_aEnr
+         __nextRef_aEns
+         __verbosity_aEnt
+         __simulationFlags_aEnu
+         __backend_aEnv
+         __errorPaths_aEnw
+         __printErrPaths_aEnx
+         __breakpoints_aEny
+         __trBreakpoints_aEnz
+         __evHandlers_aEnA)
+  = ((\ __codebase_aEnm
+        -> State
+             __codebase_aEnm
+             __instanceOverrides_aEnn
+             __staticOverrides_aEno
+             __ctrlStk_aEnp
+             __nextPSS_aEnq
+             __strings_aEnr
+             __nextRef_aEns
+             __verbosity_aEnt
+             __simulationFlags_aEnu
+             __backend_aEnv
+             __errorPaths_aEnw
+             __printErrPaths_aEnx
+             __breakpoints_aEny
+             __trBreakpoints_aEnz
+             __evHandlers_aEnA)
+     <$> (_f_aEnk __codebase'_aEnl))
 {-# INLINE codebase #-}
 ctrlStk ::
-  forall sbe_a3Ep m_a3Eq. Lens' (State sbe_a3Ep m_a3Eq) (CS sbe_a3Ep)
+  forall sbe_aDu4 m_aDu5. Lens' (State sbe_aDu4 m_aDu5) (CS sbe_aDu4)
 ctrlStk
-  _f_a5v9
-  (State __codebase_a5va
-         __instanceOverrides_a5vb
-         __staticOverrides_a5vc
-         __ctrlStk'_a5vd
-         __nextPSS_a5vf
-         __strings_a5vg
-         __nextRef_a5vh
-         __verbosity_a5vi
-         __simulationFlags_a5vj
-         __backend_a5vk
-         __errorPaths_a5vl
-         __printErrPaths_a5vm
-         __evHandlers_a5vn)
-  = ((\ __ctrlStk_a5ve
+  _f_aEnB
+  (State __codebase_aEnC
+         __instanceOverrides_aEnD
+         __staticOverrides_aEnE
+         __ctrlStk'_aEnF
+         __nextPSS_aEnH
+         __strings_aEnI
+         __nextRef_aEnJ
+         __verbosity_aEnK
+         __simulationFlags_aEnL
+         __backend_aEnM
+         __errorPaths_aEnN
+         __printErrPaths_aEnO
+         __breakpoints_aEnP
+         __trBreakpoints_aEnQ
+         __evHandlers_aEnR)
+  = ((\ __ctrlStk_aEnG
         -> State
-             __codebase_a5va
-             __instanceOverrides_a5vb
-             __staticOverrides_a5vc
-             __ctrlStk_a5ve
-             __nextPSS_a5vf
-             __strings_a5vg
-             __nextRef_a5vh
-             __verbosity_a5vi
-             __simulationFlags_a5vj
-             __backend_a5vk
-             __errorPaths_a5vl
-             __printErrPaths_a5vm
-             __evHandlers_a5vn)
-     <$> (_f_a5v9 __ctrlStk'_a5vd))
+             __codebase_aEnC
+             __instanceOverrides_aEnD
+             __staticOverrides_aEnE
+             __ctrlStk_aEnG
+             __nextPSS_aEnH
+             __strings_aEnI
+             __nextRef_aEnJ
+             __verbosity_aEnK
+             __simulationFlags_aEnL
+             __backend_aEnM
+             __errorPaths_aEnN
+             __printErrPaths_aEnO
+             __breakpoints_aEnP
+             __trBreakpoints_aEnQ
+             __evHandlers_aEnR)
+     <$> (_f_aEnB __ctrlStk'_aEnF))
 {-# INLINE ctrlStk #-}
 errorPaths ::
-  forall sbe_a3Ep m_a3Eq.
-  Lens' (State sbe_a3Ep m_a3Eq) [ErrorPath sbe_a3Ep]
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) [ErrorPath sbe_aDu4]
 errorPaths
-  _f_a5vo
-  (State __codebase_a5vp
-         __instanceOverrides_a5vq
-         __staticOverrides_a5vr
-         __ctrlStk_a5vs
-         __nextPSS_a5vt
-         __strings_a5vu
-         __nextRef_a5vv
-         __verbosity_a5vw
-         __simulationFlags_a5vx
-         __backend_a5vy
-         __errorPaths'_a5vz
-         __printErrPaths_a5vB
-         __evHandlers_a5vC)
-  = ((\ __errorPaths_a5vA
+  _f_aEnS
+  (State __codebase_aEnT
+         __instanceOverrides_aEnU
+         __staticOverrides_aEnV
+         __ctrlStk_aEnW
+         __nextPSS_aEnX
+         __strings_aEnY
+         __nextRef_aEnZ
+         __verbosity_aEo0
+         __simulationFlags_aEo1
+         __backend_aEo2
+         __errorPaths'_aEo3
+         __printErrPaths_aEo5
+         __breakpoints_aEo6
+         __trBreakpoints_aEo7
+         __evHandlers_aEo8)
+  = ((\ __errorPaths_aEo4
         -> State
-             __codebase_a5vp
-             __instanceOverrides_a5vq
-             __staticOverrides_a5vr
-             __ctrlStk_a5vs
-             __nextPSS_a5vt
-             __strings_a5vu
-             __nextRef_a5vv
-             __verbosity_a5vw
-             __simulationFlags_a5vx
-             __backend_a5vy
-             __errorPaths_a5vA
-             __printErrPaths_a5vB
-             __evHandlers_a5vC)
-     <$> (_f_a5vo __errorPaths'_a5vz))
+             __codebase_aEnT
+             __instanceOverrides_aEnU
+             __staticOverrides_aEnV
+             __ctrlStk_aEnW
+             __nextPSS_aEnX
+             __strings_aEnY
+             __nextRef_aEnZ
+             __verbosity_aEo0
+             __simulationFlags_aEo1
+             __backend_aEo2
+             __errorPaths_aEo4
+             __printErrPaths_aEo5
+             __breakpoints_aEo6
+             __trBreakpoints_aEo7
+             __evHandlers_aEo8)
+     <$> (_f_aEnS __errorPaths'_aEo3))
 {-# INLINE errorPaths #-}
 evHandlers ::
-  forall sbe_a3Ep m_a3Eq.
-  Lens' (State sbe_a3Ep m_a3Eq) (SEH sbe_a3Ep m_a3Eq)
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) (SEH sbe_aDu4 m_aDu5)
 evHandlers
-  _f_a5vD
-  (State __codebase_a5vE
-         __instanceOverrides_a5vF
-         __staticOverrides_a5vG
-         __ctrlStk_a5vH
-         __nextPSS_a5vI
-         __strings_a5vJ
-         __nextRef_a5vK
-         __verbosity_a5vL
-         __simulationFlags_a5vM
-         __backend_a5vN
-         __errorPaths_a5vO
-         __printErrPaths_a5vP
-         __evHandlers'_a5vQ)
-  = ((\ __evHandlers_a5vR
+  _f_aEo9
+  (State __codebase_aEoa
+         __instanceOverrides_aEob
+         __staticOverrides_aEoc
+         __ctrlStk_aEod
+         __nextPSS_aEoe
+         __strings_aEof
+         __nextRef_aEog
+         __verbosity_aEoh
+         __simulationFlags_aEoi
+         __backend_aEoj
+         __errorPaths_aEok
+         __printErrPaths_aEol
+         __breakpoints_aEom
+         __trBreakpoints_aEon
+         __evHandlers'_aEoo)
+  = ((\ __evHandlers_aEop
         -> State
-             __codebase_a5vE
-             __instanceOverrides_a5vF
-             __staticOverrides_a5vG
-             __ctrlStk_a5vH
-             __nextPSS_a5vI
-             __strings_a5vJ
-             __nextRef_a5vK
-             __verbosity_a5vL
-             __simulationFlags_a5vM
-             __backend_a5vN
-             __errorPaths_a5vO
-             __printErrPaths_a5vP
-             __evHandlers_a5vR)
-     <$> (_f_a5vD __evHandlers'_a5vQ))
+             __codebase_aEoa
+             __instanceOverrides_aEob
+             __staticOverrides_aEoc
+             __ctrlStk_aEod
+             __nextPSS_aEoe
+             __strings_aEof
+             __nextRef_aEog
+             __verbosity_aEoh
+             __simulationFlags_aEoi
+             __backend_aEoj
+             __errorPaths_aEok
+             __printErrPaths_aEol
+             __breakpoints_aEom
+             __trBreakpoints_aEon
+             __evHandlers_aEop)
+     <$> (_f_aEo9 __evHandlers'_aEoo))
 {-# INLINE evHandlers #-}
 instanceOverrides ::
-  forall sbe_a3Ep m_a3Eq.
-  Lens' (State sbe_a3Ep m_a3Eq) (Map (String,
-                                      MethodKey) (InstanceOverride sbe_a3Ep m_a3Eq))
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) (Map (String,
+                                      MethodKey) (InstanceOverride sbe_aDu4 m_aDu5))
 instanceOverrides
-  _f_a5vS
-  (State __codebase_a5vT
-         __instanceOverrides'_a5vU
-         __staticOverrides_a5vW
-         __ctrlStk_a5vX
-         __nextPSS_a5vY
-         __strings_a5vZ
-         __nextRef_a5w0
-         __verbosity_a5w1
-         __simulationFlags_a5w2
-         __backend_a5w3
-         __errorPaths_a5w4
-         __printErrPaths_a5w5
-         __evHandlers_a5w6)
-  = ((\ __instanceOverrides_a5vV
+  _f_aEoq
+  (State __codebase_aEor
+         __instanceOverrides'_aEos
+         __staticOverrides_aEou
+         __ctrlStk_aEov
+         __nextPSS_aEow
+         __strings_aEox
+         __nextRef_aEoy
+         __verbosity_aEoz
+         __simulationFlags_aEoA
+         __backend_aEoB
+         __errorPaths_aEoC
+         __printErrPaths_aEoD
+         __breakpoints_aEoE
+         __trBreakpoints_aEoF
+         __evHandlers_aEoG)
+  = ((\ __instanceOverrides_aEot
         -> State
-             __codebase_a5vT
-             __instanceOverrides_a5vV
-             __staticOverrides_a5vW
-             __ctrlStk_a5vX
-             __nextPSS_a5vY
-             __strings_a5vZ
-             __nextRef_a5w0
-             __verbosity_a5w1
-             __simulationFlags_a5w2
-             __backend_a5w3
-             __errorPaths_a5w4
-             __printErrPaths_a5w5
-             __evHandlers_a5w6)
-     <$> (_f_a5vS __instanceOverrides'_a5vU))
+             __codebase_aEor
+             __instanceOverrides_aEot
+             __staticOverrides_aEou
+             __ctrlStk_aEov
+             __nextPSS_aEow
+             __strings_aEox
+             __nextRef_aEoy
+             __verbosity_aEoz
+             __simulationFlags_aEoA
+             __backend_aEoB
+             __errorPaths_aEoC
+             __printErrPaths_aEoD
+             __breakpoints_aEoE
+             __trBreakpoints_aEoF
+             __evHandlers_aEoG)
+     <$> (_f_aEoq __instanceOverrides'_aEos))
 {-# INLINE instanceOverrides #-}
 nextPSS ::
-  forall sbe_a3Ep m_a3Eq.
-  Lens' (State sbe_a3Ep m_a3Eq) PathDescriptor
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) PathDescriptor
 nextPSS
-  _f_a5w7
-  (State __codebase_a5w8
-         __instanceOverrides_a5w9
-         __staticOverrides_a5wa
-         __ctrlStk_a5wb
-         __nextPSS'_a5wc
-         __strings_a5we
-         __nextRef_a5wf
-         __verbosity_a5wg
-         __simulationFlags_a5wh
-         __backend_a5wi
-         __errorPaths_a5wj
-         __printErrPaths_a5wk
-         __evHandlers_a5wl)
-  = ((\ __nextPSS_a5wd
+  _f_aEoH
+  (State __codebase_aEoI
+         __instanceOverrides_aEoJ
+         __staticOverrides_aEoK
+         __ctrlStk_aEoL
+         __nextPSS'_aEoM
+         __strings_aEoO
+         __nextRef_aEoP
+         __verbosity_aEoQ
+         __simulationFlags_aEoR
+         __backend_aEoS
+         __errorPaths_aEoT
+         __printErrPaths_aEoU
+         __breakpoints_aEoV
+         __trBreakpoints_aEoW
+         __evHandlers_aEoX)
+  = ((\ __nextPSS_aEoN
         -> State
-             __codebase_a5w8
-             __instanceOverrides_a5w9
-             __staticOverrides_a5wa
-             __ctrlStk_a5wb
-             __nextPSS_a5wd
-             __strings_a5we
-             __nextRef_a5wf
-             __verbosity_a5wg
-             __simulationFlags_a5wh
-             __backend_a5wi
-             __errorPaths_a5wj
-             __printErrPaths_a5wk
-             __evHandlers_a5wl)
-     <$> (_f_a5w7 __nextPSS'_a5wc))
+             __codebase_aEoI
+             __instanceOverrides_aEoJ
+             __staticOverrides_aEoK
+             __ctrlStk_aEoL
+             __nextPSS_aEoN
+             __strings_aEoO
+             __nextRef_aEoP
+             __verbosity_aEoQ
+             __simulationFlags_aEoR
+             __backend_aEoS
+             __errorPaths_aEoT
+             __printErrPaths_aEoU
+             __breakpoints_aEoV
+             __trBreakpoints_aEoW
+             __evHandlers_aEoX)
+     <$> (_f_aEoH __nextPSS'_aEoM))
 {-# INLINE nextPSS #-}
 nextRef ::
-  forall sbe_a3Ep m_a3Eq. Lens' (State sbe_a3Ep m_a3Eq) Word32
+  forall sbe_aDu4 m_aDu5. Lens' (State sbe_aDu4 m_aDu5) Word32
 nextRef
-  _f_a5wm
-  (State __codebase_a5wn
-         __instanceOverrides_a5wo
-         __staticOverrides_a5wp
-         __ctrlStk_a5wq
-         __nextPSS_a5wr
-         __strings_a5ws
-         __nextRef'_a5wt
-         __verbosity_a5wv
-         __simulationFlags_a5ww
-         __backend_a5wx
-         __errorPaths_a5wy
-         __printErrPaths_a5wz
-         __evHandlers_a5wA)
-  = ((\ __nextRef_a5wu
+  _f_aEoY
+  (State __codebase_aEoZ
+         __instanceOverrides_aEp0
+         __staticOverrides_aEp1
+         __ctrlStk_aEp2
+         __nextPSS_aEp3
+         __strings_aEp4
+         __nextRef'_aEp5
+         __verbosity_aEp7
+         __simulationFlags_aEp8
+         __backend_aEp9
+         __errorPaths_aEpa
+         __printErrPaths_aEpb
+         __breakpoints_aEpc
+         __trBreakpoints_aEpd
+         __evHandlers_aEpe)
+  = ((\ __nextRef_aEp6
         -> State
-             __codebase_a5wn
-             __instanceOverrides_a5wo
-             __staticOverrides_a5wp
-             __ctrlStk_a5wq
-             __nextPSS_a5wr
-             __strings_a5ws
-             __nextRef_a5wu
-             __verbosity_a5wv
-             __simulationFlags_a5ww
-             __backend_a5wx
-             __errorPaths_a5wy
-             __printErrPaths_a5wz
-             __evHandlers_a5wA)
-     <$> (_f_a5wm __nextRef'_a5wt))
+             __codebase_aEoZ
+             __instanceOverrides_aEp0
+             __staticOverrides_aEp1
+             __ctrlStk_aEp2
+             __nextPSS_aEp3
+             __strings_aEp4
+             __nextRef_aEp6
+             __verbosity_aEp7
+             __simulationFlags_aEp8
+             __backend_aEp9
+             __errorPaths_aEpa
+             __printErrPaths_aEpb
+             __breakpoints_aEpc
+             __trBreakpoints_aEpd
+             __evHandlers_aEpe)
+     <$> (_f_aEoY __nextRef'_aEp5))
 {-# INLINE nextRef #-}
 printErrPaths ::
-  forall sbe_a3Ep m_a3Eq. Lens' (State sbe_a3Ep m_a3Eq) Bool
+  forall sbe_aDu4 m_aDu5. Lens' (State sbe_aDu4 m_aDu5) Bool
 printErrPaths
-  _f_a5wB
-  (State __codebase_a5wC
-         __instanceOverrides_a5wD
-         __staticOverrides_a5wE
-         __ctrlStk_a5wF
-         __nextPSS_a5wG
-         __strings_a5wH
-         __nextRef_a5wI
-         __verbosity_a5wJ
-         __simulationFlags_a5wK
-         __backend_a5wL
-         __errorPaths_a5wM
-         __printErrPaths'_a5wN
-         __evHandlers_a5wP)
-  = ((\ __printErrPaths_a5wO
+  _f_aEpf
+  (State __codebase_aEpg
+         __instanceOverrides_aEph
+         __staticOverrides_aEpi
+         __ctrlStk_aEpj
+         __nextPSS_aEpk
+         __strings_aEpl
+         __nextRef_aEpm
+         __verbosity_aEpn
+         __simulationFlags_aEpo
+         __backend_aEpp
+         __errorPaths_aEpq
+         __printErrPaths'_aEpr
+         __breakpoints_aEpt
+         __trBreakpoints_aEpu
+         __evHandlers_aEpv)
+  = ((\ __printErrPaths_aEps
         -> State
-             __codebase_a5wC
-             __instanceOverrides_a5wD
-             __staticOverrides_a5wE
-             __ctrlStk_a5wF
-             __nextPSS_a5wG
-             __strings_a5wH
-             __nextRef_a5wI
-             __verbosity_a5wJ
-             __simulationFlags_a5wK
-             __backend_a5wL
-             __errorPaths_a5wM
-             __printErrPaths_a5wO
-             __evHandlers_a5wP)
-     <$> (_f_a5wB __printErrPaths'_a5wN))
+             __codebase_aEpg
+             __instanceOverrides_aEph
+             __staticOverrides_aEpi
+             __ctrlStk_aEpj
+             __nextPSS_aEpk
+             __strings_aEpl
+             __nextRef_aEpm
+             __verbosity_aEpn
+             __simulationFlags_aEpo
+             __backend_aEpp
+             __errorPaths_aEpq
+             __printErrPaths_aEps
+             __breakpoints_aEpt
+             __trBreakpoints_aEpu
+             __evHandlers_aEpv)
+     <$> (_f_aEpf __printErrPaths'_aEpr))
 {-# INLINE printErrPaths #-}
 simulationFlags ::
-  forall sbe_a3Ep m_a3Eq.
-  Lens' (State sbe_a3Ep m_a3Eq) SimulationFlags
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) SimulationFlags
 simulationFlags
-  _f_a5wQ
-  (State __codebase_a5wR
-         __instanceOverrides_a5wS
-         __staticOverrides_a5wT
-         __ctrlStk_a5wU
-         __nextPSS_a5wV
-         __strings_a5wW
-         __nextRef_a5wX
-         __verbosity_a5wY
-         __simulationFlags'_a5wZ
-         __backend_a5x1
-         __errorPaths_a5x2
-         __printErrPaths_a5x3
-         __evHandlers_a5x4)
-  = ((\ __simulationFlags_a5x0
+  _f_aEpw
+  (State __codebase_aEpx
+         __instanceOverrides_aEpy
+         __staticOverrides_aEpz
+         __ctrlStk_aEpA
+         __nextPSS_aEpB
+         __strings_aEpC
+         __nextRef_aEpD
+         __verbosity_aEpE
+         __simulationFlags'_aEpF
+         __backend_aEpH
+         __errorPaths_aEpI
+         __printErrPaths_aEpJ
+         __breakpoints_aEpK
+         __trBreakpoints_aEpL
+         __evHandlers_aEpM)
+  = ((\ __simulationFlags_aEpG
         -> State
-             __codebase_a5wR
-             __instanceOverrides_a5wS
-             __staticOverrides_a5wT
-             __ctrlStk_a5wU
-             __nextPSS_a5wV
-             __strings_a5wW
-             __nextRef_a5wX
-             __verbosity_a5wY
-             __simulationFlags_a5x0
-             __backend_a5x1
-             __errorPaths_a5x2
-             __printErrPaths_a5x3
-             __evHandlers_a5x4)
-     <$> (_f_a5wQ __simulationFlags'_a5wZ))
+             __codebase_aEpx
+             __instanceOverrides_aEpy
+             __staticOverrides_aEpz
+             __ctrlStk_aEpA
+             __nextPSS_aEpB
+             __strings_aEpC
+             __nextRef_aEpD
+             __verbosity_aEpE
+             __simulationFlags_aEpG
+             __backend_aEpH
+             __errorPaths_aEpI
+             __printErrPaths_aEpJ
+             __breakpoints_aEpK
+             __trBreakpoints_aEpL
+             __evHandlers_aEpM)
+     <$> (_f_aEpw __simulationFlags'_aEpF))
 {-# INLINE simulationFlags #-}
 staticOverrides ::
-  forall sbe_a3Ep m_a3Eq.
-  Lens' (State sbe_a3Ep m_a3Eq) (Map (String,
-                                      MethodKey) (StaticOverride sbe_a3Ep m_a3Eq))
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) (Map (String,
+                                      MethodKey) (StaticOverride sbe_aDu4 m_aDu5))
 staticOverrides
-  _f_a5x5
-  (State __codebase_a5x6
-         __instanceOverrides_a5x7
-         __staticOverrides'_a5x8
-         __ctrlStk_a5xa
-         __nextPSS_a5xb
-         __strings_a5xc
-         __nextRef_a5xd
-         __verbosity_a5xe
-         __simulationFlags_a5xf
-         __backend_a5xg
-         __errorPaths_a5xh
-         __printErrPaths_a5xi
-         __evHandlers_a5xj)
-  = ((\ __staticOverrides_a5x9
+  _f_aEpN
+  (State __codebase_aEpO
+         __instanceOverrides_aEpP
+         __staticOverrides'_aEpQ
+         __ctrlStk_aEpS
+         __nextPSS_aEpT
+         __strings_aEpU
+         __nextRef_aEpV
+         __verbosity_aEpW
+         __simulationFlags_aEpX
+         __backend_aEpY
+         __errorPaths_aEpZ
+         __printErrPaths_aEq0
+         __breakpoints_aEq1
+         __trBreakpoints_aEq2
+         __evHandlers_aEq3)
+  = ((\ __staticOverrides_aEpR
         -> State
-             __codebase_a5x6
-             __instanceOverrides_a5x7
-             __staticOverrides_a5x9
-             __ctrlStk_a5xa
-             __nextPSS_a5xb
-             __strings_a5xc
-             __nextRef_a5xd
-             __verbosity_a5xe
-             __simulationFlags_a5xf
-             __backend_a5xg
-             __errorPaths_a5xh
-             __printErrPaths_a5xi
-             __evHandlers_a5xj)
-     <$> (_f_a5x5 __staticOverrides'_a5x8))
+             __codebase_aEpO
+             __instanceOverrides_aEpP
+             __staticOverrides_aEpR
+             __ctrlStk_aEpS
+             __nextPSS_aEpT
+             __strings_aEpU
+             __nextRef_aEpV
+             __verbosity_aEpW
+             __simulationFlags_aEpX
+             __backend_aEpY
+             __errorPaths_aEpZ
+             __printErrPaths_aEq0
+             __breakpoints_aEq1
+             __trBreakpoints_aEq2
+             __evHandlers_aEq3)
+     <$> (_f_aEpN __staticOverrides'_aEpQ))
 {-# INLINE staticOverrides #-}
 strings ::
-  forall sbe_a3Ep m_a3Eq.
-  Lens' (State sbe_a3Ep m_a3Eq) (Map String Ref)
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) (Map String Ref)
 strings
-  _f_a5xk
-  (State __codebase_a5xl
-         __instanceOverrides_a5xm
-         __staticOverrides_a5xn
-         __ctrlStk_a5xo
-         __nextPSS_a5xp
-         __strings'_a5xq
-         __nextRef_a5xs
-         __verbosity_a5xt
-         __simulationFlags_a5xu
-         __backend_a5xv
-         __errorPaths_a5xw
-         __printErrPaths_a5xx
-         __evHandlers_a5xy)
-  = ((\ __strings_a5xr
+  _f_aEq4
+  (State __codebase_aEq5
+         __instanceOverrides_aEq6
+         __staticOverrides_aEq7
+         __ctrlStk_aEq8
+         __nextPSS_aEq9
+         __strings'_aEqa
+         __nextRef_aEqc
+         __verbosity_aEqd
+         __simulationFlags_aEqe
+         __backend_aEqf
+         __errorPaths_aEqg
+         __printErrPaths_aEqh
+         __breakpoints_aEqi
+         __trBreakpoints_aEqj
+         __evHandlers_aEqk)
+  = ((\ __strings_aEqb
         -> State
-             __codebase_a5xl
-             __instanceOverrides_a5xm
-             __staticOverrides_a5xn
-             __ctrlStk_a5xo
-             __nextPSS_a5xp
-             __strings_a5xr
-             __nextRef_a5xs
-             __verbosity_a5xt
-             __simulationFlags_a5xu
-             __backend_a5xv
-             __errorPaths_a5xw
-             __printErrPaths_a5xx
-             __evHandlers_a5xy)
-     <$> (_f_a5xk __strings'_a5xq))
+             __codebase_aEq5
+             __instanceOverrides_aEq6
+             __staticOverrides_aEq7
+             __ctrlStk_aEq8
+             __nextPSS_aEq9
+             __strings_aEqb
+             __nextRef_aEqc
+             __verbosity_aEqd
+             __simulationFlags_aEqe
+             __backend_aEqf
+             __errorPaths_aEqg
+             __printErrPaths_aEqh
+             __breakpoints_aEqi
+             __trBreakpoints_aEqj
+             __evHandlers_aEqk)
+     <$> (_f_aEq4 __strings'_aEqa))
 {-# INLINE strings #-}
-verbosity ::
-  forall sbe_a3Ep m_a3Eq. Lens' (State sbe_a3Ep m_a3Eq) Int
-verbosity
-  _f_a5xz
-  (State __codebase_a5xA
-         __instanceOverrides_a5xB
-         __staticOverrides_a5xC
-         __ctrlStk_a5xD
-         __nextPSS_a5xE
-         __strings_a5xF
-         __nextRef_a5xG
-         __verbosity'_a5xH
-         __simulationFlags_a5xJ
-         __backend_a5xK
-         __errorPaths_a5xL
-         __printErrPaths_a5xM
-         __evHandlers_a5xN)
-  = ((\ __verbosity_a5xI
+trBreakpoints ::
+  forall sbe_aDu4 m_aDu5.
+  Lens' (State sbe_aDu4 m_aDu5) (Set TransientBreakpoint)
+trBreakpoints
+  _f_aEql
+  (State __codebase_aEqm
+         __instanceOverrides_aEqn
+         __staticOverrides_aEqo
+         __ctrlStk_aEqp
+         __nextPSS_aEqq
+         __strings_aEqr
+         __nextRef_aEqs
+         __verbosity_aEqt
+         __simulationFlags_aEqu
+         __backend_aEqv
+         __errorPaths_aEqw
+         __printErrPaths_aEqx
+         __breakpoints_aEqy
+         __trBreakpoints'_aEqz
+         __evHandlers_aEqB)
+  = ((\ __trBreakpoints_aEqA
         -> State
-             __codebase_a5xA
-             __instanceOverrides_a5xB
-             __staticOverrides_a5xC
-             __ctrlStk_a5xD
-             __nextPSS_a5xE
-             __strings_a5xF
-             __nextRef_a5xG
-             __verbosity_a5xI
-             __simulationFlags_a5xJ
-             __backend_a5xK
-             __errorPaths_a5xL
-             __printErrPaths_a5xM
-             __evHandlers_a5xN)
-     <$> (_f_a5xz __verbosity'_a5xH))
+             __codebase_aEqm
+             __instanceOverrides_aEqn
+             __staticOverrides_aEqo
+             __ctrlStk_aEqp
+             __nextPSS_aEqq
+             __strings_aEqr
+             __nextRef_aEqs
+             __verbosity_aEqt
+             __simulationFlags_aEqu
+             __backend_aEqv
+             __errorPaths_aEqw
+             __printErrPaths_aEqx
+             __breakpoints_aEqy
+             __trBreakpoints_aEqA
+             __evHandlers_aEqB)
+     <$> (_f_aEql __trBreakpoints'_aEqz))
+{-# INLINE trBreakpoints #-}
+verbosity ::
+  forall sbe_aDu4 m_aDu5. Lens' (State sbe_aDu4 m_aDu5) Int
+verbosity
+  _f_aEqC
+  (State __codebase_aEqD
+         __instanceOverrides_aEqE
+         __staticOverrides_aEqF
+         __ctrlStk_aEqG
+         __nextPSS_aEqH
+         __strings_aEqI
+         __nextRef_aEqJ
+         __verbosity'_aEqK
+         __simulationFlags_aEqM
+         __backend_aEqN
+         __errorPaths_aEqO
+         __printErrPaths_aEqP
+         __breakpoints_aEqQ
+         __trBreakpoints_aEqR
+         __evHandlers_aEqS)
+  = ((\ __verbosity_aEqL
+        -> State
+             __codebase_aEqD
+             __instanceOverrides_aEqE
+             __staticOverrides_aEqF
+             __ctrlStk_aEqG
+             __nextPSS_aEqH
+             __strings_aEqI
+             __nextRef_aEqJ
+             __verbosity_aEqL
+             __simulationFlags_aEqM
+             __backend_aEqN
+             __errorPaths_aEqO
+             __printErrPaths_aEqP
+             __breakpoints_aEqQ
+             __trBreakpoints_aEqR
+             __evHandlers_aEqS)
+     <$> (_f_aEqC __verbosity'_aEqK))
 {-# INLINE verbosity #-}
+
 -- src/Verifier/Java/Common.hs:1:1: Splicing declarations
 --     makeLenses ''Path'
 --   ======>
 --     src/Verifier/Java/Common.hs:441:1-18
 pathAssertions ::
-  forall term_a3vM. Lens' (Path' term_a3vM) term_a3vM
+  forall term_aaA1u. Lens' (Path' term_aaA1u) term_aaA1u
 pathAssertions
-  _f_a5Bi
-  (Path __pathStack_a5Bj
-        __pathStackHt_a5Bk
-        __pathBlockId_a5Bl
-        __pathRetVal_a5Bm
-        __pathException_a5Bn
-        __pathMemory_a5Bo
-        __pathAssertions'_a5Bp
-        __pathName_a5Br
-        __pathStartingPC_a5Bs
-        __pathBreakpoints_a5Bt
-        __pathInsnCount_a5Bu)
-  = ((\ __pathAssertions_a5Bq
+  _f_aaAcE
+  (Path __pathStack_aaAcF
+        __pathStackHt_aaAcG
+        __pathBlockId_aaAcH
+        __pathRetVal_aaAcI
+        __pathException_aaAcJ
+        __pathMemory_aaAcK
+        __pathAssertions'_aaAcL
+        __pathName_aaAcN)
+  = ((\ __pathAssertions_aaAcM
         -> Path
-             __pathStack_a5Bj
-             __pathStackHt_a5Bk
-             __pathBlockId_a5Bl
-             __pathRetVal_a5Bm
-             __pathException_a5Bn
-             __pathMemory_a5Bo
-             __pathAssertions_a5Bq
-             __pathName_a5Br
-             __pathStartingPC_a5Bs
-             __pathBreakpoints_a5Bt
-             __pathInsnCount_a5Bu)
-     <$> (_f_a5Bi __pathAssertions'_a5Bp))
+             __pathStack_aaAcF
+             __pathStackHt_aaAcG
+             __pathBlockId_aaAcH
+             __pathRetVal_aaAcI
+             __pathException_aaAcJ
+             __pathMemory_aaAcK
+             __pathAssertions_aaAcM
+             __pathName_aaAcN)
+     <$> (_f_aaAcE __pathAssertions'_aaAcL))
 {-# INLINE pathAssertions #-}
 pathBlockId ::
-  forall term_a3vM. Lens' (Path' term_a3vM) (Maybe BlockId)
+  forall term_aaA1u. Lens' (Path' term_aaA1u) (Maybe BlockId)
 pathBlockId
-  _f_a5Bv
-  (Path __pathStack_a5Bw
-        __pathStackHt_a5Bx
-        __pathBlockId'_a5By
-        __pathRetVal_a5BA
-        __pathException_a5BB
-        __pathMemory_a5BC
-        __pathAssertions_a5BD
-        __pathName_a5BE
-        __pathStartingPC_a5BF
-        __pathBreakpoints_a5BG
-        __pathInsnCount_a5BH)
-  = ((\ __pathBlockId_a5Bz
+  _f_aaAcO
+  (Path __pathStack_aaAcP
+        __pathStackHt_aaAcQ
+        __pathBlockId'_aaAcR
+        __pathRetVal_aaAcT
+        __pathException_aaAcU
+        __pathMemory_aaAcV
+        __pathAssertions_aaAcW
+        __pathName_aaAcX)
+  = ((\ __pathBlockId_aaAcS
         -> Path
-             __pathStack_a5Bw
-             __pathStackHt_a5Bx
-             __pathBlockId_a5Bz
-             __pathRetVal_a5BA
-             __pathException_a5BB
-             __pathMemory_a5BC
-             __pathAssertions_a5BD
-             __pathName_a5BE
-             __pathStartingPC_a5BF
-             __pathBreakpoints_a5BG
-             __pathInsnCount_a5BH)
-     <$> (_f_a5Bv __pathBlockId'_a5By))
+             __pathStack_aaAcP
+             __pathStackHt_aaAcQ
+             __pathBlockId_aaAcS
+             __pathRetVal_aaAcT
+             __pathException_aaAcU
+             __pathMemory_aaAcV
+             __pathAssertions_aaAcW
+             __pathName_aaAcX)
+     <$> (_f_aaAcO __pathBlockId'_aaAcR))
 {-# INLINE pathBlockId #-}
-pathBreakpoints ::
-  forall term_a3vM.
-  Lens' (Path' term_a3vM) (Set (String, MethodKey, PC))
-pathBreakpoints
-  _f_a5BI
-  (Path __pathStack_a5BJ
-        __pathStackHt_a5BK
-        __pathBlockId_a5BL
-        __pathRetVal_a5BM
-        __pathException_a5BN
-        __pathMemory_a5BO
-        __pathAssertions_a5BP
-        __pathName_a5BQ
-        __pathStartingPC_a5BR
-        __pathBreakpoints'_a5BS
-        __pathInsnCount_a5BU)
-  = ((\ __pathBreakpoints_a5BT
-        -> Path
-             __pathStack_a5BJ
-             __pathStackHt_a5BK
-             __pathBlockId_a5BL
-             __pathRetVal_a5BM
-             __pathException_a5BN
-             __pathMemory_a5BO
-             __pathAssertions_a5BP
-             __pathName_a5BQ
-             __pathStartingPC_a5BR
-             __pathBreakpoints_a5BT
-             __pathInsnCount_a5BU)
-     <$> (_f_a5BI __pathBreakpoints'_a5BS))
-{-# INLINE pathBreakpoints #-}
 pathException ::
-  forall term_a3vM.
-  Lens' (Path' term_a3vM) (Maybe (JavaException term_a3vM))
+  forall term_aaA1u.
+  Lens' (Path' term_aaA1u) (Maybe (JavaException term_aaA1u))
 pathException
-  _f_a5BV
-  (Path __pathStack_a5BW
-        __pathStackHt_a5BX
-        __pathBlockId_a5BY
-        __pathRetVal_a5BZ
-        __pathException'_a5C0
-        __pathMemory_a5C2
-        __pathAssertions_a5C3
-        __pathName_a5C4
-        __pathStartingPC_a5C5
-        __pathBreakpoints_a5C6
-        __pathInsnCount_a5C7)
-  = ((\ __pathException_a5C1
+  _f_aaAcY
+  (Path __pathStack_aaAcZ
+        __pathStackHt_aaAd0
+        __pathBlockId_aaAd1
+        __pathRetVal_aaAd2
+        __pathException'_aaAd3
+        __pathMemory_aaAd5
+        __pathAssertions_aaAd6
+        __pathName_aaAd7)
+  = ((\ __pathException_aaAd4
         -> Path
-             __pathStack_a5BW
-             __pathStackHt_a5BX
-             __pathBlockId_a5BY
-             __pathRetVal_a5BZ
-             __pathException_a5C1
-             __pathMemory_a5C2
-             __pathAssertions_a5C3
-             __pathName_a5C4
-             __pathStartingPC_a5C5
-             __pathBreakpoints_a5C6
-             __pathInsnCount_a5C7)
-     <$> (_f_a5BV __pathException'_a5C0))
+             __pathStack_aaAcZ
+             __pathStackHt_aaAd0
+             __pathBlockId_aaAd1
+             __pathRetVal_aaAd2
+             __pathException_aaAd4
+             __pathMemory_aaAd5
+             __pathAssertions_aaAd6
+             __pathName_aaAd7)
+     <$> (_f_aaAcY __pathException'_aaAd3))
 {-# INLINE pathException #-}
-pathInsnCount :: forall term_a3vM. Lens' (Path' term_a3vM) Int
-pathInsnCount
-  _f_a5C8
-  (Path __pathStack_a5C9
-        __pathStackHt_a5Ca
-        __pathBlockId_a5Cb
-        __pathRetVal_a5Cc
-        __pathException_a5Cd
-        __pathMemory_a5Ce
-        __pathAssertions_a5Cf
-        __pathName_a5Cg
-        __pathStartingPC_a5Ch
-        __pathBreakpoints_a5Ci
-        __pathInsnCount'_a5Cj)
-  = ((\ __pathInsnCount_a5Ck
-        -> Path
-             __pathStack_a5C9
-             __pathStackHt_a5Ca
-             __pathBlockId_a5Cb
-             __pathRetVal_a5Cc
-             __pathException_a5Cd
-             __pathMemory_a5Ce
-             __pathAssertions_a5Cf
-             __pathName_a5Cg
-             __pathStartingPC_a5Ch
-             __pathBreakpoints_a5Ci
-             __pathInsnCount_a5Ck)
-     <$> (_f_a5C8 __pathInsnCount'_a5Cj))
-{-# INLINE pathInsnCount #-}
 pathMemory ::
-  forall term_a3vM. Lens' (Path' term_a3vM) (Memory term_a3vM)
+  forall term_aaA1u. Lens' (Path' term_aaA1u) (Memory term_aaA1u)
 pathMemory
-  _f_a5Cl
-  (Path __pathStack_a5Cm
-        __pathStackHt_a5Cn
-        __pathBlockId_a5Co
-        __pathRetVal_a5Cp
-        __pathException_a5Cq
-        __pathMemory'_a5Cr
-        __pathAssertions_a5Ct
-        __pathName_a5Cu
-        __pathStartingPC_a5Cv
-        __pathBreakpoints_a5Cw
-        __pathInsnCount_a5Cx)
-  = ((\ __pathMemory_a5Cs
+  _f_aaAd8
+  (Path __pathStack_aaAd9
+        __pathStackHt_aaAda
+        __pathBlockId_aaAdb
+        __pathRetVal_aaAdc
+        __pathException_aaAdd
+        __pathMemory'_aaAde
+        __pathAssertions_aaAdg
+        __pathName_aaAdh)
+  = ((\ __pathMemory_aaAdf
         -> Path
-             __pathStack_a5Cm
-             __pathStackHt_a5Cn
-             __pathBlockId_a5Co
-             __pathRetVal_a5Cp
-             __pathException_a5Cq
-             __pathMemory_a5Cs
-             __pathAssertions_a5Ct
-             __pathName_a5Cu
-             __pathStartingPC_a5Cv
-             __pathBreakpoints_a5Cw
-             __pathInsnCount_a5Cx)
-     <$> (_f_a5Cl __pathMemory'_a5Cr))
+             __pathStack_aaAd9
+             __pathStackHt_aaAda
+             __pathBlockId_aaAdb
+             __pathRetVal_aaAdc
+             __pathException_aaAdd
+             __pathMemory_aaAdf
+             __pathAssertions_aaAdg
+             __pathName_aaAdh)
+     <$> (_f_aaAd8 __pathMemory'_aaAde))
 {-# INLINE pathMemory #-}
 pathName ::
-  forall term_a3vM. Lens' (Path' term_a3vM) PathDescriptor
+  forall term_aaA1u. Lens' (Path' term_aaA1u) PathDescriptor
 pathName
-  _f_a5Cy
-  (Path __pathStack_a5Cz
-        __pathStackHt_a5CA
-        __pathBlockId_a5CB
-        __pathRetVal_a5CC
-        __pathException_a5CD
-        __pathMemory_a5CE
-        __pathAssertions_a5CF
-        __pathName'_a5CG
-        __pathStartingPC_a5CI
-        __pathBreakpoints_a5CJ
-        __pathInsnCount_a5CK)
-  = ((\ __pathName_a5CH
+  _f_aaAdi
+  (Path __pathStack_aaAdj
+        __pathStackHt_aaAdk
+        __pathBlockId_aaAdl
+        __pathRetVal_aaAdm
+        __pathException_aaAdn
+        __pathMemory_aaAdo
+        __pathAssertions_aaAdp
+        __pathName'_aaAdq)
+  = ((\ __pathName_aaAdr
         -> Path
-             __pathStack_a5Cz
-             __pathStackHt_a5CA
-             __pathBlockId_a5CB
-             __pathRetVal_a5CC
-             __pathException_a5CD
-             __pathMemory_a5CE
-             __pathAssertions_a5CF
-             __pathName_a5CH
-             __pathStartingPC_a5CI
-             __pathBreakpoints_a5CJ
-             __pathInsnCount_a5CK)
-     <$> (_f_a5Cy __pathName'_a5CG))
+             __pathStack_aaAdj
+             __pathStackHt_aaAdk
+             __pathBlockId_aaAdl
+             __pathRetVal_aaAdm
+             __pathException_aaAdn
+             __pathMemory_aaAdo
+             __pathAssertions_aaAdp
+             __pathName_aaAdr)
+     <$> (_f_aaAdi __pathName'_aaAdq))
 {-# INLINE pathName #-}
 pathRetVal ::
-  forall term_a3vM. Lens' (Path' term_a3vM) (Maybe (Value term_a3vM))
+  forall term_aaA1u.
+  Lens' (Path' term_aaA1u) (Maybe (Value term_aaA1u))
 pathRetVal
-  _f_a5CL
-  (Path __pathStack_a5CM
-        __pathStackHt_a5CN
-        __pathBlockId_a5CO
-        __pathRetVal'_a5CP
-        __pathException_a5CR
-        __pathMemory_a5CS
-        __pathAssertions_a5CT
-        __pathName_a5CU
-        __pathStartingPC_a5CV
-        __pathBreakpoints_a5CW
-        __pathInsnCount_a5CX)
-  = ((\ __pathRetVal_a5CQ
+  _f_aaAds
+  (Path __pathStack_aaAdt
+        __pathStackHt_aaAdu
+        __pathBlockId_aaAdv
+        __pathRetVal'_aaAdw
+        __pathException_aaAdy
+        __pathMemory_aaAdz
+        __pathAssertions_aaAdA
+        __pathName_aaAdB)
+  = ((\ __pathRetVal_aaAdx
         -> Path
-             __pathStack_a5CM
-             __pathStackHt_a5CN
-             __pathBlockId_a5CO
-             __pathRetVal_a5CQ
-             __pathException_a5CR
-             __pathMemory_a5CS
-             __pathAssertions_a5CT
-             __pathName_a5CU
-             __pathStartingPC_a5CV
-             __pathBreakpoints_a5CW
-             __pathInsnCount_a5CX)
-     <$> (_f_a5CL __pathRetVal'_a5CP))
+             __pathStack_aaAdt
+             __pathStackHt_aaAdu
+             __pathBlockId_aaAdv
+             __pathRetVal_aaAdx
+             __pathException_aaAdy
+             __pathMemory_aaAdz
+             __pathAssertions_aaAdA
+             __pathName_aaAdB)
+     <$> (_f_aaAds __pathRetVal'_aaAdw))
 {-# INLINE pathRetVal #-}
 pathStack ::
-  forall term_a3vM. Lens' (Path' term_a3vM) [CallFrame term_a3vM]
+  forall term_aaA1u. Lens' (Path' term_aaA1u) [CallFrame term_aaA1u]
 pathStack
-  _f_a5CY
-  (Path __pathStack'_a5CZ
-        __pathStackHt_a5D1
-        __pathBlockId_a5D2
-        __pathRetVal_a5D3
-        __pathException_a5D4
-        __pathMemory_a5D5
-        __pathAssertions_a5D6
-        __pathName_a5D7
-        __pathStartingPC_a5D8
-        __pathBreakpoints_a5D9
-        __pathInsnCount_a5Da)
-  = ((\ __pathStack_a5D0
+  _f_aaAdC
+  (Path __pathStack'_aaAdD
+        __pathStackHt_aaAdF
+        __pathBlockId_aaAdG
+        __pathRetVal_aaAdH
+        __pathException_aaAdI
+        __pathMemory_aaAdJ
+        __pathAssertions_aaAdK
+        __pathName_aaAdL)
+  = ((\ __pathStack_aaAdE
         -> Path
-             __pathStack_a5D0
-             __pathStackHt_a5D1
-             __pathBlockId_a5D2
-             __pathRetVal_a5D3
-             __pathException_a5D4
-             __pathMemory_a5D5
-             __pathAssertions_a5D6
-             __pathName_a5D7
-             __pathStartingPC_a5D8
-             __pathBreakpoints_a5D9
-             __pathInsnCount_a5Da)
-     <$> (_f_a5CY __pathStack'_a5CZ))
+             __pathStack_aaAdE
+             __pathStackHt_aaAdF
+             __pathBlockId_aaAdG
+             __pathRetVal_aaAdH
+             __pathException_aaAdI
+             __pathMemory_aaAdJ
+             __pathAssertions_aaAdK
+             __pathName_aaAdL)
+     <$> (_f_aaAdC __pathStack'_aaAdD))
 {-# INLINE pathStack #-}
-pathStackHt :: forall term_a3vM. Lens' (Path' term_a3vM) Int
+pathStackHt :: forall term_aaA1u. Lens' (Path' term_aaA1u) Int
 pathStackHt
-  _f_a5Db
-  (Path __pathStack_a5Dc
-        __pathStackHt'_a5Dd
-        __pathBlockId_a5Df
-        __pathRetVal_a5Dg
-        __pathException_a5Dh
-        __pathMemory_a5Di
-        __pathAssertions_a5Dj
-        __pathName_a5Dk
-        __pathStartingPC_a5Dl
-        __pathBreakpoints_a5Dm
-        __pathInsnCount_a5Dn)
-  = ((\ __pathStackHt_a5De
+  _f_aaAdM
+  (Path __pathStack_aaAdN
+        __pathStackHt'_aaAdO
+        __pathBlockId_aaAdQ
+        __pathRetVal_aaAdR
+        __pathException_aaAdS
+        __pathMemory_aaAdT
+        __pathAssertions_aaAdU
+        __pathName_aaAdV)
+  = ((\ __pathStackHt_aaAdP
         -> Path
-             __pathStack_a5Dc
-             __pathStackHt_a5De
-             __pathBlockId_a5Df
-             __pathRetVal_a5Dg
-             __pathException_a5Dh
-             __pathMemory_a5Di
-             __pathAssertions_a5Dj
-             __pathName_a5Dk
-             __pathStartingPC_a5Dl
-             __pathBreakpoints_a5Dm
-             __pathInsnCount_a5Dn)
-     <$> (_f_a5Db __pathStackHt'_a5Dd))
+             __pathStack_aaAdN
+             __pathStackHt_aaAdP
+             __pathBlockId_aaAdQ
+             __pathRetVal_aaAdR
+             __pathException_aaAdS
+             __pathMemory_aaAdT
+             __pathAssertions_aaAdU
+             __pathName_aaAdV)
+     <$> (_f_aaAdM __pathStackHt'_aaAdO))
 {-# INLINE pathStackHt #-}
-pathStartingPC :: forall term_a3vM. Lens' (Path' term_a3vM) PC
-pathStartingPC
-  _f_a5Do
-  (Path __pathStack_a5Dp
-        __pathStackHt_a5Dq
-        __pathBlockId_a5Dr
-        __pathRetVal_a5Ds
-        __pathException_a5Dt
-        __pathMemory_a5Du
-        __pathAssertions_a5Dv
-        __pathName_a5Dw
-        __pathStartingPC'_a5Dx
-        __pathBreakpoints_a5Dz
-        __pathInsnCount_a5DA)
-  = ((\ __pathStartingPC_a5Dy
-        -> Path
-             __pathStack_a5Dp
-             __pathStackHt_a5Dq
-             __pathBlockId_a5Dr
-             __pathRetVal_a5Ds
-             __pathException_a5Dt
-             __pathMemory_a5Du
-             __pathAssertions_a5Dv
-             __pathName_a5Dw
-             __pathStartingPC_a5Dy
-             __pathBreakpoints_a5Dz
-             __pathInsnCount_a5DA)
-     <$> (_f_a5Do __pathStartingPC'_a5Dx))
-{-# INLINE pathStartingPC #-}
 -- src/Verifier/Java/Common.hs:1:1: Splicing declarations
 --     makeLenses ''Memory
 --   ======>

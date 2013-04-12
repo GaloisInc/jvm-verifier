@@ -8,6 +8,7 @@ import Test.Framework
 
 import Tests.Common
 import Tests.Arrays
+import Tests.Debugger
 import Tests.ExampleErrorSession
 import Tests.ExampleExceptionSession
 import Tests.ExpectedErrors
@@ -38,4 +39,5 @@ allTests cb =
       , japiTests cb
       , prettyPrintTests
       , ruleCheckerTests
+      , debuggerTests cb
       ]

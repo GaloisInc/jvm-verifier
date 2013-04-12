@@ -39,6 +39,7 @@ import Language.JVM.CFG
 import Execution
 import Data.JVM.Symbolic.Translation
 import Verifier.Java.Codebase
+import Verifier.Java.Debugger
 import Verifier.Java.Simulator
 import Verifier.Java.Utils
 import Verifier.Java.WordBackend
@@ -77,14 +78,16 @@ dumpSymASTs cb cname = do
           mapM_ (\i -> putStrLn $ "  " ++ ppSymInst' i) $ sbInsns b
 
 data JSS = JSS
-  { classpath :: String
-  , jars      :: String
-  , opts      :: String
-  , blast     :: Bool
-  , xlate     :: Bool
-  , errPaths  :: Bool
-  , dbug      :: Int
-  , mcname    :: Maybe String
+  { classpath     :: String
+  , jars          :: String
+  , opts          :: String
+  , blast         :: Bool
+  , sat           :: Bool
+  , xlate         :: Bool
+  , errPaths      :: Bool
+  , dbug          :: Int
+  , mcname        :: Maybe String
+  , startDebugger :: Bool
   } deriving (Show, Data, Typeable)
 
 main :: IO ()
@@ -114,10 +117,12 @@ main = do
                        ++ " (use --help for more info)")
 
         , blast  = def &= help "Always bitblast symbolic condition terms at branches (may force symbolic termination)"
+        , sat = def &= help "Always check satisfiability of symbolic path assertions at branches (subsumes bitblasting)"
         , errPaths = def &= help "Print details of symbolic execution paths that end in errors"
         , dbug   = def &= opt "0" &= help "Debug verbosity level (0-6)"
         , xlate  = def &= help "Print the symbolic AST translation stdout and terminate"
         , mcname = def &= typ "MAIN CLASS NAME" &= args
+        , startDebugger = def &= help "Break and enter the JSS debugger when running main method"
         }
     &= summary ("Java Symbolic Simulator (jss) 0.2 Mar 2013. "
                 ++ "Copyright 2010-2013 Galois, Inc. All rights reserved.")
@@ -169,11 +174,17 @@ main = do
     exitSuccess
 
   withFreshBackend $ \sbe -> do
-   let fl = defaultSimFlags{ alwaysBitBlastBranchTerms = blast args' }
+   let fl  = defaultSimFlags { alwaysBitBlastBranchTerms = blast args'
+                             , satAtBranches             = sat args'
+                             }
+       seh = defaultSEH { onPreStep = runAtBreakpoints debuggerREPL }
    let go = do tl <- liftIO $ termInt sbe (fromIntegral (length jopts))
                jssOverrides
                setVerbosity (dbug args')
                printErrPaths .= errPaths args'
+               when (startDebugger args') $ do
+                 breakOnMain cname
+                 evHandlers .= seh
                rs <- runMain cname =<< do
                  jargs <- newMultiArray (ArrayType (ClassType "java/lang/String")) [tl]
                  forM_ ([0..length jopts - 1] `zip` jopts) $ \(i,s) -> do

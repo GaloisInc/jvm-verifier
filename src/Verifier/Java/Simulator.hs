@@ -1,7 +1,7 @@
 {- |
 Module           : $Header$
-Description      : JVM Symbolic Simulatior implementation
-Stability        : stable
+Description      : JVM Symbolic Simulator implementation
+Stability        : provisional
 Point-of-contact : jstanley, acfoltzer
 
 Implementation of the JVM Symbolic Simulator. This module exposes an
@@ -46,6 +46,7 @@ module Verifier.Java.Simulator
   , run
   , execInstanceMethod
   , execStaticMethod
+  , errorPath
     -- * Method overriding
   , overrideInstanceMethod
   , overrideStaticMethod
@@ -70,10 +71,15 @@ module Verifier.Java.Simulator
     -- * Dynamic binding
   , dynBind
   , dynBindSuper
-    -- * Pretty-printing and debugging 
+    -- * Pretty-printing and debugging
+  , addBreakpoint
+  , removeBreakpoint
   , dbugM
-  , abort  
+  , abort
   , prettyTermSBE
+  , ppValueFull
+  , ppNamedLocals
+  , dumpCurrentMethod
     -- * Re-exported modules
   , module Execution.JavaSemantics
   , module Verifier.Java.Backend
@@ -87,15 +93,19 @@ import Control.Applicative hiding (empty)
 import Control.Lens hiding (act)
 import Control.Monad
 import Control.Monad.Error
-import Control.Monad.State (evalStateT, get, put)
+import Control.Monad.State.Class (get, put)
+import Control.Monad.Trans.State.Strict (evalStateT)
 
 import Data.Array
 import Data.Char
 import Data.Int
-import Data.List (find, foldl')
+import Data.List (find, foldl', sort)
 import qualified Data.Map as M
 import Data.Maybe
+import Data.Set (Set)
+import qualified Data.Set as S
 import qualified Data.Vector as V
+import Data.Word (Word16)
 
 import System.IO (hFlush, stdout)
 
@@ -204,16 +214,16 @@ run = do
       cb <- use codebase
       whenVerbosity (>= 6) $ do
          liftIO $ dumpSymASTs cb cName
-      symBlocks <- do 
+      symBlocks <- do
          mblocks <- liftIO $ lookupSymbolicMethod cb cName (methodKey method)
          case mblocks of
            Just blocks -> return blocks
-           _ -> fail . render $ "unable to symbolically translate" 
+           _ -> fail . render $ "unable to symbolically translate"
                 <+> text cName <+> ppMethod method
       case lookupSymBlock bid symBlocks of
         Just symBlock -> do
           dbugM' 6 . render $ "run:" <+> ppSymBlock symBlock
-          runInsns . map snd $ sbInsns symBlock
+          runInsns $ sbInsns symBlock
         Nothing -> fail . render 
           $ "invalid basic block" <+> ppBlockId bid 
           <+> "for method" <+> ppMethod method
@@ -736,7 +746,7 @@ execMethod cName key locals = do
   run
   finishedCS <- use ctrlStk
   case currentPath finishedCS of
-    Just p -> modifyPathM "execMethod" $ \p -> do
+    Just _ -> modifyPathM "execMethod" $ \p -> do
                 let p' = p -- p & pathRetVal .~ Nothing
                 return (Just (p', p^.pathRetVal), p')
     Nothing -> return Nothing
@@ -812,12 +822,12 @@ skipInit cname = cname `elem` [ "java/lang/System"
                               ]
 
 runInsns :: MonadSim sbe m
-         => [SymInsn] -> Simulator sbe m ()
+         => [(Maybe PC, SymInsn)] -> Simulator sbe m ()
 runInsns insns = mapM_ dbugStep insns
 
-dbugStep :: MonadSim sbe m 
-         => SymInsn -> Simulator sbe m ()
-dbugStep insn = do
+dbugStep :: MonadSim sbe m
+         => (Maybe PC, SymInsn) -> Simulator sbe m ()
+dbugStep (pc, insn) = do
   mp <- getPathMaybe
   case mp of
     Nothing -> dbugM' 4 . render $ "Executing: (no current path)" 
@@ -835,9 +845,9 @@ dbugStep insn = do
         "Executing" <+> parens ("#" <> integer (p^.pathName))
         <+> loc <> colon <+> (ppSymInsn insn)
 --  repl
-  cb1 onPreStep insn
+  cb2 onPreStep pc insn
   step insn
-  cb1 onPostStep insn
+  cb2 onPostStep pc insn
   whenVerbosity (>=6) $ do
     p <- getPath "dbugStep"
     sbe <- use backend
@@ -939,23 +949,43 @@ step ReturnVal = do
 step (PushPendingExecution bid cond ml elseInsns) = do
   sbe <- use backend
   c <- evalCond cond
-  b <- do blast <- alwaysBitBlastBranchTerms <$> use (simulationFlags)
-          if blast 
-            then liftIO (blastTerm sbe c) 
-            else return $ asBool sbe c
-  dbugM' 6 $ "### PushPendingExecution (condAsBool=" ++ show (asBool sbe c) ++ ")"
-  case b of
-   -- Don't bother with elseStmts as condition is true. 
-   Just True  -> setCurrentBlock bid
-   -- Don't bother with pending path as condition is false.
-   Just False -> runInsns (map snd elseInsns)
-   Nothing -> do
-     nm <- use nextPSS
-     nextPSS += 1
-     modifyCSM_ $ \cs -> case addCtrlBranch c bid nm ml cs of
-                           Just cs' -> return cs'
-                           Nothing -> fail "addCtrlBranch"
-     runInsns (map snd elseInsns)
+  flags <- use simulationFlags
+  p <- getPath "PushPendingExecution"
+  tsat <- if satAtBranches flags
+            then liftIO $ satTerm sbe =<< termAnd sbe c (p^.pathAssertions)
+            else return True
+  fsat <- if satAtBranches flags
+            then liftIO $ do
+              cnot <- termNot sbe c
+              satTerm sbe =<< termAnd sbe cnot (p^.pathAssertions)
+            else return True
+  b <- if alwaysBitBlastBranchTerms flags
+         then liftIO (blastTerm sbe c)
+         else return (asBool sbe c)
+  let b' = if tsat then b else Just False
+  dbugM' 6 $ "### PushPendingExecution (condAsBool=" ++ show b' ++ ")"
+  -- if neither path is satisfiable, just error out. But then how did
+  -- we get here?
+  when (not (tsat || fsat)) $ do
+    dbugM' 3 "both branch conditions unsatisfiable -- should have been caught earlier"
+    errorPath $ FailRsn "no satisfiable branch assertions"
+  case b' of
+    -- Don't bother with elseStmts as condition is true.
+    Just True -> setCurrentBlock bid
+    -- Don't bother with elseStmts if negated condition is unsat
+    Nothing | not fsat -> setCurrentBlock bid
+    -- Don't bother with pending path as condition is false.
+    Just False -> runInsns elseInsns
+    -- Don't bother with pending path as condition is unsat
+    Nothing | not tsat -> runInsns elseInsns
+    -- Don't know condition result, but both branches are sat
+    Nothing -> do
+      nm <- use nextPSS
+      nextPSS += 1
+      modifyCSM_ $ \cs -> case addCtrlBranch c bid nm ml cs of
+                            Just cs' -> return cs'
+                            Nothing -> fail "addCtrlBranch"
+      runInsns elseInsns
 
 step (SetCurrentBlock bid) = setCurrentBlock bid
 
@@ -1002,25 +1032,6 @@ evalCond (CompareRef cmpTy) = do
     NE -> bNot =<< rEq x y
     _  -> fail "invalid reference comparison; bug in symbolic translation?"
 
-{-
--- | Evaluate condition in current path.
-evalCond :: (Functor sbe, Functor m, MonadIO m) => SymCond -> Simulator sbe m (SBETerm sbe)
-evalCond TrueSymCond = withSBE $ \sbe -> termBool sbe True
-evalCond (HasConstValue typedTerm i) = do
-  Typed (L.PrimType (L.Integer w)) v <- getTypedTerm "evalCond" typedTerm
-  sbe <- gets symBE
-  iv <- liftSBE $ termInt sbe (fromIntegral w) i
-  liftSBE $ applyIEq sbe (fromIntegral w) v iv
-evalCond (NotConstValues typedTerm is) = do
-  Typed (L.PrimType (L.Integer w)) t <- getTypedTerm "evalCond" typedTerm
-  sbe <- gets symBE
-  true <- liftSBE $ termBool sbe True
-  il <- mapM (liftSBE . termInt sbe (fromIntegral w)) is
-  ir <- mapM (liftSBE . applyIne sbe (fromIntegral w) t) il
-  let fn r v = liftSBE $ applyAnd sbe r v
-  foldM fn true ir
--}
-
 --------------------------------------------------------------------------------
 -- Callbacks and event handlers
 
@@ -1028,16 +1039,15 @@ cb1 :: (Functor m, Monad m)
   => (SEH sbe m -> a -> Simulator sbe m ()) -> a -> Simulator sbe m ()
 cb1 f x = join (f <$> use evHandlers <*> pure x)
 
-{-
 cb2 :: (Functor m, Monad m)
   => (SEH sbe m -> a -> b -> Simulator sbe m ()) -> a -> b -> Simulator sbe m ()
-cb2 f x y = join $ gets (f . evHandlers) <*> pure x <*> pure y
--}
+cb2 f x y = join (f <$> use evHandlers <*> pure x <*> pure y)
+
 defaultSEH :: Monad m => SEH sbe m
 defaultSEH = SEH
                (return ())
-               (\_   -> return ())
-               (\_   -> return ())
+               (\_ _ -> return ())
+               (\_ _ -> return ())
 
 --------------------------------------------------------------------------------
 -- Conversions
@@ -1051,8 +1061,6 @@ floatRem :: (RealFrac a) => a -> a -> a
 floatRem x y = fromIntegral z
   where z :: Integer
         z = truncate x `rem` truncate y
-
---refFromString :: MonadSim sbe m => String -> Simulator sbe m Ref
 
 newString :: MonadSim sbe m => String -> Simulator sbe m Ref
 newString s = do
@@ -1076,7 +1084,7 @@ newString s = do
     ref
     (FieldId "java/lang/String" "offset" IntType)
     (IValue arrayOffset)
-  alen <- liftIO $ termInt sbe $ fromIntegral (length s)  
+  alen <- liftIO $ termInt sbe $ fromIntegral (length s)
   setInstanceFieldValue
     ref
     (FieldId "java/lang/String" "count" IntType)
@@ -1100,7 +1108,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   initializeClass name = do
     m <- getMem "initializeClass"
     case M.lookup name (m^.memInitialization) of
-      Nothing | hasCustomClassInitialization name -> 
+      Nothing | hasCustomClassInitialization name ->
                   runCustomClassInitialization name
       Nothing | otherwise -> do
         setMem $ setInitializationStatus name Started m
@@ -1993,6 +2001,42 @@ dynBind' clName key objectRef = do
 --------------------------------------------------------------------------------
 -- Debugging
 
+-- | Add a breakpoint for the given method
+addBreakpoint :: String
+              -- ^ class name
+              -> MethodKey
+              -> Breakpoint
+              -> Simulator sbe m ()
+addBreakpoint = toggleBreakpoint S.insert
+
+-- | Remove a breakpoint for the given method, doing nothing if one is not present
+removeBreakpoint :: String
+                 -- ^ class name
+                 -> MethodKey
+                 -> Breakpoint
+                 -> Simulator sbe m ()
+removeBreakpoint = toggleBreakpoint S.delete
+
+toggleBreakpoint :: (PC -> Set PC -> Set PC)
+                 -> String
+                 -- ^ class name
+                 -> MethodKey
+                 -> Breakpoint
+                 -> Simulator sbe m ()
+toggleBreakpoint fn clName key bp = do
+  cl <- lookupClass clName
+  let methodDoc = text clName <> "." <> ppMethodKey key
+  method <- case lookupMethod cl key of
+              Nothing -> fail . render $ "unknown method:" <+> methodDoc
+              Just m -> return m
+  bp' <- case breakpointToPC method bp of
+           Just pc -> return pc
+           Nothing -> fail . render $
+             "line number not availble for method:" <+> methodDoc
+  mbps <- M.lookup (clName, method) <$> use breakpoints
+  let bps = fn bp' $ fromMaybe S.empty mbps
+  breakpoints %= M.insert (clName, method) bps
+
 -- | Pretty-prints a symbolic value with an accompanying description
 dbugValue :: MonadSim sbe m => String -> Value (SBETerm sbe) -> Simulator sbe m ()
 dbugValue desc v = dbugM =<< ((++) (desc ++ ": ")) . render <$> prettyValueSBE v
@@ -2004,20 +2048,63 @@ dumpSymASTs cb cname = do
   case mc of
     Just c -> mapM_ (dumpMethod c) $ classMethods c
     Nothing -> putStrLn $ "Main class " ++ cname ++ " not found."
-  where ppInst' (pc, i) = show pc ++ ": " ++ ppInst i
-        ppSymInst' (mpc, i) =
-          maybe "" (\pc -> show pc ++ ": ") mpc ++ render (ppSymInsn i)
-        dumpMethod c m =
-          case methodBody m of
-            Code _ _ cfg _ _ _ _ -> do
-              putStrLn ""
-              putStrLn . className $ c
-              putStrLn . show . methodKey $ m
-              putStrLn ""
-              mapM_ (putStrLn . ppInst') . concatMap bbInsts $ allBBs cfg
-              putStrLn ""
-              mapM_ dumpBlock . fst $ liftCFG cfg
-            _ -> return ()
-        dumpBlock b = do
-          putStrLn . render . ppBlockId . sbId $ b
-          mapM_ (\i -> putStrLn $ "  " ++ ppSymInst' i) $ sbInsns b
+
+ppValueFull :: MonadSim sbe m => Value (SBETerm sbe) -> Simulator sbe m Doc
+ppValueFull (RValue r@(Ref n (ArrayType _))) = do
+    val <- rVal
+    return $ ppRef r <+> "=>" <+> val
+  where rVal = do
+          sbe <- use backend
+          thunks <- getArray ppValueFull r
+          docs <- sequence thunks
+          return . brackets . commas $ docs
+ppValueFull v = withSBE' $ \sbe -> ppValue sbe v
+
+-- | Pretty-print locals if names are available; otherwise uses indexes
+ppNamedLocals :: MonadSim sbe m
+              => Method
+              -> PC
+              -> M.Map LocalVariableIndex (Value (SBETerm sbe))
+              -> Simulator sbe m Doc
+ppNamedLocals method pc locals = do
+    pairs <- forM (M.toList locals) ppPair
+    return . braces . commas $ pairs
+  where ppPair (idx, val) = do pVal <- ppValueFull val
+                               return $ name idx <+> ":=" <+> pVal
+        name idx = fromMaybe (int . fromIntegral $ idx)
+                     (text . localName <$> lookupLocalVariableByIdx method pc idx)
+
+ppInst' (pc, i) = show pc ++ ": " ++ ppInst i
+ppSymInst' (mpc, i) =
+  maybe "" (\pc -> show pc ++ ": ") mpc ++ render (ppSymInsn i)
+
+dumpMethod :: Class -> Method -> IO ()
+dumpMethod c m =
+  case methodBody m of
+    Code _ _ cfg _ _ _ _ -> do
+      putStrLn ""
+      putStrLn . className $ c
+      putStrLn . show . methodKey $ m
+      putStrLn ""
+      mapM_ (putStrLn . ppInst') . concatMap bbInsts $ allBBs cfg
+      putStrLn ""
+      mapM_ dumpBlock . fst $ liftCFG cfg
+    _ -> return ()
+
+dumpBlock :: SymBlock -> IO ()
+dumpBlock b = do
+  putStrLn . render . ppBlockId . sbId $ b
+  mapM_ (\i -> putStrLn $ "  " ++ ppSymInst' i) $ sbInsns b
+
+dumpCurrentMethod :: MonadSim sbe m => Simulator sbe m ()
+dumpCurrentMethod = do
+  cb <- use codebase
+  cName <- getCurrentClassName
+  method <- getCurrentMethod
+  symBlocks <- do
+    mblocks <- liftIO $ lookupSymbolicMethod cb cName (methodKey method)
+    case mblocks of
+      Just blocks -> return blocks
+      _ -> fail . render $ "unable to symbolically translate"
+           <+> text cName <+> ppMethod method
+  liftIO . mapM_ dumpBlock . sort $ symBlocks
