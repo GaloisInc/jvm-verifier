@@ -219,7 +219,7 @@ executable Benchmarks
       base >= 4
     , array
     , containers
-    , criterion >= 0.6
+    , criterion >= 0.6 && < 0.8
     , directory
     , filepath
     , haskeline >= 0.7
