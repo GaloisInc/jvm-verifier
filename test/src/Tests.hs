@@ -20,6 +20,7 @@ import Tests.SHA384
 import Tests.JAPI
 import Tests.PrettyPrint
 import Tests.RuleChecker
+import Tests.Regressions
 
 main :: IO ()
 main = do cb <- commonLoadCB
@@ -40,4 +41,5 @@ allTests cb =
       , prettyPrintTests
       , ruleCheckerTests
       , debuggerTests cb
+      , regressionTests cb
       ]
