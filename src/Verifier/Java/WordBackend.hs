@@ -36,6 +36,7 @@ module Verifier.Java.WordBackend
 
 import Control.Applicative
 import Control.Exception (assert, bracket)
+import Control.Monad (void)
 import Data.Bits
 import Data.Int
 import Data.IORef
@@ -271,8 +272,10 @@ symbolicBackend sms = do
           32 -> return $ map (mkCInt 32 . boolSeqToValue) $ splitN 32 rsl
           64 -> return $ map (mkCInt 64 . boolSeqToValue) $ splitN 64 rsl
           _  -> error $ "evalAigArray: input array elements have unexpected bit width"
-   , writeAigToFile = \fname res -> lWriteAiger fname [res]
-   , writeCnfToFile = \fname res -> beWriteCNF be fname [] res >> return ()
+   , writeAigToFile = \fname res -> do
+       lWriteAiger fname res
+   , writeCnfToFile = \fname res -> do
+       void $ beWriteCNF be fname mempty res
    , getVarLit = \t -> toLsbfV <$> getTermLit t
    , Verifier.Java.Backend.prettyTermD = Verinf.Symbolic.prettyTermD
    }

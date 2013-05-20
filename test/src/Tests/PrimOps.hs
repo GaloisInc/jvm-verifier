@@ -32,7 +32,7 @@ import Test.QuickCheck.Monadic as QC
 import Tests.Common
 
 primOpTests :: Codebase -> Test
-primOpTests cb = mutuallyExclusive . testGroup "PrimOps" $
+primOpTests cb = testGroup "PrimOps" $
    [ -- 32b tests over all symbolic backends, as configured below
      testCase "32b int and" $ t1 cb
    , testCase "32b int add" $ t2 cb

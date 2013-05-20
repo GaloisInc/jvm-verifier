@@ -19,6 +19,8 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Error
 import Data.Char
+import Data.Function
+import Data.List
 import System.Console.CmdArgs.Implicit hiding (verbosity, setVerbosity)
 import System.Directory
 import System.Environment (getArgs)
@@ -35,6 +37,7 @@ import Prelude hiding (catch)
 import Text.PrettyPrint hiding (char)
 
 import Language.JVM.CFG
+import Language.JVM.Parser
 
 import Execution
 import Data.JVM.Symbolic.Translation
@@ -71,7 +74,7 @@ dumpSymASTs cb cname = do
               putStrLn ""
               mapM_ (putStrLn . ppInst') . concatMap bbInsts $ allBBs cfg
               putStrLn ""
-              mapM_ dumpBlock . fst $ liftCFG cfg
+              mapM_ dumpBlock . sortBy (compare `on` sbId) . fst $ liftCFG cfg
             _ -> return ()
         dumpBlock b = do
           putStrLn . render . ppBlockId . sbId $ b

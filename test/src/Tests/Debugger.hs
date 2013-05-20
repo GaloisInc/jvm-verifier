@@ -27,6 +27,7 @@ debuggerTests cb = testGroup "Debugger" $
   [
     testCase "tbp" $ tbp cb
   , testCase "tmain" $ tmain cb
+--  , testCase "trepl" $ trepl cb
   ]
 
 -- | Test entry and line number breakpoints for arbitrary methods
