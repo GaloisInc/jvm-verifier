@@ -45,7 +45,7 @@ library
     , directory
     , filepath
     , haskeline >= 0.7
-    , jvm-parser >= 0.2
+    , jvm-parser >= 0.2.1
     , lens >= 3.8
     , mtl >= 2.1
     , pretty >= 1.1
@@ -97,7 +97,7 @@ executable jss
     , directory
     , executable-path
     , filepath
-    , jvm-parser >= 0.2
+    , jvm-parser >= 0.2.1
     , jvm-verifier
     , lens >= 3.8
     , mtl >= 2.1
@@ -125,7 +125,7 @@ executable jvmgraph
       base >= 4
     , cmdargs
     , pretty
-    , jvm-parser
+    , jvm-parser >= 0.2.1
    
   hs-source-dirs : jvmgraph
   main-is : Main.hs
@@ -190,7 +190,7 @@ executable Tests
     , directory
     , filepath
     , haskeline >= 0.7
-    , jvm-parser
+    , jvm-parser >= 0.2.1
     , lens >= 3.8
     , mtl >= 2.1
     , pretty
@@ -219,11 +219,11 @@ executable Benchmarks
       base >= 4
     , array
     , containers
-    , criterion >= 0.6
+    , criterion >= 0.6 && < 0.8
     , directory
     , filepath
     , haskeline >= 0.7
-    , jvm-parser
+    , jvm-parser >= 0.2.1
     , lens >= 3.8
     , mtl >= 2.1
     , pretty
@@ -253,7 +253,7 @@ executable ExampleAIG
     , containers
     , directory
     , filepath
-    , jvm-parser
+    , jvm-parser >= 0.2.1
     , mtl >= 2.1
     , random >= 1.0.1.0
     , vector >= 0.7
