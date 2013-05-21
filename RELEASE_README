@@ -14,8 +14,11 @@ bin/         : Command-line executables
 CHANGES
 
   * Added support for incremental path satisfiability checking
+    + The --sat command line option enables this behavior, which implies
+      bit-blasting at all branches, as well.
   * Added an interactive symbolic debugger
-    - The --startdebugger command line option will add a breakpoint at
+    + The --startdebugger command line option will add a breakpoint at
       the beginning of the 'main' function. From there, you can use
       debugger commands to set later breakpoints, single step, continue
       execution until the next breakpoint, and inspect simulator state.
+  * A bug resulting in errors about an empty call stack has been fixed.
