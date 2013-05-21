@@ -1,6 +1,6 @@
 #!/bin/sh
 
-TARGET=jss-0.2
+TARGET=jss-0.3
 
 NM=`uname`
 
