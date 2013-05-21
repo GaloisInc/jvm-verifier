@@ -4,7 +4,7 @@ Symbolic Simulator (jss).
 Due to licensing restrictions, the Java Runtime Environment must be
 downloaded and installed separately.
 
-CONTENTS (Version 0.2 released April 2013)
+CONTENTS (Version 0.3 released May 2013)
 
 doc/         : Java Symbolic API documentation, jss man page
 doc/japi     : JavaDoc documentation for the Java Symbolic API
@@ -13,7 +13,9 @@ bin/         : Command-line executables
 
 CHANGES
 
-  * Added support for generating CNF models in DIMACS format (closes #20).
-  * Reorganized simulator to do post-dominator based merging (closes #25).
-  * Improved JSS tutorial, and added HTML version (closes #10, #26).
-  * Updated built-in version of ABC to changeset 1486:bb0deac0865f
+  * Added support for incremental path satisfiability checking
+  * Added an interactive symbolic debugger
+    - The --startdebugger command line option will add a breakpoint at
+      the beginning of the 'main' function. From there, you can use
+      debugger commands to set later breakpoints, single step, continue
+      execution until the next breakpoint, and inspect simulator state.
