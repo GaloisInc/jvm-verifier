@@ -11,12 +11,11 @@ import Control.Monad
 
 import Criterion.Main
 
-import Test.HUnit
-
 import Tests.Common
 import Tests.PathStateMerges
 import Tests.RC564
 
+main :: IO ()
 main = do cb <- commonLoadCB
           -- run each sim once so lazy initialization doesn't pollute result
           mul2WithFlags cb bitblastFlags
