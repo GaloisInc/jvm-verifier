@@ -25,6 +25,7 @@ module Verifier.Java.WordBackend
          -- * Backend Exports
        , module Verifier.Java.Backend
        , SymbolicMonad
+       , mkSymbolicMonadState
        , withSymbolicMonadState
        , withFreshBackend
        , SymbolicMonadState(..)
