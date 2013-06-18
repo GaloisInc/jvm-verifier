@@ -36,24 +36,7 @@ import Numeric
 import Data.Maybe          (listToMaybe)
 import Control.Monad.Trans
 
-class Monad m => LogMonad m where
-  -- | Gets verbosity of logging
-  getVerbosity :: m Int
-  -- | Set verbosity of logging
-  setVerbosity :: Int -> m ()
-  -- | Execute term computation with given verbosity.
-  withVerbosity :: Int -> m a -> m a
-  withVerbosity v m = do
-    old <- getVerbosity
-    setVerbosity v
-    res <- m
-    setVerbosity old
-    return res
-  -- | Execute computation when verbosity has specific level.
-  whenVerbosity :: (Int -> Bool) -> m () -> m ()
-  whenVerbosity f act = do
-    v <- getVerbosity
-    when (f v) act
+import Verinf.Utils.LogMonad
 
 headf :: [a] -> (a -> a) -> [a]
 headf [] _     = error "headf: empty list"
