@@ -11,20 +11,22 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 
 import Verifier.SAW
+import qualified Verifier.SAW.Recognizer as R
 import Verifier.Java.Backend
 
 
-instance PrettyTerm (SharedTerm s) where
-instance Show (SharedTerm s) where
 instance Typeable (SharedTerm s) where
 
 instance AigOps (SharedContext s) where
 
-type instance MonadTerm (SharedContext s) = SharedTerm s
+type instance SBETerm (SharedContext s) = SharedTerm s
+type instance SBELit (SharedContext s) = Int --BH FIXME: what should this be?
 
 withFreshBackend :: (Backend (SharedContext s) -> IO a) -> IO a
-withFreshBackend f =
-  f =<< uncurry sawBackend =<< mkSharedContext preludeModule
+withFreshBackend f = do
+  sc <- mkSharedContext preludeModule
+  be <- sawBackend sc (error "FIXME :: Map String (SharedTerm s)")
+  f be
 
 sawBackend :: SharedContext s
               -- Maps symbol names to the term.
@@ -32,10 +34,9 @@ sawBackend :: SharedContext s
            -> Map String (SharedTerm s)
            -> IO (Backend (SharedContext s))
 sawBackend sc preludeSyms = do
-  let ?sc = sc
-  let apply2 op x y   = scApplyAll op [x,y]
-      apply3 op x y z = scApplyAll op [x,y,z]
-      apply4 op w x y z = scApplyAll op [w,x,y,z]
+  let apply2 op x y   = scApplyAll sc op [x,y]
+      apply3 op x y z = scApplyAll sc op [x,y,z]
+      apply4 op w x y z = scApplyAll sc op [w,x,y,z]
   let getBuiltin nm =
         case Map.lookup nm preludeSyms of
           Nothing -> fail $ "Could not find symbol " ++ show nm ++ " in prelude."
@@ -50,25 +51,25 @@ sawBackend sc preludeSyms = do
 
   eqOp <- getBuiltin "eq"
 
-  int0  <- scInteger 0
-  int8  <- scInteger 8
-  int32 <- scInteger 32
-  int64 <- scInteger 64
+  int0  <- scNat sc 0
+  int8  <- scNat sc 8
+  int32 <- scNat sc 32
+  int64 <- scNat sc 64
 
   signedType <- getBuiltin "Signed"
-  signed8  <- scApply signedType int8
-  signed32 <- scApply signedType int32
-  signed64 <- scApply signedType int64
+  signed8  <- scApply sc signedType int8
+  signed32 <- scApply sc signedType int32
+  signed64 <- scApply sc signedType int64
 
   signedToInt <- getBuiltin "signedToInteger"
-  signed32ToInt <- scApply signedToInt int32
+  signed32ToInt <- scApply sc signedToInt int32
 
   intToSigned <- getBuiltin "integerToSigned"
-  intToSigned32 <- scApply intToSigned int32
-  intToSigned64 <- scApply intToSigned int64
+  intToSigned32 <- scApply sc intToSigned int32
+  intToSigned64 <- scApply sc intToSigned int64
 
-  signed32_0 <- scApply intToSigned32 int0
-  signed64_0 <- scApply intToSigned64 int0
+  signed32_0 <- scApply sc intToSigned32 int0
+  signed64_0 <- scApply sc intToSigned64 int0
 
   resizeSignedOp <- getBuiltin "resizeSigned"
   byteFromIntFn <- apply3 resizeSignedOp int32 int8  atomicProof
@@ -80,7 +81,7 @@ sawBackend sc preludeSyms = do
   leqOp <- getBuiltin "leq"
  
   signedOrdInstance <- getBuiltin "signedOrdInstance"
-  signed32OrdInstance <- scApply signedOrdInstance int32  
+  signed32OrdInstance <- scApply sc signedOrdInstance int32  
  
   signed32LeqOp <- apply2 leqOp signed32 signed32OrdInstance
 
@@ -99,8 +100,8 @@ sawBackend sc preludeSyms = do
   -- Signed integer bit operations.
 
   signedBitsInstance <- getBuiltin "signedBitsInstance"
-  signed32BitsInstance <- scApply signedBitsInstance int32
-  signed64BitsInstance <- scApply signedBitsInstance int64
+  signed32BitsInstance <- scApply sc signedBitsInstance int32
+  signed64BitsInstance <- scApply sc signedBitsInstance int64
   
   let getBitsOp nm = do
         op <- getBuiltin nm
@@ -120,8 +121,8 @@ sawBackend sc preludeSyms = do
   -- Signed arithmetic operations.
   signedNumInstance <- getBuiltin "signedNumInstance"
 
-  signed32NumInstance <- scApply signedNumInstance int32
-  signed64NumInstance <- scApply signedNumInstance int64
+  signed32NumInstance <- scApply sc signedNumInstance int32
+  signed64NumInstance <- scApply sc signedNumInstance int64
 
   let getNumOp nm = do
         op <- getBuiltin nm
@@ -140,41 +141,41 @@ sawBackend sc preludeSyms = do
 
   let applyDiv op x y = apply3 op x y atomicProof
   let mkArray eltType eltValue l = do
-        il <- scApply signed32ToInt l
+        il <- scApply sc signed32ToInt l
         Just <$> apply4 replicateOp il atomicProof eltType eltValue
 
   getOp <- getBuiltin "get"
   let getArray eltType l a i = do
-        lint <- scApply signed32ToInt l
-        iint <- scApply signed32ToInt i
-        scApplyAll getOp [lint,eltType,a,iint,atomicProof]
+        lint <- scApply sc signed32ToInt l
+        iint <- scApply sc signed32ToInt i
+        scApplyAll sc getOp [lint,eltType,a,iint,atomicProof]
 
   setOp <- getBuiltin "set"
   let setArray eltType l a i v = do
-        lint <- scApply signed32ToInt l
-        iint <- scApply signed32ToInt i
-        scApplyAll setOp [lint,eltType,a,iint,atomicProof,v]
-  return Backend { freshByte = scFreshGlobal (mkIdent "_") signed8
-                 , freshInt  = scFreshGlobal (mkIdent "_") signed32
-                 , freshLong = scFreshGlobal (mkIdent "_") signed64
-                 , asBool = scViewAsBool
-                 , asInt  = \t -> fmap fromIntegral $ scViewAsNum t
-                 , asLong = \t -> fmap fromIntegral $ scViewAsNum t
+        lint <- scApply sc signed32ToInt l
+        iint <- scApply sc signed32ToInt i
+        scApplyAll sc setOp [lint,eltType,a,iint,atomicProof,v]
+  return Backend { freshByte = scFreshGlobal sc "_" signed8
+                 , freshInt  = scFreshGlobal sc "_" signed32
+                 , freshLong = scFreshGlobal sc "_" signed64
+                 , asBool = R.asBool
+                 , asInt  = \t -> fmap fromIntegral $ R.asNatLit t -- Maybe Int32
+                 , asLong = \t -> fmap fromIntegral $ R.asNatLit t -- Maybe Int64
                  , termBool = \b -> return $ if b then trueCtor else falseCtor
-                 , termInt  = \w -> scApply intToSigned32 =<< scInteger (toInteger w)
-                 , termLong = \w -> scApply intToSigned64 =<< scInteger (toInteger w)
-                 , termByteFromInt = scApply byteFromIntFn 
-                 , termLongFromInt = scApply longFromIntFn
-                 , termIntFromLong = scApply intFromLongFn
+                 , termInt  = \w -> scApply sc intToSigned32 =<< scNat sc (fromIntegral w)
+                 , termLong = \w -> scApply sc intToSigned64 =<< scNat sc (fromIntegral w)
+                 , termByteFromInt = scApply sc byteFromIntFn 
+                 , termLongFromInt = scApply sc longFromIntFn
+                 , termIntFromLong = scApply sc intFromLongFn
 
-                 , termNot   = scApply boolNotOp
+                 , termNot   = scApply sc boolNotOp
                  , termAnd   = apply2 boolAndOp
 
                  , termEq    = \x y -> do
-                     xTp <- scTypeOf x
+                     xTp <- scTypeOf sc x
                      apply3 eqOp xTp x y
                  , termIte   = \b x y -> do
-                     tp <- scTypeOf x
+                     tp <- scTypeOf sc x
                      apply4 iteOp tp b x y
                  , termILeq  = apply2 signed32LeqOp
 
@@ -185,7 +186,7 @@ sawBackend sc preludeSyms = do
                  , termIShr  = apply2 signed32ShrOp
                  , termIUshr = apply2 signed32UshrOp
 
-                 , termINeg  = scApply signed32NegOp
+                 , termINeg  = scApply sc signed32NegOp
                  , termIAdd  = apply2 signed32AddOp
                  , termISub  = apply2 signed32SubOp
                  , termIMul  = apply2 signed32MulOp
@@ -200,7 +201,7 @@ sawBackend sc preludeSyms = do
                  , termLShr  = apply2 signed64ShrOp
                  , termLUshr = apply2 signed64UshrOp
 
-                 , termLNeg  = scApply signed64NegOp
+                 , termLNeg  = scApply sc signed64NegOp
                  , termLAdd  = apply2 signed64AddOp
                  , termLSub  = apply2 signed64SubOp
                  , termLMul  = apply2 signed64MulOp
@@ -219,4 +220,6 @@ sawBackend sc preludeSyms = do
                  , writeAigToFile     = \_ _ -> undefined
                  , writeCnfToFile     = \_ _ -> undefined
                  , getVarLit          = \_ -> undefined
+                 , satTerm            = error "satTerm unimplemented"
+                 , prettyTermD        = error "prettyTermD unimplemented"
                  }
