@@ -21,10 +21,6 @@ Flag build-examples
   description: Build the example executables
   default: False
 
-Flag build-tests
-  description: Build the test executables
-  default: True
-
 Flag build-benchmarks
   description: Build the benchmark executables
   default: True
@@ -179,9 +175,8 @@ executable sawScript
         SAWScript.TypeChecker
         SAWScript.Utils
 
-executable Tests
-  if !flag(build-tests)
-    buildable: False
+test-suite test-java
+  type:       exitcode-stdio-1.0
 
   build-depends:
       base >= 4
