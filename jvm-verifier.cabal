@@ -65,16 +65,13 @@ library
     Verifier.Java.Debugger
     Verifier.Java.Simulator
     Verifier.Java.Utils
+    Verifier.Java.WordBackend
 
   if flag(use-saw)
     build-depends:
       saw-core
     exposed-modules:
       Verifier.Java.SAWBackend
-  else
-    exposed-modules:
-      Verifier.Java.WordBackend
-
 
   if !flag(build-library)
     buildable: False

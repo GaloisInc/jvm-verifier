@@ -1,9 +1,11 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Verifier.Java.SAWBackend
   ( mkSharedContext
   , sawBackend
   , withFreshBackend
+  , javaModule
   ) where
 
 import Control.Applicative
@@ -11,9 +13,17 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 
 import Verifier.SAW
+import Verifier.SAW.ParserUtils
+import Verifier.SAW.Prelude
 import qualified Verifier.SAW.Recognizer as R
 import Verifier.Java.Backend
 
+$(runDecWriter $ do
+    prelude <- defineImport [|preludeModule|] preludeModule
+    java <- defineModuleFromFile [prelude] "javaModule" "saw/Java.sawcore"
+    declareDefTermF prelude "ite"
+    declareSharedModuleFns "Java" (decVal java)
+ )
 
 instance Typeable (SharedTerm s) where
 
