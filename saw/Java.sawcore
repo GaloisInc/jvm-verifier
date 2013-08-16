@@ -1,0 +1,22 @@
+module Java where
+
+import Prelude;
+
+data JavaType :: sort 0 where {
+    -- Primitive types that we support.
+    BooleanType :: JavaType;
+    ByteType :: JavaType;
+    CharType :: JavaType;
+    ShortType :: JavaType;
+    IntType :: JavaType;
+    LongType :: JavaType;
+    FloatType  :: JavaType;
+    DoubleType :: JavaType;
+    -- Type for arrays.
+    ArrayType :: (n :: Nat) -> JavaType -> JavaType;
+    -- Type for class instances.
+    ClassType :: String -> JavaType;
+  }
+
+mkIntType :: JavaType;
+mkIntType = IntType;
