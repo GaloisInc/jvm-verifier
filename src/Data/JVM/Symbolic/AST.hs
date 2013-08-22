@@ -14,7 +14,7 @@ import qualified Language.JVM.Common as J
 import qualified Language.JVM.Parser as J
 
 data BlockId = BlockId { blockId :: !CFG.BBId, blockN :: !Int }
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Show)
 
 entryBlock :: BlockId
 entryBlock = BlockId CFG.BBIdEntry 0
