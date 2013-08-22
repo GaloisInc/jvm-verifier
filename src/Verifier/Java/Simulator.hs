@@ -51,6 +51,7 @@ module Verifier.Java.Simulator
   , overrideInstanceMethod
   , overrideStaticMethod
     -- * Heap operations
+  , genRef
     -- ** Array operations
   , getArrayLength
   , getArrayValue
