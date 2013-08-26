@@ -127,7 +127,7 @@ main = do
         , mcname = def &= typ "MAIN CLASS NAME" &= args
         , startDebugger = def &= help "Break and enter the JSS debugger when running main method"
         }
-    &= summary ("Java Symbolic Simulator (jss) 0.3 May 2013. "
+    &= summary ("Java Symbolic Simulator (jss) 0.4 August 2013. "
                 ++ "Copyright 2010-2013 Galois, Inc. All rights reserved.")
 
   let
