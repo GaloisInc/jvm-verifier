@@ -18,5 +18,32 @@ data JavaType :: sort 0 where {
     ClassType :: String -> JavaType;
   }
 
+mkBooleanType :: JavaType;
+mkBooleanType = BooleanType;
+
+mkByteType :: JavaType;
+mkByteType = ByteType;
+
+mkCharType :: JavaType;
+mkCharType = CharType;
+
+mkShortType :: JavaType;
+mkShortType = ShortType;
+
 mkIntType :: JavaType;
 mkIntType = IntType;
+
+mkLongType :: JavaType;
+mkLongType = LongType;
+
+mkFloatType :: JavaType;
+mkFloatType = FloatType;
+
+mkDoubleType :: JavaType;
+mkDoubleType = DoubleType;
+
+mkArrayType :: (n :: Nat) -> JavaType -> JavaType;
+mkArrayType n t = ArrayType n t;
+
+mkClassType :: String -> JavaType;
+mkClassType c = ClassType c;
