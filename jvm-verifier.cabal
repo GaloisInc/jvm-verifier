@@ -203,7 +203,9 @@ test-suite test-java
   ghc-options      : -O2 -Wall -fno-ignore-asserts
   ghc-prof-options : -prof -auto-all
 
-executable Benchmarks
+benchmark Benchmarks
+  type:       exitcode-stdio-1.0
+
   if !flag(build-benchmarks)
     buildable: False
 
