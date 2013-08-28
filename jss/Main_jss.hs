@@ -45,7 +45,8 @@ import Verifier.Java.Codebase
 import Verifier.Java.Debugger
 import Verifier.Java.Simulator
 import Verifier.Java.Utils
-import Verifier.Java.WordBackend
+import qualified Verifier.Java.WordBackend as W
+import qualified Verifier.Java.SAWBackend as S
 import Overrides
 
 simExcHndlr' :: Bool -> Doc -> InternalExc sbe m -> Simulator sbe m ()
@@ -175,6 +176,13 @@ main = do
   when (xlate args') $ do
     dumpSymASTs cb cname
     exitSuccess
+
+  let withFreshBackend
+          :: forall a. (forall b. (AigOps b, Show (SBETerm b)) => Backend b -> IO a)
+          -> IO a
+      withFreshBackend k =
+        if True then W.withFreshBackend k else S.withFreshBackend k
+           -- FIXME: use command-line switch
 
   withFreshBackend $ \sbe -> do
    let fl  = defaultSimFlags { alwaysBitBlastBranchTerms = blast args'
