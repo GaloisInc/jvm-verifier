@@ -83,9 +83,9 @@ data Backend sbe = Backend {
          -- if x == y then return 0
          -- if x > y then return 1
        , termLCompare :: BinaryOp sbe
-         -- | Bitwise and of two 32bit integers.
+         -- | Bitwise and of two 64bit integers.
        , termLAnd  :: BinaryOp sbe
-         -- | Bitwise or of two 32bit integers.
+         -- | Bitwise or of two 64bit integers.
        , termLOr   :: BinaryOp sbe
          -- | Bitwise exclusive or of arguments.
        , termLXor  :: BinaryOp sbe
