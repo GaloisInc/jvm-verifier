@@ -79,12 +79,15 @@ sawBackend sc be = do
 
   -- bvTrunc :: (x y :: Nat) -> bitvector (addNat y x) -> bitvector y;
   bvTrunc <- getBuiltin "bvTrunc"
-  bvTrunc32to8 <- apply2 bvTrunc nat24 nat8
   bvTrunc64to32 <- apply2 bvTrunc nat32 nat32
 
   -- bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (addNat (Succ y) x);
   bvSExt <- getBuiltin "bvSExt"
   bvSExt32to64 <- apply2 bvSExt nat31 nat32
+
+  -- bvUExt :: (x y :: Nat) -> bitvector y -> bitvector (addNat y x);
+  bvUExt <- getBuiltin "bvUExt"
+  bvUExt8to32 <- apply2 bvUExt nat24 nat8
 
   boolAndOp <- getBuiltin "and"
 
@@ -157,6 +160,10 @@ sawBackend sc be = do
   bvToNat32 <- scApply sc bvToNat nat32
   bvToNat64 <- scApply sc bvToNat nat64
 
+  nat255 <- scNat sc 255
+  byteMask <- scApply sc bvNat32 nat255
+  bvTrunc32to8 <- scApply sc bvAnd32 byteMask
+
   let mkBvToNat32 t =
         case asBvNat bvNat32 t of
           Just n -> scNat sc n
@@ -227,7 +234,7 @@ sawBackend sc be = do
   let getVarLitFn :: SharedTerm s -> IO (SV.Vector BE.Lit)
       getVarLitFn t = bitblast t
 
-  return Backend { freshByte = scFreshGlobal sc "_" bitvector8
+  return Backend { freshByte = scApply sc bvUExt8to32 =<< scFreshGlobal sc "_" bitvector8
                  , freshInt  = scFreshGlobal sc "_" bitvector32
                  , freshLong = scFreshGlobal sc "_" bitvector64
                  , asBool = R.asBool
