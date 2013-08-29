@@ -9,13 +9,16 @@ module Verifier.Java.SAWBackend
 
 import Control.Applicative
 import qualified Data.Vector.Storable as SV
+import Data.Traversable (traverse)
 import Data.Word
 
 import Verifier.SAW
 import qualified Verifier.SAW.Recognizer as R
 import Verifier.Java.Backend
 import qualified Verifier.SAW.BitBlast as BB
-import Verifier.SAW.TypedAST (mkModuleName)
+import Verifier.SAW.Conversion
+import Verifier.SAW.Rewriter
+import Verifier.SAW.TypedAST (mkModuleName, findDef)
 import qualified Verinf.Symbolic as BE
 
 
@@ -26,9 +29,33 @@ instance AigOps (SharedContext s) where
 type instance SBETerm (SharedContext s) = SharedTerm s
 type instance SBELit (SharedContext s) = BE.Lit
 
+qualify :: String -> Ident
+qualify name = mkIdent preludeModuleName name
+  where preludeModuleName = mkModuleName ["Prelude"]
+
+basic_ss :: SharedContext s -> IO (Simpset (SharedTerm s))
+basic_ss sc = do
+  rs1 <- concat <$> traverse defRewrites defs
+  rs2 <- scEqsRewriteRules sc eqs
+  return $ addConvs procs (addRules (rs1 ++ rs2) emptySimpset)
+  where
+    eqs = map qualify
+      ["get_single", "get_set", "get_bvAnd", "get_bvOr", "get_bvXor", "get_bvNot",
+       "not_not", "get_slice", "bvAddZeroL", "bvAddZeroR", "eq_Fin", "eq_bitvector"]
+    defs = map qualify
+      ["not", "and", "or", "xor", "boolEq", "ite", "addNat", "mulNat", "compareNat",
+       "finSucc", "finFst"]
+    procs = bvConversions ++ natConversions ++ finConversions ++ vecConversions
+    defRewrites ident =
+      case findDef (scModule sc) ident of
+        Nothing -> return []
+        Just def -> scDefRewriteRules sc def
+
 withFreshBackend :: (Backend (SharedContext s) -> IO a) -> IO a
 withFreshBackend f = do
-  sc <- mkSharedContext preludeModule
+  sc0 <- mkSharedContext preludeModule
+  ss <- basic_ss sc0
+  let sc = rewritingSharedContext sc0 ss
   be <- BE.createBitEngine
   backend <- sawBackend sc be
   r <- f backend
@@ -42,8 +69,7 @@ sawBackend sc be = do
   let apply2 op x y   = scApplyAll sc op [x,y]
       apply3 op x y z = scApplyAll sc op [x,y,z]
       apply4 op w x y z = scApplyAll sc op [w,x,y,z]
-  let preludeModuleName = mkModuleName ["Prelude"]
-  let getBuiltin name = scGlobalDef sc (mkIdent preludeModuleName name)
+  let getBuiltin name = scGlobalDef sc (qualify name)
 
   boolType  <- scBoolType sc
   trueCtor  <- scBool sc True
