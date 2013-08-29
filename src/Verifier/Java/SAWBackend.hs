@@ -207,6 +207,14 @@ sawBackend sc be = do
         ynat <- mkBvToNat64 y
         apply2 bvShl64 x ynat
 
+  let mkBvShr32 x y = do
+        ynat <- mkBvToNat32 y
+        apply2 bvShr32 x ynat
+
+  let mkBvShr64 x y = do
+        ynat <- mkBvToNat64 y
+        apply2 bvShr64 x ynat
+
   let mkBvSShr32 x y = do
         ynat <- mkBvToNat32 y
         apply2 bvSShr32 x ynat
@@ -267,7 +275,7 @@ sawBackend sc be = do
                  , termIXor  = apply2 bvXor32
                  , termIShl  = mkBvShl32
                  , termIShr  = mkBvSShr32
-                 , termIUshr = apply2 bvShr32
+                 , termIUshr = mkBvShr32
 
                  , termINeg  = scApply sc bvNeg32
                  , termIAdd  = apply2 bvAdd32
@@ -282,7 +290,7 @@ sawBackend sc be = do
                  , termLXor  = apply2 bvXor64
                  , termLShl  = mkBvShl64
                  , termLShr  = mkBvSShr64
-                 , termLUshr = apply2 bvShr64
+                 , termLUshr = mkBvShr64
 
                  , termLNeg  = scApply sc bvNeg64
                  , termLAdd  = apply2 bvAdd64
