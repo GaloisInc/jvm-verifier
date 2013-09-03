@@ -5,22 +5,19 @@ Stability        : provisional
 Point-of-contact : acfoltzer
 -}
 
-module Tests.Debugger (debuggerTests) where
+module Tests.Debugger (debuggerTests, debuggerTestMain) where
 
 import Verifier.Java.Debugger
 
-import Test.HUnit hiding (Test)
 import Test.Framework
 import Test.Framework.Providers.HUnit
-import Test.Framework.Providers.QuickCheck2
-import Test.QuickCheck as QC hiding ((.&.))
-import Test.QuickCheck.Monadic as QC
 
 import Tests.Common
 
-main :: IO ()
-main = do cb <- commonLoadCB
-          defaultMain [debuggerTests cb]
+debuggerTestMain :: IO ()
+debuggerTestMain =
+  do cb <- commonLoadCB
+     defaultMain [debuggerTests cb]
 
 debuggerTests :: Codebase -> Test
 debuggerTests cb = testGroup "Debugger" $
@@ -60,8 +57,8 @@ tmain cb =
     return ()
 
 -- | Temporary: go into repl manually. TODO: feed repl a script
-trepl :: TrivialCase
-trepl cb =
+_trepl :: TrivialCase
+_trepl cb =
   mkSymAssertion $ \sbe -> do
     sym <- freshInt sbe
     let clName = "IVTDriver"

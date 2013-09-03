@@ -15,7 +15,6 @@ Point-of-contact : jstanley
 module Tests.PrimOps (primOpTests) where
 
 import Control.Applicative
-import Control.Lens hiding (elements)
 import Control.Monad
 import Data.Bits
 import qualified Data.Vector as V
@@ -25,7 +24,6 @@ import Data.Int
 import Test.HUnit hiding (Test)
 import Test.Framework
 import Test.Framework.Providers.HUnit
-import Test.Framework.Providers.QuickCheck2
 import Test.QuickCheck as QC hiding ((.&.))
 import Test.QuickCheck.Monadic as QC
 
@@ -41,12 +39,12 @@ primOpTests cb = testGroup "PrimOps" $
    , testCase "data-dependent branch (simple)" $ t12a cb
    , testCase "data-dependent branch (nested)" $ t12b cb
    , testCase "data-dependent branch (loop)" $ t12c cb
-   , testPropertyN 10 "32b quotRem: dag and aig eval" $ qr32 cb
+   , testPropertyN 10 "32b quotRem: dag and aig eval" $ qr32
      -- 64b tests over all symbolic backends, as configured below
    , testCase "64b int and" $ t7 cb
    , testCase "64b int add" $ t8 cb
    , testCase "64b int array sum" $ t9 cb
-   , testPropertyN 10 "64b quotRem: dag and aig eval" $ qr64 cb
+   , testPropertyN 10 "64b quotRem: dag and aig eval" $ qr64
    , testPropertyN 10 "string instantiation & simple string ops" $ ct2 cb
    , testCase "32b int array out parameter" $ t13 cb
    , testCase "superclass field assignment from subclass method" $ ct1 cb
@@ -60,12 +58,12 @@ primOpTests cb = testGroup "PrimOps" $
    , testCase "concrete float div" $ fp8 cb
    ]
   where
-    qr32 cb =
+    qr32 =
       chkQuotRem
         ("Trivial", "int_f5", "(II)I") -- 32b quot java impl
         ("Trivial", "int_f6", "(II)I") -- 32b rem java impl
         (evalBinOp32 cb)
-    qr64 cb =
+    qr64 =
       chkQuotRem
         ("Trivial", "long_f5", "(JJ)J") -- 64b quot java impl
         ("Trivial", "long_f6", "(JJ)J") -- 64b rem java impl
@@ -182,8 +180,7 @@ t13 cb =
     ins <- replicateM 2 $ IValue <$> freshInt sbe
     outVars <- runDefSimulator cb sbe $ do
       outArr <- newMultiArray (ArrayType IntType) [mkCInt 32 4]
-      [(pd, _)] <- runStaticMethod "Trivial" "out_array" "(II[I)V"
-                       (ins ++ [RValue outArr])
+      _  <- runStaticMethod "Trivial" "out_array" "(II[I)V" (ins ++ [RValue outArr])
       getIntArray outArr
     -- DAG eval
     evalFn <- concreteEvalFn (V.fromList cInputs)
@@ -201,7 +198,7 @@ t13 cb =
 _t14 :: TrivialCase
 _t14 cb = mkSymAssertion $ \sbe -> do
     a <- freshInt sbe
-    [(p,Just (IValue x))] <- 
+    [(_,Just (IValue _))] <- 
        runDefSimulator cb sbe $
          runStaticMethod "Trivial" "loop1" "(I)I" [IValue a]
     return ()
@@ -218,7 +215,7 @@ ct1 :: TrivialCase
 ct1 cb = mkSymAssertion $ \sbe -> do
   outVars <- runDefSimulator cb sbe $ do
     outArr <- newMultiArray (ArrayType IntType) [mkCInt 32 2]
-    [(pd, _)] <- runStaticMethod "IVTDriver" "go" "([I)V" [RValue outArr]
+    _ <- runStaticMethod "IVTDriver" "go" "([I)V" [RValue outArr]
     getIntArray outArr
   evalFn <- concreteEvalFn V.empty
   outVals <- mapM evalFn outVars

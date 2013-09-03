@@ -20,23 +20,15 @@ module Tests.Common
   , module Verifier.Java.Utils
   , module Verifier.Java.WordBackend
   , BitEngine(..)
-  , byteSeqToHex
-  , intToHex
-  , intSeqToHex
-  , intSeqToBoolSeq
   ) where
 
-import Control.Applicative
 import Control.Monad
-import qualified Control.Exception as CE
-import Data.Bits
 import Data.Char
 import Data.Int
 import Data.Maybe
 import Data.Monoid
 import Data.Word
 import Numeric
-import Prelude hiding (catch)
 import System.Environment
 import System.IO.Unsafe
 import System.FilePath
@@ -46,7 +38,6 @@ import Text.Read
 
 import Test.HUnit as HUnit hiding (test)
 import Test.Framework as TF
-import Test.Framework.Providers.HUnit
 import Test.Framework.Providers.QuickCheck2
 import Test.QuickCheck as QC
 import Test.QuickCheck.Monadic as QC
@@ -96,8 +87,18 @@ verb = fromMaybe 0 . unsafePerformIO $ do
            Just vs -> return $ readMaybe vs
            Nothing -> return Nothing
 
+runSimulator :: AigOps sbe =>
+                Codebase
+             -> Backend sbe
+             -> SEH sbe IO
+             -> Maybe SimulationFlags
+             -> Simulator sbe IO a
+             -> IO a
 runSimulator cb sbe seh msf m =
   Sim.runSimulator cb sbe seh msf (setVerbosity verb >> m)
+
+runDefSimulator :: AigOps sbe =>
+                   Codebase -> Backend sbe -> Simulator sbe IO a -> IO a
 runDefSimulator cb sbe m = 
   Sim.runDefSimulator cb sbe (setVerbosity verb >> m)
 

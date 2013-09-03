@@ -14,7 +14,6 @@ import qualified Data.Vector.Storable as SV
 import Test.HUnit hiding (Test)
 import Test.Framework
 import Test.Framework.Providers.HUnit
-import Test.Framework.Providers.QuickCheck2
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 
@@ -67,8 +66,8 @@ sa2 cb =
     rslt <- runDefSimulator cb sbe $ do
       let tint = mkCInt 32 . fromIntegral
       arr <- newIntArray intArrayTy $ map tint arrayElems
-      [(pd, Nothing)] <- runStaticMethod "Arrays" "update" "(II[I)V"
-                           [idx, val, RValue arr]
+      [(_, Nothing)] <- runStaticMethod "Arrays" "update" "(II[I)V"
+                          [idx, val, RValue arr]
       getIntArray arr
       -- Overwrite a random index with 42 and check it
     rsltLits <- concatMap SV.toList <$> mapM (getVarLit sbe) rslt
@@ -88,7 +87,7 @@ sa3 cb =
     symVals <- replicateM n $ freshInt sbe
     rslt <- runDefSimulator cb sbe $ do
       arr <- newIntArray intArrayTy symVals
-      [(pd, Nothing)] <-
+      [(_, Nothing)] <-
         runStaticMethod "Arrays" "update" "(II[I)V"
           [IValue (mkCInt 32 $ fromIntegral n - 1), val, RValue arr]
       getIntArray arr
@@ -115,7 +114,7 @@ sa4 cb =
       twodim <- newMultiArray (ArrayType intArrayTy) [tint nI]
       forM_ (map (tint . fromIntegral) [0..nI] `zip` map RValue inners) $
         uncurry (setArrayValue twodim)
-      [(pd, Nothing)] <-
+      [(_, Nothing)] <-
         runStaticMethod "Arrays" "update" "(III[[I)V"
           (map (IValue . tint) [0, 0, 42] ++ [RValue twodim])
       concat <$> (mapM getIntArray =<< getRefArray twodim)

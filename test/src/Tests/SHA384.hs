@@ -17,7 +17,6 @@ import qualified Data.Vector.Storable as SV
 import System.Process
 
 import Test.Framework
-import Test.Framework.Providers.QuickCheck2
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 

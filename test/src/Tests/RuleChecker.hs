@@ -19,8 +19,6 @@ import qualified Data.Vector as V
 
 import Verinf.Symbolic
 
-main = defaultMain [ruleCheckerTests]
-
 ruleCheckerTests :: Test
 ruleCheckerTests = testGroup "RuleChecker" $
       [testCase ("goodRule" ++ show (i :: Int)) (testGoodRule r) 

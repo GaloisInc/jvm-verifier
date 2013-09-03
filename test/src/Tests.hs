@@ -1,9 +1,6 @@
 {-# LANGUAGE Rank2Types #-}
 module Main where
 
-import Control.Monad
-import System.Environment(getArgs)
-import System.Exit
 import Test.Framework
 
 import Tests.Common
