@@ -5,12 +5,8 @@
 module Tests.ExpectedErrors (expErrTests) where
 
 import Control.Applicative
-import qualified Control.Exception as CE
 import Control.Lens
 import Control.Monad.Error
-import Control.Monad.State
-import Data.Typeable
-import System.IO
 
 import Test.HUnit hiding (Test)
 import Test.Framework
@@ -37,7 +33,7 @@ expErrTests cb = testGroup "ExpectedErrors" $
 go :: Codebase
    -> Simulator SymbolicMonad IO a
    -> Assertion
-go cb act = do
+go cb a = do
   -- For negative test cases, we don't want to report success of *any* failure,
   -- just the failures that we want to see, so we explicitly fail if any
   -- unexpected exception escapes out of m.
@@ -45,14 +41,14 @@ go cb act = do
     oc <- mkOpCache
     withSymbolicMonadState oc $ \sms -> do
       let sbe = symbolicBackend sms
-          act' = (void act) `catchError` h
+          a' = (void a) `catchError` h
           h (ErrorPathExc (FailRsn rsn) _) = succeed rsn
           h (UnknownExc (Just (FailRsn rsn))) = succeed rsn
           h _ = liftIO $ assertFailure "unknown exception"
-      runDefSimulator cb sbe act'
+      runDefSimulator cb sbe a'
   assert b
   where
-    succeed msg = return ()
+    succeed _msg = return ()
 
 --------------------------------------------------------------------------------
 -- Exception (negative) tests
