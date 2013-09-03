@@ -20,8 +20,6 @@ import Verinf.SBV.Model
 import Verinf.SBV.Parser
 import Verinf.Symbolic
 
-main = defaultMain [sbvParserTests]
-
 sbvParserTests :: Test
 sbvParserTests = testGroup "SBVParser" $
   [ testCase "testCPlus" testCPlus ]

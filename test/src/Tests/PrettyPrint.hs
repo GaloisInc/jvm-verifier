@@ -8,7 +8,7 @@ Point-of-contact : lerkok
 module Tests.PrettyPrint (prettyPrintTests) where
 
 import System.FilePath
-import Test.HUnit hiding (Test)
+import Test.HUnit hiding (Test, path)
 import Test.Framework
 import Test.Framework.Providers.HUnit
 
@@ -22,8 +22,6 @@ data TestMode = CREATE          -- create the gold files
 -- set the following to CREATE/CHECK accordingly
 mode :: TestMode
 mode = CHECK
-
-main = defaultMain [prettyPrintTests]
 
 prettyPrintTests :: Test
 prettyPrintTests = testGroup "PrettyPrint" $

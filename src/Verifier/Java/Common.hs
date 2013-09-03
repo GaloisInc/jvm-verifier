@@ -174,7 +174,6 @@ import qualified Data.Foldable as DF
 import Data.Int (Int32)
 import Data.Map (Map)
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Word (Word16, Word32)
@@ -183,7 +182,7 @@ import System.Console.Haskeline.MonadException (MonadException)
 
 import Text.PrettyPrint
 
-import Language.JVM.Common (ppFldId, ppMethodKey, ppType)
+import Language.JVM.Common (ppFldId, ppType)
 import Data.JVM.Symbolic.AST
 import Execution.JavaSemantics (AtomicValue(..), JSValue)
 

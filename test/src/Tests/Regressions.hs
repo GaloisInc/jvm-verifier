@@ -9,7 +9,6 @@ module Tests.Regressions (regressionTests) where
 
 import Control.Monad
 
-import Test.HUnit hiding (Test)
 import Test.Framework
 import Test.Framework.Providers.HUnit
 

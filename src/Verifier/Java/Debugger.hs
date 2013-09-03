@@ -36,7 +36,6 @@ import Data.Tuple.Curry
 import Data.Word (Word16)
 
 import System.Console.Haskeline
-import System.Console.Haskeline.Completion
 import System.Console.Haskeline.History
 import System.Exit
 
@@ -171,8 +170,8 @@ debuggerREPL mpc insn = do
             Just input -> doCmd (words input)
         doCmd (cmd:args) = do
           case M.lookup cmd commandMap of
-            Just cmd -> do
-              let go = cmdAction cmd mpc insn args
+            Just cmd' -> do
+              let go = cmdAction cmd' mpc insn args
                   handleErr epe@(ErrorPathExc _ _) = throwError epe
                   handleErr (UnknownExc (Just (FailRsn rsn))) = do
                     dbugM $ "error: " ++ rsn
@@ -233,8 +232,8 @@ killCmd = Cmd {
 
       msgStr@(Ref _ ty) <- refFromString (unwords args)
       let params = Just [(ty, RValue msgStr)]
-      excRef <- createInstance rte params
-      throw excRef
+      exc <- createInstance rte params
+      throw exc
       error "unreachable"
   }
 
@@ -429,7 +428,7 @@ methodCompletion = completeWordWithPrev Nothing " " fn
       cb <- use codebase
       classes <- liftIO $ getClasses cb
       let classNames = map (slashesToDots . className) classes
-          strictPrefixOf pre xs = pre `isPrefixOf` xs && pre /= xs
+          strictPrefixOf pfx xs = pfx `isPrefixOf` xs && pfx /= xs
           matches = filter (word `strictPrefixOf`) classNames
       case matches of
         -- still working on a class name
@@ -449,8 +448,7 @@ methodCompletion = completeWordWithPrev Nothing " " fn
                                 _ -> prefix
                 return . map cleanup . filter (prefix' `isPrefixOf`) $ methodNames
               Nothing ->
-                return . map cleanup $ methodNames
-              _ -> return [])
+                return . map cleanup $ methodNames)
 
 notFinished :: Completion -> Completion
 notFinished c = c { isFinished = False }
@@ -488,7 +486,7 @@ lineNumForArg arg = do
                Nothing -> fail $ "invalid line number " ++ lnStr
   cl <- lookupClass clName
   case lookupLineMethodStartPC cl lineNum of
-    Just (method, pc) ->
+    Just (method, _pc) ->
       return (clName, (methodKey method), (BreakLineNum lineNum))
     Nothing -> fail . render $
       "line number" <+> integer (fromIntegral lineNum) <+> "not found in"
@@ -505,13 +503,13 @@ dumpCmd = let args = ["ctrlstk", "memory", "method", "path"]
         -- only dump one thing at a time
         1 -> return . map simpleCompletion . filter (word `isPrefixOf`) $ args
         _ -> return []
-  , cmdAction = \_ _ args -> do
-      case args of
+  , cmdAction = \_ _ args' -> do
+      case args' of
         ["ctrlstk"] -> dumpCtrlStk
         ["memory"] -> dumpMemory "debugger"
         ["method"] -> dumpCurrentMethod
         ["path"] -> dumpCurrentPath
-        _ -> dbugM $ "dump: unsupported object " ++ unwords args
+        _ -> dbugM $ "dump: unsupported object " ++ unwords args'
       return False
   }
 
@@ -574,9 +572,9 @@ failHelp :: Monad m => m a
 failHelp = fail "invalid arguments; type 'help' for details"
 
 helpString :: [Command m] -> String
-helpString cmds = render . vcat $
+helpString cmds' = render . vcat $
   [ invs <> colon $$ nest 2 (text $ cmdDesc cmd)
-  | cmd <- cmds
+  | cmd <- cmds'
   , let invs = hsep . map text $ (cmdNames cmd ++ cmdArgs cmd)
   ]
 
@@ -603,7 +601,7 @@ completer (revleft, right) = do
       False -> do
         -- partial pattern ok:
         --   not (all isSpace revleft') => not (null (words revleft))
-        let (cmd:args) = words (reverse revleft)
+        let (cmd:_args) = words (reverse revleft)
         case M.lookup cmd m of
           Nothing -> return (revleft, [])
           Just c -> cmdCompletion c (revleft, right)

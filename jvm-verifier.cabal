@@ -50,6 +50,7 @@ library
     , tuple >= 0.2
     , vector >= 0.7
     , Verinf >= 0.2
+    , saw-core
 
   hs-source-dirs: src
 
@@ -63,15 +64,10 @@ library
     Verifier.Java.Codebase
     Verifier.Java.Common
     Verifier.Java.Debugger
+    Verifier.Java.SAWBackend
     Verifier.Java.Simulator
     Verifier.Java.Utils
     Verifier.Java.WordBackend
-
-  if flag(use-saw)
-    build-depends:
-      saw-core
-    exposed-modules:
-      Verifier.Java.SAWBackend
 
   if !flag(build-library)
     buildable: False

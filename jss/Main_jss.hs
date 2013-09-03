@@ -45,7 +45,8 @@ import Verifier.Java.Codebase
 import Verifier.Java.Debugger
 import Verifier.Java.Simulator
 import Verifier.Java.Utils
-import Verifier.Java.WordBackend
+import qualified Verifier.Java.WordBackend as W
+import qualified Verifier.Java.SAWBackend as S
 import Overrides
 
 simExcHndlr' :: Bool -> Doc -> InternalExc sbe m -> Simulator sbe m ()
@@ -91,6 +92,7 @@ data JSS = JSS
   , dbug          :: Int
   , mcname        :: Maybe String
   , startDebugger :: Bool
+  , useSaw        :: Bool
   } deriving (Show, Data, Typeable)
 
 main :: IO ()
@@ -126,6 +128,7 @@ main = do
         , xlate  = def &= help "Print the symbolic AST translation stdout and terminate"
         , mcname = def &= typ "MAIN CLASS NAME" &= args
         , startDebugger = def &= help "Break and enter the JSS debugger when running main method"
+        , useSaw = def &= help "Use SAWCore backend instead of default word backend"
         }
     &= summary ("Java Symbolic Simulator (jss) 0.4 August 2013. "
                 ++ "Copyright 2010-2013 Galois, Inc. All rights reserved.")
@@ -175,6 +178,12 @@ main = do
   when (xlate args') $ do
     dumpSymASTs cb cname
     exitSuccess
+
+  let withFreshBackend
+          :: forall a. (forall b. (AigOps b, Show (SBETerm b)) => Backend b -> IO a)
+          -> IO a
+      withFreshBackend k =
+        if useSaw args' then S.withFreshBackend k else W.withFreshBackend k
 
   withFreshBackend $ \sbe -> do
    let fl  = defaultSimFlags { alwaysBitBlastBranchTerms = blast args'
