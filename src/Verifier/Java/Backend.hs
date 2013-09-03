@@ -28,7 +28,7 @@ class ( SV.Storable (SBELit m)
       ) => AigOps m where
 
 data Backend sbe = Backend {
-          -- | Allocates a fresh variable where the 8 low-order bits are fresh
+          -- | Allocates a fresh 32-bit variable where the 8 low-order bits are fresh
           -- lits and the upper bits are zero.
          freshByte :: IO (SBETerm sbe)
        , freshInt  :: IO (SBETerm sbe)
@@ -39,7 +39,9 @@ data Backend sbe = Backend {
        , termBool :: Bool  -> IO (SBETerm sbe)
        , termInt  :: Int32 -> IO (SBETerm sbe)
        , termLong :: Int64 -> IO (SBETerm sbe)
+       -- | Mask all but the 8 low-order bits, setting the upper 24 bits to zero.
        , termByteFromInt :: UnaryOp sbe
+       -- | Sign-extend from 32 to 64 bits.
        , termLongFromInt :: UnaryOp sbe
        , termIntFromLong :: UnaryOp sbe
          -- | Complement argument.
@@ -83,9 +85,9 @@ data Backend sbe = Backend {
          -- if x == y then return 0
          -- if x > y then return 1
        , termLCompare :: BinaryOp sbe
-         -- | Bitwise and of two 32bit integers.
+         -- | Bitwise and of two 64bit integers.
        , termLAnd  :: BinaryOp sbe
-         -- | Bitwise or of two 32bit integers.
+         -- | Bitwise or of two 64bit integers.
        , termLOr   :: BinaryOp sbe
          -- | Bitwise exclusive or of arguments.
        , termLXor  :: BinaryOp sbe

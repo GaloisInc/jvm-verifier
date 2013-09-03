@@ -11,7 +11,6 @@ import Text.PrettyPrint
 
 import qualified Language.JVM.CFG    as CFG
 import qualified Language.JVM.Common as J
-import qualified Language.JVM.Parser as J
 
 data BlockId = BlockId { blockId :: !CFG.BBId, blockN :: !Int }
   deriving (Eq, Ord, Show)
@@ -123,13 +122,13 @@ ppSymCond :: SymCond -> Doc
 ppSymCond c = case c of 
     HasConstValue i   -> top <+> "==" <+> integer i
     NotConstValues is -> top <+> "not in" <+> ppIntList is 
-    Null              -> top <+> "==" <+> null
-    NonNull           -> top <+> "!=" <+> null
+    Null              -> top <+> "==" <+> nulls
+    NonNull           -> top <+> "!=" <+> nulls
     TrueSymCond       -> "true"
     Compare cmp       -> top <+> ppCmpType cmp <+> "<second elt of stack>"
     CompareRef cmp    -> top <+> ppCmpType cmp <+> "<second elt of stack>"
   where top = "<top of stack>"
-        null = "null"
+        nulls = "null"
         ppIntList = brackets . commas . map integer
 
 data CmpType

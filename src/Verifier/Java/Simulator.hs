@@ -106,7 +106,6 @@ import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as S
 import qualified Data.Vector as V
-import Data.Word (Word16)
 
 import System.IO (hFlush, stdout)
 
@@ -1036,9 +1035,11 @@ evalCond (CompareRef cmpTy) = do
 --------------------------------------------------------------------------------
 -- Callbacks and event handlers
 
+{-
 cb1 :: (Functor m, Monad m)
   => (SEH sbe m -> a -> Simulator sbe m ()) -> a -> Simulator sbe m ()
 cb1 f x = join (f <$> use evHandlers <*> pure x)
+-}
 
 cb2 :: (Functor m, Monad m)
   => (SEH sbe m -> a -> b -> Simulator sbe m ()) -> a -> b -> Simulator sbe m ()
@@ -2051,11 +2052,10 @@ dumpSymASTs cb cname = do
     Nothing -> putStrLn $ "Main class " ++ cname ++ " not found."
 
 ppValueFull :: MonadSim sbe m => Value (SBETerm sbe) -> Simulator sbe m Doc
-ppValueFull (RValue r@(Ref n (ArrayType _))) = do
+ppValueFull (RValue r@(Ref _ (ArrayType _))) = do
     val <- rVal
     return $ ppRef r <+> "=>" <+> val
   where rVal = do
-          sbe <- use backend
           thunks <- getArray ppValueFull r
           docs <- sequence thunks
           return . brackets . commas $ docs
@@ -2075,7 +2075,10 @@ ppNamedLocals method pc locals = do
         name idx = fromMaybe (int . fromIntegral $ idx)
                      (text . localName <$> lookupLocalVariableByIdx method pc idx)
 
+ppInst' :: Show a => (a, Instruction) -> [Char]
 ppInst' (pc, i) = show pc ++ ": " ++ ppInst i
+
+ppSymInst' :: Show a => (Maybe a, SymInsn) -> [Char]
 ppSymInst' (mpc, i) =
   maybe "" (\pc -> show pc ++ ": ") mpc ++ render (ppSymInsn i)
 

@@ -25,13 +25,10 @@ module Verifier.Java.Utils
   )
 where
 
-import Control.Monad
 import Data.Bits
 import Data.Char
 import Data.Int
 import Data.List (foldl')
-import Data.Word
-import Numeric
 
 import Data.Maybe          (listToMaybe)
 import Control.Monad.Trans

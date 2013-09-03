@@ -24,11 +24,8 @@ module Data.JVM.Symbolic.Translation
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Error
 import Control.Monad.RWS hiding ((<>))
-import Control.Monad.State
 import Data.Int
-import qualified Data.List as L
 import qualified Data.Map as M
 import Data.Maybe
 import Prelude hiding (EQ, LT, GT)
@@ -38,7 +35,6 @@ import Data.JVM.Symbolic.AST
 
 import Language.JVM.CFG    
 import Language.JVM.Common 
-import Language.JVM.Parser 
 
 data SymBlock = SymBlock {
     sbId :: BlockId
@@ -100,11 +96,6 @@ liftBB cfg bb = do
             blk'' = blk { blockN = blockN currId + 1 }
             blk''' = if null is then blk' else blk''
             warn msg = tell $ ["warning in" <+> ppBlockId currId <> colon <+> msg]
-            assertEnd :: SymTrans () -> SymTrans ()
-            assertEnd m = case is of
-                [] -> m
-                is' -> warn $ "instructions remain after" <+> ppInstruction i
-                       $+$ (brackets . commas . map (ppInstruction . snd) $ is)
         in case i of
           Areturn -> retVal pc currId il
           Dreturn -> retVal pc currId il
@@ -206,13 +197,7 @@ liftBB cfg bb = do
 -- simplified from previous sym translation, as we no longer need
 -- explicit merge instructions
 brSymInstrs :: CFG -> BlockId -> [(Maybe PC, SymInsn)]
-brSymInstrs cfg tgt = [si (SetCurrentBlock tgt)]
-
-newPostDominators :: CFG -> BlockId -> BlockId -> [BlockId]
-newPostDominators cfg a b =
-  map bbToBlockId $
-  getPostDominators' cfg (blockId a) L.\\
-  getPostDominators' cfg (blockId b)
+brSymInstrs _cfg tgt = [si (SetCurrentBlock tgt)]
 
 getPostDominators' :: CFG -> BBId -> [BBId]
 getPostDominators' cfg = filter isNormal . getPostDominators cfg

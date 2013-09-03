@@ -13,7 +13,6 @@ Point-of-contact : jstanley
 module Tests.JAPI(japiTests) where
 
 import Control.Applicative
-import qualified Control.Exception as CE
 
 import Test.HUnit hiding (Test)
 import Test.Framework

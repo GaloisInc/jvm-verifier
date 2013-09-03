@@ -26,7 +26,6 @@ module Execution.JavaSemantics (
   , isNull
   , throwNullPtrExc
   , throwIfRefNull
-  , assertFalseM
   , guardArray
   , popType1
   , popType2
@@ -37,7 +36,6 @@ import Control.Monad
 import Control.Monad.State
 
 import Data.Int
-import Data.Maybe
 
 import Text.PrettyPrint
 

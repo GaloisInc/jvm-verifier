@@ -9,10 +9,8 @@ module Tests.PathStateMerges (psmsTests, mul2WithFlags) where
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.IO.Class
 import Data.Maybe
-import Data.Monoid
-import Prelude hiding (catch)
+import Prelude
 
 import Test.HUnit hiding (Test)
 import Test.Framework
@@ -97,7 +95,7 @@ psmsTests cb = testGroup "PathMerges" $
         let [(_, Just (IValue r))] = rs
         return r
       (@=?) (map (2*) [2000,99,1000,42]) . map (fromJust . asInt sbe)
-        =<< mapM (\(b1,b2) -> evalAigIntegral sbe id (map (mkCInt 32) [b1,b2]) out)
+        =<< mapM (\(b1',b2') -> evalAigIntegral sbe id (map (mkCInt 32) [b1',b2']) out)
                  [(0,0), (0,1), (1,0), (1,1)]
   , testCase "mul3" . mkSymAssertion $ \sbe -> do
       [a, b] <- replicateM 2 $ IValue <$> freshInt sbe
@@ -113,6 +111,7 @@ psmsTests cb = testGroup "PathMerges" $
   , testCase "mul2-sat" . mul2WithFlags cb $ satFlags
   ]
 
+mul2WithFlags :: Codebase -> SimulationFlags -> Assertion
 mul2WithFlags cb flags = mkSymAssertion $ \sbe -> do
   [a, b] <- replicateM 2 $ IValue <$> freshInt sbe
   rs <- runSimulator cb sbe defaultSEH (Just flags) $
