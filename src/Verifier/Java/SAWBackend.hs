@@ -111,6 +111,7 @@ sawBackend sc be = do
   -- bvTrunc :: (x y :: Nat) -> bitvector (addNat y x) -> bitvector y;
   bvTrunc <- getBuiltin "bvTrunc"
   bvTrunc64to32 <- apply2 bvTrunc nat32 nat32
+  bvTrunc32to8 <- apply2 bvTrunc nat24 nat8
 
   -- bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (addNat (Succ y) x);
   bvSExt <- getBuiltin "bvSExt"
@@ -191,10 +192,6 @@ sawBackend sc be = do
   bvToNat <- getBuiltin "bvToNat"
   bvToNat32 <- scApply sc bvToNat nat32
   bvToNat64 <- scApply sc bvToNat nat64
-
-  nat255 <- scNat sc 255
-  byteMask <- scApply sc bvNat32 nat255
-  bvTrunc32to8 <- scApply sc bvAnd32 byteMask
 
   let mkBvToNat32 t =
         case asBvNat bvNat32 t of

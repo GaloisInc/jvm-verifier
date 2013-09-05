@@ -38,7 +38,7 @@ data Backend sbe = Backend {
        , termBool :: Bool  -> IO (SBETerm sbe)
        , termInt  :: Int32 -> IO (SBETerm sbe)
        , termLong :: Int64 -> IO (SBETerm sbe)
-       -- | Mask all but the 8 low-order bits, setting the upper 24 bits to zero.
+       -- | Truncate 32-bit value, keeping only the least significant 8 bits.
        , termByteFromInt :: UnaryOp sbe
        -- | Sign-extend from 32 to 64 bits.
        , termLongFromInt :: UnaryOp sbe
