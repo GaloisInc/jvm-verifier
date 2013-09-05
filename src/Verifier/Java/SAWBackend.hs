@@ -87,6 +87,7 @@ sawBackend sc be = do
   nat32 <- scNat sc 32
   nat64 <- scNat sc 64
 
+  nat1 <- scNat sc 1
   nat7 <- scNat sc 7
   nat24 <- scNat sc 24
   nat31 <- scNat sc 31
@@ -127,6 +128,10 @@ sawBackend sc be = do
   -- bvsle :: (n :: Nat) -> bitvector (Succ n) -> bitvector (Succ n) -> Bool;
   bvsle <- getBuiltin "bvsle"
   bvsle32 <- scApply sc bvsle nat31
+
+  -- bvslt :: (n :: Nat) -> bitvector (Succ n) -> bitvector (Succ n) -> Bool;
+  bvslt <- getBuiltin "bvslt"
+  bvslt64 <- scApply sc bvslt nat63
 
   -- bvAnd :: (n :: Nat) -> bitvector n -> bitvector n -> bitvector n;
   bvAnd <- getBuiltin "bvAnd"
@@ -252,6 +257,18 @@ sawBackend sc be = do
         ynat <- mkBvToNat64 y
         apply2 bvSShr64 x ynat
 
+  -- | Compare two 64bit integers (x & y), and return one of three 32-bit integers:
+  -- if x < y then return -1; if x == y then return 0; if x > y then return 1
+  let termLCompareFn x y = do
+        ite32 <- scApply sc iteOp bitvector32
+        one32 <- scApply sc bvNat32 nat1
+        minusone32 <- scApply sc bvNat32 =<< scNat sc (2^32 - 1)
+        eq64 <- scApply sc eqOp bitvector64
+        eqXY <- scApplyAll sc eq64 [x, y]
+        ltXY <- scApplyAll sc bvslt64 [x, y]
+        t <- scApplyAll sc ite32 [ltXY, minusone32, one32]
+        scApplyAll sc ite32 [eqXY, zero32, t]
+
   inputsRef <- newIORef M.empty
 
   let blastTermFn :: SharedTerm s -> IO (Maybe Bool)
@@ -331,7 +348,7 @@ sawBackend sc be = do
                  , termIDiv  = apply2 bvSDiv32
                  , termIRem  = apply2 bvSRem32
 
-                 , termLCompare = error "termLCompare unimplemented"
+                 , termLCompare = termLCompareFn
                  , termLAnd  = apply2 bvAnd64
                  , termLOr   = apply2 bvOr64
                  , termLXor  = apply2 bvXor64
