@@ -8,6 +8,10 @@ module Verifier.Java.SAWBackend
   ) where
 
 import Control.Applicative
+import Data.IORef
+import Data.Map (Map)
+import qualified Data.Map as M
+import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import Data.Traversable (traverse)
 import Data.Word
@@ -18,7 +22,7 @@ import Verifier.Java.Backend
 import qualified Verifier.SAW.BitBlast as BB
 import Verifier.SAW.Conversion
 import Verifier.SAW.Rewriter
-import Verifier.SAW.TypedAST (mkModuleName, findDef)
+import Verifier.SAW.TypedAST (mkModuleName, findDef, FlatTermF(..), ExtCns(..))
 import qualified Verinf.Symbolic as BE
 
 
@@ -249,13 +253,16 @@ sawBackend sc be = do
         ynat <- mkBvToNat64 y
         apply2 bvSShr64 x ynat
 
+  inputsRef <- newIORef M.empty
+
   let blastTermFn :: SharedTerm s -> IO (Maybe Bool)
       blastTermFn t = do
         return Nothing --FIXME
 
   let bitblast :: SharedTerm s -> IO (SV.Vector BE.Lit)
       bitblast t =
-        do mbterm <- BB.bitBlast be t
+        do env <- readIORef inputsRef
+           mbterm <- BB.bitBlastWithEnv be env t
            case mbterm of
              Left msg -> fail $ "Can't bitblast term: " ++ msg
              Right bterm -> return $ BB.flattenBValue bterm
@@ -268,9 +275,24 @@ sawBackend sc be = do
   let getVarLitFn :: SharedTerm s -> IO (SV.Vector BE.Lit)
       getVarLitFn t = bitblast t
 
-  return Backend { freshByte = scApply sc bvUExt8to32 =<< scFreshGlobal sc "_" bitvector8
-                 , freshInt  = scFreshGlobal sc "_" bitvector32
-                 , freshLong = scFreshGlobal sc "_" bitvector64
+  return Backend { freshByte = do
+                     i <- scFreshGlobalVar sc
+                     t <- scFlatTermF sc (ExtCns (EC i "_" bitvector8))
+                     v <- BB.BVector <$> V.replicateM 8 (BB.BBool <$> BE.beMakeInputLit be)
+                     modifyIORef inputsRef (M.insert i v)
+                     scApply sc bvUExt8to32 t
+                 , freshInt  = do
+                     i <- scFreshGlobalVar sc
+                     t <- scFlatTermF sc (ExtCns (EC i "_" bitvector32))
+                     v <- BB.BVector <$> V.replicateM 32 (BB.BBool <$> BE.beMakeInputLit be)
+                     modifyIORef inputsRef (M.insert i v)
+                     return t
+                 , freshLong = do
+                     i <- scFreshGlobalVar sc
+                     t <- scFlatTermF sc (ExtCns (EC i "_" bitvector64))
+                     v <- BB.BVector <$> V.replicateM 64 (BB.BBool <$> BE.beMakeInputLit be)
+                     modifyIORef inputsRef (M.insert i v)
+                     return t
                  , asBool = R.asBool
                  , asInt  = fmap fromIntegral . asBvNat bvNat32 -- Maybe Int32
                  , asLong = fmap fromIntegral . asBvNat bvNat64 -- Maybe Int64
