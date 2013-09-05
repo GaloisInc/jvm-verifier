@@ -28,8 +28,7 @@ class ( SV.Storable (SBELit m)
       ) => AigOps m where
 
 data Backend sbe = Backend {
-          -- | Allocates a fresh 32-bit variable where the 8 low-order bits are fresh
-          -- lits and the upper bits are zero.
+          -- | Allocates a fresh 8-bit variable and sign-extends it to 32 bits.
          freshByte :: IO (SBETerm sbe)
        , freshInt  :: IO (SBETerm sbe)
        , freshLong :: IO (SBETerm sbe)

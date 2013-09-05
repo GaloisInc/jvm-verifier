@@ -87,6 +87,7 @@ sawBackend sc be = do
   nat32 <- scNat sc 32
   nat64 <- scNat sc 64
 
+  nat7 <- scNat sc 7
   nat24 <- scNat sc 24
   nat31 <- scNat sc 31
   nat63 <- scNat sc 63
@@ -114,6 +115,7 @@ sawBackend sc be = do
   -- bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (addNat (Succ y) x);
   bvSExt <- getBuiltin "bvSExt"
   bvSExt32to64 <- apply2 bvSExt nat31 nat32
+  bvSExt8to32 <- apply2 bvSExt nat7 nat24
 
   -- bvUExt :: (x y :: Nat) -> bitvector y -> bitvector (addNat y x);
   bvUExt <- getBuiltin "bvUExt"
@@ -280,7 +282,7 @@ sawBackend sc be = do
                      t <- scFlatTermF sc (ExtCns (EC i "_" bitvector8))
                      v <- BB.BVector <$> V.replicateM 8 (BB.BBool <$> BE.beMakeInputLit be)
                      modifyIORef inputsRef (M.insert i v)
-                     scApply sc bvUExt8to32 t
+                     scApply sc bvSExt8to32 t
                  , freshInt  = do
                      i <- scFreshGlobalVar sc
                      t <- scFlatTermF sc (ExtCns (EC i "_" bitvector32))
