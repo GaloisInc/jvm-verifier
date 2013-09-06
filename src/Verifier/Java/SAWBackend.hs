@@ -10,6 +10,10 @@ module Verifier.Java.SAWBackend
   ) where
 
 import Control.Applicative
+import Data.IORef
+import Data.Map (Map)
+import qualified Data.Map as M
+import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import Data.Traversable (traverse)
 import Data.Word
@@ -22,7 +26,7 @@ import Verifier.Java.Backend
 import qualified Verifier.SAW.BitBlast as BB
 import Verifier.SAW.Conversion
 import Verifier.SAW.Rewriter
-import Verifier.SAW.TypedAST (mkModuleName, findDef)
+import Verifier.SAW.TypedAST (mkModuleName, findDef, FlatTermF(..), ExtCns(..))
 import qualified Verinf.Symbolic as BE
 
 $(runDecWriter $ do
@@ -93,6 +97,8 @@ sawBackend sc be = do
   nat32 <- scNat sc 32
   nat64 <- scNat sc 64
 
+  nat1 <- scNat sc 1
+  nat7 <- scNat sc 7
   nat24 <- scNat sc 24
   nat31 <- scNat sc 31
   nat63 <- scNat sc 63
@@ -116,10 +122,12 @@ sawBackend sc be = do
   -- bvTrunc :: (x y :: Nat) -> bitvector (addNat y x) -> bitvector y;
   bvTrunc <- getBuiltin "bvTrunc"
   bvTrunc64to32 <- apply2 bvTrunc nat32 nat32
+  bvTrunc32to8 <- apply2 bvTrunc nat24 nat8
 
   -- bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (addNat (Succ y) x);
   bvSExt <- getBuiltin "bvSExt"
   bvSExt32to64 <- apply2 bvSExt nat31 nat32
+  bvSExt8to32 <- apply2 bvSExt nat7 nat24
 
   -- bvUExt :: (x y :: Nat) -> bitvector y -> bitvector (addNat y x);
   bvUExt <- getBuiltin "bvUExt"
@@ -130,6 +138,10 @@ sawBackend sc be = do
   -- bvsle :: (n :: Nat) -> bitvector (Succ n) -> bitvector (Succ n) -> Bool;
   bvsle <- getBuiltin "bvsle"
   bvsle32 <- scApply sc bvsle nat31
+
+  -- bvslt :: (n :: Nat) -> bitvector (Succ n) -> bitvector (Succ n) -> Bool;
+  bvslt <- getBuiltin "bvslt"
+  bvslt64 <- scApply sc bvslt nat63
 
   -- bvAnd :: (n :: Nat) -> bitvector n -> bitvector n -> bitvector n;
   bvAnd <- getBuiltin "bvAnd"
@@ -196,10 +208,6 @@ sawBackend sc be = do
   bvToNat32 <- scApply sc bvToNat nat32
   bvToNat64 <- scApply sc bvToNat nat64
 
-  nat255 <- scNat sc 255
-  byteMask <- scApply sc bvNat32 nat255
-  bvTrunc32to8 <- scApply sc bvAnd32 byteMask
-
   let mkBvToNat32 t =
         case asBvNat bvNat32 t of
           Just n -> scNat sc n
@@ -259,13 +267,28 @@ sawBackend sc be = do
         ynat <- mkBvToNat64 y
         apply2 bvSShr64 x ynat
 
+  -- | Compare two 64bit integers (x & y), and return one of three 32-bit integers:
+  -- if x < y then return -1; if x == y then return 0; if x > y then return 1
+  let termLCompareFn x y = do
+        ite32 <- scApply sc iteOp bitvector32
+        one32 <- scApply sc bvNat32 nat1
+        minusone32 <- scApply sc bvNat32 =<< scNat sc (2^32 - 1)
+        eq64 <- scApply sc eqOp bitvector64
+        eqXY <- scApplyAll sc eq64 [x, y]
+        ltXY <- scApplyAll sc bvslt64 [x, y]
+        t <- scApplyAll sc ite32 [ltXY, minusone32, one32]
+        scApplyAll sc ite32 [eqXY, zero32, t]
+
+  inputsRef <- newIORef M.empty
+
   let blastTermFn :: SharedTerm s -> IO (Maybe Bool)
       blastTermFn t = do
         return Nothing --FIXME
 
   let bitblast :: SharedTerm s -> IO (SV.Vector BE.Lit)
       bitblast t =
-        do mbterm <- BB.bitBlast be t
+        do env <- readIORef inputsRef
+           mbterm <- BB.bitBlastWithEnv be env t
            case mbterm of
              Left msg -> fail $ "Can't bitblast term: " ++ msg
              Right bterm -> return $ BB.flattenBValue bterm
@@ -278,9 +301,24 @@ sawBackend sc be = do
   let getVarLitFn :: SharedTerm s -> IO (SV.Vector BE.Lit)
       getVarLitFn t = bitblast t
 
-  return Backend { freshByte = scApply sc bvUExt8to32 =<< scFreshGlobal sc "_" bitvector8
-                 , freshInt  = scFreshGlobal sc "_" bitvector32
-                 , freshLong = scFreshGlobal sc "_" bitvector64
+  return Backend { freshByte = do
+                     i <- scFreshGlobalVar sc
+                     t <- scFlatTermF sc (ExtCns (EC i "_" bitvector8))
+                     v <- BB.BVector <$> V.replicateM 8 (BB.BBool <$> BE.beMakeInputLit be)
+                     modifyIORef inputsRef (M.insert i v)
+                     scApply sc bvSExt8to32 t
+                 , freshInt  = do
+                     i <- scFreshGlobalVar sc
+                     t <- scFlatTermF sc (ExtCns (EC i "_" bitvector32))
+                     v <- BB.BVector <$> V.replicateM 32 (BB.BBool <$> BE.beMakeInputLit be)
+                     modifyIORef inputsRef (M.insert i v)
+                     return t
+                 , freshLong = do
+                     i <- scFreshGlobalVar sc
+                     t <- scFlatTermF sc (ExtCns (EC i "_" bitvector64))
+                     v <- BB.BVector <$> V.replicateM 64 (BB.BBool <$> BE.beMakeInputLit be)
+                     modifyIORef inputsRef (M.insert i v)
+                     return t
                  , asBool = R.asBool
                  , asInt  = fmap fromIntegral . asBvNat bvNat32 -- Maybe Int32
                  , asLong = fmap fromIntegral . asBvNat bvNat64 -- Maybe Int64
@@ -320,7 +358,7 @@ sawBackend sc be = do
                  , termIDiv  = apply2 bvSDiv32
                  , termIRem  = apply2 bvSRem32
 
-                 , termLCompare = error "termLCompare unimplemented"
+                 , termLCompare = termLCompareFn
                  , termLAnd  = apply2 bvAnd64
                  , termLOr   = apply2 bvOr64
                  , termLXor  = apply2 bvXor64
