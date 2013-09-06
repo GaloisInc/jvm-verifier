@@ -7,6 +7,7 @@ module Verifier.Java.SAWBackend
   , sawBackend
   , withFreshBackend
   , javaModule
+  , basic_ss
   ) where
 
 import Control.Applicative
