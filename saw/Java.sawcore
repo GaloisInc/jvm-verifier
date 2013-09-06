@@ -47,3 +47,5 @@ mkArrayType n t = ArrayType n t;
 
 mkClassType :: String -> JavaType;
 mkClassType c = ClassType c;
+
+mkValue :: (a :: sort 0) -> String -> a;
