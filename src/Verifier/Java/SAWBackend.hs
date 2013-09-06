@@ -61,15 +61,16 @@ withFreshBackend f = do
   ss <- basic_ss sc0
   let sc = rewritingSharedContext sc0 ss
   be <- BE.createBitEngine
-  backend <- sawBackend sc be
+  backend <- sawBackend sc Nothing be
   r <- f backend
   BE.beFree be
   return r
 
 sawBackend :: forall s. SharedContext s
-           -> BE.BitEngine BE.Lit
+           -> Maybe (IORef [SharedTerm s]) -- ^ For storing the list of generated ExtCns inputs
+           -> BE.BitEngine BE.Lit -- TODO: make this argument optional
            -> IO (Backend (SharedContext s))
-sawBackend sc be = do
+sawBackend sc mr be = do
   let apply2 op x y   = scApplyAll sc op [x,y]
       apply3 op x y z = scApplyAll sc op [x,y,z]
       apply4 op w x y z = scApplyAll sc op [w,x,y,z]
@@ -291,23 +292,31 @@ sawBackend sc be = do
   let getVarLitFn :: SharedTerm s -> IO (SV.Vector BE.Lit)
       getVarLitFn t = bitblast t
 
+  let maybeCons =
+        case mr of
+          Nothing -> \t -> return ()
+          Just r -> \t -> modifyIORef r (t :)
+
   return Backend { freshByte = do
                      i <- scFreshGlobalVar sc
                      t <- scFlatTermF sc (ExtCns (EC i "_" bitvector8))
                      v <- BB.BVector <$> V.replicateM 8 (BB.BBool <$> BE.beMakeInputLit be)
                      modifyIORef inputsRef (M.insert i v)
+                     maybeCons t
                      scApply sc bvSExt8to32 t
                  , freshInt  = do
                      i <- scFreshGlobalVar sc
                      t <- scFlatTermF sc (ExtCns (EC i "_" bitvector32))
                      v <- BB.BVector <$> V.replicateM 32 (BB.BBool <$> BE.beMakeInputLit be)
                      modifyIORef inputsRef (M.insert i v)
+                     maybeCons t
                      return t
                  , freshLong = do
                      i <- scFreshGlobalVar sc
                      t <- scFlatTermF sc (ExtCns (EC i "_" bitvector64))
                      v <- BB.BVector <$> V.replicateM 64 (BB.BBool <$> BE.beMakeInputLit be)
                      modifyIORef inputsRef (M.insert i v)
+                     maybeCons t
                      return t
                  , asBool = R.asBool
                  , asInt  = fmap fromIntegral . asBvNat bvNat32 -- Maybe Int32
