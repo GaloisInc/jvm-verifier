@@ -57,9 +57,7 @@ basic_ss sc = do
 
 withFreshBackend :: (Backend (SharedContext s) -> IO a) -> IO a
 withFreshBackend f = do
-  sc0 <- mkSharedContext preludeModule
-  ss <- basic_ss sc0
-  let sc = rewritingSharedContext sc0 ss
+  sc <- mkSharedContext preludeModule
   be <- BE.createBitEngine
   backend <- sawBackend sc Nothing be
   r <- f backend
@@ -70,7 +68,9 @@ sawBackend :: forall s. SharedContext s
            -> Maybe (IORef [SharedTerm s]) -- ^ For storing the list of generated ExtCns inputs
            -> BE.BitEngine BE.Lit -- TODO: make this argument optional
            -> IO (Backend (SharedContext s))
-sawBackend sc mr be = do
+sawBackend sc0 mr be = do
+  ss <- basic_ss sc0
+  let sc = rewritingSharedContext sc0 ss
   let apply2 op x y   = scApplyAll sc op [x,y]
       apply3 op x y z = scApplyAll sc op [x,y,z]
       apply4 op w x y z = scApplyAll sc op [w,x,y,z]
@@ -273,8 +273,7 @@ sawBackend sc mr be = do
   inputsRef <- newIORef M.empty
 
   let blastTermFn :: SharedTerm s -> IO (Maybe Bool)
-      blastTermFn t = do
-        return Nothing --FIXME
+      blastTermFn t = return (R.asBool t)
 
   let bitblast :: SharedTerm s -> IO (SV.Vector BE.Lit)
       bitblast t =
