@@ -13,6 +13,7 @@ import Data.Map (Map)
 import qualified Data.Map as M
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
+import Text.PrettyPrint.HughesPJ
 import Data.Traversable (traverse)
 import Data.Word
 
@@ -384,5 +385,6 @@ sawBackend sc0 mr be = do
                  , writeCnfToFile     = \_ _ -> error "writeCnfToFile unimplemented"
                  , getVarLit          = getVarLitFn
                  , satTerm            = error "satTerm unimplemented"
-                 , prettyTermD        = error "scPrettyTermDoc unimplemented" -- scPrettyTermDoc
+                 -- TODO: refactor to use the same Doc everywhere
+                 , prettyTermD        = text . show . scPrettyTermDoc
                  }
