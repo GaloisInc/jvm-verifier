@@ -4,7 +4,7 @@ Symbolic Simulator (jss).
 Due to licensing restrictions, the Java Runtime Environment must be
 downloaded and installed separately.
 
-CONTENTS (Version 0.3 released May 2013)
+CONTENTS (Version 0.4 released September 2013)
 
 doc/         : Java Symbolic API documentation, jss man page
 doc/japi     : JavaDoc documentation for the Java Symbolic API
@@ -13,12 +13,5 @@ bin/         : Command-line executables
 
 CHANGES
 
-  * Added support for incremental path satisfiability checking
-    + The --sat command line option enables this behavior, which implies
-      bit-blasting at all branches, as well.
-  * Added an interactive symbolic debugger
-    + The --startdebugger command line option will add a breakpoint at
-      the beginning of the 'main' function. From there, you can use
-      debugger commands to set later breakpoints, single step, continue
-      execution until the next breakpoint, and inspect simulator state.
-  * A bug resulting in errors about an empty call stack has been fixed.
+  * Added a new word-level backend based on SAWCore.
+    + The -u/--usesaw command line option enables this backend.
