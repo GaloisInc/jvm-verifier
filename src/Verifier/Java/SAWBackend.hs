@@ -8,6 +8,7 @@ module Verifier.Java.SAWBackend
   , withFreshBackend
   , javaModule
   , basic_ss
+  , scApplyJavaMkValue
   ) where
 
 import Control.Applicative
@@ -69,7 +70,7 @@ basic_ss sc = do
 
 withFreshBackend :: (Backend (SharedContext s) -> IO a) -> IO a
 withFreshBackend f = do
-  sc <- mkSharedContext preludeModule
+  sc <- mkSharedContext javaModule
   be <- BE.createBitEngine
   backend <- sawBackend sc Nothing be
   r <- f backend
