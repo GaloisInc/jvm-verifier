@@ -130,7 +130,7 @@ main = do
         , startDebugger = def &= help "Break and enter the JSS debugger when running main method"
         , useSaw = def &= help "Use SAWCore backend instead of default word backend"
         }
-    &= summary ("Java Symbolic Simulator (jss) 0.4 August 2013. "
+    &= summary ("Java Symbolic Simulator (jss) 0.4 September 2013. "
                 ++ "Copyright 2010-2013 Galois, Inc. All rights reserved.")
 
   let
