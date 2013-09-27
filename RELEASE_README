@@ -4,7 +4,7 @@ Symbolic Simulator (jss).
 Due to licensing restrictions, the Java Runtime Environment must be
 downloaded and installed separately.
 
-CONTENTS (Version 0.4 released August 2013)
+CONTENTS (Version 0.4 released September 2013)
 
 doc/         : Java Symbolic API documentation, jss man page
 doc/japi     : JavaDoc documentation for the Java Symbolic API
@@ -13,4 +13,5 @@ bin/         : Command-line executables
 
 CHANGES
 
-  * Added a backend based on the new SAWCore term language.
+  * Added a new word-level backend based on SAWCore.
+    + The -u/--usesaw command line option enables this backend.
