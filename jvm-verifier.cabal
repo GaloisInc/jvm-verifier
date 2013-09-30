@@ -25,14 +25,6 @@ Flag build-benchmarks
   description: Build the benchmark executables
   default: True
 
-Flag build-SAWScript
-  description: Build the SAWScript interface
-  default: False
-
-Flag use-saw
-  description: Use SAW as the default term representation
-  default: False
-
 library
   build-depends:
       array
@@ -98,8 +90,7 @@ executable jss
   other-modules:
     Overrides
   
-  if flag(use-saw)
-    cpp-options   : -DUseSAW
+  cpp-options   : -DUseSAW
 
   hs-source-dirs   : jss
   main-is          : Main_jss.hs
@@ -120,53 +111,6 @@ executable jvmgraph
   main-is : Main.hs
   ghc-options      : -O2 -Wall -fno-ignore-asserts
   ghc-prof-options : -prof -auto-all
-
-executable sawScript
-  if !flag(build-SAWScript)
-    buildable: False
-  if flag(use-saw)
-    buildable: False
-
-  build-depends:
-      base >= 4
-    , array
-    , cmdargs >= 0.6.1
-    , containers
-    , deepseq >= 1.1.0.2
-    , directory
-    , fgl
-    , filepath
-    , jvm-verifier
-    , mtl >= 2.1
-    , old-locale >= 1.0.0.2
-    , old-time >= 1.0.0.3
-    , parsec
-    , pretty
-    , smtLib
-    , vector >= 0.7
-    , Verinf
-
-  build-tools:
-     alex, happy
-
-  hs-source-dirs   : sawscript
-  main-is          : SAWScript/SAWScriptMain.hs
-  ghc-options      : -O2 -Wall -fno-ignore-asserts -rtsopts
-  ghc-prof-options : -prof -auto-all
-  other-modules    :
-        SAWScript.CommandExec
-        SAWScript.CongruenceClosure
-        SAWScript.ErrorPlus
-        SAWScript.Lexer
-        SAWScript.MethodAST
-        SAWScript.MethodSpec
-        SAWScript.MethodSpecIR
-        SAWScript.Parser
-        SAWScript.ParserActions
-        SAWScript.TIMonad
-        SAWScript.Token
-        SAWScript.TypeChecker
-        SAWScript.Utils
 
 test-suite test-java
   type:       exitcode-stdio-1.0
