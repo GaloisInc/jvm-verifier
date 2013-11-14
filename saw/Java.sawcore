@@ -49,3 +49,9 @@ mkClassType :: String -> JavaType;
 mkClassType c = ClassType c;
 
 mkValue :: (a :: sort 0) -> String -> a;
+
+ecJoin :: Vec 12 (bitvector 32) -> bitvector 384;
+ecJoin x = join 12 32 Bool x;
+
+ecSplit :: bitvector 384 -> Vec 12 (bitvector 32);
+ecSplit x = split 12 32 Bool x;
