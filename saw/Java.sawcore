@@ -55,3 +55,6 @@ ecJoin x = join 12 32 Bool x;
 
 ecSplit :: bitvector 384 -> Vec 12 (bitvector 32);
 ecSplit x = split 12 32 Bool x;
+
+ecExtend :: bitvector 32 -> bitvector 384;
+ecExtend x = bvUExt 352 32 x;
