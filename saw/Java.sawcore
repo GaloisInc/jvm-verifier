@@ -58,3 +58,6 @@ ecSplit x = split 12 32 Bool x;
 
 ecExtend :: bitvector 32 -> bitvector 384;
 ecExtend x = bvUExt 352 32 x;
+
+longExtend :: bitvector 32 -> bitvector 64;
+longExtend x = bvUExt 32 32 x;
