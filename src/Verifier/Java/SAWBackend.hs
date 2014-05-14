@@ -141,11 +141,11 @@ sawBackend sc0 mr be = do
 
   -- bvsle :: (n :: Nat) -> bitvector (Succ n) -> bitvector (Succ n) -> Bool;
   bvsle <- getBuiltin "bvsle"
-  bvsle32 <- scApply sc bvsle nat31
+  bvsle32 <- scApply sc bvsle nat32
 
   -- bvslt :: (n :: Nat) -> bitvector (Succ n) -> bitvector (Succ n) -> Bool;
   bvslt <- getBuiltin "bvslt"
-  bvslt64 <- scApply sc bvslt nat63
+  bvslt64 <- scApply sc bvslt nat64
 
   -- bvAnd :: (n :: Nat) -> bitvector n -> bitvector n -> bitvector n;
   bvAnd <- getBuiltin "bvAnd"
