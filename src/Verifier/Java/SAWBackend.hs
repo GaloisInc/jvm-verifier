@@ -12,6 +12,7 @@ module Verifier.Java.SAWBackend
   ) where
 
 import Control.Applicative
+import Control.Monad.ST (RealWorld)
 import Data.IORef
 import Data.Map (Map)
 import qualified Data.Map as M
@@ -39,9 +40,7 @@ $(runDecWriter $ do
     declareSharedModuleFns "Java" (decVal java)
  )
 
-instance Typeable (SharedTerm s) where
-
-instance AigOps (SharedContext s) where
+instance Typeable s => AigOps (SharedContext s) where
 
 type instance SBETerm (SharedContext s) = SharedTerm s
 type instance SBELit (SharedContext s) = BE.Lit
@@ -68,7 +67,7 @@ basic_ss sc = do
         Nothing -> return []
         Just def -> scDefRewriteRules sc def
 
-withFreshBackend :: (Backend (SharedContext s) -> IO a) -> IO a
+withFreshBackend :: (Backend (SharedContext RealWorld) -> IO a) -> IO a
 withFreshBackend f = do
   sc <- mkSharedContext javaModule
   be <- BE.createBitEngine
