@@ -15,7 +15,7 @@ Point-of-contact : jstanley
 module Main where
 
 import Control.Applicative hiding (many)
-import Control.Lens
+import Control.Lens ((.=))
 import Control.Monad
 import Control.Monad.Error
 import Data.Char
