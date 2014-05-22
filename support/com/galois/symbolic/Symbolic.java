@@ -220,6 +220,12 @@ public class Symbolic
         public static void dumpPathState() { return; }
 
         /**
+         * Print the current memory state of the simulator to stdout.
+         * When invoked in a standard JVM, this function does nothing.
+         */
+        public static void dumpMemState() { return; }
+
+        /**
          * Set debug verbosity to the requested level.  When invoked in
          * a standard JVM, this function does nothing.
          */

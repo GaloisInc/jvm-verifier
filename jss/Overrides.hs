@@ -133,6 +133,7 @@ jssOverrides = do
 
     , dbg "abort" "()V"          $ \_ -> abort "Abort explicitly triggered (via JAPI)."
     , dbg "dumpPathState" "()V" $ \_ -> dumpCurrentPath
+    , dbg "dumpMemState"  "()V" $ \_ -> dumpMemory (text "dumpMemState")
     , dbg "setVerbosity" "(I)V"  $ \[IValue (asInt sbe -> Just v)] ->
         setVerbosity (fromIntegral v)
     , dbg "eval" "(I[Lcom/galois/symbolic/CValue;)I" $ \[IValue _out, RValue _cvArr] -> do
