@@ -13,7 +13,6 @@ module Tests.RC564 (rc564Tests, runRC564) where
 import Control.Applicative
 import Control.Monad
 import qualified Data.Vector as V
-import qualified Data.Vector.Storable as SV
 import System.Process
 
 import Test.Framework
@@ -77,6 +76,7 @@ evalDagRC564 key input = do
   assert $ rslt == golden
 --   run $ putStrLn $ "Result : " ++ rslt
 
+{-
 _makeAigerRC564 :: String -> IO ()
 _makeAigerRC564 filepath = do
   cb <- commonLoadCB
@@ -89,9 +89,9 @@ _makeAigerRC564 filepath = do
     inpVars <- replicateM 16 $ freshByte sbe
     outValues <- runDefSimulator cb sbe $ runRC564 keyVars inpVars
     putStrLn "Creating RC564 aiger..."
-    outLits <- mapM (getVarLit sbe) outValues
     putStrLn $ "Writing RC564 aiger to '" ++ filepath ++ "'"
-    writeAiger be filepath $ concat (map (take 8 . SV.toList) outLits)
+    writeAiger be filepath outValues
+-}
 
 runRC564 :: MonadSim sbe m =>
             [SBETerm sbe] -> [SBETerm sbe] -> Simulator sbe m [SBETerm sbe]
