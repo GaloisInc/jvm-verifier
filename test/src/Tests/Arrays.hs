@@ -10,7 +10,6 @@ module Tests.Arrays (arrayTests) where
 import Control.Applicative
 import Control.Monad
 import Data.Int
-import qualified Data.Vector.Storable as SV
 import Test.HUnit hiding (Test)
 import Test.Framework
 import Test.Framework.Providers.HUnit
@@ -26,12 +25,15 @@ main = do cb <- commonLoadCB
 arrayTests :: Codebase -> Test
 arrayTests cb = testGroup "Arrays" $
   [
+{-
     testPropertyN 10 "Read concarray @ symidx" $ sa1 cb
   , testPropertyN 10 "Write symelem @ symidx to concarray" $ sa2 cb
   , testCase "Write symelem @ concidx to concarray" $ sa3 cb
   , testCase "Write symelem @ concidx to 2-dim symarray" $ sa4 cb
+-}
   ]
 
+{-
 -- | Read concrete int array at symbolic indices
 sa1 :: TrivialProp
 sa1 cb =
@@ -46,9 +48,8 @@ sa1 cb =
         [(_, Just (IValue rslt))] <-
           runStaticMethod "Arrays" "index" "(I[I)I" [idx, RValue inpArr]
         return rslt
-      outIntLit <- SV.toList <$> getVarLit sbe outVar
       let getAt = fmap (boolSeqToValue :: [Bool] -> Int32)
-                . (\inp -> evalAig be inp outIntLit)
+                . (\inp -> evalAig be inp outVar)
                 . intToBoolSeq
                 . constInt
       ((:[]) . (== arrayElems))
@@ -70,10 +71,9 @@ sa2 cb =
                           [idx, val, RValue arr]
       getIntArray arr
       -- Overwrite a random index with 42 and check it
-    rsltLits <- concatMap SV.toList <$> mapM (getVarLit sbe) rslt
     ((:[]) . elem 42)
       <$> (map (boolSeqToValue :: [Bool] -> Int32) . splitN 32)
-      <$> evalAig be (evalAigArgs32 [overwriteIdx, 42]) rsltLits
+      <$> evalAig be (evalAigArgs32 [overwriteIdx, 42]) rslt
 
 -- | Symbolic array update w/ concrete index and symbolic value
 sa3 :: Codebase -> Assertion
@@ -92,10 +92,9 @@ sa3 cb =
           [IValue (mkCInt 32 $ fromIntegral n - 1), val, RValue arr]
       getIntArray arr
     -- Overwrite the last index with 42 and check it
-    rsltLits <- concatMap SV.toList <$> mapM (getVarLit sbe) rslt
     (@=?) (replicate (n-1) fill ++ [42])
         =<< (map boolSeqToValue . splitN 32)
-        <$> evalAig be (evalAigArgs32 (42 : replicate n fill)) rsltLits
+        <$> evalAig be (evalAigArgs32 (42 : replicate n fill)) rslt
 
 -- | Symbolic 2-dim array update w/ concrete index and value
 sa4 :: Codebase -> Assertion
@@ -119,10 +118,10 @@ sa4 cb =
           (map (IValue . tint) [0, 0, 42] ++ [RValue twodim])
       concat <$> (mapM getIntArray =<< getRefArray twodim)
     -- Overwrite the first index with 42 and check it
-    rsltLits <- concatMap SV.toList <$> mapM (getVarLit sbe) rslt
     (@=?) ((42 :: Int32) : replicate (numElems - 1) (fromIntegral fill))
         =<< (map boolSeqToValue . splitN 32)
-        <$> evalAig be (concatMap intToBoolSeq $ replicate numElems (mkCInt 32 fill)) rsltLits
+        <$> evalAig be (concatMap intToBoolSeq $ replicate numElems (mkCInt 32 fill)) rslt
+-}
 
 --------------------------------------------------------------------------------
 -- Scratch

@@ -27,8 +27,10 @@ Flag build-benchmarks
 
 library
   build-depends:
-      array
-    , base >= 4
+      base >= 4
+    , abcBridge
+    , aig
+    , array
     , containers
     , directory
     , filepath

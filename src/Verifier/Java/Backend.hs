@@ -4,7 +4,6 @@ module Verifier.Java.Backend
   ( Typeable
   , UnaryOp
   , BinaryOp
-  , SBELit
   , SBETerm
   , AigOps
   , Backend(..)
@@ -20,10 +19,8 @@ type BinaryOp sbe = SBETerm sbe -> SBETerm sbe -> IO (SBETerm sbe)
 
 -- | Returns term type associated with monad.
 type family SBETerm (sbe :: *)
-type family SBELit (sbe :: *)
 
-class ( SV.Storable (SBELit m)
-      , Show (SBETerm m)
+class ( Show (SBETerm m)
       , Typeable (SBETerm m)
       ) => AigOps m where
 
@@ -160,12 +157,10 @@ data Backend sbe = Backend {
          -- AIG at the given symbolic output terms @outs@.  Each output is
          -- assumed to be w bits.  If @ins@ is not a constant, then this fails.
        , evalAigArray :: Int -> [SBETerm sbe] -> [SBETerm sbe] -> IO [SBETerm sbe]
-       , writeAigToFile :: FilePath -> SV.Vector (SBELit sbe) -> IO ()
 
-       , writeCnfToFile :: FilePath -> SBELit sbe -> IO ()
 
-         -- | Returns lit vector associated with given term, or fails
-         -- if term cannot be bitblasted.
-       , getVarLit :: SBETerm sbe -> IO (SV.Vector (SBELit sbe))
+       , writeCnfToFile :: FilePath -> SBETerm sbe -> IO ()
+       , writeAigToFile :: FilePath -> [SBETerm sbe] -> IO ()
+
        , prettyTermD :: SBETerm sbe -> Doc
        }
