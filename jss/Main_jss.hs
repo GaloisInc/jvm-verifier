@@ -180,7 +180,7 @@ main = do
     exitSuccess
 
   let withFreshBackend
-          :: forall a. (forall b. (AigOps b, Show (SBETerm b)) => Backend b -> IO a)
+          :: forall a. (forall b. (AigOps b) => Backend b -> IO a)
           -> IO a
       withFreshBackend k =
         if useSaw args' then S.withFreshBackend k else W.withFreshBackend k

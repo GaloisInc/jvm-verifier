@@ -1,4 +1,5 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
 module Overrides (jssOverrides) where
 
@@ -6,7 +7,6 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad
 import Control.Monad.State
-import qualified Data.Vector.Storable as SV
 
 import Text.PrettyPrint
 
@@ -15,7 +15,7 @@ import Verifier.Java.Utils
 
 -- | Register all predefined overrides for the com.galois.symbolic.Symbolic
 -- API.
-jssOverrides :: MonadSim sbe m => Simulator sbe m ()
+jssOverrides :: forall sbe m . MonadSim sbe m => Simulator sbe m ()
 jssOverrides = do
   sbe <- use backend
   let m `pushAs` f  = pushValue =<< f <$> liftIO (m sbe)
@@ -41,17 +41,18 @@ jssOverrides = do
           Just fn -> liftIO $ do
             zero <- termInt sbe 0
             cEq <- termEq sbe out zero
-            l <- getVarLit sbe cEq
-            writeCnfToFile sbe fn (SV.head l)
-  let writeAigerBody f fnameRef outs = do
+            writeCnfToFile sbe fn cEq
+  let writeAigerBody :: Ref
+                     -> [SBETerm sbe]
+                     -> Simulator sbe m ()
+      writeAigerBody fnameRef outs = do
 --        abortWhenMultiPath "AIGER write"
         mfn <- lookupStringRef fnameRef
         case mfn of
           Nothing -> abort $ "writeAiger filename parameter does "
                        ++ "not refer to a constant string"
           Just fn -> liftIO $
-            writeAigToFile sbe fn . SV.concat
-              =<< mapM (fmap f . getVarLit sbe) outs
+            writeAigToFile sbe fn outs 
   mapM_ (\(cn, key, impl) -> overrideStaticMethod cn key impl)
       --------------------------------------------------------------------------------
       -- fresh vars
@@ -98,20 +99,21 @@ jssOverrides = do
       --------------------------------------------------------------------------------
       -- writeAiger
 
-    , sym "writeAiger" "(Ljava/lang/String;Z)V"  $ \([RValue fnameRef, IValue out]) ->
-        writeAigerBody (SV.take 1) fnameRef [out]
+    , sym "writeAiger" "(Ljava/lang/String;Z)V"  $ \([RValue fnameRef, IValue out]) -> do
+        neq <- liftIO $ termNot sbe =<< termEq sbe out =<< termInt sbe 0
+        writeAigerBody fnameRef [neq]
     , sym "writeAiger" "(Ljava/lang/String;B)V"  $ \([RValue fnameRef, IValue out]) ->
-        writeAigerBody id fnameRef [out]
+        writeAigerBody fnameRef [out]
     , sym "writeAiger" "(Ljava/lang/String;I)V"  $ \([RValue fnameRef, IValue out]) ->
-        writeAigerBody id fnameRef [out]
+        writeAigerBody fnameRef [out]
     , sym "writeAiger" "(Ljava/lang/String;J)V"  $ \([RValue fnameRef, LValue out]) ->
-        writeAigerBody id fnameRef [out]
+        writeAigerBody fnameRef [out]
     , sym "writeAiger" "(Ljava/lang/String;[B)V" $ \([RValue fnameRef, RValue outs]) ->
-        writeAigerBody id fnameRef =<< getByteArray outs
+        writeAigerBody fnameRef =<< getByteArray outs
     , sym "writeAiger" "(Ljava/lang/String;[I)V" $ \([RValue fnameRef, RValue outs]) ->
-        writeAigerBody id fnameRef =<< getIntArray outs
+        writeAigerBody fnameRef =<< getIntArray outs
     , sym "writeAiger" "(Ljava/lang/String;[J)V" $ \([RValue fnameRef, RValue outs]) ->
-        writeAigerBody id fnameRef =<< getLongArray outs
+        writeAigerBody fnameRef =<< getLongArray outs
     , sym "writeCnf" "(Ljava/lang/String;Z)V" $ \([RValue fnameRef, IValue out]) ->
         writeCnf fnameRef out
 
