@@ -86,7 +86,6 @@ mkSymbolicMonadState oc be de = do
 data SymbolicMonad
 instance AigOps SymbolicMonad where
 type instance SBETerm SymbolicMonad = DagTerm
-type instance SBELit SymbolicMonad  = Lit
 
 withBitEngine :: (BitEngine Lit -> IO a) -> IO a
 withBitEngine = bracket createBitEngine beFree
@@ -274,10 +273,12 @@ symbolicBackend sms = do
           64 -> return $ map (mkCInt 64 . boolSeqToValue) $ splitN 64 rsl
           _  -> error $ "evalAigArray: input array elements have unexpected bit width"
    , writeAigToFile = \fname res -> do
-       lWriteAiger fname res
+       e <- mapM getTermLit res
+       let elts = concatMap (SV.toList . toLsbfV) e
+       lWriteAiger fname (SV.fromList elts)
    , writeCnfToFile = \fname res -> do
-       void $ beWriteCNF be fname mempty res
-   , getVarLit = \t -> toLsbfV <$> getTermLit t
+       LV l <- getTermLit res
+       void $ beWriteCNF be fname mempty (SV.head l)
    , Verifier.Java.Backend.prettyTermD = Verinf.Symbolic.prettyTermD
    }
 

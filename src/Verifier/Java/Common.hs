@@ -1142,86 +1142,16 @@ ppBreakpoints bps =
 
 -- TODO: fix linking problems so we can do this with TH
 
+{-# INLINE backend #-}
+backend :: Simple Lens (State sbe m) (Backend sbe)
+backend = lens _backend (\s v -> s { _backend = v })
+
 -- src/Verifier/Java/Common.hs:1:1: Splicing declarations
 --     makeLenses ''State
-backend ::
-  forall sbe_aDu4 m_aDu5.
-  Lens' (State sbe_aDu4 m_aDu5) (Backend sbe_aDu4)
-backend
-  _f_aEmM
-  (State __codebase_aEmN
-         __instanceOverrides_aEmO
-         __staticOverrides_aEmP
-         __ctrlStk_aEmQ
-         __nextPSS_aEmR
-         __strings_aEmS
-         __nextRef_aEmT
-         __verbosity_aEmU
-         __simulationFlags_aEmV
-         __backend'_aEmW
-         __errorPaths_aEmY
-         __printErrPaths_aEmZ
-         __breakpoints_aEn0
-         __trBreakpoints_aEn1
-         __evHandlers_aEn2)
-  = ((\ __backend_aEmX
-        -> State
-             __codebase_aEmN
-             __instanceOverrides_aEmO
-             __staticOverrides_aEmP
-             __ctrlStk_aEmQ
-             __nextPSS_aEmR
-             __strings_aEmS
-             __nextRef_aEmT
-             __verbosity_aEmU
-             __simulationFlags_aEmV
-             __backend_aEmX
-             __errorPaths_aEmY
-             __printErrPaths_aEmZ
-             __breakpoints_aEn0
-             __trBreakpoints_aEn1
-             __evHandlers_aEn2)
-     <$> (_f_aEmM __backend'_aEmW))
-{-# INLINE backend #-}
-breakpoints ::
-  forall sbe_aDu4 m_aDu5.
-  Lens' (State sbe_aDu4 m_aDu5) (Map (String, Method) (Set PC))
-breakpoints
-  _f_aEn3
-  (State __codebase_aEn4
-         __instanceOverrides_aEn5
-         __staticOverrides_aEn6
-         __ctrlStk_aEn7
-         __nextPSS_aEn8
-         __strings_aEn9
-         __nextRef_aEna
-         __verbosity_aEnb
-         __simulationFlags_aEnc
-         __backend_aEnd
-         __errorPaths_aEne
-         __printErrPaths_aEnf
-         __breakpoints'_aEng
-         __trBreakpoints_aEni
-         __evHandlers_aEnj)
-  = ((\ __breakpoints_aEnh
-        -> State
-             __codebase_aEn4
-             __instanceOverrides_aEn5
-             __staticOverrides_aEn6
-             __ctrlStk_aEn7
-             __nextPSS_aEn8
-             __strings_aEn9
-             __nextRef_aEna
-             __verbosity_aEnb
-             __simulationFlags_aEnc
-             __backend_aEnd
-             __errorPaths_aEne
-             __printErrPaths_aEnf
-             __breakpoints_aEnh
-             __trBreakpoints_aEni
-             __evHandlers_aEnj)
-     <$> (_f_aEn3 __breakpoints'_aEng))
+breakpoints :: Simple Lens (State sbe m) (Map (String, Method) (Set PC))
+breakpoints = lens _breakpoints (\s v -> s { _breakpoints = v })
 {-# INLINE breakpoints #-}
+
 codebase ::
   forall sbe_aDu4 m_aDu5. Lens' (State sbe_aDu4 m_aDu5) Codebase
 codebase
@@ -1727,34 +1657,14 @@ verbosity
      <$> (_f_aEqC __verbosity'_aEqK))
 {-# INLINE verbosity #-}
 
+{-# INLINE pathAssertions #-}
+pathAssertions :: Simple Lens (Path' term) term
+pathAssertions = lens _pathAssertions (\s v -> s { _pathAssertions = v })
+
 -- src/Verifier/Java/Common.hs:1:1: Splicing declarations
 --     makeLenses ''Path'
 --   ======>
 --     src/Verifier/Java/Common.hs:441:1-18
-pathAssertions ::
-  forall term_aaA1u. Lens' (Path' term_aaA1u) term_aaA1u
-pathAssertions
-  _f_aaAcE
-  (Path __pathStack_aaAcF
-        __pathStackHt_aaAcG
-        __pathBlockId_aaAcH
-        __pathRetVal_aaAcI
-        __pathException_aaAcJ
-        __pathMemory_aaAcK
-        __pathAssertions'_aaAcL
-        __pathName_aaAcN)
-  = ((\ __pathAssertions_aaAcM
-        -> Path
-             __pathStack_aaAcF
-             __pathStackHt_aaAcG
-             __pathBlockId_aaAcH
-             __pathRetVal_aaAcI
-             __pathException_aaAcJ
-             __pathMemory_aaAcK
-             __pathAssertions_aaAcM
-             __pathName_aaAcN)
-     <$> (_f_aaAcE __pathAssertions'_aaAcL))
-{-# INLINE pathAssertions #-}
 pathBlockId ::
   forall term_aaA1u. Lens' (Path' term_aaA1u) (Maybe BlockId)
 pathBlockId

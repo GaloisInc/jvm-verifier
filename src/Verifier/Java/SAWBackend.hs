@@ -1,9 +1,12 @@
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Verifier.Java.SAWBackend
-  ( mkSharedContext
+  ( SharedContext
+  , mkSharedContext
   , sawBackend
   , withFreshBackend
   , javaModule
@@ -13,14 +16,17 @@ module Verifier.Java.SAWBackend
 
 import Control.Applicative
 import Control.Monad.ST (RealWorld)
+import qualified Data.ABC as ABC
+import Data.AIG (IsAIG)
+import qualified Data.AIG as AIG
 import Data.IORef
 import Data.Map (Map)
 import qualified Data.Map as M
+import Data.Traversable (traverse)
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
-import Text.PrettyPrint.HughesPJ
-import Data.Traversable (traverse)
 import Data.Word
+import Text.PrettyPrint.HughesPJ
 
 import Verifier.SAW
 import Verifier.SAW.ParserUtils
@@ -31,7 +37,8 @@ import qualified Verifier.SAW.BitBlast as BB
 import Verifier.SAW.Conversion
 import Verifier.SAW.Rewriter
 import Verifier.SAW.TypedAST (mkModuleName, findDef, FlatTermF(..), ExtCns(..))
-import qualified Verinf.Symbolic as BE
+--import qualified Verinf.Symbolic as BE
+
 
 $(runDecWriter $ do
     prelude <- defineImport [|preludeModule|] preludeModule
@@ -43,7 +50,6 @@ $(runDecWriter $ do
 instance Typeable s => AigOps (SharedContext s) where
 
 type instance SBETerm (SharedContext s) = SharedTerm s
-type instance SBELit (SharedContext s) = BE.Lit
 
 qualify :: String -> Ident
 qualify name = mkIdent preludeModuleName name
@@ -67,18 +73,17 @@ basic_ss sc = do
         Nothing -> return []
         Just def -> scDefRewriteRules sc def
 
-withFreshBackend :: (Backend (SharedContext RealWorld) -> IO a) -> IO a
+withFreshBackend :: (forall l t . Backend (SharedContext RealWorld) -> IO a) -> IO a
 withFreshBackend f = do
   sc <- mkSharedContext javaModule
-  be <- BE.createBitEngine
-  backend <- sawBackend sc Nothing be
-  r <- f backend
-  BE.beFree be
-  return r
+  AIG.withNewGraph ABC.giaNetwork $ \g -> do
+    f =<< sawBackend sc Nothing g
 
-sawBackend :: forall s. SharedContext s
+sawBackend :: forall s l g t 
+            . IsAIG l g
+           => SharedContext s
            -> Maybe (IORef [SharedTerm s]) -- ^ For storing the list of generated ExtCns inputs
-           -> BE.BitEngine BE.Lit -- TODO: make this argument optional
+           -> g t
            -> IO (Backend (SharedContext s))
 sawBackend sc0 mr be = do
   ss <- basic_ss sc0
@@ -287,21 +292,18 @@ sawBackend sc0 mr be = do
   let blastTermFn :: SharedTerm s -> IO (Maybe Bool)
       blastTermFn t = return (R.asBool t)
 
-  let bitblast :: SharedTerm s -> IO (SV.Vector BE.Lit)
+  let bitblast :: SharedTerm s -> IO [l t]
       bitblast t =
         do env <- readIORef inputsRef
            mbterm <- BB.bitBlastWithEnv be env t
            case mbterm of
              Left msg -> fail $ "Can't bitblast term: " ++ msg
-             Right bterm -> return $ BB.flattenBValue bterm
+             Right bterm -> return $ AIG.bvToList $ BB.flattenBValue bterm
 
-  let writeAigToFileFn :: FilePath -> SV.Vector BE.Lit -> IO ()
+  let writeAigToFileFn :: FilePath -> [SharedTerm s] -> IO ()
       writeAigToFileFn fname outs = do
-        ins <- BE.beInputLits be
-        BE.beWriteAigerV be fname ins outs
-
-  let getVarLitFn :: SharedTerm s -> IO (SV.Vector BE.Lit)
-      getVarLitFn t = bitblast t
+        outv <- mapM bitblast outs
+        AIG.writeAiger fname (AIG.Network be (concat outv))
 
   let maybeCons =
         case mr of
@@ -311,21 +313,21 @@ sawBackend sc0 mr be = do
   return Backend { freshByte = do
                      i <- scFreshGlobalVar sc
                      t <- scFlatTermF sc (ExtCns (EC i "_" bitvector8))
-                     v <- BB.BVector <$> V.replicateM 8 (BB.BBool <$> BE.beMakeInputLit be)
+                     v <- BB.BVector <$> V.replicateM 8 (BB.BBool <$> AIG.newInput be)
                      modifyIORef inputsRef (M.insert i v)
                      maybeCons t
                      scApply sc bvSExt8to32 t
                  , freshInt  = do
                      i <- scFreshGlobalVar sc
                      t <- scFlatTermF sc (ExtCns (EC i "_" bitvector32))
-                     v <- BB.BVector <$> V.replicateM 32 (BB.BBool <$> BE.beMakeInputLit be)
+                     v <- BB.BVector <$> V.replicateM 32 (BB.BBool <$> AIG.newInput be)
                      modifyIORef inputsRef (M.insert i v)
                      maybeCons t
                      return t
                  , freshLong = do
                      i <- scFreshGlobalVar sc
                      t <- scFlatTermF sc (ExtCns (EC i "_" bitvector64))
-                     v <- BB.BVector <$> V.replicateM 64 (BB.BBool <$> BE.beMakeInputLit be)
+                     v <- BB.BVector <$> V.replicateM 64 (BB.BBool <$> AIG.newInput be)
                      modifyIORef inputsRef (M.insert i v)
                      maybeCons t
                      return t
@@ -394,7 +396,6 @@ sawBackend sc0 mr be = do
                  , evalAigArray       = \_ _ _ -> error "evalAigArray unimplemented"
                  , writeAigToFile     = writeAigToFileFn
                  , writeCnfToFile     = \_ _ -> error "writeCnfToFile unimplemented"
-                 , getVarLit          = getVarLitFn
                  , satTerm            = error "satTerm unimplemented"
                  -- TODO: refactor to use the same Doc everywhere
                  , prettyTermD        = text . show . scPrettyTermDoc
