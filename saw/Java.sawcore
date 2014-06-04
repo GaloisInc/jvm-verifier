@@ -51,16 +51,16 @@ mkClassType c = ClassType c;
 mkValue :: (a :: sort 0) -> String -> a;
 
 ecJoin :: Vec 12 (bitvector 32) -> bitvector 384;
-ecJoin x = join 12 32 Bool x;
+ecJoin x = joinLittleEndian 12 32 Bool x;
 
 ecSplit :: bitvector 384 -> Vec 12 (bitvector 32);
-ecSplit x = split 12 32 Bool x;
+ecSplit x = splitLittleEndian 12 32 Bool x;
 
 ecJoin768 :: Vec 24 (bitvector 32) -> bitvector 768;
-ecJoin768 x = join 24 32 Bool x;
+ecJoin768 x = joinLittleEndian 24 32 Bool x;
 
 ecSplit768 :: bitvector 768 -> Vec 24 (bitvector 32);
-ecSplit768 x = split 24 32 Bool x;
+ecSplit768 x = splitLittleEndian 24 32 Bool x;
 
 ecExtend :: bitvector 32 -> bitvector 384;
 ecExtend x = bvUExt 352 32 x;
