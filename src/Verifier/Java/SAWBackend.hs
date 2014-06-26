@@ -79,7 +79,7 @@ withFreshBackend f = do
   AIG.withNewGraph ABC.giaNetwork $ \g -> do
     f =<< sawBackend sc Nothing g
 
-sawBackend :: forall s l g t 
+sawBackend :: forall s l g t
             . IsAIG l g
            => SharedContext s
            -> Maybe (IORef [SharedTerm s]) -- ^ For storing the list of generated ExtCns inputs
@@ -300,6 +300,17 @@ sawBackend sc0 mr be = do
              Left msg -> fail $ "Can't bitblast term: " ++ msg
              Right bterm -> return $ AIG.bvToList $ BB.flattenBValue bterm
 
+  let satTermFn :: SharedTerm s -> IO Bool
+      satTermFn t = do
+        ls <- bitblast t
+        case ls of
+          [l] -> do
+            r <- AIG.checkSat be l
+            case r of
+              AIG.Sat _ -> return True
+              AIG.Unsat -> return False
+          _ -> fail "Checking satisfiability of multiple bits."
+
   let writeAigToFileFn :: FilePath -> [SharedTerm s] -> IO ()
       writeAigToFileFn fname outs = do
         outv <- mapM bitblast outs
@@ -396,7 +407,7 @@ sawBackend sc0 mr be = do
                  , evalAigArray       = \_ _ _ -> error "evalAigArray unimplemented"
                  , writeAigToFile     = writeAigToFileFn
                  , writeCnfToFile     = \_ _ -> error "writeCnfToFile unimplemented"
-                 , satTerm            = error "satTerm unimplemented"
+                 , satTerm            = satTermFn
                  -- TODO: refactor to use the same Doc everywhere
                  , prettyTermD        = text . show . scPrettyTermDoc
                  }
