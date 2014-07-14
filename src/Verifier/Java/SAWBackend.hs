@@ -132,10 +132,10 @@ sawBackend sc0 mr be = do
   bvTrunc64to32 <- apply2 bvTrunc nat32 nat32
   bvTrunc32to8 <- apply2 bvTrunc nat24 nat8
 
-  -- bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (addNat (Succ y) x);
+  -- bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (addNat x (Succ y));
   bvSExt <- getBuiltin "bvSExt"
-  bvSExt32to64 <- apply2 bvSExt nat31 nat32
-  bvSExt8to32 <- apply2 bvSExt nat7 nat24
+  bvSExt32to64 <- apply2 bvSExt nat32 nat31
+  bvSExt8to32 <- apply2 bvSExt nat24 nat7
 
   -- bvUExt :: (x y :: Nat) -> bitvector y -> bitvector (addNat y x);
   bvUExt <- getBuiltin "bvUExt"
