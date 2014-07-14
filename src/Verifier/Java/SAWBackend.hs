@@ -232,24 +232,19 @@ sawBackend sc0 mr be = do
         il <- mkBvToNat32 l
         Just <$> apply3 replicateOp il eltType eltValue
 
-  -- An ugly hack to coerce Nat values to type Fin n
-  dummyNat <- getBuiltin "dummyNat"
-
-  -- get :: (n :: Nat) -> (e :: sort 0) -> Vec n e -> Fin n -> e;
-  getOp <- getBuiltin "get"
+  -- bvAt :: (n :: Nat) -> (e :: sort 0) -> (i :: Nat) -> Vec n e
+  --      -> bitvector i -> e;
+  getOp <- getBuiltin "bvAt"
   let getArray eltType l a i = do
         lnat <- mkBvToNat32 l
-        inat <- mkBvToNat32 i
-        ifin <- scFinVal sc inat dummyNat
-        scApplyAll sc getOp [lnat,eltType,a,ifin]
+        scApplyAll sc getOp [lnat,eltType,nat32,a,i]
 
-  -- set :: (n :: Nat) -> (e :: sort 0) -> Vec n e -> Fin n -> e -> Vec n e;
-  setOp <- getBuiltin "set"
+  -- bvUpd :: (n :: Nat) -> (e :: sort 0) -> (i :: Nat) -> Vec n e
+  --       -> bitvector i -> e -> Vec n e;
+  setOp <- getBuiltin "bvUpd"
   let setArray eltType l a i v = do
         lnat <- mkBvToNat32 l
-        inat <- mkBvToNat32 i
-        ifin <- scFinVal sc inat dummyNat
-        scApplyAll sc setOp [lnat,eltType,a,ifin,v]
+        scApplyAll sc setOp [lnat,eltType,nat32,a,i,v]
 
   let mkBvShl32 x y = do
         ynat <- mkBvToNat32 y
