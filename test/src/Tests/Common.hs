@@ -48,8 +48,7 @@ import Verifier.Java.Simulator hiding (run, assert, runSimulator, runDefSimulato
 import qualified Verifier.Java.Simulator as Sim
 import Verifier.Java.Utils
 import Verifier.Java.WordBackend
-
-import Verinf.Symbolic
+import qualified Verifier.Java.TestInterface as TI
 
 #if __GLASGOW_HASKELL__ < 706
 import Text.ParserCombinators.ReadP as P
@@ -167,23 +166,23 @@ integralRandomR (a,b) g =
     (x, g') -> (fromIntegral x, g')
 
 byteSeqToHex :: [CValue] -> String
-byteSeqToHex ((getSValW -> Just (32, c)) : r)
+byteSeqToHex ((TI.getSValW -> Just (32, c)) : r)
   = (intToDigit $ fromIntegral $ ((fromIntegral c :: Word32) `quot` 16) `rem` 16)
     : (intToDigit $ fromIntegral $ (fromIntegral c :: Word32) `rem`  16)
     : byteSeqToHex r
-byteSeqToHex ((getSValW -> Just (w,_c)) : _r)
+byteSeqToHex ((TI.getSValW -> Just (w,_c)) : _r)
   = error $ "internal: byteSeqToHex unexpected width " ++ show w
-byteSeqToHex (CArray _ : _) = error "internal: byteSeqToHex CArray"
-byteSeqToHex (CBool _ : _) = error "internal: byteSeqToHex CBool"
-byteSeqToHex (CRec{} : _) = error "internal: byteSeqToHex CRec"
+byteSeqToHex (TI.CArray _ : _) = error "internal: byteSeqToHex CArray"
+byteSeqToHex (TI.CBool _ : _) = error "internal: byteSeqToHex CBool"
+byteSeqToHex (TI.CRec{} : _) = error "internal: byteSeqToHex CRec"
 byteSeqToHex [] = []
 byteSeqToHex _ = error "internal: byteSeqToHex bad value"
 
 intToHex :: CValue -> String
-intToHex (getSValW -> Just (32, c)) =
+intToHex (TI.getSValW -> Just (32, c)) =
   let r = showHex (fromIntegral c :: Word32) ""
    in replicate (8 - length r) '0' ++ r
-intToHex (getSValW -> Just (64, c)) =
+intToHex (TI.getSValW -> Just (64, c)) =
   let r = showHex (fromIntegral c :: Word64) ""
    in replicate (16 - length r) '0' ++ r
 intToHex _ = error $ "internal: Undefined intToHex for type"
