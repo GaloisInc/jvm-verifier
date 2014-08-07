@@ -62,6 +62,7 @@ library
     Verifier.Java.Simulator
     Verifier.Java.Utils
     Verifier.Java.WordBackend
+    Verifier.Java.TestInterface
 
   if !flag(build-library)
     buildable: False
