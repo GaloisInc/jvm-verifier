@@ -19,7 +19,7 @@ fi
 echo Staging ...
 
 cp RELEASE_README                              ${TARGET}/README
-cp ../../abcBridge/abc/copyright.txt           ${TARGET}/ABC_LICENSE
+cp ../../abcBridge/abc-build/copyright.txt     ${TARGET}/ABC_LICENSE
 cp -R doc/japi                                 ${TARGET}/doc
 cp doc/jss-usage.txt                           ${TARGET}/doc
 cp doc/jss.1                                   ${TARGET}/doc
