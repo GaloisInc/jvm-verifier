@@ -31,6 +31,9 @@ types defined in "Verifier.Java.Common".
 module Verifier.Java.Simulator
   ( -- * Simulator
     Simulator (SM)
+  , getVerbosity
+  , setVerbosity
+  , whenVerbosity
   , SEH(..)
     -- ** Simulator control
   , runDefSimulator
@@ -81,6 +84,7 @@ module Verifier.Java.Simulator
   , ppValueFull
   , ppNamedLocals
   , dumpCurrentMethod
+
     -- * Re-exported modules
   , module Execution.JavaSemantics
   , module Verifier.Java.Backend
@@ -125,9 +129,21 @@ import Verifier.Java.Common hiding (getCurrentClassName, getCurrentMethod)
 import qualified Verifier.Java.Common as Common
 import Verifier.Java.Utils
 
-instance LogMonad (Simulator sbe m) where
-  getVerbosity = use verbosity
-  setVerbosity = assign verbosity
+
+getVerbosity :: Monad m => Simulator sbe m Int
+getVerbosity = use verbosity
+
+setVerbosity :: Monad m => Int -> Simulator sbe m ()
+setVerbosity = assign verbosity
+
+whenVerbosity :: Monad m => (Int -> Bool) -> Simulator sbe m () -> Simulator sbe m ()
+whenVerbosity f m = getVerbosity >>= \v -> when (f v) m
+
+dbugM' :: (Monad m, MonadIO m) => Int -> String -> Simulator sbe m ()
+dbugM' lvl = whenVerbosity (>=lvl) . dbugM
+
+banners' :: (Monad m, MonadIO m) => Int -> String -> Simulator sbe m ()
+banners' lvl = whenVerbosity (>=lvl) . banners
 
 -- | Run a static method with the given arguments. Class, method name,
 -- and method type are given in JVM internal format, e.g.,
