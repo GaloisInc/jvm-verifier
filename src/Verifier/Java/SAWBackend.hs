@@ -37,6 +37,7 @@ import qualified Verifier.SAW.BitBlast as BB
 import Verifier.SAW.Conversion
 import Verifier.SAW.Rewriter
 import Verifier.SAW.TypedAST (mkModuleName, findDef, FlatTermF(..), ExtCns(..))
+import Verifier.SAW.Cryptol (scCryptolEq)
 --import qualified Verinf.Symbolic as BE
 
 
@@ -98,7 +99,7 @@ sawBackend sc0 mr be = do
   falseCtor <- scBool sc False
   iteOp <- getBuiltin "ite"
 
-  eqOp <- getBuiltin "eq"
+  bvEqOp <- getBuiltin "bvEq"
 
   nat0  <- scNat sc 0
   nat8  <- scNat sc 8
@@ -276,7 +277,7 @@ sawBackend sc0 mr be = do
         ite32 <- scApply sc iteOp bitvector32
         one32 <- scApply sc bvNat32 nat1
         minusone32 <- scApply sc bvNat32 =<< scNat sc (2^32 - 1)
-        eq64 <- scApply sc eqOp bitvector64
+        eq64 <- scApply sc bvEqOp nat64
         eqXY <- scApplyAll sc eq64 [x, y]
         ltXY <- scApplyAll sc bvslt64 [x, y]
         t <- scApplyAll sc ite32 [ltXY, minusone32, one32]
@@ -354,9 +355,7 @@ sawBackend sc0 mr be = do
                  , termNot   = scNot sc
                  , termAnd   = apply2 boolAndOp
 
-                 , termEq    = \x y -> do
-                     xTp <- scTypeOf sc x
-                     apply3 eqOp xTp x y
+                 , termEq    = scCryptolEq sc
                  , termIte   = \b x y -> do
                      tp <- scTypeOf sc x
                      apply4 iteOp tp b x y
