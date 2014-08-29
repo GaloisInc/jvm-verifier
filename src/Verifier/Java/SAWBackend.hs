@@ -56,9 +56,13 @@ qualify :: String -> Ident
 qualify name = mkIdent preludeModuleName name
   where preludeModuleName = mkModuleName ["Prelude"]
 
+cqualify :: String -> Ident
+cqualify name = mkIdent cryptolModuleName name
+  where cryptolModuleName = mkModuleName ["Cryptol"]
+
 basic_ss :: SharedContext s -> IO (Simpset (SharedTerm s))
 basic_ss sc = do
-  rs1 <- concat <$> traverse defRewrites defs
+  rs1 <- concat <$> traverse defRewrites (defs ++ cdefs)
   rs2 <- scEqsRewriteRules sc eqs
   return $ addConvs procs (addRules (rs1 ++ rs2) emptySimpset)
   where
@@ -68,6 +72,8 @@ basic_ss sc = do
     defs = map qualify
       ["not", "and", "or", "xor", "boolEq", "ite", "addNat", "mulNat", "compareNat",
        "finSucc", "finFst"]
+    cdefs = map cqualify
+      [ "ecEq", "ePCmp", "ePFin" ]
     procs = bvConversions ++ natConversions ++ finConversions ++ vecConversions
     defRewrites ident =
       case findDef (scModule sc) ident of
