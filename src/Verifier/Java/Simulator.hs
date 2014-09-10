@@ -480,7 +480,8 @@ genRef tp = do
 newSymbolicArray :: MonadSim sbe m
                  => Type -> Int32 -> SBETerm sbe -> Simulator sbe m Ref
 newSymbolicArray tp@(ArrayType eltType) cnt arr = do
-  assert ((isIValue eltType || eltType == LongType) && cnt >= 0)
+  assert "newSymbolicArray type"
+         ((isIValue eltType || eltType == LongType) && cnt >= 0)
   r <- genRef tp
   m <- getMem "newSymbolicArray"
   setMem (m & memScalarArrays %~ M.insert r (cnt, arr))
@@ -586,7 +587,7 @@ getArrayValue r idx = do
       l' <- termInt sbe l
       LValue <$> termGetLongArray sbe l' rslt idx
   else do
-    assert (isIValue tp)
+    assert "getArrayValue type" (isIValue tp)
     liftIO $ do
       let Just (l,rslt) = M.lookup r (m^.memScalarArrays)
       l' <- termInt sbe l
@@ -660,7 +661,7 @@ getStaticFieldValue fldId = do
   case M.lookup fldId (m^.memStaticFields) of
     Just v  -> return v
     Nothing -> do
-      assert (validStaticField cl) 
+      assert "validStaticField" (validStaticField cl)
       withSBE $ \sbe -> defaultValue sbe (fieldIdType fldId)
   where
     validStaticField cl =
@@ -1889,7 +1890,7 @@ lookupStringRef r =
 drefString :: MonadSim sbe m => Ref -> Simulator sbe m String
 drefString strRef = do
   Just ty <- typeOf strRef
-  assert (ty == stringTy)
+  assert "derefString type" (ty == stringTy)
 
   m <- getMem "drefString"
   let iflds  = m^.memInstanceFields

@@ -447,8 +447,9 @@ data SEH sbe m = SEH
   , onPostStep        :: Maybe PC -> SymInsn -> Simulator sbe m ()
   }
 
-assert :: Bool -> Simulator sbe m ()
-assert b = unless b . throwError $ strMsg "assertion failed"
+assert :: String -> Bool -> Simulator sbe m ()
+assert msg b =
+  unless b . throwError . strMsg $ "assertion failed (" ++ msg ++ ")"
 
 data JavaException term =
   JavaException
@@ -861,7 +862,7 @@ mergeMemories assertions mem1 mem2 = do
       mergedCObjs   = M.union cObjs1 cObjs2
       -- pointwise merging of tuples
       mergeTup (l1, v1) (l2, v2) = do
-        assert (l1 == l2)
+        assert "mergeMemories lengths equal" (l1 == l2)
         (,) l1 <$> (liftIO $ termIte sbe assertions v1 v2)
             
   mergedSFields <- mergeBy (mergeValues assertions) sFields1 sFields2
@@ -882,11 +883,11 @@ mergeCallFrames :: MonadIO m
 mergeCallFrames assertions cf1 cf2 = do
   let CallFrame class1 method1 _bb1 locals1 opds1 = cf1
       CallFrame class2 method2 _bb2 locals2 opds2 = cf2
-  assert (class1  == class2)
-  assert (method1 == method2)
+  assert "mergeCallFrames classes equal" (class1  == class2)
+  assert "mergeCallFrames methods equal" (method1 == method2)
   -- pcs may differ if paths merge at different return insts
   mergedLocals <- mergeBy (mergeValues assertions) locals1 locals2
-  assert (length opds1 == length opds2)
+  assert "mergeCallFrames stack depths equal" (length opds1 == length opds2)
   mergedOpds <- zipWithM (mergeValues assertions) opds1 opds2
   return $ cf2 & cfLocals .~ mergedLocals
                & cfOpds   .~ mergedOpds
@@ -939,7 +940,7 @@ mergeValues assertions x y = do
         when (r1 /= r2) $
           abort $ "References differ when merging:" 
           <+> ppValue sbe x <+> "and" <+> ppValue sbe y
-        assert (ty1 == ty2)
+        assert "mergeValues types equal" (ty1 == ty2)
         return x
       mergeV _ _ = 
         abort $ "Unsupported or mismatched type when merging values:"
