@@ -1,7 +1,10 @@
 {-# LANGUAGE Rank2Types #-}
 module Main where
 
-import Test.Framework
+import Test.Tasty
+import Test.Tasty.Ingredients
+import Test.Tasty.Runners.AntXML
+
 
 import Tests.Common
 import Tests.Arrays
@@ -16,10 +19,18 @@ import Tests.Regressions
 
 main :: IO ()
 main = do cb <- commonLoadCB
-          defaultMain (allTests cb)
+          defaultMainWithIngredients ingrs (allTests cb)
 
-allTests :: Codebase -> [Test]
+ingrs :: [Ingredient]
+ingrs =
+   [ antXMLRunner
+   ]
+   ++
+   defaultIngredients
+
+allTests :: Codebase -> TestTree
 allTests cb =
+    testGroup "Java"
       [ primOpTests cb
       , arrayTests cb
       , psmsTests cb

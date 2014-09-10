@@ -14,9 +14,8 @@ module Tests.JAPI(japiTests) where
 
 import Control.Applicative
 
-import Test.HUnit hiding (Test)
-import Test.Framework
-import Test.Framework.Providers.HUnit
+import Test.Tasty
+import Test.Tasty.HUnit
 
 import Tests.Common
 import Overrides
@@ -26,11 +25,8 @@ import Overrides
 -- NB: It's possible to run these tests individually from the JAPI class
 -- bytecode, e.g. jss --classpath=... --opts="outarr" JAPI
 
-main :: IO ()
-main = do cb <- commonLoadCB
-          defaultMain [japiTests cb]
 
-japiTests :: Codebase -> Test
+japiTests :: Codebase -> TestTree
 japiTests cb = testGroup "JAPI" $
   [ testCase "JAPI: simple byte test" (doTest "simpleByte" cb)
   , testCase "JAPI: 32b symint add" (doTest "t2" cb)
@@ -59,5 +55,9 @@ doTest tn cb =
 -- --------------------------------------------------------------------------------
 -- -- Scratch
 
-_ignore_nouse :: a
-_ignore_nouse = undefined main
+-- _ignore_nouse :: a
+-- _ignore_nouse = undefined main
+
+-- main :: IO ()
+-- main = do cb <- commonLoadCB
+--           defaultMain [japiTests cb]

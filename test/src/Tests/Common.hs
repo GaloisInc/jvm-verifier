@@ -26,7 +26,6 @@ import Control.Monad
 import Data.Char
 import Data.Int
 import Data.Maybe
-import Data.Monoid
 import Data.Word
 import Numeric
 import System.Environment
@@ -36,10 +35,9 @@ import System.Random
 import Text.PrettyPrint
 import Text.Read
 
-import Test.HUnit as HUnit hiding (test)
-import Test.Framework as TF
-import Test.Framework.Providers.QuickCheck2
-import Test.QuickCheck as QC
+import Test.Tasty
+import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck
 import Test.QuickCheck.Monadic as QC
 
 import Execution (runMain)
@@ -139,15 +137,16 @@ mkPropWithSMS f = do
 mkSymProp :: (Backend SymbolicMonad -> IO [Bool]) -> PropertyM IO ()
 mkSymProp m = mkPropWithSMS (m . symbolicBackend)
 
-testPropertyN :: Int -> TestName -> PropertyM IO () -> TF.Test
-testPropertyN n name test = opts `plusTestOptions` prop
-  where opts = mempty { topt_maximum_generated_tests = (Just n) }
+-- RWD FIXME?
+testPropertyN :: Int -> TestName -> PropertyM IO () -> TestTree
+testPropertyN n name test = prop -- opts `plusTestOptions` prop
+  where -- opts = mempty { topt_maximum_generated_tests = (Just n) }
         prop = testProperty name (monadicIO test)
 
-testNegPropertyN :: Int -> TestName -> PropertyM IO () -> TF.Test
-testNegPropertyN n name test = opts `plusTestOptions` prop
-  where opts = mempty { topt_maximum_generated_tests = (Just n) }
-        prop = testProperty name . QC.expectFailure . monadicIO $ test
+--testNegPropertyN :: Int -> TestName -> PropertyM IO () -> TestTree
+--testNegPropertyN n name test = opts `plusTestOptions` prop
+--  where opts = mempty { topt_maximum_generated_tests = (Just n) }
+--        prop = testProperty name . QC.expectFailure . monadicIO $ test
 
 mkAssertionWithSMS :: (SymbolicMonadState -> Assertion) -> Assertion
 mkAssertionWithSMS f = do

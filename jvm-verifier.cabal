@@ -93,7 +93,7 @@ executable jss
 
   other-modules:
     Overrides
-  
+
   cpp-options   : -DUseSAW
 
   hs-source-dirs   : jss
@@ -110,7 +110,7 @@ executable jvmgraph
     , cmdargs
     , pretty
     , jvm-parser >= 0.2.1
-   
+
   hs-source-dirs : jvmgraph
   main-is : Main.hs
   ghc-options      : -O2 -Wall -fno-ignore-asserts
@@ -135,10 +135,21 @@ test-suite test-java
     , transformers >= 0.3.0.0
     , vector >= 0.7
     , QuickCheck >= 2.4
-    , HUnit >= 1.2
-    , test-framework >= 0.8
-    , test-framework-hunit >= 0.3
-    , test-framework-quickcheck2 >= 0.3
+    -- , tasty >= 0.10
+    -- , tasty-ant-xml >= 1.0.0.10
+
+    -- note: temporary, until tasty-ant-xml is updated to use tasty >= 0.10
+    , tasty == 0.9.*
+    , tasty-ant-xml == 1.0.0.9
+
+    , tasty-hunit
+    , tasty-quickcheck
+
+--    , HUnit >= 1.2
+--    , test-framework >= 0.8
+--    , test-framework-hunit >= 0.3
+--    , test-framework-quickcheck2 >= 0.3
+
     , Verinf
     , jvm-verifier
 
@@ -170,10 +181,21 @@ benchmark Benchmarks
     , transformers >= 0.3.0.0
     , vector >= 0.7
     , QuickCheck >= 2.4
-    , HUnit >= 1.2
-    , test-framework >= 0.8
-    , test-framework-hunit >= 0.3
-    , test-framework-quickcheck2 >= 0.3
+
+    -- , tasty >= 0.10
+    -- , tasty-ant-xml >= 1.0.0.10
+
+    -- note: temporary, until tasty-ant-xml is updated to use tasty >= 0.10
+    , tasty == 0.9.*
+    , tasty-ant-xml == 1.0.0.9
+
+    , tasty-hunit
+    , tasty-quickcheck
+
+--    , HUnit >= 1.2
+--    , test-framework >= 0.8
+--    , test-framework-hunit >= 0.3
+--    , test-framework-quickcheck2 >= 0.3
     , Verinf
     , jvm-verifier
 

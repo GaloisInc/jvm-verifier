@@ -5,21 +5,22 @@ Stability        : provisional
 Point-of-contact : acfoltzer
 -}
 
-module Tests.Debugger (debuggerTests, debuggerTestMain) where
+module Tests.Debugger (debuggerTests) where
 
 import Verifier.Java.Debugger
 
-import Test.Framework
-import Test.Framework.Providers.HUnit
+import Test.Tasty
+import Test.Tasty.HUnit
 
 import Tests.Common
 
-debuggerTestMain :: IO ()
-debuggerTestMain =
-  do cb <- commonLoadCB
-     defaultMain [debuggerTests cb]
+--debuggerTestMain :: IO ()
+--debuggerTestMain =
+--  do cb <- commonLoadCB
+--     defaultMain [debuggerTests cb]
 
-debuggerTests :: Codebase -> Test
+
+debuggerTests :: Codebase -> TestTree
 debuggerTests cb = testGroup "Debugger" $
   [
     testCase "tbp" $ tbp cb

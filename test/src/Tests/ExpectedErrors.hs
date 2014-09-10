@@ -8,17 +8,13 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.Error
 
-import Test.HUnit hiding (Test)
-import Test.Framework
-import Test.Framework.Providers.HUnit
+import Test.Tasty
+import Test.Tasty.HUnit
 
 import Tests.Common
 
-main :: IO ()
-main = do cb <- commonLoadCB
-          defaultMain [expErrTests cb]
 
-expErrTests :: Codebase -> Test
+expErrTests :: Codebase -> TestTree
 expErrTests cb = testGroup "ExpectedErrors" $
   [
     testCase "(-) on single path exception" $ exc1 cb
@@ -104,5 +100,9 @@ sa4 cb = go cb $ do
 --------------------------------------------------------------------------------
 -- Scratch
 
-_ignore_nouse :: a
-_ignore_nouse = undefined main
+-- _ignore_nouse :: a
+-- _ignore_nouse = undefined main
+
+--main :: IO ()
+--main = do cb <- commonLoadCB
+--          defaultMain [expErrTests cb]

@@ -21,15 +21,16 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import Data.Int
 
-import Test.HUnit hiding (Test)
-import Test.Framework
-import Test.Framework.Providers.HUnit
+import Test.Tasty
+import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck hiding ((.&.))
+
 import Test.QuickCheck as QC hiding ((.&.))
 import Test.QuickCheck.Monadic as QC
 
 import Tests.Common
 
-primOpTests :: Codebase -> Test
+primOpTests :: Codebase -> TestTree
 primOpTests cb = testGroup "PrimOps" $
    [ -- 32b tests over all symbolic backends, as configured below
      testCase "32b int and" $ t1 cb
@@ -354,10 +355,10 @@ evalBinOp64 cb (classNm, methodNm, sig) x y = do
 --------------------------------------------------------------------------------
 -- Scratch
 
-_ignore_nouse :: a
-_ignore_nouse = undefined main
+-- _ignore_nouse :: a
+-- _ignore_nouse = undefined main
 
-main :: IO ()
-main = do cb <- commonLoadCB
-          defaultMain [primOpTests cb]
+--main :: IO ()
+--main = do cb <- commonLoadCB
+--          defaultMain [primOpTests cb]
 

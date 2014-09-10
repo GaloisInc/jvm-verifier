@@ -15,12 +15,12 @@ import Control.Monad
 import qualified Data.Vector as V
 import System.Process
 
-import Test.Framework
+import Test.Tasty
 import Test.QuickCheck.Monadic
 
 import Tests.Common
 
-rc564Tests :: Test
+rc564Tests :: TestTree
 rc564Tests = testGroup "RC564" $
   [ -- dag-based eval only for RC564 on two random 128b inputs
     testPropertyN 10 "RC5-64 random keys/messages" $ 
@@ -30,11 +30,11 @@ rc564Tests = testGroup "RC564" $
             evalDagRC564 key inp
   ]
 
-_ignore_nouse :: a
-_ignore_nouse = undefined main
+-- _ignore_nouse :: a
+-- _ignore_nouse = undefined main
 
-main :: IO ()
-main = defaultMain [rc564Tests]
+-- main :: IO ()
+-- main = defaultMain [rc564Tests]
 
 --------------------------------------------------------------------------------
 -- RC-564
