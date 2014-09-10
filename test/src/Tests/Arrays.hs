@@ -10,19 +10,16 @@ module Tests.Arrays (arrayTests) where
 import Control.Applicative
 import Control.Monad
 import Data.Int
-import Test.HUnit hiding (Test)
-import Test.Framework
-import Test.Framework.Providers.HUnit
+
+import Test.Tasty
+import Test.Tasty.HUnit
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 
 import Tests.Common
 
-main :: IO ()
-main = do cb <- commonLoadCB
-          defaultMain [arrayTests cb]
 
-arrayTests :: Codebase -> Test
+arrayTests :: Codebase -> TestTree
 arrayTests cb = testGroup "Arrays" $
   [
 {-
@@ -126,5 +123,9 @@ sa4 cb =
 --------------------------------------------------------------------------------
 -- Scratch
 
-_ignore_nouse :: a
-_ignore_nouse = undefined main
+--_ignore_nouse :: a
+--_ignore_nouse = undefined main
+
+--main :: IO ()
+--main = do cb <- commonLoadCB
+--          defaultMain [arrayTests cb]

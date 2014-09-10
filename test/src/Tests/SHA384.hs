@@ -16,16 +16,13 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 import System.Process
 
-import Test.Framework
+import Test.Tasty
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 
 import Tests.Common
 
-main :: IO ()
-main = defaultMain [sha384Tests]
-
-sha384Tests :: Test
+sha384Tests :: TestTree
 sha384Tests = testGroup "SHA384" $
   [
   --- dag-based eval for SHA384 on a message of (random r in [1..256]) bytes
@@ -112,9 +109,11 @@ runSHA384 msgVars = do
                        [ RValue msgArray
                        , RValue outArray
                        ]
-  dbugM' 2 "SHA384 simulation finished"
+  -- dbugM' 2 "SHA384 simulation finished"
   getIntArray outArray
 
-_ignore_nouse :: a
-_ignore_nouse = undefined main
+-- _ignore_nouse :: a
+-- _ignore_nouse = undefined main
 
+-- main :: IO ()
+-- main = defaultMain [sha384Tests]

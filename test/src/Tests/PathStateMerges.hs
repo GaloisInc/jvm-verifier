@@ -12,20 +12,16 @@ import Control.Monad
 import Data.Maybe
 import Prelude
 
-import Test.HUnit hiding (Test)
-import Test.Framework
-import Test.Framework.Providers.HUnit
+import Test.Tasty
+import Test.Tasty.HUnit
 
 import Tests.Common
 
-main :: IO ()
-main = do cb <- commonLoadCB
-          defaultMain [psmsTests cb]
 
 dummyCN :: String
 dummyCN = "PathStateMerges$Dummy"
 
-psmsTests :: Codebase -> Test
+psmsTests :: Codebase -> TestTree
 psmsTests cb = testGroup "PathMerges" $
   [ testCase "ddb1" . mkSymAssertion $ \sbe -> do
       b    <- IValue <$> freshInt sbe
@@ -125,5 +121,9 @@ mul2WithFlags cb flags = mkSymAssertion $ \sbe -> do
 --------------------------------------------------------------------------------
 -- Scratch
 
-_ignore_nouse :: a
-_ignore_nouse = undefined main
+-- _ignore_nouse :: a
+-- _ignore_nouse = undefined main
+
+--main :: IO ()
+--main = do cb <- commonLoadCB
+--          defaultMain [psmsTests cb]

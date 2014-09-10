@@ -9,13 +9,14 @@ module Tests.Regressions (regressionTests) where
 
 import Control.Monad
 
-import Test.Framework
-import Test.Framework.Providers.HUnit
+import Test.Tasty
+import Test.Tasty.HUnit
+
 
 import Tests.Common
 import Overrides
 
-regressionTests :: Codebase -> Test
+regressionTests :: Codebase -> TestTree
 regressionTests cb = testGroup "Regressions" $
    [
      testCase "one-armed if postdom" $ t1 cb
