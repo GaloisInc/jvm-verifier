@@ -135,8 +135,8 @@ test-suite test-java
     , transformers >= 0.3.0.0
     , vector >= 0.7
     , QuickCheck >= 2.4
-    , tasty,
-    , tasty-ant-xml,
+    , tasty
+    , tasty-ant-xml
     , tasty-hunit
     , tasty-quickcheck
     , Verinf
