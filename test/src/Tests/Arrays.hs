@@ -23,8 +23,8 @@ arrayTests :: Codebase -> TestTree
 arrayTests cb = testGroup "Arrays" $
   [
 {-
-    testPropertyN 10 "Read concarray @ symidx" $ sa1 cb
-  , testPropertyN 10 "Write symelem @ symidx to concarray" $ sa2 cb
+    testProperty "Read concarray @ symidx" $ sa1 cb
+  , testProperty "Write symelem @ symidx to concarray" $ sa2 cb
   , testCase "Write symelem @ concidx to concarray" $ sa3 cb
   , testCase "Write symelem @ concidx to 2-dim symarray" $ sa4 cb
 -}

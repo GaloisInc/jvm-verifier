@@ -40,13 +40,13 @@ primOpTests cb = testGroup "PrimOps" $
    , testCase "data-dependent branch (simple)" $ t12a cb
    , testCase "data-dependent branch (nested)" $ t12b cb
    , testCase "data-dependent branch (loop)" $ t12c cb
-   , testPropertyN 10 "32b quotRem: dag and aig eval" $ qr32
+   , testProperty "32b quotRem: dag and aig eval" $ monadicIO $ qr32
      -- 64b tests over all symbolic backends, as configured below
    , testCase "64b int and" $ t7 cb
    , testCase "64b int add" $ t8 cb
    , testCase "64b int array sum" $ t9 cb
-   , testPropertyN 10 "64b quotRem: dag and aig eval" $ qr64
-   , testPropertyN 10 "string instantiation & simple string ops" $ ct2 cb
+   , testProperty "64b quotRem: dag and aig eval" $ monadicIO $ qr64
+   , testProperty "string instantiation & simple string ops" $ monadicIO $ ct2 cb
 --   , testCase "32b int array out parameter" $ t13 cb
    , testCase "superclass field assignment from subclass method" $ ct1 cb
    , testCase "concrete double add" $ fp1 cb

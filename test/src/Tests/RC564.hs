@@ -23,7 +23,7 @@ import Tests.Common
 rc564Tests :: TestTree
 rc564Tests = testGroup "RC564" $
   [ -- dag-based eval only for RC564 on two random 128b inputs
-    testPropertyN 10 "RC5-64 random keys/messages" $ 
+    testPropertyN 10 "RC5-64 random keys/messages" $
         -- run $ putStrLn "Running RC5-64 test..."
         forAllM (bytes 16) $ \key ->
           forAllM (bytes 16) $ \inp -> do
