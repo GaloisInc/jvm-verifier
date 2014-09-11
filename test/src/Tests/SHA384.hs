@@ -32,7 +32,7 @@ sha384Tests = testGroup "SHA384" $
           forAllM (bytes numBytes) $ \msg ->
             evalDagSHA384 msg
 {-
-  , testPropertyN 2 "SHA-384 digests of random messages (aig evaluation)" $
+  , testPropertyN 10 "SHA-384 digests of random messages (aig evaluation)" $
         -- run $ putStrLn "Running SHA-384 test..."
         forAllM (choose (1,256)) $ \numBytes ->
           forAllM (bytes numBytes) $ \msg ->

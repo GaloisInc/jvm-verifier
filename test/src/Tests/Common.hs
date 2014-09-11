@@ -137,16 +137,15 @@ mkPropWithSMS f = do
 mkSymProp :: (Backend SymbolicMonad -> IO [Bool]) -> PropertyM IO ()
 mkSymProp m = mkPropWithSMS (m . symbolicBackend)
 
--- RWD FIXME?
 testPropertyN :: Int -> TestName -> PropertyM IO () -> TestTree
-testPropertyN n name test = prop -- opts `plusTestOptions` prop
-  where -- opts = mempty { topt_maximum_generated_tests = (Just n) }
+testPropertyN n name test = adjustOption optf prop
+  where optf (QuickCheckTests old) = QuickCheckTests (max n old)
         prop = testProperty name (monadicIO test)
 
---testNegPropertyN :: Int -> TestName -> PropertyM IO () -> TestTree
---testNegPropertyN n name test = opts `plusTestOptions` prop
---  where opts = mempty { topt_maximum_generated_tests = (Just n) }
---        prop = testProperty name . QC.expectFailure . monadicIO $ test
+testNegPropertyN :: Int -> TestName -> PropertyM IO () -> TestTree
+testNegPropertyN n name test = adjustOption optf prop
+  where optf (QuickCheckTests old) = QuickCheckTests (max n old)
+        prop = testProperty name . expectFailure . monadicIO $ test
 
 mkAssertionWithSMS :: (SymbolicMonadState -> Assertion) -> Assertion
 mkAssertionWithSMS f = do
