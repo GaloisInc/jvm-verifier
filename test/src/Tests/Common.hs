@@ -139,12 +139,12 @@ mkSymProp m = mkPropWithSMS (m . symbolicBackend)
 
 testPropertyN :: Int -> TestName -> PropertyM IO () -> TestTree
 testPropertyN n name test = adjustOption optf prop
-  where optf (QuickCheckTests old) = QuickCheckTests (max n old)
+  where optf (QuickCheckTests old) = QuickCheckTests (min n old)
         prop = testProperty name (monadicIO test)
 
 testNegPropertyN :: Int -> TestName -> PropertyM IO () -> TestTree
 testNegPropertyN n name test = adjustOption optf prop
-  where optf (QuickCheckTests old) = QuickCheckTests (max n old)
+  where optf (QuickCheckTests old) = QuickCheckTests (min n old)
         prop = testProperty name . expectFailure . monadicIO $ test
 
 mkAssertionWithSMS :: (SymbolicMonadState -> Assertion) -> Assertion
