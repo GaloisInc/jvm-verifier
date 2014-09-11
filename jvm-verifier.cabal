@@ -135,16 +135,10 @@ test-suite test-java
     , transformers >= 0.3.0.0
     , vector >= 0.7
     , QuickCheck >= 2.4
-    , tasty >= 0.10
-    , tasty-ant-xml >= 1.0.0.10
+    , tasty,
+    , tasty-ant-xml,
     , tasty-hunit
     , tasty-quickcheck
-
---    , HUnit >= 1.2
---    , test-framework >= 0.8
---    , test-framework-hunit >= 0.3
---    , test-framework-quickcheck2 >= 0.3
-
     , Verinf
     , jvm-verifier
 
@@ -182,10 +176,6 @@ benchmark Benchmarks
     , tasty-hunit
     , tasty-quickcheck
 
---    , HUnit >= 1.2
---    , test-framework >= 0.8
---    , test-framework-hunit >= 0.3
---    , test-framework-quickcheck2 >= 0.3
     , Verinf
     , jvm-verifier
 
