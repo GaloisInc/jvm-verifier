@@ -24,11 +24,11 @@ import Data.Int
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck hiding ((.&.))
-
-import Test.QuickCheck as QC hiding ((.&.))
 import Test.QuickCheck.Monadic as QC
 
 import Tests.Common
+
+import Verinf.Symbolic.Common
 
 primOpTests :: Codebase -> TestTree
 primOpTests cb = testGroup "PrimOps" $
@@ -47,7 +47,7 @@ primOpTests cb = testGroup "PrimOps" $
    , testCase "64b int array sum" $ t9 cb
    , testProperty "64b quotRem: dag and aig eval" $ monadicIO $ qr64
    , testProperty "string instantiation & simple string ops" $ monadicIO $ ct2 cb
---   , testCase "32b int array out parameter" $ t13 cb
+   , testCase "32b int array out parameter" $ t13 cb
    , testCase "superclass field assignment from subclass method" $ ct1 cb
    , testCase "concrete double add" $ fp1 cb
    , testCase "concrete double sub" $ fp2 cb
@@ -170,15 +170,14 @@ t12c :: TrivialCase
 t12c cb = t12cmn ("Trivial", "fork_loop_f2", "(ZZ)I") chk cb
   where chk b0 b1 rslt = constInt ((b0 .|. (b1 `shiftL` 1)) * 2) @=? rslt
 
-{-
 t13 :: TrivialCase
 t13 cb =
   mkAssertionWithSMS $ \sms -> do
     let sbe = symbolicBackend sms
         be = smsBitEngine sms
-    let n       = 4
-        cInputs = [constInt 16, constInt 4]
+    let cInputs = [constInt 16, constInt 4]
         expect  = map constInt [4, 64, 4, 8]
+        n       = length expect
     ins <- replicateM 2 $ IValue <$> freshInt sbe
     outVars <- runDefSimulator cb sbe $ do
       outArr <- newMultiArray (ArrayType IntType) [mkCInt 32 4]
@@ -187,15 +186,16 @@ t13 cb =
     -- DAG eval
     evalFn <- concreteEvalFn (V.fromList cInputs)
     outVals <- mapM evalFn outVars
+
     -- AIG eval
-    outLits <- mapM (getVarLit sbe) outVars
+    outLits <- fmap (map flattenLitResult) $ mapM (smsBitBlastFn sms) outVars
     r <- beEvalAigV be (SV.fromList $ concatMap intToBoolSeq cInputs)
-                       (SV.fromList $ concat outLits)
+                       (SV.concat outLits)
     let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
                $ SV.toList $ (SV.slice (32*k) 32 r)
              | k <- [0..(n-1)] ]
     [outVals, rs] @?= [expect, expect]
--}
+
 
 -- NB: This won't symbolically terminate yet.
 _t14 :: TrivialCase
