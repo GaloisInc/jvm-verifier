@@ -13,7 +13,8 @@ import Data.Int
 
 import Test.Tasty
 import Test.Tasty.HUnit
-import Test.QuickCheck hiding ((.&.))
+import Test.Tasty.QuickCheck
+
 import Test.QuickCheck.Monadic
 
 import Tests.Common
@@ -21,23 +22,19 @@ import Tests.Common
 
 arrayTests :: Codebase -> TestTree
 arrayTests cb = testGroup "Arrays" $
-  [
-{-
-    testProperty "Read concarray @ symidx" $ sa1 cb
-  , testProperty "Write symelem @ symidx to concarray" $ sa2 cb
+  [ testProperty "Read concarray @ symidx" $ monadicIO $ sa1 cb
+  , testProperty "Write symelem @ symidx to concarray" $ monadicIO $ sa2 cb
   , testCase "Write symelem @ concidx to concarray" $ sa3 cb
   , testCase "Write symelem @ concidx to 2-dim symarray" $ sa4 cb
--}
   ]
 
-{-
+
 -- | Read concrete int array at symbolic indices
 sa1 :: TrivialProp
 sa1 cb =
   forAllM (int32s 128) $ \arrayElems ->
     mkPropWithSMS $ \sms -> do
       let sbe = symbolicBackend sms
-      let be = smsBitEngine sms
       idx <- IValue <$> freshInt sbe
       outVar <- runDefSimulator cb sbe $ do
         let tint = mkCInt 32 . fromIntegral
@@ -45,10 +42,11 @@ sa1 cb =
         [(_, Just (IValue rslt))] <-
           runStaticMethod "Arrays" "index" "(I[I)I" [idx, RValue inpArr]
         return rslt
-      let getAt = fmap (boolSeqToValue :: [Bool] -> Int32)
-                . (\inp -> evalAig be inp outVar)
-                . intToBoolSeq
-                . constInt
+      let getAt x = do
+               x' <- termInt sbe x
+               z <- evalAigIntegral sbe id [x'] outVar
+               maybe (assertFailure "result is not a concrete integer" >> return 0) return $ asInt sbe z
+
       ((:[]) . (== arrayElems))
         <$> mapM getAt [0..(fromIntegral $ length arrayElems - 1)]
 
@@ -59,7 +57,6 @@ sa2 cb =
   forAllM (choose (0, fromIntegral (length arrayElems - 1))) $ \overwriteIdx ->
   mkPropWithSMS $ \sms -> do
     let sbe = symbolicBackend sms
-    let be = smsBitEngine sms
     [idx, val]  <- replicateM 2 $ IValue <$> freshInt sbe
     rslt <- runDefSimulator cb sbe $ do
       let tint = mkCInt 32 . fromIntegral
@@ -67,17 +64,20 @@ sa2 cb =
       [(_, Nothing)] <- runStaticMethod "Arrays" "update" "(II[I)V"
                           [idx, val, RValue arr]
       getIntArray arr
-      -- Overwrite a random index with 42 and check it
-    ((:[]) . elem 42)
-      <$> (map (boolSeqToValue :: [Bool] -> Int32) . splitN 32)
-      <$> evalAig be (evalAigArgs32 [overwriteIdx, 42]) rslt
+
+    -- Overwrite a random index with 42 and check it
+    oidx <- termInt sbe overwriteIdx
+    oval <- termInt sbe 42
+    arr <- evalAigArray sbe 32 [oidx,oval] rslt
+    arr' <- mapM (maybe (assertFailure "result is not a concrete integer" >> return 0) return . asInt sbe) arr
+    return [elem 42 arr']
+
 
 -- | Symbolic array update w/ concrete index and symbolic value
 sa3 :: Codebase -> Assertion
 sa3 cb =
   mkAssertionWithSMS $ \sms -> do
     let sbe = symbolicBackend sms
-    let be = smsBitEngine sms
     let n    = 3
         fill = 99
     val     <- IValue <$> freshInt sbe
@@ -88,21 +88,24 @@ sa3 cb =
         runStaticMethod "Arrays" "update" "(II[I)V"
           [IValue (mkCInt 32 $ fromIntegral n - 1), val, RValue arr]
       getIntArray arr
+
     -- Overwrite the last index with 42 and check it
-    (@=?) (replicate (n-1) fill ++ [42])
-        =<< (map boolSeqToValue . splitN 32)
-        <$> evalAig be (evalAigArgs32 (42 : replicate n fill)) rslt
+    xs <- mapM (termInt sbe) (42 : replicate n fill)
+    arr <- evalAigArray sbe 32 xs rslt
+    arr' <- mapM (maybe (assertFailure "result is not a concrete integer" >> return 0) return . asInt sbe) arr
+
+    (@=?) (replicate (n-1) fill ++ [42]) arr'
+
 
 -- | Symbolic 2-dim array update w/ concrete index and value
 sa4 :: Codebase -> Assertion
 sa4 cb =
-  mkAssertionWithSMS $ \sms -> do 
+  mkAssertionWithSMS $ \sms -> do
     let sbe = symbolicBackend sms
-    let be = smsBitEngine sms
     let n        = 3 ; nI = fromIntegral n
         m        = 4
         numElems = n * m
-        fill     = 99
+        fill     = 99 :: Int32
     symVals <- replicateM n $ replicateM m $ freshInt sbe
     rslt <- runDefSimulator cb sbe $ do
       let tint = mkCInt 32
@@ -114,18 +117,8 @@ sa4 cb =
         runStaticMethod "Arrays" "update" "(III[[I)V"
           (map (IValue . tint) [0, 0, 42] ++ [RValue twodim])
       concat <$> (mapM getIntArray =<< getRefArray twodim)
-    -- Overwrite the first index with 42 and check it
-    (@=?) ((42 :: Int32) : replicate (numElems - 1) (fromIntegral fill))
-        =<< (map boolSeqToValue . splitN 32)
-        <$> evalAig be (concatMap intToBoolSeq $ replicate numElems (mkCInt 32 fill)) rslt
--}
 
---------------------------------------------------------------------------------
--- Scratch
-
---_ignore_nouse :: a
---_ignore_nouse = undefined main
-
---main :: IO ()
---main = do cb <- commonLoadCB
---          defaultMain [arrayTests cb]
+    xs <- mapM (termInt sbe) (42 : replicate (numElems - 1) fill)
+    arr <- evalAigArray sbe 32 xs rslt
+    arr' <- mapM (maybe (assertFailure "result is not a concrete integer" >> return 0) return . asInt sbe) arr
+    (@=?) ((42 :: Int32) : replicate (numElems - 1) fill) arr'

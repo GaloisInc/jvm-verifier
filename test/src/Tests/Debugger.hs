@@ -25,6 +25,7 @@ debuggerTests cb = testGroup "Debugger" $
   [
     testCase "tbp" $ tbp cb
   , testCase "tmain" $ tmain cb
+-- FIXME, what should this test do?
 --  , testCase "trepl" $ trepl cb
   ]
 
@@ -58,8 +59,8 @@ tmain cb =
     return ()
 
 -- | Temporary: go into repl manually. TODO: feed repl a script
-_trepl :: TrivialCase
-_trepl cb =
+trepl :: TrivialCase
+trepl cb =
   mkSymAssertion $ \sbe -> do
     sym <- freshInt sbe
     let clName = "IVTDriver"

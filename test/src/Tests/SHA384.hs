@@ -22,6 +22,9 @@ import Test.QuickCheck.Monadic
 
 import Tests.Common
 
+import Verinf.Symbolic.Common
+
+
 sha384Tests :: TestTree
 sha384Tests = testGroup "SHA384" $
   [
@@ -31,13 +34,12 @@ sha384Tests = testGroup "SHA384" $
         forAllM (choose (1,256)) $ \numBytes ->
           forAllM (bytes numBytes) $ \msg ->
             evalDagSHA384 msg
-{-
+
   , testPropertyN 10 "SHA-384 digests of random messages (aig evaluation)" $
         -- run $ putStrLn "Running SHA-384 test..."
         forAllM (choose (1,256)) $ \numBytes ->
           forAllM (bytes numBytes) $ \msg ->
             evalAigSHA384 msg
--}
   ]
 
 getGoldenSHA384 :: String -> IO String
@@ -71,7 +73,7 @@ evalDagSHA384 msg = do
   assert $ rslt == golden
   -- run $ putStrLn $ "SHA-384 Result : " ++ rslt
 
-{-
+
 evalAigSHA384 :: String -> PropertyM IO ()
 evalAigSHA384 msg = do
   cb <- run commonLoadCB
@@ -84,19 +86,19 @@ evalAigSHA384 msg = do
     let be = smsBitEngine sms
     msgVars <- replicateM msgLen $ freshByte sbe
     outVars <- runDefSimulator cb sbe $ runSHA384 msgVars
-    outLits <- concat <$> mapM (getVarLit sbe) outVars
+    outLits <- fmap (map flattenLitResult) $ mapM (smsBitBlastFn sms) outVars
     -- | Word-level inputs
     let cinps = map constInt $ hexToByteSeq msg
     -- | Boolean inputs to evalAig
     let binps = concatMap (take 8 . intToBoolSeq) cinps
-    r <- beEvalAigV be (SV.fromList binps) (SV.fromList outLits)
+    r <- beEvalAigV be (SV.fromList binps) (SV.concat outLits) -- (SV.fromList outLits)
     let rs = [ constInt . head . hexToIntSeq . boolSeqToHex
                  $ SV.toList $ SV.slice (32*k) 32 r
              | k <- [0..47]
              ]
     return $ byteSeqToHex rs
   assert $ rslt == golden
--}
+
 
 runSHA384 :: MonadSim sbe m => [SBETerm sbe] -> Simulator sbe m [SBETerm sbe]
 runSHA384 msgVars = do
