@@ -22,8 +22,8 @@ import Tests.Common
 
 arrayTests :: Codebase -> TestTree
 arrayTests cb = testGroup "Arrays" $
-  [ testProperty "Read concarray @ symidx" $ monadicIO $ sa1 cb
-  , testProperty "Write symelem @ symidx to concarray" $ monadicIO $ sa2 cb
+  [ testPropertyN 20 "Read concarray @ symidx" $ monadicIO $ sa1 cb
+  , testPropertyN 20 "Write symelem @ symidx to concarray" $ monadicIO $ sa2 cb
   , testCase "Write symelem @ concidx to concarray" $ sa3 cb
   , testCase "Write symelem @ concidx to 2-dim symarray" $ sa4 cb
   ]
