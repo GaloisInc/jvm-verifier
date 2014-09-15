@@ -48,7 +48,6 @@ import qualified Data.Vector.Storable as SV
 
 import Verinf.Symbolic.Common
 import Verinf.Symbolic
-import Verinf.Symbolic.Lit.Functional
 
 import Verifier.Java.Backend
 import Verifier.Java.Utils
@@ -61,7 +60,7 @@ data SymbolicMonadState = SMS {
   , smsInputLitRef :: IORef (Map.Map InputIndex (LitResult Lit))
   , smsBitBlastFn :: DagTerm -> IO (LitResult Lit)
   }
-                          
+
 mkSymbolicMonadState :: OpCache
                      -> BitEngine Lit
                      -> DagEngine
@@ -156,15 +155,15 @@ symbolicBackend sms = do
           _ -> error "internal: illegal arguments to setArray"
   Backend {
       freshByte = do
-        inputs <- SV.replicateM 7 lMkInput
-        msb <- lMkInput
+        inputs <- SV.replicateM 7 (beMakeInputLit be)
+        msb <- beMakeInputLit be
         let lv = inputs SV.++ SV.replicate 25 msb
         freshTerm int32Type lv
     , freshInt = do
-        lv <- SV.replicateM 32 lMkInput
+        lv <- SV.replicateM 32 (beMakeInputLit be)
         freshTerm int32Type lv
     , freshLong = do
-        lv <- SV.replicateM 64 lMkInput
+        lv <- SV.replicateM 64 (beMakeInputLit be)
         freshTerm int64Type lv
     , asBool = getBool
     , asInt = \x -> fromInteger <$> getSVal x
@@ -239,9 +238,9 @@ symbolicBackend sms = do
     , blastTerm = \v -> do
         LV lv <- getTermLit v
         let l = assert (SV.length lv == 1) $ SV.head lv
-        if l == lTrue then
+        if l == (beTrue be) then
           return (Just True)
-        else if l == lFalse then
+        else if l == (beFalse be) then
           return (Just False)
         else
           return Nothing
@@ -253,8 +252,8 @@ symbolicBackend sms = do
           Nothing -> return True
     , evalAigIntegral = \f ins out -> do
         outLits <- getTermLit out
-        bbits <- lEvalAig (SV.fromList (concatMap (f . intToBoolSeq . fromJust . termConst) ins))
-                          (toLsbfV outLits)
+        bbits <- beEvalAigV be (SV.fromList (concatMap (f . intToBoolSeq . fromJust . termConst) ins))
+                               (toLsbfV outLits)
         return $ mkCInt (Wx (SV.length bbits)) $ boolSeqToValue (SV.toList bbits)
     , evalAigArray = \n ins outs -> do
         -- TODO: Report sensible error if ins is not constants.
@@ -264,8 +263,8 @@ symbolicBackend sms = do
                      64 -> evalAigArgs64 $ map (fromInteger . fromJust . getSVal) ins
                      _  -> error $ "evalAigArray: input array elements have unexpected bit width"
         outLits <- mapM getTermLit outs
-        rs <- lEvalAig (SV.fromList bits)
-                       (SV.concat (map toLsbfV outLits))
+        rs <- beEvalAigV be (SV.fromList bits)
+                            (SV.concat (map toLsbfV outLits))
         let rsl = SV.toList rs
         case n of
           8  -> return $ map (mkCInt 32 . boolSeqToValue) $ splitN 8 rsl
@@ -275,7 +274,8 @@ symbolicBackend sms = do
    , writeAigToFile = \fname res -> do
        e <- mapM getTermLit res
        let elts = concatMap (SV.toList . toLsbfV) e
-       lWriteAiger fname (SV.fromList elts)
+       ins <- beInputLits be
+       beWriteAigerV be fname ins (SV.fromList elts)
    , writeCnfToFile = \fname res -> do
        LV l <- getTermLit res
        void $ beWriteCNF be fname mempty (SV.head l)
