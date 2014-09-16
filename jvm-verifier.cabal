@@ -43,7 +43,6 @@ library
     , transformers >= 0.3
     , tuple >= 0.2
     , vector >= 0.7
-    , Verinf >= 0.2
     , saw-core
     , cryptol-verifier
 
@@ -64,6 +63,21 @@ library
     Verifier.Java.Utils
     Verifier.Java.WordBackend
     Verifier.Java.TestInterface
+
+  other-modules:
+    Verinf.Symbolic
+    Verinf.Symbolic.Common
+    Verinf.Symbolic.Dag
+    Verinf.Symbolic.Lit
+    Verinf.Symbolic.Lit.ABC
+    Verinf.Symbolic.Lit.ABC_GIA
+    Verinf.Symbolic.Lit.DataTypes
+    Verinf.Symbolic.Lit.Functional
+    Verinf.Symbolic.OpCache
+    Verinf.Symbolic.Rewriter
+    Verinf.Symbolic.UnionFind
+    Verinf.Utils.CacheM
+
 
   if !flag(build-library)
     buildable: False
@@ -89,7 +103,6 @@ executable jss
     , parsec
     , pretty >= 1.1
     , vector >= 0.7
-    , Verinf >= 0.2
 
   other-modules:
     Overrides
@@ -139,7 +152,6 @@ test-suite test-java
     , tasty-ant-xml
     , tasty-hunit
     , tasty-quickcheck
-    , Verinf
     , jvm-verifier
 
   main-is          : Tests.hs
@@ -176,7 +188,6 @@ benchmark Benchmarks
     , tasty-hunit
     , tasty-quickcheck
 
-    , Verinf
     , jvm-verifier
 
   main-is          : Benchmarks.hs
@@ -198,7 +209,6 @@ executable ExampleAIG
     , random >= 1.0.1.0
     , vector >= 0.7
     , QuickCheck >= 2.4.1
-    , Verinf
 
   main-is          : Examples/AIG/ExampleAIG.hs
   hs-source-dirs   : src test/src .

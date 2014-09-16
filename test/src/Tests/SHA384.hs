@@ -22,8 +22,6 @@ import Test.QuickCheck.Monadic
 
 import Tests.Common
 
-import Verinf.Symbolic.Common
-
 
 sha384Tests :: TestTree
 sha384Tests = testGroup "SHA384" $

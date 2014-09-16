@@ -4,6 +4,7 @@
 module Verifier.Java.TestInterface
 ( CValue(..)
 , getSValW
+, flattenLitResult
 ) where
 
 import Verinf.Symbolic

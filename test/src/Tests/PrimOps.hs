@@ -28,8 +28,6 @@ import Test.QuickCheck.Monadic as QC
 
 import Tests.Common
 
-import Verinf.Symbolic.Common
-
 primOpTests :: Codebase -> TestTree
 primOpTests cb = testGroup "PrimOps" $
    [ -- 32b tests over all symbolic backends, as configured below
