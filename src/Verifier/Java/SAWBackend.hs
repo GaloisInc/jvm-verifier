@@ -311,6 +311,7 @@ sawBackend sc0 mr be = do
             case r of
               AIG.Sat _ -> return True
               AIG.Unsat -> return False
+              AIG.SatUnknown -> fail "SAT solver returned 'unknown'"
           _ -> fail "Checking satisfiability of multiple bits."
 
   let writeAigToFileFn :: FilePath -> [SharedTerm s] -> IO ()
