@@ -44,7 +44,6 @@ import Data.JVM.Symbolic.Translation
 import Verifier.Java.Codebase
 import Verifier.Java.Debugger
 import Verifier.Java.Simulator
-import Verifier.Java.Utils
 import qualified Verifier.Java.WordBackend as W
 import qualified Verifier.Java.SAWBackend as S
 import Overrides

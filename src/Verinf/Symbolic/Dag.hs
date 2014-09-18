@@ -20,8 +20,8 @@ module Verinf.Symbolic.Dag
 -- Imports {{{1
 
 import Control.Applicative hiding (empty)
-import Control.Exception (assert, Exception)
 import Control.Monad.Error
+import Control.Exception (assert, Exception)
 import Data.IORef
 import Data.Map (Map)
 import qualified Data.Map as  Map

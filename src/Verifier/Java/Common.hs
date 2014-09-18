@@ -165,6 +165,7 @@ import qualified Prelude as P
 import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Arrow ((***))
 import Control.Lens
+import Control.Monad
 import Control.Monad.Error
 import Control.Monad.State.Class
 import Control.Monad.Trans.State.Strict hiding (State)
