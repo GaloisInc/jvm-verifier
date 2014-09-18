@@ -11,7 +11,6 @@ import Control.Monad.State
 import Text.PrettyPrint
 
 import Verifier.Java.Simulator
-import Verifier.Java.Utils
 
 -- | Register all predefined overrides for the com.galois.symbolic.Symbolic
 -- API.

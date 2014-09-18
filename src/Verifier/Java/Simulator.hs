@@ -96,7 +96,6 @@ import Prelude hiding (EQ, LT, GT)
 
 import Control.Applicative hiding (empty)
 import Control.Lens hiding (act)
-import Control.Monad
 import Control.Monad.Error
 import Control.Monad.State.Class (get, put)
 import Control.Monad.Trans.State.Strict (evalStateT)
@@ -104,6 +103,7 @@ import Control.Monad.Trans.State.Strict (evalStateT)
 import Data.Array
 import Data.Char
 import Data.Int
+import Data.Word
 import Data.List (find, foldl', sort)
 import qualified Data.Map as M
 import Data.Maybe
@@ -142,8 +142,8 @@ whenVerbosity f m = getVerbosity >>= \v -> when (f v) m
 dbugM' :: (Monad m, MonadIO m) => Int -> String -> Simulator sbe m ()
 dbugM' lvl = whenVerbosity (>=lvl) . dbugM
 
-banners' :: (Monad m, MonadIO m) => Int -> String -> Simulator sbe m ()
-banners' lvl = whenVerbosity (>=lvl) . banners
+--banners' :: (Monad m, MonadIO m) => Int -> String -> Simulator sbe m ()
+--banners' lvl = whenVerbosity (>=lvl) . banners
 
 -- | Run a static method with the given arguments. Class, method name,
 -- and method type are given in JVM internal format, e.g.,
@@ -1765,7 +1765,7 @@ stdOverrides = do
                    [FValue flt] -> do
                      when (flt /= (-0.0 :: Float)) $
                        abort "floatToRawIntBits: overridden for -0.0f only"
-                     pushValue =<< withSBE (\sbe -> IValue <$> termInt sbe 0x80000000)
+                     pushValue =<< withSBE (\sbe -> IValue <$> termInt sbe (fromIntegral (0x80000000 :: Word32)))
                    _ -> abort "floatToRawIntBits: called with incorrect arguments"
       )
       -- java.lang.Double.doubleToRawLongBits: override for invocation by
@@ -1776,7 +1776,7 @@ stdOverrides = do
                    [DValue dbl] -> do
                      when (dbl /= (-0.0 :: Double)) $
                        abort "doubltToRawLongBits: overriden -0.0d only"
-                     pushValue =<< withSBE (\sbe -> LValue <$> termLong sbe 0x8000000000000000)
+                     pushValue =<< withSBE (\sbe -> LValue <$> termLong sbe (fromIntegral (0x8000000000000000 :: Word64)))
                    _ -> abort "floatToRawIntBits: called with incorrect arguments"
       )
       -- Set up any necessary state for the native methods of various

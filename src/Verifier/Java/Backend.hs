@@ -11,7 +11,6 @@ module Verifier.Java.Backend
 
 import Data.Int
 import Data.Typeable
-import qualified Data.Vector.Storable as SV
 import Text.PrettyPrint (Doc)
 
 type UnaryOp sbe = SBETerm sbe -> IO (SBETerm sbe)
