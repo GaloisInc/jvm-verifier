@@ -4,6 +4,9 @@ Author:         Galois Inc.
 Maintainer:     jhendrix@galois.com, jstanley@galois.com
 Build-type:     Simple
 Cabal-version: >= 1.8
+Category:       Formal Methods
+Synopsis:       Symbolic simulator for Java bytecode
+License:        AllRightsReserved
 
 Flag build-library
   description: Build the jvm-verifier library.
@@ -27,7 +30,7 @@ Flag build-benchmarks
 
 library
   build-depends:
-      base >= 4
+      base >= 4 && < 5
     , abcBridge
     , aig
     , array
@@ -169,6 +172,8 @@ benchmark Benchmarks
       base >= 4
     , array
     , containers
+    , hastache >= 0.5 && < 0.6
+    , statistics >= 0.10 && < 0.11
     , criterion >= 0.6 && < 0.8
     , directory
     , filepath
@@ -199,7 +204,7 @@ executable ExampleAIG
     buildable: False
 
   build-depends:
-      base >= 4
+      base >= 4 && < 5
     , array
     , containers
     , directory
