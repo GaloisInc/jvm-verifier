@@ -131,7 +131,7 @@ sawBackend sc0 mr be = do
       apply4 op w x y z = scApplyAll sc op [w,x,y,z]
   let getBuiltin name = scGlobalDef sc (qualify name)
 
-  -- boolType  <- scBoolType sc
+  boolType  <- scBoolType sc
   trueCtor  <- scBool sc True
   falseCtor <- scBool sc False
   iteOp <- getBuiltin "ite"
@@ -187,6 +187,7 @@ sawBackend sc0 mr be = do
 
   -- bvslt :: (n :: Nat) -> bitvector (Succ n) -> bitvector (Succ n) -> Bool;
   bvslt <- getBuiltin "bvslt"
+  bvslt32 <- scApply sc bvslt nat32
   bvslt64 <- scApply sc bvslt nat64
 
   -- bvAnd :: (n :: Nat) -> bitvector n -> bitvector n -> bitvector n;
@@ -204,20 +205,17 @@ sawBackend sc0 mr be = do
   bvXor32 <- scApply sc bvXor nat32
   bvXor64 <- scApply sc bvXor nat64
 
-  -- bvShl :: (x :: Nat) -> bitvector x -> Nat -> bitvector x;
-  bvShl <- getBuiltin "bvShl"
-  bvShl32 <- scApply sc bvShl nat32
-  bvShl64 <- scApply sc bvShl nat64
+  -- bvShiftL :: (n :: Nat) -> (a :: sort 0) -> (w :: Nat) -> a -> Vec n a -> bitvector w -> Vec n a;
+  bvShiftL <- getBuiltin "bvShiftL"
+  bvShl32 <- scApplyAll sc bvShiftL [nat32, boolType, nat32, falseCtor]
+  bvShl64 <- scApplyAll sc bvShiftL [nat64, boolType, nat32, falseCtor]
 
-  -- bvShr :: (w :: Nat) -> bitvector w -> Nat -> bitvector w;
-  bvShr <- getBuiltin "bvShr"
-  bvShr32 <- scApply sc bvShr nat32
-  bvShr64 <- scApply sc bvShr nat64
-
-  -- bvSShr :: (w :: Nat) -> bitvector (Succ w) -> Nat -> bitvector (Succ w);
-  bvSShr <- getBuiltin "bvSShr"
-  bvSShr32 <- scApply sc bvSShr nat31
-  bvSShr64 <- scApply sc bvSShr nat63
+  -- bvShiftR :: (n :: Nat) -> (a :: sort 0) -> (w :: Nat) -> a -> Vec n a -> bitvector w -> Vec n a;
+  bvShiftR <- getBuiltin "bvShiftR"
+  bvShr32 <- scApplyAll sc bvShiftR [nat32, boolType, nat32, falseCtor]
+  bvShr64 <- scApplyAll sc bvShiftR [nat64, boolType, nat32, falseCtor]
+  bvSShr32 <- scApplyAll sc bvShiftR [nat32, boolType, nat32]
+  bvSShr64 <- scApplyAll sc bvShiftR [nat64, boolType, nat32]
 
   -- bvNeg :: (x :: Nat) -> bitvector x -> bitvector x;
   bvNeg <- getBuiltin "bvNeg"
@@ -249,20 +247,10 @@ sawBackend sc0 mr be = do
   bvSRem32 <- scApply sc bvSRem nat31
   bvSRem64 <- scApply sc bvSRem nat63
 
-  -- bvToNat :: (n :: Nat) -> bitvector n -> Nat;
-  bvToNat <- getBuiltin "bvToNat"
-  bvToNat32 <- scApply sc bvToNat nat32
-  bvToNat64 <- scApply sc bvToNat nat64
-
   let mkBvToNat32 t =
         case asBvNat bvNat32 t of
           Just n -> scNat sc n
-          Nothing -> scApply sc bvToNat32 t
-
-  let mkBvToNat64 t =
-        case asBvNat bvNat64 t of
-          Just n -> scNat sc n
-          Nothing -> scApply sc bvToNat64 t
+          Nothing -> fail "mkBvToNat32 applied to symbolic length"
 
   -- replicate :: (n :: Nat) -> (e :: sort 0) -> e -> Vec n e;
   replicateOp <- getBuiltin "replicate"
@@ -284,29 +272,16 @@ sawBackend sc0 mr be = do
         lnat <- mkBvToNat32 l
         scApplyAll sc setOp [lnat,eltType,nat32,a,i,v]
 
-  let mkBvShl32 x y = do
-        ynat <- mkBvToNat32 y
-        apply2 bvShl32 x ynat
-
-  let mkBvShl64 x y = do
-        ynat <- mkBvToNat64 y
-        apply2 bvShl64 x ynat
-
-  let mkBvShr32 x y = do
-        ynat <- mkBvToNat32 y
-        apply2 bvShr32 x ynat
-
-  let mkBvShr64 x y = do
-        ynat <- mkBvToNat64 y
-        apply2 bvShr64 x ynat
-
+  let mkBvShl32 x y = apply2 bvShl32 x y
+  let mkBvShl64 x y = apply2 bvShl64 x y
+  let mkBvShr32 x y = apply2 bvShr32 x y
+  let mkBvShr64 x y = apply2 bvShr64 x y
   let mkBvSShr32 x y = do
-        ynat <- mkBvToNat32 y
-        apply2 bvSShr32 x ynat
-
+        msb <- apply2 bvslt32 x zero32
+        apply3 bvSShr32 msb x y
   let mkBvSShr64 x y = do
-        ynat <- mkBvToNat64 y
-        apply2 bvSShr64 x ynat
+        msb <- apply2 bvslt64 x zero64
+        apply3 bvSShr64 msb x y
 
   -- | Compare two 64bit integers (x & y), and return one of three 32-bit integers:
   -- if x < y then return -1; if x == y then return 0; if x > y then return 1
