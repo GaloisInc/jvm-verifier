@@ -1,6 +1,6 @@
 % JSS(1) JSS User Guide
 % Galois, Inc
-% March 18, 2013
+% October 1, 2014
 
 NAME
 ====
@@ -49,6 +49,9 @@ OPTIONS
 :   Specify the verbosity level for debugging messages. Valid values
     are in the range 0-5.
 
+-e, \--errpaths
+:   Print details of symbolic exeuction paths that end in errors
+
 -j *JARS*, --jars=*JARS*
 :   A colon-delimited list of jar files to search for class files.  The
     jdk1.6 jar be explicitly given using this option.  Use semicolon
@@ -62,6 +65,15 @@ OPTIONS
 -o *ARGS*, \--opts=*ARGS*
 :   Specify the space-delimited list of arguments to pass to the
     main() method.
+
+-u, \--usesaw
+:   Use the SAWCore backend instead of the default word backend
+
+-x, \--xlate
+:   Print the symbolic AST translation and exit
+
+\--startdebugger
+:   Break and enter the JSS debugger when running the main method
 
 -V, \--version
 :   Print out the version of the simulator.
