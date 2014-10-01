@@ -5,6 +5,9 @@
 
 // Based on spec in FIPS180-2 doc: http://csrc.nist.gov/publications/fips/fips180-2/fips180-2withchangenotice.pdf
 
+// TODO This SHA-2 implementation is written in the Version 1 dialect of Cryptol
+// and needs to be updated to Cryptol 2.*
+
 iv256 : [8][32];
 iv256 = [0x6a09e667 0xbb67ae85 0x3c6ef372 0xa54ff53a
          0x510e527f 0x9b05688c 0x1f83d9ab 0x5be0cd19];
