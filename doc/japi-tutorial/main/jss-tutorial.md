@@ -38,7 +38,7 @@ or the contents of a program source file.
     System for Sequential Synthesis and Verification
     <http://www.eecs.berkeley.edu/~alanmi/abc/>
 
-[^cryptol]: Galois, Inc. Cryptol. <http://corp.galois.com/cryptol>
+[^cryptol]: Galois, Inc. Cryptol. <http://cryptol.net>
 
 Setting up the Environment
 ==========================
@@ -129,10 +129,10 @@ described earlier):
 This will result in a new file, `JavaMD5.class` in the same directory
 as the source file. The `-cp` option tells the compiler where to find
 code for the standard Java libraries and the Bouncy Castle
-implementaiont, needed to type-check the example. The `-g` option
+implementation, needed to type-check the example. The `-g` option
 tells the compiler to include debugging information in the output, so
 that `jss` will be able to determine the names of local variables and
-method paremeters, as well as to determine which JVM instructions
+method parameters, as well as to determine which JVM instructions
 correspond with which lines of source code. This latter option can be
 omitted, but the debugging information can make the simulator more
 convenient to use.
@@ -291,116 +291,49 @@ something like the following:
 
     # jss -c . -j galois.jar;bcprov-jdk16-145.jar;"C:\jdk1.6.0_22\jre\lib\rt.jar" JavaMD5
 
-This will result in a file called `JavaMD5.aig` that can be furthier
+This will result in a file called `JavaMD5.aig` that can be further
 analyzed using a variety of tools, including the Galois Cryptol tool
 set, and the ABC logic synthesis system from UC Berkeley.
 
-Verifying the Formal Model Using Cryptol
+Verifying the Formal Model
 ========================================
 
-One easy way to verify a Java implementation against a reference
-specification is through the Cryptol tool set. Cryptol is a
+One way to verify a Java implementation is to prove equivalence to a
+reference implementation written in Cryptol.  Cryptol is a
 domain-specific language created by Galois for the purpose of writing
-high-level but precise specifications of cryptographic algorithms. The
-Cryptol tool set has built-in support for checking the equivalence of
-different Cryptol implementations, as well as comparing Cryptol
-implementations to external formal models, including models in AIG
-form.
+high-level but precise specifications of cryptographic algorithms.
+One way we can do this is by symbolically simulating the Cryptol
+reference implementation (just as we did for the Java implementation)
+to obtain an AIG.  The two generated AIGs can then be compared
+using the ABC tool.
 
-This tutorial comes with two Cryptol files, `MD5.cry` and
-`compare-md5.cry`. The former is a Cryptol specification of the MD5
-algorithm. In particular, it contains the function `md5_ref`, which is
-specialized to operate on 16-byte messages, and should have equivalent
-functionality to the Bouncy Castle implementation.
+This tutorial comes with a Cryptol file, `MD5.cry`, which is a Cryptol
+specification of the MD5 algorithm. In particular, it contains the
+function `md5_ref`, which is specialized to operate on 16-byte
+messages, and should have equivalent functionality to the Bouncy
+Castle implementation.
 
-To compare the functionality of the two implementations, we have
-several options. As mentioned earlier, formal models can be evaluated
-on concrete inputs, or compared to other formal models using proof
-techniques to show equivalence for all possible inputs. The contents
-of `compare-md5.cry` show how to compare the formal model of the Java
-implementation against the Cryptol reference specification.
+We obtain a formal model of the Cryptol specification by using
+the `css` tool (Cryptol Symbolic Simulator):
 
-```
-include "MD5.cry";
-extern AIG md5_java("JavaMD5.aig") : [16][8] -> [128];
-theorem MatchesRef : {m}. md5_java m == md5_ref m;
-```
+    # css MD5.cry md5_ref
 
-The first line imports the contents of `MD5.cry`, for access to the
-`md5_ref` function. Then, the `extern AIG` line makes the contents of
-`JavaMD5.aig` available as a function called `md5_java` that takes 16
-8-bit values as input and produces one 128-bit value as output.
-Finally, the third line states a theorem: that the functions
-`md5_java` and `md5_ref` should produce the same output for all
-possible inputs.
+This will symbolically execute the `md5_ref` function and produce the
+file `md5_ref.aig`.
 
-We can load `compare-md5.cry` into the Cryptol tool set, yielding the
-following output:
-
-```
-# cryptol compare-md5.cry
-Cryptol version 1.8.23, Copyright (C) 2004-2012 Galois, Inc.
-                                           www.cryptol.net
-Type :? for help
-Loading "compare-md5.cry"..
-  Including "MD5.cry".. Checking types..
-  Loading extern aig from "JavaMD5.aig".. Processing.. Done!
-*** Auto quickchecking 1 theorem.
-*** Checking "MatchesRef" ["compare-md5.cry", line 4, col 1]
-Checking case 100 of 100 (100.00%)
-100 tests passed OK
-[Coverage: 0.00%. (100/340282366920938463463374607431768211456)]
-compare-md5>
-```
-
-By default, the Cryptol interpreter processes every `theorem`
-declaration by automatically evaluating the associated expression on a
-series of random values, and ensuring that it always yields ``true``.
-In this case, it tried 100 random values, and the two functions
-yielded the same output in each case. However, the number of possible
-16-byte inputs is immense, so 100 test cases barely scratches the
-surface.
-
-To gain a higher degree of confidence that the functions do have the
-same functionality for all possible inputs, we can attempt to prove
-their equivalence deductively. From Cryptol's command line:
-
-```
-compare-md5> :set symbolic
-compare-md5> :prove MatchesRef
-Q.E.D.
-compare-md5> :fm md5_ref "MD5-ref.aig"
-```
-
-This tells the Cryptol interpreter to switch to symbolic simulation
-mode (which is one way it can generate formal models from Cryptol
-functions) and then attempt to prove the theorem named `MatchesRef`.
-On a reasonably modern machine (as of March 2013), the proof should
-complete in several minutes. The output `Q.E.D.` means that the proof
-was successful.
-
-Finally, the `:fm` command tells the interpreter to generate a formal
-model of the `md5_ref` function and store it in the file
-`MD5-ref.aig`. We can then use this formal model to perform the same
-proof using an external tool such as ABC, as described next.
-
-Verifying the Formal Model Using ABC
-====================================
-
+We can now compare the two generated formal models using ABC.
 ABC is a tool for logic synthesis and verification developed by
 researchers at UC Berkeley. It can perform a wide variety of
 transformations and queries on logic circuits, including those in the
 AIG form discussed earlier.
-
-As an alternative approach to the equivalence check from the previous
-section, we can use the `cec` command in ABC to attempt to prove the
-model generated by the symbolic simulator equivalent to the model
-generated from the Cryptol specification.
+We can use the `cec` (combinatorial equivalence check)
+command in ABC to attempt to prove the model generated by the Java symbolic
+simulator equivalent to the model generated from the Cryptol specification.
 
 ```
 # abc
 UC Berkeley, ABC 1.01 (compiled Nov 21 2012 09:44:18)
-abc 01> cec ./JavaMD5.aig ./MD5-ref.aig
+abc 01> cec ./JavaMD5.aig ./md5_ref.aig
 Networks are equivalent.
 abc 01>
 ```
@@ -522,3 +455,20 @@ negated, with the rationale that they tend to be used to prove the
 validity of expressions, rather than satisfiability. Therefore, a
 result of "unsatisfiable" from a SAT solver indicates that the formula
 passed to `writeCnf` is valid (always true).
+
+Now, if we build and simulate the `ExampleCNF.java`, we will obtain
+a file `ExampleCNF.cnf`, which we can then pass into a standard SAT
+solver.  In the following example, we call `minisat`[^minisat] to check the
+generated CNF formula.
+
+[^minisat]: <http://minisat.se>
+
+```
+# javac -g -j BC_JAR:JDK_JAR ExampleCNF.java
+# jss -c . -j BC_JAR:JDK_JAR ExampleCNF
+# minisat -verb=0 ExampleCNF.cnf
+UNSATISFIABLE
+```
+
+`minisat` reports the problem `UNSATISFIABLE`, indicating that the original formula is valid
+for all symbolic inputs.
