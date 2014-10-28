@@ -208,14 +208,14 @@ sawBackend sc0 mr be = do
   -- bvShiftL :: (n :: Nat) -> (a :: sort 0) -> (w :: Nat) -> a -> Vec n a -> bitvector w -> Vec n a;
   bvShiftL <- getBuiltin "bvShiftL"
   bvShl32 <- scApplyAll sc bvShiftL [nat32, boolType, nat32, falseCtor]
-  bvShl64 <- scApplyAll sc bvShiftL [nat64, boolType, nat32, falseCtor]
+  bvShl64 <- scApplyAll sc bvShiftL [nat64, boolType, nat64, falseCtor]
 
   -- bvShiftR :: (n :: Nat) -> (a :: sort 0) -> (w :: Nat) -> a -> Vec n a -> bitvector w -> Vec n a;
   bvShiftR <- getBuiltin "bvShiftR"
   bvShr32 <- scApplyAll sc bvShiftR [nat32, boolType, nat32, falseCtor]
-  bvShr64 <- scApplyAll sc bvShiftR [nat64, boolType, nat32, falseCtor]
+  bvShr64 <- scApplyAll sc bvShiftR [nat64, boolType, nat64, falseCtor]
   bvSShr32 <- scApplyAll sc bvShiftR [nat32, boolType, nat32]
-  bvSShr64 <- scApplyAll sc bvShiftR [nat64, boolType, nat32]
+  bvSShr64 <- scApplyAll sc bvShiftR [nat64, boolType, nat64]
 
   -- bvNeg :: (x :: Nat) -> bitvector x -> bitvector x;
   bvNeg <- getBuiltin "bvNeg"
