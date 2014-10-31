@@ -145,6 +145,8 @@ sawBackend sc0 mr be = do
 
   nat1 <- scNat sc 1
   nat7 <- scNat sc 7
+  nat15 <- scNat sc 15
+  nat16 <- scNat sc 16
   nat24 <- scNat sc 24
   nat31 <- scNat sc 31
   nat63 <- scNat sc 63
@@ -173,7 +175,9 @@ sawBackend sc0 mr be = do
   -- bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (addNat x (Succ y));
   bvSExt <- getBuiltin "bvSExt"
   bvSExt32to64 <- apply2 bvSExt nat32 nat31
+  bvSExt1to32 <- apply2 bvSExt nat31 nat0
   bvSExt8to32 <- apply2 bvSExt nat24 nat7
+  bvSExt16to32 <- apply2 bvSExt nat16 nat15
 
   -- bvUExt :: (x y :: Nat) -> bitvector y -> bitvector (addNat y x);
   -- bvUExt <- getBuiltin "bvUExt"
@@ -330,27 +334,21 @@ sawBackend sc0 mr be = do
           Nothing -> \_ -> return ()
           Just r -> \t -> modifyIORef r (t :)
 
-  return Backend { freshByte = do
-                     i <- scFreshGlobalVar sc
-                     t <- scFlatTermF sc (ExtCns (EC i "_" bitvector8))
-                     v <- BB.BVector <$> V.replicateM 8 (BB.BBool <$> AIG.newInput be)
-                     modifyIORef inputsRef (M.insert i v)
-                     maybeCons t
-                     scApply sc bvSExt8to32 t
-                 , freshInt  = do
-                     i <- scFreshGlobalVar sc
-                     t <- scFlatTermF sc (ExtCns (EC i "_" bitvector32))
-                     v <- BB.BVector <$> V.replicateM 32 (BB.BBool <$> AIG.newInput be)
-                     modifyIORef inputsRef (M.insert i v)
-                     maybeCons t
-                     return t
-                 , freshLong = do
-                     i <- scFreshGlobalVar sc
-                     t <- scFlatTermF sc (ExtCns (EC i "_" bitvector64))
-                     v <- BB.BVector <$> V.replicateM 64 (BB.BBool <$> AIG.newInput be)
-                     modifyIORef inputsRef (M.insert i v)
-                     maybeCons t
-                     return t
+  let freshVar n ext = do
+        i <- scFreshGlobalVar sc
+        ty <- scBitvector sc n
+        t <- scFlatTermF sc (ExtCns (EC i "_" ty))
+        v <- BB.BVector <$> V.replicateM (fromIntegral n) (BB.BBool <$> AIG.newInput be)
+        modifyIORef inputsRef (M.insert i v)
+        maybeCons t
+        ext t
+
+  return Backend { freshBool  = freshVar 1 (scApply sc bvSExt1to32)
+                 , freshByte  = freshVar 8 (scApply sc bvSExt8to32)
+                 , freshChar  = freshVar 16 (scApply sc bvSExt16to32)
+                 , freshShort = freshVar 16 (scApply sc bvSExt16to32)
+                 , freshInt   = freshVar 32 return
+                 , freshLong  = freshVar 64 return
                  , asBool = R.asBool
                  , asInt  = fmap fromIntegral . asBvNat bvNat32 -- Maybe Int32
                  , asLong = fmap fromIntegral . asBvNat bvNat64 -- Maybe Int64
