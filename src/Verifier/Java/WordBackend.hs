@@ -154,10 +154,23 @@ symbolicBackend sms = do
             deApplyTernary de (setArrayValueOp len w32 eltType) a i v
           _ -> error "internal: illegal arguments to setArray"
   Backend {
-      freshByte = do
+      freshBool = do
+        l <- beMakeInputLit be
+        freshTerm int32Type (SV.singleton l)
+    , freshByte = do
         inputs <- SV.replicateM 7 (beMakeInputLit be)
         msb <- beMakeInputLit be
         let lv = inputs SV.++ SV.replicate 25 msb
+        freshTerm int32Type lv
+    , freshChar = do
+        inputs <- SV.replicateM 15 (beMakeInputLit be)
+        msb <- beMakeInputLit be
+        let lv = inputs SV.++ SV.replicate 17 msb
+        freshTerm int32Type lv
+    , freshShort = do
+        inputs <- SV.replicateM 15 (beMakeInputLit be)
+        msb <- beMakeInputLit be
+        let lv = inputs SV.++ SV.replicate 17 msb
         freshTerm int32Type lv
     , freshInt = do
         lv <- SV.replicateM 32 (beMakeInputLit be)

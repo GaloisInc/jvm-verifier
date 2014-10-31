@@ -24,8 +24,14 @@ class ( Show (SBETerm m)
       ) => AigOps m where
 
 data Backend sbe = Backend {
+          -- | Allocates a fresh 1-bit variable and sign-extends it to 32 bits.
+         freshBool :: IO (SBETerm sbe)
           -- | Allocates a fresh 8-bit variable and sign-extends it to 32 bits.
-         freshByte :: IO (SBETerm sbe)
+       , freshByte :: IO (SBETerm sbe)
+          -- | Allocates a fresh 16-bit variable and sign-extends it to 32 bits.
+       , freshChar :: IO (SBETerm sbe)
+          -- | Allocates a fresh 16-bit variable and sign-extends it to 32 bits.
+       , freshShort :: IO (SBETerm sbe)
        , freshInt  :: IO (SBETerm sbe)
        , freshLong :: IO (SBETerm sbe)
        , asBool :: SBETerm sbe -> Maybe Bool
