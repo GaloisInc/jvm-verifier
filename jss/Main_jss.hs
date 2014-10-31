@@ -17,7 +17,7 @@ module Main where
 import Control.Applicative hiding (many)
 import Control.Lens ((.=))
 import Control.Monad
-import Control.Monad.Error
+import Control.Monad.Except
 import Data.Char
 import Data.Function
 import Data.List
@@ -39,7 +39,7 @@ import Text.PrettyPrint hiding (char)
 import Language.JVM.CFG
 import Language.JVM.Parser
 
-import Execution
+import Execution.JavaSemantics
 import Data.JVM.Symbolic.Translation
 import Verifier.Java.Codebase
 import Verifier.Java.Debugger
@@ -196,7 +196,7 @@ main = do
                when (startDebugger args') $ do
                  breakOnMain cname
                  evHandlers .= seh
-               rs <- runMain cname =<< do
+               rs <- runStaticMethod cname "main" "([Ljava/lang/String;)V" =<< do
                  jargs <- newMultiArray (ArrayType (ClassType "java/lang/String")) [tl]
                  forM_ ([0..length jopts - 1] `zip` jopts) $ \(i,s) -> do
                    r <- RValue <$> refFromString s

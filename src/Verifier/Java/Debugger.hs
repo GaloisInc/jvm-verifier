@@ -24,8 +24,8 @@ module Verifier.Java.Debugger
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Error
-import Control.Lens hiding (createInstance)
+import Control.Monad.Except
+import Control.Lens
 
 import Data.Char
 import Data.List
