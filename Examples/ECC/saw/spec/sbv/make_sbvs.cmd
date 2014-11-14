@@ -19,6 +19,8 @@
 :fm sq_java_inner2     "generated/sq_java_inner2.sbv"
 :fm aset_384           "generated/aset_384.sbv"
 :fm aset_768           "generated/aset_768.sbv"
+:fm adc_384            "generated/adc_384.sbv"
+:fm sbb_384            "generated/sbb_384.sbv"
 
 :load sbv_uninterpret_mul_inner.cry
 :fm group_red_aux_java "generated/group_red_aux_java.sbv"
