@@ -50,10 +50,10 @@ aset_768 = aset;
 aset_384 : ([384], [32], [32]) -> [384];
 aset_384 = aset;
 
-adc_384 : ([384], [384], Bit) -> [384];
+adc_384 : ([384], [384]) -> ([384], Bit);
 adc_384 = adc;
 
-sbb_384 : ([384], [384], Bit) -> [384];
+sbb_384 : ([384], [384]) -> ([384], Bit);
 sbb_384 = sbb;
 
 /* Matches java implementation; computes safe_product. */
