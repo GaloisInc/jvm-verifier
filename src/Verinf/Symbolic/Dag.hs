@@ -20,7 +20,6 @@ module Verinf.Symbolic.Dag
 -- Imports {{{1
 
 import Control.Applicative hiding (empty)
-import Control.Monad.Error
 import Control.Exception (assert, Exception)
 import Data.IORef
 import Data.Map (Map)
@@ -219,7 +218,3 @@ data SymbolicExc
 
 instance Exception SymbolicExc
 
--- This is the path for error messages that originate from use of 'fail'; since
--- we should be handling these explicitly, we die here.
-instance Error SymbolicExc where
-  strMsg msg = error $ "Unhandled exception raised: (" ++ msg ++ ")"

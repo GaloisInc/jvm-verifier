@@ -4,6 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Verifier.Java.SAWBackend
   ( SharedContext
   , mkSharedContext
@@ -151,7 +152,6 @@ sawBackend sc0 mr be = do
   nat31 <- scNat sc 31
   nat63 <- scNat sc 63
 
-  bitvector8 <- scBitvector sc 8
   bitvector32 <- scBitvector sc 32
   bitvector64 <- scBitvector sc 64
 
