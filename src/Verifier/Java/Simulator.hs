@@ -96,7 +96,8 @@ import Prelude hiding (EQ, LT, GT)
 
 import Control.Applicative hiding (empty)
 import Control.Lens hiding (act)
-import Control.Monad.Error
+import Control.Monad
+import Control.Monad.Except
 import Control.Monad.State.Class (get, put)
 import Control.Monad.Trans.State.Strict (evalStateT)
 
@@ -421,7 +422,7 @@ runSimulator ::
   -> IO a
 runSimulator cb sbe seh mflags m = do
   newSt <- initialState cb sbe (fromMaybe defaultSimFlags mflags) seh
-  ea <- flip evalStateT newSt $ runErrorT $ runSM $ do
+  ea <- flip evalStateT newSt $ runExceptT $ runSM $ do
     stdOverrides
     m
   case ea of

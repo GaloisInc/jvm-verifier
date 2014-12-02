@@ -13,6 +13,7 @@ Point-of-contact : acfoltzer
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Verifier.Java.Common
   ( -- * Core types
@@ -166,7 +167,7 @@ import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Arrow ((***))
 import Control.Lens
 import Control.Monad
-import Control.Monad.Error
+import Control.Monad.Except
 import Control.Monad.State.Class
 import Control.Monad.Trans.State.Strict hiding (State)
 
@@ -179,7 +180,7 @@ import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Word (Word16, Word32)
 
-import System.Console.Haskeline.MonadException (MonadException)
+import System.Console.Haskeline.MonadException (MonadException(..), RunIO(..))
 
 import Text.PrettyPrint
 
@@ -193,7 +194,7 @@ import qualified Verifier.Java.Codebase as Codebase
 
 -- | A Simulator is a monad transformer around a symbolic backend
 newtype Simulator sbe (m :: * -> *) a = 
-  SM { runSM :: ErrorT (InternalExc sbe m) (StateT (State sbe m) IO) a }
+  SM { runSM :: ExceptT (InternalExc sbe m) (StateT (State sbe m) IO) a }
   deriving 
     ( Functor
     , Applicative
@@ -203,6 +204,11 @@ newtype Simulator sbe (m :: * -> *) a =
     , MonadError (InternalExc sbe m)
     , MonadException
     )
+
+instance (MonadException m) => MonadException (ExceptT e m) where
+    controlIO f = ExceptT $ controlIO $ \(RunIO run) -> let
+                    run' = RunIO (fmap ExceptT . run . runExceptT)
+                    in fmap runExceptT $ f run'  
 
 -- | These constraints are common to monads with a symbolic execution
 -- backend. Enable @{-# LANGUAGE ConstraintKinds #-}@ to use this in
@@ -420,9 +426,8 @@ data InternalExc sbe m
   = ErrorPathExc FailRsn (State sbe m)
   | UnknownExc (Maybe FailRsn)
 
-instance Error (InternalExc sbe m) where
-  noMsg  = UnknownExc Nothing
-  strMsg = UnknownExc . Just . FailRsn
+strExc :: String -> InternalExc sbe m
+strExc = UnknownExc . Just . FailRsn
 
 -- | Types of breakpoints
 data Breakpoint = BreakEntry | BreakPC PC | BreakLineNum Word16
@@ -450,7 +455,7 @@ data SEH sbe m = SEH
 
 assert :: String -> Bool -> Simulator sbe m ()
 assert msg b =
-  unless b . throwError . strMsg $ "assertion failed (" ++ msg ++ ")"
+  unless b . throwError . strExc $ "assertion failed (" ++ msg ++ ")"
 
 data JavaException term =
   JavaException
@@ -816,7 +821,7 @@ mergeNextCont p (HandleBranch point ba h)
           (cf1:cfs1, cf2:_) -> do
             cf' <- mergeCallFrames c cf1 cf2
             return (cf':cfs1)
-          _ -> throwError $ strMsg "call frame mismatch when merging paths"
+          _ -> throwError $ strExc "call frame mismatch when merging paths"
       mergedMemory <- mergeMemories c (p^.pathMemory) (pf^.pathMemory)
       mergedAssertions <-
           liftIO $ termIte sbe c (p^.pathAssertions) (pf^.pathAssertions)
@@ -846,7 +851,7 @@ mergeRetVals :: MonadIO m
 mergeRetVals c (Just rv1) (Just rv2) = Just <$> mergeValues c rv1 rv2
 mergeRetVals _ Nothing    Nothing    = return Nothing
 mergeRetVals _ _          _          = 
-    throwError $ strMsg "return value mismatch when merging paths"
+    throwError $ strExc "return value mismatch when merging paths"
 
 mergeMemories :: MonadIO m
               => SBETerm sbe
