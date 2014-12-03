@@ -162,12 +162,12 @@ runStaticMethod cName mName mType args = do
   run
   cs <- use ctrlStk
   when (not $ isFinished cs) 
-    $ fail "runStaticMethod: unexpected active control stack after executing method"
+    $ err "runStaticMethod: unexpected active control stack after executing method"
   case currentPath cs of
     Just p -> do
       rv <- getProgramReturnValue
       return [(p, rv)]
-    Nothing -> return []--    Nothing -> fail "runStaticMethod: all paths failed"
+    Nothing -> return []--    Nothing -> err "runStaticMethod: all paths failed"
 
 -- | Low-level function. If you do not know you need to call this, you
 -- likely do not need to! This is the main loop of the simulator which
@@ -185,7 +185,7 @@ run = do
        --        & pathRetVal  .~ Nothing
     case modifyPath (const p') cs' of
       Just cs'' -> ctrlStk .= cs''
-      Nothing   -> fail "all paths failed in resumed computation"
+      Nothing   -> err "all paths failed in resumed computation"
   else if isFinished cs then
     case currentPath cs of
       Just (p :: Path sbe) -> do
@@ -215,7 +215,7 @@ run = do
   else do
     (p :: Path sbe) <- case currentPath cs of
                          Just p -> return p
-                         Nothing -> fail "impossible"
+                         Nothing -> err "impossible"
     sbe <- use backend
     dbugM' 5 . render $ "run:" <+> ppPath sbe p
     flip catchError handleError $ do
@@ -225,7 +225,7 @@ run = do
 
       cf <- case currentCallFrame p of
               Just cf -> return cf
-              Nothing -> fail "empty call stack"
+              Nothing -> err "empty call stack"
       let method = cf^.cfMethod
           cName  = cf^.cfClass
       cb <- use codebase
@@ -235,13 +235,13 @@ run = do
          mblocks <- liftIO $ lookupSymbolicMethod cb cName (methodKey method)
          case mblocks of
            Just blocks -> return blocks
-           _ -> fail . render $ "unable to symbolically translate"
+           _ -> err . render $ "unable to symbolically translate"
                 <+> text cName <+> ppMethod method
       case lookupSymBlock bid symBlocks of
         Just symBlock -> do
           dbugM' 6 . render $ "run:" <+> ppSymBlock symBlock
           runInsns $ sbInsns symBlock
-        Nothing -> fail . render 
+        Nothing -> err . render 
           $ "invalid basic block" <+> ppBlockId bid 
           <+> "for method" <+> ppMethod method
     run
@@ -320,17 +320,17 @@ pushStaticMethodCall cName key args mRetBlock = do
       dbugM' 6 . render $ "found static impls:" <+> sep (map text impls)
       cl <- case impls of
               cl:_ -> lookupClass cl
-              _ -> fail . render 
+              _ -> err . render 
                      $ "pushStaticMethodCall: could not find method"
                      <+> text cName <> "." <> ppMethodKey key
       let cName' = className cl
       method <- case cl `lookupMethod` key of
                   Just m -> return m
-                  Nothing -> fail . render 
+                  Nothing -> err . render 
                     $ "pushStaticMethodCall: could not find method" 
                     <+> text cName' <> "." <> ppMethodKey key
       if methodIsNative method then
-        error $ "Unsupported native static method " ++ show key ++ " in " ++ cName'
+        err $ "Unsupported native static method " ++ show key ++ " in " ++ cName'
       else do
         when (cName' == "com/galois/symbolic/Symbolic") $
           expectOverride "Symbolic"
@@ -340,11 +340,11 @@ pushStaticMethodCall cName key args mRetBlock = do
           Just retBB -> modifyCSM_ $ \cs ->
             case pushCallFrame cName' method retBB locals cs of
               Just cs' -> return cs'
-              Nothing  -> fail "cannot invoke method: all paths failed"
+              Nothing  -> err "cannot invoke method: all paths failed"
           Nothing -> void $ execMethod cName' key locals
   where
     expectOverride cn =
-      error $ "expected static override for " ++ cn ++ "."
+      err $ "expected static override for " ++ cn ++ "."
             ++ methodKeyName key ++ unparseMethodDescriptor key
 
 lookupInstanceOverride :: String 
@@ -378,11 +378,11 @@ pushInstanceMethodCall cName key objectRef args mRetBlock = do
       cl <- lookupClass cName
       method <- case cl `lookupMethod` key of
                   Just m -> return m
-                  Nothing -> fail . render 
+                  Nothing -> err . render 
                     $ "pushInstanceMethodCall: could not find method" 
                     <+> text cName <> "." <> ppMethodKey key
       if methodIsNative method then
-        error $ "Unsupported native instance method " ++ show key ++ " in " ++ cName
+        err $ "Unsupported native instance method " ++ show key ++ " in " ++ cName
       else do
 --        dbugM $ "pushCallFrame: (instance) method call to " ++ cName ++ "." ++ methodName method
         case mRetBlock of
@@ -390,7 +390,7 @@ pushInstanceMethodCall cName key objectRef args mRetBlock = do
             modifyCSM_ $ \cs ->
               case pushCallFrame cName method retBB locals cs of
                 Just cs' -> return cs'
-                Nothing  -> fail "cannot invoke method: all paths failed"
+                Nothing  -> err "cannot invoke method: all paths failed"
           Nothing -> void $ execMethod cName key locals
 
 setupLocals :: [Value term]
@@ -426,8 +426,8 @@ runSimulator cb sbe seh mflags m = do
     stdOverrides
     m
   case ea of
-    Left ErrorPathExc{}   -> error "internal: uncaught error path exception"
-    Left (UnknownExc mfr) -> error $ "internal: uncaught unknown exception: "
+    Left ErrorPathExc{}   -> fail "internal: uncaught error path exception"
+    Left (UnknownExc mfr) -> fail $ "internal: uncaught unknown exception: "
                                      ++ maybe "(no details)" (show . ppFailRsn) mfr
     Right x               -> return x
 
@@ -487,7 +487,7 @@ newSymbolicArray tp@(ArrayType eltType) cnt arr = do
   m <- getMem "newSymbolicArray"
   setMem (m & memScalarArrays %~ M.insert r (cnt, arr))
   return r
-newSymbolicArray _ _ _ = fail "internal: newSymbolicArray called with invalid type"
+newSymbolicArray _ _ _ = err "internal: newSymbolicArray called with invalid type"
 
 -- | Returns length and symbolic value associated with array reference,
 -- and nothing if this is not an array reference.
@@ -515,7 +515,7 @@ updateSymbolicArray :: MonadSim sbe m
 updateSymbolicArray r modFn = do
   m <- getMem "updateSymbolicArray"
   (len,arr) <- 
-    maybe (fail "updateSymbolicArray: reference is not a symbolic array") return
+    maybe (err "updateSymbolicArray: reference is not a symbolic array") return
     $ M.lookup r (m^.memScalarArrays)
   sbe <- use backend
   len' <- liftIO $ termInt sbe len
@@ -537,7 +537,7 @@ newIntArray tp@(ArrayType eltType) values
             termSetIntArray sbe l a ti (v V.! i)
       V.foldM fn a0 (V.enumFromN 0 (V.length v))
     newSymbolicArray tp (safeCast (length values)) arr
-newIntArray _ _ = error "internal: newIntArray called with invalid type"
+newIntArray _ _ = err "internal: newIntArray called with invalid type"
 
 -- | @newLongArray arTy terms@ produces a reference to a new long array
 -- populated with given @terms@.
@@ -581,7 +581,7 @@ getArrayValue r idx = do
     let Just arr = M.lookup r (m^.memRefArrays)
     case asInt sbe idx of
       Just i -> return $ RValue (arr ! fromIntegral i)
-      _ -> fail "Not supported: symbolic indexing into arrays of references."
+      _ -> err "Not supported: symbolic indexing into arrays of references."
   else if tp == LongType then
     liftIO $ do
       let Just (l,rslt) = M.lookup r (m^.memScalarArrays)
@@ -604,7 +604,7 @@ getArray f ref = do
   sbe <- use backend
   len <- getArrayLength ref
   case asInt sbe len of
-    Nothing -> fail "Not supported: getArray called on array with symbolic length"
+    Nothing -> err "Not supported: getArray called on array with symbolic length"
     Just l ->
       forM [0..l-1] $ \i -> do
         liftM f . getArrayValue ref =<< liftIO (termInt sbe i)
@@ -647,7 +647,7 @@ getInstanceFieldValue ref fldId = do
   m <- getMem "getInstanceFieldValue"
   case M.lookup (ref, fldId) (m^.memInstanceFields) of
     Just v   -> return v
-    Nothing  -> fail $ "getInstanceFieldValue: instance field " ++
+    Nothing  -> err $ "getInstanceFieldValue: instance field " ++
                        show fldId ++ " does not exist"
 
 getStaticFieldValue :: MonadSim sbe m
@@ -673,8 +673,8 @@ getStaticFieldValue fldId = do
 
 tryModifyCS :: Monad m => String -> (CS sbe -> Maybe (CS sbe)) -> Simulator sbe m ()
 tryModifyCS ctx f = ctrlStk %= fn
-  where fn = fromMaybe (error err) . f
-          where err = "internal: tryModifyCS " ++ show ctx
+  where fn = fromMaybe (error e) . f
+          where e = "internal: tryModifyCS " ++ show ctx
 
 -- @setMem@ sets the memory model in the current path, which must exist.
 setMem :: (Functor m, Monad m) => Memory (SBETerm sbe) -> Simulator sbe m ()
@@ -718,7 +718,7 @@ execStaticMethod :: MonadSim sbe m
 execStaticMethod cName key args = do
   mp <- execMethod cName key (setupLocals args)
   case mp of
-    Nothing -> fail "execStaticMethod: all paths failed"
+    Nothing -> err "execStaticMethod: all paths failed"
     Just (_, mrv) -> return mrv
 
 -- | Run an instance method in the current simulator context, using
@@ -733,7 +733,7 @@ execInstanceMethod :: MonadSim sbe m
 execInstanceMethod cName key ref args = do
   mp <- execMethod cName key (setupLocals (RValue ref : args))
   case mp of
-    Nothing -> fail "execInstanceMethod: all paths failed"
+    Nothing -> err "execInstanceMethod: all paths failed"
     Just (_, mrv) -> return mrv
 
 -- | Low-level method call for when we need to make a method call not
@@ -749,13 +749,13 @@ execMethod cName key locals = do
   cl <- lookupClass cName
   method <- case cl `lookupMethod` key of
               Just m -> return m
-              Nothing -> fail . render
+              Nothing -> err . render
                 $ "runMethod: could not find method" <+> text cName
                 <> "." <> ppMethodKey key
 
   -- suspend the current computation so we can do a nested invocation of @run@
   cs <- use ctrlStk
-  cs' <- maybe (fail "execMethod: no active path") return
+  cs' <- maybe (err "execMethod: no active path") return
          $ suspendCS "execMethod" cs
   -- partial pattern OK: already handled no-path case
   let Just cs'' = pushCallFrame cName method entryBlock locals cs'
@@ -889,7 +889,7 @@ step (PushInvokeFrame InvInterface (ClassType iName) key retBlock) = do
                            (Just retBlock)
 
 step (PushInvokeFrame InvInterface ty _ _) = do
-  fail . render $ "step: invokeinterface on type" <+> ppType ty
+  err . render $ "step: invokeinterface on type" <+> ppType ty
 
 -- invokespecial
 
@@ -921,7 +921,7 @@ step (PushInvokeFrame InvSpecial (ArrayType _methodType) key retBlock) = do
                          (Just retBlock)
 
 step (PushInvokeFrame InvSpecial ty _ _) = do
-  fail . render $ "step: invokespecial on type" <+> ppType ty
+  err . render $ "step: invokespecial on type" <+> ppType ty
 
 -- invokevirtual
 
@@ -947,7 +947,7 @@ step (PushInvokeFrame InvVirtual (ClassType cName) key retBlock) = do
                            (Just retBlock)
 
 step (PushInvokeFrame InvVirtual ty _ _) = do
-  fail . render $ "step: invokevirtual on type" <+> ppType ty
+  err . render $ "step: invokevirtual on type" <+> ppType ty
 
 -- invokestatic
 
@@ -956,7 +956,7 @@ step (PushInvokeFrame InvStatic (ClassType cName) key retBlock) = do
   pushStaticMethodCall cName key (reverse reverseArgs) (Just retBlock)
 
 step (PushInvokeFrame InvStatic ty _ _) = do
-  fail . render $ "step: invokestatic on type" <+> ppType ty
+  err . render $ "step: invokestatic on type" <+> ppType ty
 
 step ReturnVoid = modifyCSM_ $ returnCurrentPath Nothing
 
@@ -1002,7 +1002,7 @@ step (PushPendingExecution bid cond ml elseInsns) = do
       nextPSS += 1
       modifyCSM_ $ \cs -> case addCtrlBranch c bid nm ml cs of
                             Just cs' -> return cs'
-                            Nothing -> fail "addCtrlBranch"
+                            Nothing -> err "addCtrlBranch"
       runInsns elseInsns
 
 step (SetCurrentBlock bid) = setCurrentBlock bid
@@ -1010,7 +1010,7 @@ step (SetCurrentBlock bid) = setCurrentBlock bid
 step (NormalInsn insn) = Stepper.step insn
 
 step (BadInsn insn) = 
-  fail . render $ "step: unexpected instruction" <+> text (ppInst insn)
+  err . render $ "step: unexpected instruction" <+> text (ppInst insn)
 
 setCurrentBlock :: MonadSim sbe m => BlockId -> Simulator sbe m ()
 setCurrentBlock b = do modifyCSM_ $ \cs -> jumpCurrentPath b cs
@@ -1048,7 +1048,7 @@ evalCond (CompareRef cmpTy) = do
   case cmpTy of
     EQ -> rEq x y
     NE -> bNot =<< rEq x y
-    _  -> fail "invalid reference comparison; bug in symbolic translation?"
+    _  -> err "invalid reference comparison; bug in symbolic translation?"
 
 --------------------------------------------------------------------------------
 -- Callbacks and event handlers
@@ -1151,7 +1151,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
                     when (fieldIsStatic f) $ do
                       val <- withSBE $ \sbe -> defaultValue sbe (fieldType f)
                       setStaticFieldValue fieldId val
-                  Just tp -> error $ "Unsupported field type" ++ show tp
+                  Just tp -> err $ "Unsupported field type" ++ show tp
         dbugM' 5 . render $ "initializing class" <+> text name
         cl <- lookupClass name
         mapM_ initializeField $ classFields cl
@@ -1186,7 +1186,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
       in p & pathException .~ Just exc)
     errorPath $ FailRsn cName
 
-  throw _ = fail "throw: null or non-reference type thrown"
+  throw _ = err "throw: null or non-reference type thrown"
 
 
   -- Negate a Boolean value
@@ -1219,22 +1219,22 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     sbe <- use backend
     case asInt sbe i of
       Just n -> return (fromIntegral n)
-      Nothing -> error "cannot convert symbolic int to double"
+      Nothing -> err "cannot convert symbolic int to double"
   floatFromInt i = do
     sbe <- use backend
     case asInt sbe i of
       Just n -> return (fromIntegral n)
-      Nothing -> error "cannot convert symbolic int to float"
+      Nothing -> err "cannot convert symbolic int to float"
   doubleFromLong l = do
     sbe <- use backend
     case asLong sbe l of
       Just n -> return (fromIntegral n)
-      Nothing -> error "cannot convert symbolic long to double"
+      Nothing -> err "cannot convert symbolic long to double"
   floatFromLong  l = do
     sbe <- use backend
     case asLong sbe l of
       Just n -> return $ fromIntegral n
-      Nothing -> error "cannot convert symbolic long to float"
+      Nothing -> err "cannot convert symbolic long to float"
 
   -- Double operations
   dAdd  x y = return $ x + y
@@ -1302,7 +1302,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     sbe <- use backend
     m <- getMem "setArrayValue"
     case asInt sbe idx of
-      Nothing -> fail "Cannot update reference arrays at symbolic indices"
+      Nothing -> err "Cannot update reference arrays at symbolic indices"
       Just i -> do
         let updateFn arr = Just (arr // [(fromIntegral i,v)])
         setMem (m & memRefArrays %~ M.update updateFn r)
@@ -1310,7 +1310,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     whenVerbosity (>= 2) $ do
       sbe <- use backend
       dbugM . render $ "bad array element" <+> ppValue sbe val
-    fail "setArrayValue: unsupported array element type"
+    err "setArrayValue: unsupported array element type"
 
   setStaticFieldValue fieldId v = do
     let cName = fieldIdClass fieldId
@@ -1468,7 +1468,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
       -- initialized to their default value.
       Nothing    -> do
         when (isFloatType (fieldIdType fieldId)) $
-          error $ "internal: unassigned floating-point instance field "
+          err $ "internal: unassigned floating-point instance field "
                     ++ show fieldId ++ " in " ++ show r
         val <- withSBE $ \sbe -> defaultValue sbe (fieldIdType fieldId)
         pushValue val
@@ -1481,7 +1481,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
       Just value -> pushValue value
       Nothing    -> do
         when (isFloatType (fieldIdType fieldId)) $
-          fail $ "internal: unassigned static floating-point field " ++
+          err $ "internal: unassigned static floating-point field " ++
                         show fieldId
         pushValue =<< withSBE (\sbe -> defaultValue sbe (fieldIdType fieldId))
 
@@ -1496,7 +1496,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   -- Pop value off top of stack.
   popValue = modifyCallFrameM "popValue" $ \cf -> 
                case cf^.cfOpds of
-                 [] -> fail "empty operand stack"
+                 [] -> err "empty operand stack"
                  (x:xs) -> return (x, cf & cfOpds .~ xs)
 
   -- Push value onto top of stack.
@@ -1510,7 +1510,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
                 M.lookup i (cf^.cfLocals)
     case mv of
       Just v -> return v
-      Nothing -> error $ "internal: undefined local variable " ++ show i
+      Nothing -> err $ "internal: undefined local variable " ++ show i
 
   setLocal i v = modifyCallFrameM_ "setLocal" $ \cf -> 
                    return $ cf & cfLocals %~ M.insert i v
@@ -1538,7 +1538,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
             msref <- execInstanceMethod "java/lang/Object" key r []
             case msref of
               Just sref -> putStr' =<< drefString (unRValue sref)
-              _ -> fail "toString terminated abnormally"
+              _ -> err "toString terminated abnormally"
       _ -> abort $ "Unable to display values of type other than "
                  ++ "int, long, and reference to constant string"
   printStream _ _ _ = abort $ "Unable to print more than one argument"
@@ -1558,10 +1558,10 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     cls <- case mty of
              Nothing     -> return []
              Just (ClassType instTy) -> liftIO $ findVirtualMethodsByRef cb clName key instTy
-             Just _ -> error "dynBind' type parameter not ClassType-constructed"
+             Just _ -> err "dynBind' type parameter not ClassType-constructed"
     let cases = (isNull objectRef |-> throwNullPtrExc) : map cgen cls
     -- In theory, this error should be unreachable.
-    choice cases (error $ "Uncaught linker error: " ++ clName ++ ":" ++ show key)
+    choice cases (err $ "Uncaught linker error: " ++ clName ++ ":" ++ show key)
 
   invokeStaticMethod cName key args = do
     cb <- use codebase
@@ -1573,7 +1573,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
                 ++ className cl ++ "." ++ methodName method ++ ")"
         initializeClass (className cl)
         pushStaticMethodCall (className cl) method args
-      [] -> error $ "Could not find static method " ++ show key ++ " in " ++ cName
+      [] -> err $ "Could not find static method " ++ show key ++ " in " ++ cName
 
 -}
 
@@ -1590,7 +1590,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
 abort :: MonadSim sbe m => String -> Simulator sbe m a
 abort msg = do
   whenVerbosity (>=5) $ dbugM $ "abort invoked w/ msg:\n--\n" ++ msg ++ "\n--\n"
-  fail msg
+  err msg
 {-
 -- | Extract the string from the given reference to a java.lang.String
 -- contains concrete characters.
@@ -1614,7 +1614,7 @@ drefString strRef = do
         abort "Unable to dereference symbolic strings"
       let cvt = fromIntegral . fromJust . asInt sbe
       return $ take (cvt cnt) $ drop (cvt off) $ map (toEnum . cvt) chars
-    _ -> error "Invalid field name/type for java.lang.String instance"
+    _ -> err "Invalid field name/type for java.lang.String instance"
 -}
 
 prettyTermSBE :: MonadSim sbe m => SBETerm sbe -> Simulator sbe m Doc
@@ -1635,7 +1635,7 @@ overrideInstanceMethod cName key action = do
   overrides <- use instanceOverrides
   let k = (cName, key)
   when (k `M.member` overrides) $ do
-    fail $ "Method " ++ cName ++ "." ++ methodKeyName key  ++ " is already overridden."
+    err $ "Method " ++ cName ++ "." ++ methodKeyName key  ++ " is already overridden."
   instanceOverrides %= M.insert k action
 
 -- | Override behavior of simulator when it encounters a specific static
@@ -1908,7 +1908,7 @@ drefString strRef = do
         abort "Unable to dereference symbolic strings"
       let cvt = fromIntegral . fromJust . asInt sbe
       return $ take (cvt cnt) $ drop (cvt off) $ map (toEnum . cvt) chars
-    _ -> error "Invalid field name/type for java.lang.String instance"
+    _ -> err "Invalid field name/type for java.lang.String instance"
 
 
 
@@ -1934,7 +1934,7 @@ getClassName :: MonadSim sbe m => Ref -> Simulator sbe m String
 getClassName classRef@(Ref _ (ClassType "java/lang/Class")) = do
   drefString =<< unRValue <$> getInstanceFieldValue classRef
                                 (FieldId "java/lang/Class" "name" stringTy)
-getClassName _ = error "getClassName: wrong argument type"
+getClassName _ = err "getClassName: wrong argument type"
 
 -- | Returns (the Value) 'true' if the given class name represents an array class
 -- (using java.lang.Class naming conventions)
@@ -1979,7 +1979,7 @@ dynBind clName key objectRef act = do
   impls <- dynBind' clName key objectRef    
   case impls of
     cl:_ -> act cl
-    _    -> fail . render $ "no implementations found for" 
+    _    -> err . render $ "no implementations found for" 
               <+> text clName <+> ppMethodKey key
 
 -- | (dynBindSuper cln meth r act) provides to 'act' the class name
@@ -1997,7 +1997,7 @@ dynBindSuper clName key objectRef act = do
   impls <- dynBind' clName key objectRef    
   case impls of
     _:cl:_ -> act cl
-    _    -> fail . render $ "no super implementations found for" 
+    _    -> err . render $ "no super implementations found for" 
               <+> text clName <+> ppMethodKey key
 
 -- | Assumes reference non-null
@@ -2010,13 +2010,13 @@ dynBind' clName key objectRef = do
   dbugM' 6 . render $ "dynBind" <+> text clName <+> ppMethodKey key
   mty <- typeOf objectRef
   case mty of
-    Nothing -> fail . render $ "dynBind': could not determine type of reference"
+    Nothing -> err . render $ "dynBind': could not determine type of reference"
     Just (ClassType instTy) -> do
       cb <- use codebase
       impls <- liftIO $ findVirtualMethodsByRef cb clName key instTy
       dbugM' 6 . render $ "found impls:" <+> sep (map text impls)
       return impls
-    Just _ -> fail "dynBind' type parameter not ClassType-constructed"
+    Just _ -> err "dynBind' type parameter not ClassType-constructed"
 
 --------------------------------------------------------------------------------
 -- Debugging
@@ -2047,11 +2047,11 @@ toggleBreakpoint fn clName key bp = do
   cl <- lookupClass clName
   let methodDoc = text clName <> "." <> ppMethodKey key
   method <- case lookupMethod cl key of
-              Nothing -> fail . render $ "unknown method:" <+> methodDoc
+              Nothing -> err . render $ "unknown method:" <+> methodDoc
               Just m -> return m
   bp' <- case breakpointToPC method bp of
            Just pc -> return pc
-           Nothing -> fail . render $
+           Nothing -> err . render $
              "line number not availble for method:" <+> methodDoc
   mbps <- M.lookup (clName, method) <$> use breakpoints
   let bps = fn bp' $ fromMaybe S.empty mbps
@@ -2127,6 +2127,6 @@ dumpCurrentMethod = do
     mblocks <- liftIO $ lookupSymbolicMethod cb cName (methodKey method)
     case mblocks of
       Just blocks -> return blocks
-      _ -> fail . render $ "unable to symbolically translate"
+      _ -> err . render $ "unable to symbolically translate"
            <+> text cName <+> ppMethod method
   liftIO . mapM_ dumpBlock . sort $ symBlocks
