@@ -35,6 +35,7 @@ module Verifier.Java.Common
   , simulationFlags
   , backend
   , errorPaths
+  , err
   , printErrPaths
   , evHandlers
   , breakpoints
@@ -429,6 +430,9 @@ data InternalExc sbe m
 strExc :: String -> InternalExc sbe m
 strExc = UnknownExc . Just . FailRsn
 
+err :: String -> Simulator sbe m a
+err = throwError . strExc
+
 -- | Types of breakpoints
 data Breakpoint = BreakEntry | BreakPC PC | BreakLineNum Word16
   deriving (Eq, Ord, Show)
@@ -557,7 +561,7 @@ modifyPathM :: Doc
 modifyPathM ctx f =
   modifyCSM $ \cs ->
       case cs of
-        CompletedCS Nothing -> fail . render $ ctx <> ": no current paths"
+        CompletedCS Nothing -> err . render $ ctx <> ": no current paths"
         CompletedCS (Just p) -> do
                 (x, p') <- f p
                 return $ (x, CompletedCS (Just p'))
@@ -581,7 +585,7 @@ getPath ctx = do
   mp <- getPathMaybe
   case mp of
     Just p -> return p
-    _      -> fail . render $ ctx <> ":" <+> "no current path"
+    _      -> err . render $ ctx <> ":" <+> "no current path"
 
 -- | Obtain the current path, if present.
 getPathMaybe :: (Functor m, Monad m) => Simulator sbe m (Maybe (Path sbe))
@@ -604,7 +608,7 @@ modifyCallFrameM ::
 modifyCallFrameM ctx f = 
   modifyPathM ctx $ \p ->
     case p^.pathStack of
-      [] -> fail . render $ ctx <> ": no stack frames"
+      [] -> err . render $ ctx <> ": no stack frames"
       (cf:cfs) -> do
         (x, cf') <- f cf
         return (x, p & pathStack .~ (cf':cfs))
@@ -639,7 +643,7 @@ lookupClass :: String -> Simulator sbe m Class
 lookupClass cName = do
   cb <- use codebase
   mcl <- liftIO $ Codebase.tryLookupClass cb cName
-  maybe (fail . render $ "class not found:" <+> text cName) return mcl
+  maybe (err . render $ "class not found:" <+> text cName) return mcl
 
 
 -- | Push a new call frame to the current path, if any. Needs the
@@ -658,7 +662,7 @@ pushCallFrame :: String
               -> Maybe (CS sbe)
 pushCallFrame clname method retBB locals cs = 
     case cs of
-      CompletedCS Nothing -> fail "all paths failed"
+      CompletedCS Nothing -> error "all paths failed"
       CompletedCS (Just p) -> Just $ ActiveCS (pushFrame p) EmptyCont
       _ -> return $ modifyCurrentPath pushFrame cs
   where pushFrame p = p'
@@ -674,7 +678,7 @@ suspendCS rsn cs = do
         where p = suspPath & pathStack   .~ []
                            & pathStackHt .~ 0
   case cs of
-    CompletedCS Nothing -> fail "suspendCS: all paths failed"
+    CompletedCS Nothing -> error "suspendCS: all paths failed"
     -- if we're already a finished computation, don't do anything fancy
     CompletedCS (Just _) -> return cs
     ActiveCS suspPath _ -> return $ suspend suspPath
@@ -691,8 +695,8 @@ addCtrlBranch :: SBETerm sbe   -- ^ Condition to branch on.
               -> Maybe (CS sbe)
 addCtrlBranch c nb nm ml cs =
     case cs of
-      CompletedCS{} -> fail "path is completed"
-      ResumedCS{}   -> fail "path is completed"
+      CompletedCS{} -> error "path is completed"
+      ResumedCS{}   -> error "path is completed"
       ActiveCS p k  ->
           return . ActiveCS p $ HandleBranch point (BranchRunTrue c pt) k
         where point = case ml of
@@ -704,8 +708,8 @@ addCtrlBranch c nb nm ml cs =
 -- | Move current path to target block, checking for merge points.
 jumpCurrentPath :: (Functor m, MonadIO m)
                 => BlockId -> CS sbe -> Simulator sbe m (CS sbe)
-jumpCurrentPath _ CompletedCS{}  = fail "path is completed"
-jumpCurrentPath _ ResumedCS{}    = fail "path is completed"
+jumpCurrentPath _ CompletedCS{}  = err "path is completed"
+jumpCurrentPath _ ResumedCS{}    = err "path is completed"
 jumpCurrentPath b (ActiveCS p k) =
   mergeNextCont (p & pathBlockId .~ Just b) k
 
@@ -715,8 +719,8 @@ returnCurrentPath :: forall sbe m . (Functor m, MonadIO m)
                   => Maybe (Value (SBETerm sbe))
                   -> CS sbe 
                   -> Simulator sbe m (CS sbe)
-returnCurrentPath _ CompletedCS{} = fail "path is completed"
-returnCurrentPath _ ResumedCS{}   = fail "path is completed"
+returnCurrentPath _ CompletedCS{} = err "path is completed"
+returnCurrentPath _ ResumedCS{}   = err "path is completed"
 returnCurrentPath retVal (ActiveCS p k) = do
   let cf : cfs = p^.pathStack
       cfs' = case retVal of
@@ -755,8 +759,8 @@ markCurrentPathAsError :: (Functor m, MonadIO m)
                        => CS sbe
                        -> Simulator sbe m (CS sbe)
 markCurrentPathAsError cs = case cs of
-  CompletedCS{}                   -> fail "path is completed"
-  ResumedCS{}                     -> fail "path is completed"
+  CompletedCS{}                   -> err "path is completed"
+  ResumedCS{}                     -> err "path is completed"
   ActiveCS _ (HandleBranch _ a k) -> branchError a k
   ActiveCS _ EmptyCont            -> return $ CompletedCS Nothing
   -- we're throwing away the rest of the control stack here, but that's ok
@@ -927,7 +931,7 @@ mergeValues :: MonadIO m
             -> Simulator sbe m (Value (SBETerm sbe)) 
 mergeValues assertions x y = do
   sbe <- use backend 
-  let abort = fail . render
+  let abort = err . render
       t1 <-> t2 = liftIO $ termIte sbe assertions t1 t2
       mergeV (IValue v1) (IValue v2)             = IValue <$> v1 <-> v2
       mergeV (LValue v1) (LValue v2)             = LValue <$> v1 <-> v2
