@@ -21,9 +21,7 @@ import qualified Data.ABC as ABC
 import Data.AIG (IsAIG)
 import qualified Data.AIG as AIG
 import Data.IORef
-import qualified Data.Map as M
 import Data.Traversable (traverse)
-import qualified Data.Vector as V
 import Data.Word
 import Text.PrettyPrint.HughesPJ
 
@@ -31,12 +29,10 @@ import Verifier.SAW
 import Verifier.SAW.ParserUtils
 import qualified Verifier.SAW.Recognizer as R
 import Verifier.Java.Backend
-import qualified Verifier.SAW.BitBlast as BB
+import qualified Verifier.SAW.Simulator.BitBlast as BB
 import Verifier.SAW.Conversion
 import Verifier.SAW.Rewriter
 import Verifier.SAW.Cryptol (scCryptolEq)
---import qualified Verinf.Symbolic as BE
-
 
 $(runDecWriter $ do
     prelude <- defineImport [|preludeModule|] preludeModule
@@ -299,18 +295,16 @@ sawBackend sc0 mr be = do
         t <- scApplyAll sc ite32 [ltXY, minusone32, one32]
         scApplyAll sc ite32 [eqXY, zero32, t]
 
-  inputsRef <- newIORef M.empty
+  inputsRef <- newIORef []
 
   let blastTermFn :: SharedTerm s -> IO (Maybe Bool)
       blastTermFn t = return (R.asBool t)
 
   let bitblast :: SharedTerm s -> IO [l t]
       bitblast t =
-        do env <- readIORef inputsRef
-           mbterm <- BB.bitBlastWithEnv be env t
-           case mbterm of
-             Left msg -> fail $ "Can't bitblast term: " ++ msg
-             Right bterm -> return $ AIG.bvToList $ BB.flattenBValue bterm
+        do ecs <- readIORef inputsRef
+           t' <- scAbstractExts sc ecs t
+           AIG.bvToList <$> BB.bitBlastTerm be sc t'
 
   let satTermFn :: SharedTerm s -> IO Bool
       satTermFn t = do
@@ -335,11 +329,11 @@ sawBackend sc0 mr be = do
           Just r -> \t -> modifyIORef r (t :)
 
   let freshVar n ext = do
-        i <- scFreshGlobalVar sc
         ty <- scBitvector sc n
-        t <- scFlatTermF sc (ExtCns (EC i "_" ty))
-        v <- BB.BVector <$> V.replicateM (fromIntegral n) (BB.BBool <$> AIG.newInput be)
-        modifyIORef inputsRef (M.insert i v)
+        i <- scFreshGlobalVar sc
+        let ec = EC i "_" ty
+        t <- scFlatTermF sc (ExtCns ec)
+        modifyIORef inputsRef (ec :)
         maybeCons t
         ext t
 
