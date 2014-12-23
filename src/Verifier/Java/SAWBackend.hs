@@ -12,7 +12,7 @@ module Verifier.Java.SAWBackend
   , withFreshBackend
   , javaModule
   , basic_ss
-  , scApplyJavaMkValue
+  , scApplyJava_mkValue
   ) where
 
 import Control.Applicative
@@ -46,34 +46,34 @@ $(runDecWriter $ do
 _ignoreUnused :: a
 _ignoreUnused = undefined
    iteTermF
-   scJavaJavaType
-   scApplyJavaArrayType
-   scApplyJavaBooleanType
-   scApplyJavaByteType
-   scApplyJavaCharType
-   scApplyJavaClassType
-   scApplyJavaDoubleType
-   scApplyJavaFloatType
-   scApplyJavaIntType
-   scApplyJavaLongType
-   scApplyJavaShortType
-   scApplyJavaMkClassType
-   scApplyJavaMkFloatType
-   scApplyJavaMkIntType
-   scApplyJavaMkLongType
-   scApplyJavaMkShortType
-   scApplyJavaMkDoubleType
-   scApplyJavaMkFloatType
-   scApplyJavaMkCharType
-   scApplyJavaMkByteType
-   scApplyJavaMkBooleanType
-   scApplyJavaMkArrayType
-   scApplyJavaLongExtend
-   scApplyJavaEcJoin768
-   scApplyJavaEcSplit768
-   scApplyJavaEcSplit
-   scApplyJavaEcJoin
-   scApplyJavaEcExtend
+   scJava_JavaType
+   scApplyJava_ArrayType
+   scApplyJava_BooleanType
+   scApplyJava_ByteType
+   scApplyJava_CharType
+   scApplyJava_ClassType
+   scApplyJava_DoubleType
+   scApplyJava_FloatType
+   scApplyJava_IntType
+   scApplyJava_LongType
+   scApplyJava_ShortType
+   scApplyJava_mkClassType
+   scApplyJava_mkFloatType
+   scApplyJava_mkIntType
+   scApplyJava_mkLongType
+   scApplyJava_mkShortType
+   scApplyJava_mkDoubleType
+   scApplyJava_mkFloatType
+   scApplyJava_mkCharType
+   scApplyJava_mkByteType
+   scApplyJava_mkBooleanType
+   scApplyJava_mkArrayType
+   scApplyJava_longExtend
+   scApplyJava_ecJoin768
+   scApplyJava_ecSplit768
+   scApplyJava_ecSplit
+   scApplyJava_ecJoin
+   scApplyJava_ecExtend
 
 
 instance Typeable s => AigOps (SharedContext s) where
