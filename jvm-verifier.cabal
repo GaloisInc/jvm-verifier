@@ -39,7 +39,7 @@ library
     , filepath
     , haskeline >= 0.7
     , jvm-parser >= 0.2.1
-    , lens >= 3.8
+    , lens >= 4.7
     , mtl >= 2.1
     , pretty >= 1.1
     , split >= 0.2
