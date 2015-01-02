@@ -95,7 +95,7 @@ module Verifier.Java.Simulator
 import Prelude hiding (EQ, LT, GT)
 
 import Control.Applicative hiding (empty)
-import Control.Lens hiding (act)
+import Control.Lens
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.State.Class (get, put)
