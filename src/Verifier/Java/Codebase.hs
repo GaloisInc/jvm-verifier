@@ -85,7 +85,8 @@ recurseDirectories paths = impl paths []
         getSubdirectories :: FilePath -> IO [FilePath]
         getSubdirectories path = do
           exists <- doesDirectoryExist path
-          if exists
+          p <- getPermissions path
+          if exists && readable p
             then do contents <- getDirectoryContents path
                     return
                       $ map (path </>)
