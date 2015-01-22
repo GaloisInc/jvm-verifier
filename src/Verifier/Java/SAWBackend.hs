@@ -95,13 +95,12 @@ basic_ss sc = do
   return $ addConvs procs (addRules (rs1 ++ rs2) emptySimpset)
   where
     eqs = map qualify
-      ["get_single", "get_set", "get_bvAnd", "get_bvOr", "get_bvXor", "get_bvNot",
-       "not_not", "get_slice", "bvAddZeroL", "bvAddZeroR", "eq_Fin", "eq_bitvector"]
-    defs = map qualify
-      ["not", "and", "or", "xor", "boolEq", "ite", "addNat", "mulNat", "compareNat",
-       "finSucc", "finFst"]
-    cdefs = map cqualify
-      [ "ecEq", "ePCmp", "ePFin" ]
+      ["get_single", "get_set", "get_bvAnd", "get_bvOr", "get_bvXor"
+      , "get_bvNot", "not_not", "get_slice", "bvAddZeroL", "bvAddZeroR"
+      , "eq_Fin", "eq_bitvector"
+      ]
+    defs = map qualify ["not", "and", "or", "xor", "boolEq", "ite"]
+    cdefs = map cqualify [ "ecEq", "ePCmp", "ePFin" ]
     procs = bvConversions ++ natConversions ++ finConversions ++ vecConversions
     defRewrites ident =
       case findDef (scModule sc) ident of
