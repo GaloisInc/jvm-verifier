@@ -98,9 +98,10 @@ basic_ss sc = do
       ["get_single", "get_set", "get_bvAnd", "get_bvOr", "get_bvXor"
       , "get_bvNot", "not_not", "get_slice", "bvAddZeroL", "bvAddZeroR"
       , "eq_Fin", "eq_bitvector"
+      , "eq_Bool", "eq_VecBool"
       ]
     defs = map qualify ["not", "and", "or", "xor", "boolEq", "ite"]
-    cdefs = map cqualify [ "ecEq", "ePCmp", "ePFin" ]
+    cdefs = map cqualify [ "seq", "ecEq", "ePCmp", "ePFin" ]
     procs = bvConversions ++ natConversions ++ finConversions ++ vecConversions
     defRewrites ident =
       case findDef (scModule sc) ident of
