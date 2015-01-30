@@ -12,7 +12,6 @@ module Verifier.Java.SAWBackend
   , withFreshBackend
   , javaModule
   , basic_ss
-  , scApplyJava_mkValue
   ) where
 
 import Control.Applicative

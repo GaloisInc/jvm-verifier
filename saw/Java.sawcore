@@ -48,8 +48,6 @@ mkArrayType n t = ArrayType n t;
 mkClassType :: String -> JavaType;
 mkClassType c = ClassType c;
 
-mkValue :: (a :: sort 0) -> String -> a;
-
 ecJoin :: Vec 12 (bitvector 32) -> bitvector 384;
 ecJoin x = joinLittleEndian 12 32 Bool x;
 
