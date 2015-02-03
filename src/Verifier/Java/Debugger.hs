@@ -24,7 +24,8 @@ module Verifier.Java.Debugger
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Except
+import Control.Monad.IO.Class
+import Control.Monad.Trans
 import Control.Lens
 
 import Data.Char
@@ -172,12 +173,12 @@ debuggerREPL mpc insn = do
           case M.lookup cmd commandMap of
             Just cmd' -> do
               let go = cmdAction cmd' mpc insn args
-                  handleErr epe@(ErrorPathExc _ _) = throwError epe
+                  handleErr epe@(ErrorPathExc _ _) = throwSM epe
                   handleErr (UnknownExc (Just (FailRsn rsn))) = do
                     dbugM $ "error: " ++ rsn
                     return False
                   handleErr _ = do dbugM "unknown error"; return False
-              continue <- lift $ catchError go handleErr
+              continue <- lift $ catchSM go handleErr
               unless continue loop
             Nothing -> do
               outputStrLn $ "unknown command '" ++ cmd ++ "'"

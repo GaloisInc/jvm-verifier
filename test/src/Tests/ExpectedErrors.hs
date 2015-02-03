@@ -6,7 +6,8 @@ module Tests.ExpectedErrors (expErrTests) where
 
 import Control.Applicative
 import Control.Lens
-import Control.Monad.Error
+import Control.Monad
+import Control.Monad.IO.Class
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -37,7 +38,7 @@ go cb a = do
     oc <- mkOpCache
     withSymbolicMonadState oc $ \sms -> do
       let sbe = symbolicBackend sms
-          a' = (void a) `catchError` h
+          a' = (void a) `catchSM` h
           h (ErrorPathExc (FailRsn rsn) _) = succeed rsn
           h (UnknownExc (Just (FailRsn rsn))) = succeed rsn
           h _ = liftIO $ assertFailure "unknown exception"

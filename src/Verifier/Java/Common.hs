@@ -9,6 +9,7 @@ Point-of-contact : acfoltzer
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -36,6 +37,8 @@ module Verifier.Java.Common
   , backend
   , errorPaths
   , err
+  , throwSM
+  , catchSM
   , printErrPaths
   , evHandlers
   , breakpoints
@@ -168,9 +171,12 @@ import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Arrow ((***))
 import Control.Lens
 import Control.Monad
-import Control.Monad.Except
+import Control.Monad.IO.Class
 import Control.Monad.State.Class
+import Control.Monad.Trans
+import Control.Monad.Trans.Except
 import Control.Monad.Trans.State.Strict hiding (State)
+import qualified Control.Monad.Trans.State.Strict as Strict
 
 import Data.Array (Array, Ix, assocs)
 import qualified Data.Foldable as DF
@@ -201,10 +207,20 @@ newtype Simulator sbe (m :: * -> *) a =
     , Applicative
     , Monad
     , MonadIO
-    , MonadState (State sbe m)
-    , MonadError (InternalExc sbe m)
     , MonadException
     )
+
+instance MonadState (State sbe m) (Simulator sbe m) where
+  get = SM (lift Strict.get)
+  put = SM . lift . Strict.put
+
+throwSM :: InternalExc sbe m -> Simulator sbe m a
+throwSM = SM . throwE
+
+catchSM :: Simulator sbe m a
+        -> (InternalExc sbe m -> Simulator sbe m a)
+        -> Simulator sbe m a
+catchSM (SM m) h = SM (catchE m (runSM . h))
 
 instance (MonadException m) => MonadException (ExceptT e m) where
     controlIO f = ExceptT $ controlIO $ \(RunIO run) -> let
@@ -431,7 +447,7 @@ strExc :: String -> InternalExc sbe m
 strExc = UnknownExc . Just . FailRsn
 
 err :: String -> Simulator sbe m a
-err = throwError . strExc
+err = throwSM . strExc
 
 -- | Types of breakpoints
 data Breakpoint = BreakEntry | BreakPC PC | BreakLineNum Word16
@@ -459,7 +475,7 @@ data SEH sbe m = SEH
 
 assert :: String -> Bool -> Simulator sbe m ()
 assert msg b =
-  unless b . throwError . strExc $ "assertion failed (" ++ msg ++ ")"
+  unless b . throwSM . strExc $ "assertion failed (" ++ msg ++ ")"
 
 data JavaException term =
   JavaException
@@ -825,7 +841,7 @@ mergeNextCont p (HandleBranch point ba h)
           (cf1:cfs1, cf2:_) -> do
             cf' <- mergeCallFrames c cf1 cf2
             return (cf':cfs1)
-          _ -> throwError $ strExc "call frame mismatch when merging paths"
+          _ -> throwSM $ strExc "call frame mismatch when merging paths"
       mergedMemory <- mergeMemories c (p^.pathMemory) (pf^.pathMemory)
       mergedAssertions <-
           liftIO $ termIte sbe c (p^.pathAssertions) (pf^.pathAssertions)
@@ -855,7 +871,7 @@ mergeRetVals :: MonadIO m
 mergeRetVals c (Just rv1) (Just rv2) = Just <$> mergeValues c rv1 rv2
 mergeRetVals _ Nothing    Nothing    = return Nothing
 mergeRetVals _ _          _          = 
-    throwError $ strExc "return value mismatch when merging paths"
+    throwSM $ strExc "return value mismatch when merging paths"
 
 mergeMemories :: MonadIO m
               => SBETerm sbe

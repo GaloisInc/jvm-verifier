@@ -97,8 +97,9 @@ import Prelude hiding (EQ, LT, GT)
 import Control.Applicative hiding (empty)
 import Control.Lens
 import Control.Monad
-import Control.Monad.Except
+import Control.Monad.IO.Class
 import Control.Monad.State.Class (get, put)
+import Control.Monad.Trans.Except
 import Control.Monad.Trans.State.Strict (evalStateT)
 
 import Data.Array
@@ -218,7 +219,7 @@ run = do
                          Nothing -> err "impossible"
     sbe <- use backend
     dbugM' 5 . render $ "run:" <+> ppPath sbe p
-    flip catchError handleError $ do
+    flip catchSM handleError $ do
       let Just bid = p^.pathBlockId
       when (pathAssertedFalse sbe p) $
         errorPath $ FailRsn $ "This path is infeasible"
@@ -253,7 +254,7 @@ run = do
       -- exception data is correct for the next invocation of run,
       -- so overwrite the current state here.
       put s
-    handleError e = throwError e
+    handleError e = throwSM e
     showErrCnt x
       | x == 1    = "Encountered errors on exactly one path. Details below."
       | otherwise = "Encountered errors on " ++ show x ++ " paths.  Details below."
@@ -816,7 +817,7 @@ errorPath rsn = do
   -- run, and explicitly captured the error path, we need to be sure to
   -- ship that modified state back to the catch site so it execution can
   -- continue correctly.
-  throwError $ ErrorPathExc rsn s'
+  throwSM $ ErrorPathExc rsn s'
 
 -- | Returns a default value for objects with given type, suitable for
 -- initializing fields.
@@ -1961,13 +1962,13 @@ classNameIsPrimitive' (ch:[]) = ch `elem` ['B','S','I','J','F','D','Z','C']
 classNameIsPrimitive' _       = False
 
 unlessQuiet :: MonadIO m => Simulator sbe m () -> Simulator sbe m ()
-unlessQuiet act = getVerbosity >>= \v -> unless (v == 0) act
+unlessQuiet m = getVerbosity >>= \v -> unless (v == 0) m
 
 -- For user feedback that gets silenced when verbosity = 0.
 tellUser :: (MonadIO m) => String -> Simulator sbe m ()
 tellUser msg = unlessQuiet $ dbugM msg
 
--- | (dynBind cln meth r act) provides to 'act' the class name that defines r's
+-- | (dynBind cln meth r f) provides to 'f' the class name that defines r's
 -- implementation of 'meth'
 dynBind :: MonadSim sbe m
         => String           -- ^ Name of 'this''s class
@@ -1975,14 +1976,14 @@ dynBind :: MonadSim sbe m
         -> JSRef (Simulator sbe m) -- ^ 'this'
         -> (String -> Simulator sbe m ()) -- ^ e.g., an invokeInstanceMethod invocation.
         -> Simulator sbe m ()
-dynBind clName key objectRef act = do
+dynBind clName key objectRef f = do
   impls <- dynBind' clName key objectRef    
   case impls of
-    cl:_ -> act cl
+    cl:_ -> f cl
     _    -> err . render $ "no implementations found for" 
               <+> text clName <+> ppMethodKey key
 
--- | (dynBindSuper cln meth r act) provides to 'act' the class name
+-- | (dynBindSuper cln meth r f) provides to 'f' the class name
 -- that defines r's implementation of 'meth', with lookup starting
 -- from the superclass of r's concrete type. This is used primarily to
 -- implement invokespecial
@@ -1993,10 +1994,10 @@ dynBindSuper :: MonadSim sbe m
              -> (String -> Simulator sbe m ()) 
              -- ^ e.g., an invokeInstanceMethod invocation.
              -> Simulator sbe m ()
-dynBindSuper clName key objectRef act = do
+dynBindSuper clName key objectRef f = do
   impls <- dynBind' clName key objectRef    
   case impls of
-    _:cl:_ -> act cl
+    _:cl:_ -> f cl
     _    -> err . render $ "no super implementations found for" 
               <+> text clName <+> ppMethodKey key
 
