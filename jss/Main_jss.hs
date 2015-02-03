@@ -17,7 +17,7 @@ module Main where
 import Control.Applicative hiding (many)
 import Control.Lens ((.=))
 import Control.Monad
-import Control.Monad.Except
+import Control.Monad.IO.Class
 import Data.Char
 import Data.Function
 import Data.List
@@ -208,6 +208,6 @@ main = do
                  -- this warning shouldn't fire.
                  liftIO $ putStrLn $ "Warning: Simulator could not merge all paths."
    runSimulator cb sbe defaultSEH (Just fl) $ 
-     go `catchError` \e -> do
+     go `catchSM` \e -> do
                        simExcHndlr' False (text "jss") e
                        liftIO . exitWith $ ExitFailure 1

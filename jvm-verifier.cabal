@@ -39,11 +39,12 @@ library
     , filepath
     , haskeline >= 0.7
     , jvm-parser >= 0.2.1
-    , lens >= 4.7
+    , lens
     , mtl >= 2.1
     , pretty >= 1.1
     , split >= 0.2
     , transformers >= 0.3
+    , transformers-compat
     , tuple >= 0.2
     , vector >= 0.7
     , saw-core
@@ -105,6 +106,8 @@ executable jss
     , mtl >= 2.1
     , parsec
     , pretty >= 1.1
+    , transformers
+    , transformers-compat
     , vector >= 0.7
 
   other-modules:
