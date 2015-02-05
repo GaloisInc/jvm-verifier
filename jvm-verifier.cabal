@@ -88,6 +88,10 @@ library
 
   GHC-options: -Wall -Werror -fno-ignore-asserts
 
+  if os(darwin)
+    -- fix the weird Trace/BPT trap: 5 bug on rail
+    ghc-options: -j1
+
 executable jss
   if !flag(build-jss)
     buildable: False
