@@ -54,7 +54,8 @@ foldl seed f xs = res ! 0
 
 // Test driver.  Given a sequence of bytes, calculate the MD5 sum.
 test : {a} (64 >= width (8 * a),
-            512 * ((8 * a + 576) / 512) - 8 * a >= 65) =>
+            512 * ((8 * a + 576) / 512) - 8 * a >= 65,
+            fin a) =>
        [a][8] -> [128]
 test s = md5 (join s)
 
