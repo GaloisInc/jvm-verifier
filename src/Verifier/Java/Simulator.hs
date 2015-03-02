@@ -1155,6 +1155,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
                   Just tp -> err $ "Unsupported field type" ++ show tp
         dbugM' 5 . render $ "initializing class" <+> text name
         cl <- lookupClass name
+        maybe (return ()) initializeClass (superClass cl)
         mapM_ initializeField $ classFields cl
         case cl `lookupMethod` clinit of
           Just _ -> do
