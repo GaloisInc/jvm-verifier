@@ -835,7 +835,8 @@ defaultValue sbe ShortType       = IValue <$> termInt sbe 0
 
 -- REVISIT: it may make sense for this to be dynamic
 skipInit :: String -> Bool
-skipInit cname = cname `elem` [ "java/lang/System"
+skipInit cname = cname `elem` [ "java/lang/Object"
+                              , "java/lang/System"
                               , "java/io/Reader"
                               , "java/io/InputStreamReader"
                               ]
