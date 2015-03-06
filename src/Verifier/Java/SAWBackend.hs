@@ -32,10 +32,12 @@ import qualified Verifier.SAW.Simulator.BitBlast as BB
 import Verifier.SAW.Conversion
 import Verifier.SAW.Rewriter
 import Verifier.SAW.Cryptol (scCryptolEq)
+import Verifier.SAW.Cryptol.Prelude (cryptolModule)
 
 $(runDecWriter $ do
     prelude <- defineImport [|preludeModule|] preludeModule
-    java <- defineModuleFromFile [prelude] "javaModule" "saw/Java.sawcore"
+    cryptol <- defineImport [|cryptolModule|] cryptolModule
+    java <- defineModuleFromFile [prelude, cryptol] "javaModule" "saw/Java.sawcore"
     declareDefTermF prelude "ite"
     declareSharedModuleFns "Java" (decVal java)
  )
