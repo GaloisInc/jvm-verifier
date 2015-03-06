@@ -447,14 +447,13 @@ following lines:
 
 ```
 byte x = Symbolic.freshByte((byte)0);
-Symbolic.writeCnf("ExampleCNF.cnf", x + x == 2 * x);
+Symbolic.writeCnf("ExampleCNF.cnf", ! (x + x = 2 * x));
 ```
 
-The formulas emitted in CNF format for boolean expressions are
-negated, with the rationale that they tend to be used to prove the
-validity of expressions, rather than satisfiability. Therefore, a
-result of "unsatisfiable" from a SAT solver indicates that the formula
-passed to `writeCnf` is valid (always true).
+To prove formula by SAT solving, we negate it, so that a result of
+"unsatisfiable" from a SAT solver indicates that the original formula
+is valid (always true). So, the above example corresponds to proving
+that `x + x` is always equal to `2 * x`.
 
 Now, if we build and simulate the `ExampleCNF.java`, we will obtain
 a file `ExampleCNF.cnf`, which we can then pass into a standard SAT
@@ -470,5 +469,5 @@ generated CNF formula.
 UNSATISFIABLE
 ```
 
-`minisat` reports the problem `UNSATISFIABLE`, indicating that the original formula is valid
-for all symbolic inputs.
+`minisat` reports the problem `UNSATISFIABLE`, indicating that the
+(unnegated) formula is valid for all symbolic inputs.
