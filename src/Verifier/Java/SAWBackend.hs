@@ -15,6 +15,7 @@ module Verifier.Java.SAWBackend
   ) where
 
 import Control.Applicative
+import Control.Monad (void)
 import Control.Monad.ST (RealWorld)
 import qualified Data.ABC as ABC
 import Data.AIG (IsAIG)
@@ -324,6 +325,15 @@ sawBackend sc0 mr be = do
         outv <- mapM bitblast outs
         AIG.writeAiger fname (AIG.Network be (concat outv))
 
+  -- Very similar to 'SAWScript.Builtins.writeCNF' and
+  -- 'Verifier.LLVM.Backend.SAW.scWriteCNF'.
+  let writeCnfToFileFn :: FilePath -> SharedTerm s -> IO ()
+      writeCnfToFileFn fname out = do
+        bits <- bitblast out
+        case bits of
+          [b] -> void $ AIG.writeCNF be b fname
+          _ -> fail "writeCnfToFileFn: generating CNF for multiple output bits."
+
   let maybeCons =
         case mr of
           Nothing -> \_ -> return ()
@@ -406,7 +416,7 @@ sawBackend sc0 mr be = do
                  , evalAigIntegral    = \_ _ _ -> error "evalAigIntegral unimplemented"
                  , evalAigArray       = \_ _ _ -> error "evalAigArray unimplemented"
                  , writeAigToFile     = writeAigToFileFn
-                 , writeCnfToFile     = \_ _ -> error "writeCnfToFile unimplemented"
+                 , writeCnfToFile     = writeCnfToFileFn
                  , satTerm            = satTermFn
                  -- TODO: refactor to use the same Doc everywhere
                  , prettyTermD        = text . show . scPrettyTermDoc
