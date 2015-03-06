@@ -38,9 +38,39 @@ jssOverrides = do
           Nothing -> abort $ "writeCnf filename parameter does "
                        ++ "not refer to a constant string"
           Just fn -> liftIO $ do
+            -- Elsewhere in JSS SAWCore booleans have been translated
+            -- into ints, by the translation
+            --
+            --   b |-> if b then 1 else 0
+            --
+            -- However, those ints are 32 bit, and for CNF we want a
+            -- single bit of output. So, here we recover a single bit,
+            -- by going back to a SAWCore equality:
+            --
+            --   e |-> not (e == 0)
+            --
+            -- We use this translation because 'javac' compiles
+            -- boolean false to zero in JVM, similar to treatment of
+            -- booleans in C. However, if all the booleans are coming
+            -- from the above if-then-else translation, we could just
+            -- as well translate
+            --
+            --   e |-> e == 1
+            --
+            -- and better yet just undo the if-then-else translation,
+            -- i.e.
+            --
+            --   (if b then 1 else 0 ) |-> b
+            --
+            -- when possible. Experiments show this is not always
+            -- possible though: while equality comparisons translate
+            -- via if-then-else, symbolic booleans do not, and boolean
+            -- literals pass through untouched, presumably due to
+            -- "smart" constructors which do constant propagation.
             zero <- termInt sbe 0
             cEq <- termEq sbe out zero
-            writeCnfToFile sbe fn cEq
+            cNeq <- termNot sbe cEq
+            writeCnfToFile sbe fn cNeq
   let writeAigerBody :: Ref
                      -> [SBETerm sbe]
                      -> Simulator sbe m ()
