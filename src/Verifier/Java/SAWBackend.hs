@@ -113,16 +113,15 @@ basic_ss sc = do
 withFreshBackend :: (Backend (SharedContext RealWorld) -> IO a) -> IO a
 withFreshBackend f = do
   sc <- mkSharedContext javaModule
-  AIG.withNewGraph ABC.giaNetwork $ \g -> do
-    f =<< sawBackend sc Nothing g
+  f =<< sawBackend sc Nothing ABC.giaNetwork
 
-sawBackend :: forall s l g t
+sawBackend :: forall s l g
             . IsAIG l g
            => SharedContext s
            -> Maybe (IORef [SharedTerm s]) -- ^ For storing the list of generated ExtCns inputs
-           -> g t
+           -> AIG.Proxy l g
            -> IO (Backend (SharedContext s))
-sawBackend sc0 mr be = do
+sawBackend sc0 mr proxy = do
   ss <- basic_ss sc0
   let sc = rewritingSharedContext sc0 ss
   let apply2 op x y   = scApplyAll sc op [x,y]
@@ -302,37 +301,41 @@ sawBackend sc0 mr be = do
   let blastTermFn :: SharedTerm s -> IO (Maybe Bool)
       blastTermFn t = return (R.asBool t)
 
-  let bitblast :: SharedTerm s -> IO [l t]
-      bitblast t =
-        do ecs <- readIORef inputsRef
-           t' <- scAbstractExts sc ecs t
-           AIG.bvToList <$> BB.bitBlastTerm be sc t'
+      -- Lambda abstract term @t@ over all symbolic variables.
+  let abstract :: SharedTerm s -> IO (SharedTerm s)
+      abstract t = do
+        ecs <- readIORef inputsRef
+        scAbstractExts sc ecs t
 
   let satTermFn :: SharedTerm s -> IO Bool
       satTermFn t = do
-        ls <- bitblast t
-        case ls of
-          [l] -> do
+        t' <- abstract t
+        BB.withBitBlastedPred proxy sc t' $ \be l _domTys -> do
             r <- AIG.checkSat be l
             case r of
               AIG.Sat _ -> return True
               AIG.Unsat -> return False
               AIG.SatUnknown -> fail "SAT solver returned 'unknown'"
-          _ -> fail "Checking satisfiability of multiple bits."
 
   let writeAigToFileFn :: FilePath -> [SharedTerm s] -> IO ()
       writeAigToFileFn fname outs = do
-        outv <- mapM bitblast outs
-        AIG.writeAiger fname (AIG.Network be (concat outv))
+        -- Usage of this function in 'Verifier.Java.Simulator' is only
+        -- at arrays for parameter @outs@, so that 'scVector' would be
+        -- appropriate below. However, seems safer to not worry about
+        -- this invariant and so use 'scTuple'; the result of bit
+        -- blasting should be the same.
+        t <- scTuple sc outs
+        t' <- abstract t
+        BB.withBitBlastedTerm proxy sc t' $ \be ls -> do
+        AIG.writeAiger fname (AIG.Network be (AIG.bvToList ls))
 
   -- Very similar to 'SAWScript.Builtins.writeCNF' and
   -- 'Verifier.LLVM.Backend.SAW.scWriteCNF'.
   let writeCnfToFileFn :: FilePath -> SharedTerm s -> IO ()
       writeCnfToFileFn fname out = do
-        bits <- bitblast out
-        case bits of
-          [b] -> void $ AIG.writeCNF be b fname
-          _ -> fail "writeCnfToFileFn: generating CNF for multiple output bits."
+        t' <- abstract out
+        BB.withBitBlastedPred proxy sc t' $ \be l _domTys -> do
+        void $ AIG.writeCNF be l fname
 
   let maybeCons =
         case mr of
