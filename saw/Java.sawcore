@@ -1,7 +1,6 @@
 module Java where
 
 import Prelude;
-import Cryptol;
 
 data JavaType :: sort 0 where {
     -- Primitive types that we support.
