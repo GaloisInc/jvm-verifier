@@ -48,7 +48,6 @@ library
     , tuple >= 0.2
     , vector >= 0.7
     , saw-core
-    , cryptol-verifier
 
   hs-source-dirs: src
 

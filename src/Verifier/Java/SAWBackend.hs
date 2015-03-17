@@ -27,12 +27,12 @@ import Text.PrettyPrint.HughesPJ
 
 import Verifier.SAW
 import Verifier.SAW.ParserUtils
+import Verifier.SAW.Prelude (scEq)
 import qualified Verifier.SAW.Recognizer as R
 import Verifier.Java.Backend
 import qualified Verifier.SAW.Simulator.BitBlast as BB
 import Verifier.SAW.Conversion
 import Verifier.SAW.Rewriter
-import Verifier.SAW.Cryptol (scCryptolEq)
 
 $(runDecWriter $ do
     prelude <- defineImport [|preludeModule|] preludeModule
@@ -372,7 +372,7 @@ sawBackend sc0 mr proxy = do
                  , termNot   = scNot sc
                  , termAnd   = apply2 boolAndOp
 
-                 , termEq    = scCryptolEq sc
+                 , termEq    = scEq sc
                  , termIte   = \b x y -> do
                      tp <- scTypeOf sc x
                      apply4 iteOp tp b x y
