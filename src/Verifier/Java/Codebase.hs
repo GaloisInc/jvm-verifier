@@ -7,6 +7,7 @@ Point-of-contact : jhendrix, jstanley
 
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DoAndIfThenElse #-}
 module Verifier.Java.Codebase
   ( Codebase
   , getClasses
@@ -85,14 +86,17 @@ recurseDirectories paths = impl paths []
         getSubdirectories :: FilePath -> IO [FilePath]
         getSubdirectories path = do
           exists <- doesDirectoryExist path
-          p <- getPermissions path
-          if exists && readable p
+          if exists
+          then do
+            p <- getPermissions path
+            if readable p
             then do contents <- getDirectoryContents path
                     return
                       $ map (path </>)
                       $ filter (\path' -> path' `seq` (path' /= "." && path' /= ".."))
                       $ contents
             else return []
+          else return []
 
 -- | Register a class with the given codebase
 addClass :: Class -> CodebaseState -> CodebaseState
