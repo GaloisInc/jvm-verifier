@@ -27,11 +27,12 @@ module Verifier.Java.Codebase
 
 import Control.Applicative ((<$>))
 import Control.Monad
+import Data.Foldable (toList)
 import qualified Data.Map as M
 import Data.IORef
 import Data.Maybe
-import System.Directory
-import System.FilePath
+import System.Directory.Tree (build, dirTree)
+import System.FilePath (takeExtension)
 
 import Text.PrettyPrint
 
@@ -73,30 +74,12 @@ loadCodebase jarFiles classPaths = do
   classes <- mapM loadClass classFiles
   let cb = foldr addClass (CodebaseState jars M.empty M.empty M.empty) classes
   fmap Codebase $ newIORef cb
+  where
+    recurseDirectories :: [FilePath] -> IO [FilePath]
+    recurseDirectories paths = concat <$> mapM recurseDirectory paths
 
--- Returns in-order listing of all directories and files beneath the given list of paths.
--- WARNING: May return an infinite list when symlinks are encountered.
-recurseDirectories :: [FilePath] -> IO [FilePath]
-recurseDirectories paths = impl paths []
-  where impl [] result = return (reverse result)
-        impl (path : rest) result = do
-          subpaths <- getSubdirectories path
-          seq (length subpaths) $ impl (subpaths ++ rest) (path : result)
-        -- Returns directories and files directly beneath path if any.
-        getSubdirectories :: FilePath -> IO [FilePath]
-        getSubdirectories path = do
-          exists <- doesDirectoryExist path
-          if exists
-          then do
-            p <- getPermissions path
-            if readable p
-            then do contents <- getDirectoryContents path
-                    return
-                      $ map (path </>)
-                      $ filter (\path' -> path' `seq` (path' /= "." && path' /= ".."))
-                      $ contents
-            else return []
-          else return []
+    recurseDirectory :: FilePath -> IO [FilePath]
+    recurseDirectory path = toList . dirTree <$> build path
 
 -- | Register a class with the given codebase
 addClass :: Class -> CodebaseState -> CodebaseState
