@@ -36,6 +36,7 @@ library
     , array
     , containers
     , directory
+    , directory-tree
     , filepath
     , haskeline >= 0.7
     , jvm-parser >= 0.2.1
