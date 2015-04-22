@@ -1,1 +1,3 @@
-deps
+*.aig
+cabal.sandbox.config
+dist
