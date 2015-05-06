@@ -127,7 +127,6 @@ sawBackend sc0 mr proxy = do
       apply4 op w x y z = scApplyAll sc op [w,x,y,z]
   let getBuiltin name = scGlobalDef sc (qualify name)
 
-  boolType  <- scBoolType sc
   trueCtor  <- scBool sc True
   falseCtor <- scBool sc False
   iteOp <- getBuiltin "ite"
@@ -186,7 +185,6 @@ sawBackend sc0 mr proxy = do
 
   -- bvslt :: (n :: Nat) -> bitvector (Succ n) -> bitvector (Succ n) -> Bool;
   bvslt <- getBuiltin "bvslt"
-  bvslt32 <- scApply sc bvslt nat32
   bvslt64 <- scApply sc bvslt nat64
 
   -- bvAnd :: (n :: Nat) -> bitvector n -> bitvector n -> bitvector n;
@@ -204,17 +202,20 @@ sawBackend sc0 mr proxy = do
   bvXor32 <- scApply sc bvXor nat32
   bvXor64 <- scApply sc bvXor nat64
 
-  -- bvShiftL :: (n :: Nat) -> (a :: sort 0) -> (w :: Nat) -> a -> Vec n a -> bitvector w -> Vec n a;
-  bvShiftL <- getBuiltin "bvShiftL"
-  bvShl32 <- scApplyAll sc bvShiftL [nat32, boolType, nat32, falseCtor]
-  bvShl64 <- scApplyAll sc bvShiftL [nat64, boolType, nat64, falseCtor]
+  -- bvShl :: (n :: Nat) -> bitvector n -> Nat -> bitvector n;
+  bvShl <- getBuiltin "bvShl"
+  bvShl32 <- scApply sc bvShl nat32
+  bvShl64 <- scApply sc bvShl nat64
 
-  -- bvShiftR :: (n :: Nat) -> (a :: sort 0) -> (w :: Nat) -> a -> Vec n a -> bitvector w -> Vec n a;
-  bvShiftR <- getBuiltin "bvShiftR"
-  bvShr32 <- scApplyAll sc bvShiftR [nat32, boolType, nat32, falseCtor]
-  bvShr64 <- scApplyAll sc bvShiftR [nat64, boolType, nat64, falseCtor]
-  bvSShr32 <- scApplyAll sc bvShiftR [nat32, boolType, nat32]
-  bvSShr64 <- scApplyAll sc bvShiftR [nat64, boolType, nat64]
+  -- bvShr :: (n :: Nat) -> bitvector n -> Nat -> bitvector n;
+  bvShr <- getBuiltin "bvShr"
+  bvShr32 <- scApply sc bvShr nat32
+  bvShr64 <- scApply sc bvShr nat64
+
+  -- bvSShr :: (n :: Nat) -> bitvector n -> Nat -> bitvector n;
+  bvSShr <- getBuiltin "bvSShr"
+  bvSShr32 <- scApply sc bvSShr nat32
+  bvSShr64 <- scApply sc bvSShr nat64
 
   -- bvNeg :: (x :: Nat) -> bitvector x -> bitvector x;
   bvNeg <- getBuiltin "bvNeg"
@@ -246,6 +247,11 @@ sawBackend sc0 mr proxy = do
   bvSRem32 <- scApply sc bvSRem nat31
   bvSRem64 <- scApply sc bvSRem nat63
 
+  -- bvToNat :: (n :: Nat) -> bitvector n -> Nat;
+  bvToNat <- getBuiltin "bvToNat"
+  bvToNat32 <- scApply sc bvToNat nat32
+  bvToNat64 <- scApply sc bvToNat nat64
+
   let mkBvToNat32 t =
         case asBvNat bvNat32 t of
           Just n -> scNat sc n
@@ -271,16 +277,12 @@ sawBackend sc0 mr proxy = do
         lnat <- mkBvToNat32 l
         scApplyAll sc setOp [lnat,eltType,nat32,a,i,v]
 
-  let mkBvShl32 x y = apply2 bvShl32 x y
-  let mkBvShl64 x y = apply2 bvShl64 x y
-  let mkBvShr32 x y = apply2 bvShr32 x y
-  let mkBvShr64 x y = apply2 bvShr64 x y
-  let mkBvSShr32 x y = do
-        msb <- apply2 bvslt32 x zero32
-        apply3 bvSShr32 msb x y
-  let mkBvSShr64 x y = do
-        msb <- apply2 bvslt64 x zero64
-        apply3 bvSShr64 msb x y
+  let mkBvShl32 x y = apply2 bvShl32 x =<< scApply sc bvToNat32 y
+  let mkBvShl64 x y = apply2 bvShl64 x =<< scApply sc bvToNat64 y
+  let mkBvShr32 x y = apply2 bvShr32 x =<< scApply sc bvToNat32 y
+  let mkBvShr64 x y = apply2 bvShr64 x =<< scApply sc bvToNat64 y
+  let mkBvSShr32 x y = apply2 bvSShr32 x =<< scApply sc bvToNat32 y
+  let mkBvSShr64 x y = apply2 bvSShr64 x =<< scApply sc bvToNat64 y
 
   -- | Compare two 64bit integers (x & y), and return one of three 32-bit integers:
   -- if x < y then return -1; if x == y then return 0; if x > y then return 1
