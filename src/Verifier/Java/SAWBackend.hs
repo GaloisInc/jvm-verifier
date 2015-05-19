@@ -302,9 +302,11 @@ sawBackend sc0 mr proxy = do
       blastTermFn t = return (R.asBool t)
 
       -- Lambda abstract term @t@ over all symbolic variables.
+      -- NB: reverse the list in inputsRef because the most-recently
+      -- allocated symbolic variables are at the head of the list.
   let abstract :: SharedTerm s -> IO (SharedTerm s)
       abstract t = do
-        ecs <- readIORef inputsRef
+        ecs <- reverse <$> readIORef inputsRef
         scAbstractExts sc ecs t
 
   let satTermFn :: SharedTerm s -> IO Bool
