@@ -134,7 +134,7 @@ commonClassPaths = ["test" </> "src" </> "support"]
 
 commonLoadCB :: IO Codebase
 commonLoadCB = do
-  rtJar <- readProcess "./find-java-rt-jar.sh" [] ""
+  rtJar <- readProcess ("." </> "find-java-rt-jar.sh") [] ""
   loadCodebase (rtJar : commonJars) commonClassPaths
 
 -- | The most "trivial" of any JSS property; just needs a codebase
