@@ -1,0 +1,6 @@
+bcprov-jdk16-145.jar
+--------------------
+
+Crypto library from https://www.bouncycastle.org. Released under open
+source license LICENSE.bcprov, copied from
+https://www.bouncycastle.org/licence.html.

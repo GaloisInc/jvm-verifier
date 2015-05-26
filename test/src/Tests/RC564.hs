@@ -6,14 +6,12 @@ Point-of-contact : jstanley
 -}
 
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE CPP #-}
 
 module Tests.RC564 (rc564Tests, runRC564) where
 
 import Control.Applicative
 import Control.Monad
 import qualified Data.Vector as V
-import System.Process
 
 import Test.Tasty
 import Test.QuickCheck.Monadic
@@ -40,19 +38,7 @@ rc564Tests = testGroup "RC564" $
 -- RC-564
 
 getGoldenRC564 :: String -> String -> IO String
-getGoldenRC564 key inp =
-  readProcess "java"
-              [ "-classpath"
-#ifdef mingw32_HOST_OS
-              , "user/bcprov-jdk16-145.jar;jdk1.6/classes.jar;test/src/support"
-#else
-              , "user/bcprov-jdk16-145.jar:jdk1.6/classes.jar:test/src/support"
-#endif
-              , "TestRC564"
-              , key
-              , inp
-              ]
-              ""
+getGoldenRC564 key inp = runJava ["TestRC564" , key , inp]
 
 -- TODO: add evalAigRC564 etc.
 evalDagRC564 :: String -> String -> PropertyM IO ()

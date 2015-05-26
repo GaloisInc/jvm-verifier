@@ -6,7 +6,6 @@ Point-of-contact : jstanley
 -}
 
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE CPP #-}
 
 module Tests.SHA384 (sha384Tests) where
 
@@ -14,7 +13,6 @@ import Control.Applicative
 import Control.Monad
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
-import System.Process
 
 import Test.Tasty
 import Test.QuickCheck
@@ -41,18 +39,8 @@ sha384Tests = testGroup "SHA384" $
   ]
 
 getGoldenSHA384 :: String -> IO String
-getGoldenSHA384 msg =
-  readProcess "java"
-              [ "-classpath"
-#ifdef mingw32_HOST_OS
-              , "user/bcprov-jdk16-145.jar;jdk1.6/classes.jar;test/src/support"
-#else
-              , "user/bcprov-jdk16-145.jar:jdk1.6/classes.jar:test/src/support"
-#endif
-              , "TestSHA384"
-              , msg
-              ]
-              ""
+getGoldenSHA384 msg = runJava ["TestSHA384", msg]
+
 
 evalDagSHA384 :: String -> PropertyM IO ()
 evalDagSHA384 msg = do
