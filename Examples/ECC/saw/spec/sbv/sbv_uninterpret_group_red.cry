@@ -1,3 +1,0 @@
-include "sbv_uninterpret_sq_loop.cry";
-
-pragma p384_group_red : SBV uninterpret;

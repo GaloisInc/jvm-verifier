@@ -1,4 +1,0 @@
-import "common.saw";
-import "rules.saw";
-enable ref_mul_java_inner;
-import "mul_inner.spec";

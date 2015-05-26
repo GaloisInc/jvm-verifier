@@ -1,7 +1,0 @@
-method com.galois.ecc.P384ECC64.assign
-{
-  var x, y :: int[12];
-  ensure valueOf(x) := valueOf(y);
-  verify abc;
-};
-

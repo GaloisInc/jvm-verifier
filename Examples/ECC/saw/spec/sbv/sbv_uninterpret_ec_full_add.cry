@@ -1,2 +1,0 @@
-include "sbv_uninterpret_ec_double.cry";
-pragma p384_ec_full_add   : SBV uninterpret;

@@ -1,9 +1,0 @@
-import "common.saw";
-import "rules.saw";
-
-set verification off;
-import "field_sub.spec";
-set verification on;
-
-enable ref_field_sub;
-import "field_dbl_dec.spec";

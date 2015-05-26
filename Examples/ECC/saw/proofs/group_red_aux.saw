@@ -1,6 +1,0 @@
-import "common.saw"; 
-import "rules.saw";
-
-enable ref_aset_384;
-enable ref_group_red_aux;
-import "group_red_aux.spec";

@@ -1,4 +1,0 @@
-#!/bin/sh
-rm -rf generated
-mkdir -p generated
-cryptol +RTS -H128m -K64m -RTS -b make_sbvs.cmd

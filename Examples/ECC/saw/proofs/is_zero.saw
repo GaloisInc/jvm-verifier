@@ -1,6 +1,0 @@
-method com.galois.ecc.P384ECC64.is_zero 
-{
-  var x :: int[12];
-  return join(valueOf(x)) == 0:[384];
-  verify abc;
-};

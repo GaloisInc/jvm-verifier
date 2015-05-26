@@ -1,5 +1,0 @@
-import "common.saw";
-import "rules.saw";
-
-enable ref_ec_mul_init;
-import "ec_mul_init.spec";

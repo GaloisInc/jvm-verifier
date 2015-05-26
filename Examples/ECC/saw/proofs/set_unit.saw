@@ -1,8 +1,0 @@
-method com.galois.ecc.P384ECC64.set_unit
-{
-  var x :: int[12];
-  ensure valueOf(x) := split(1:[384]) : [12][32];
-  verify abc;
-};
-
-

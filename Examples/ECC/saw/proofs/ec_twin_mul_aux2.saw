@@ -1,4 +1,0 @@
-import "common.saw";
-import "rules.saw";
-enable ref_ec_twin_mul_aux2;
-import "ec_twin_mul_aux2.spec";

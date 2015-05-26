@@ -1,2 +1,0 @@
-include "sbv_uninterpret_ec_mul.cry";
-pragma p384_ec_twin_mul : SBV uninterpret;

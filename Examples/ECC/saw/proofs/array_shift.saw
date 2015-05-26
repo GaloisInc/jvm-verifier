@@ -1,8 +1,0 @@
-method com.galois.ecc.P384ECC64.array_shift
-{
-  var r :: int[12];
-  let jr = join(valueOf(r));
-  ensure valueOf(r) := split(jr << (32 : [9])) : [12][32];
-  return aget(valueOf(r), 11 : [32]) # 0 : [32];
-  verify abc;
-};

@@ -1,5 +1,0 @@
-import "common.saw"; 
-import "rules.saw";
-
-enable ref_field_sub;
-import "field_sub.spec";

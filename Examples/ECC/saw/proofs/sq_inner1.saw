@@ -1,4 +1,0 @@
-import "common.saw";
-import "rules.saw";
-enable ref_sq_java_inner1;
-import "sq_inner1.spec";
