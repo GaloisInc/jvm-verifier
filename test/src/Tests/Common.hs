@@ -27,12 +27,14 @@ module Tests.Common
 import Control.Monad
 import Data.Char
 import Data.Int
+import Data.List (intercalate)
 import Data.Maybe
 import Data.Word
 import Numeric
 import System.Environment
 import System.IO.Unsafe
 import System.FilePath
+import System.Process (readProcess)
 import System.Random
 import Text.PrettyPrint
 import Text.Read
@@ -101,6 +103,16 @@ runDefSimulator :: AigOps sbe =>
 runDefSimulator cb sbe m = 
   Sim.runDefSimulator cb sbe (setVerbosity verb >> m)
 
+-- | Run the Java interpreter on 'args' with the class path set to
+-- include 'commonJars'.
+runJava :: [String] -> IO String
+runJava args =
+  readProcess "java" cpAndArgs ""
+  where
+    cpAndArgs = ["-classpath" , cp] ++ args
+    cp = intercalate [searchPathSeparator] $
+           commonJars ++ ["test" </> "src" </> "support"]
+
 assertMsg :: Bool -> String -> PropertyM IO ()
 assertMsg b s = when (not b) (run $ putStrLn s) >> QC.assert b
 
@@ -113,16 +125,17 @@ bytes n =
   $ arbitrary `suchThat` (\c -> c `elem` (['0'..'9'] ++ ['a'..'f']))
 
 commonJars :: [String]
-commonJars = [ "support" </> "galois.jar"        -- primitives & symbolic API
-             , "jdk1.6" </> "classes.jar"        -- jdk
-             , "user" </> "bcprov-jdk16-145.jar" -- bouncy castle
+commonJars = [ "jars" </> "galois.jar"           -- primitives & symbolic API
+             , "jars" </> "bcprov-jdk16-145.jar" -- bouncy castle
              ]
 
 commonClassPaths :: [String]
 commonClassPaths = ["test" </> "src" </> "support"]
 
 commonLoadCB :: IO Codebase
-commonLoadCB = loadCodebase commonJars commonClassPaths
+commonLoadCB = do
+  rtJar <- readProcess "./find-java-rt-jar.sh" [] ""
+  loadCodebase (rtJar : commonJars) commonClassPaths
 
 -- | The most "trivial" of any JSS property; just needs a codebase
 type TrivialProp = Codebase -> PropertyM IO ()
