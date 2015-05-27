@@ -14,6 +14,7 @@ implementations of the 'SEH' event handlers.
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Verifier.Java.Debugger
   (
     breakOnMain

@@ -7,6 +7,7 @@ Point-of-contact : atomb, acfoltzer
 
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Data.JVM.Symbolic.Translation
   ( liftBB
   , liftCFG

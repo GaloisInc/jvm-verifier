@@ -7,6 +7,7 @@ Point-of-contact : jhendrix
 
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Verinf.Symbolic.UnionFind (
     AssertResult(..)
   , assertSucceeded
