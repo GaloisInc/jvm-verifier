@@ -125,7 +125,7 @@ bytes n =
   $ arbitrary `suchThat` (\c -> c `elem` (['0'..'9'] ++ ['a'..'f']))
 
 commonJars :: [String]
-commonJars = [ "jars" </> "galois.jar"           -- primitives & symbolic API
+commonJars = [ "support" </> "galois.jar"        -- primitives & symbolic API
              , "jars" </> "bcprov-jdk16-145.jar" -- bouncy castle
              ]
 
