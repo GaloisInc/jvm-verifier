@@ -205,24 +205,3 @@ benchmark Benchmarks
   main-is          : Benchmarks.hs
   hs-source-dirs   : jss test/src
   ghc-options      : -O2 -Wall -fno-ignore-asserts
-
-executable ExampleAIG
-  if !flag(build-examples)
-    buildable: False
-
-  build-depends:
-      base >= 4 && < 5
-    , array
-    , containers
-    , directory
-    , filepath
-    , jvm-parser >= 0.2.1
-    , mtl >= 2.1
-    , random >= 1.0.1.0
-    , vector >= 0.7
-    , QuickCheck >= 2.4.1
-
-  main-is          : Examples/AIG/ExampleAIG.hs
-  hs-source-dirs   : src test/src .
-  ghc-options      : -O2 -Wall -fno-ignore-asserts
-  ghc-prof-options : -prof -auto-all
