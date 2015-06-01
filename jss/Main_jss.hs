@@ -29,7 +29,7 @@ import System.Environment (getArgs)
 import System.Environment.Executable (getExecutablePath)
 import System.Exit
 import System.IO
-import System.FilePath
+import System.FilePath (searchPathSeparator, splitSearchPath, takeDirectory, takeFileName, (</>))
 import Text.ParserCombinators.Parsec
 
 #if __GLASGOW_HASKELL__ < 706
@@ -105,22 +105,18 @@ main = do
   args' <- cmdArgs $
     JSS { classpath = def
                    &= typ "CLASSPATH"
-#ifdef mingw32_HOST_OS
-                   &= help "semicolon-delimited list of auxiliary class file directories"
-#else
-                   &= help "colon-delimited list of auxiliary class file directories"
-#endif
+
+                   &= help ("A " ++ [searchPathSeparator] ++
+                      "-delimited list of auxiliary class file directories")
         , jars = def
               &= typ "JARS"
-#ifdef mingw32_HOST_OS
-              &= help "semicolon-delimited list of paths to jar files (e.g. --jars=rt.jar;foo.jar)"
-#else
-              &= help "colon-delimited list of paths to jar files (e.g. --jars=jdk1.6/classes.jar:foo.jar)"
-#endif
+              &= help ("A " ++ [searchPathSeparator] ++
+                 "-delimited list of jar files (e.g. '--jars=rt.jar" ++
+                 [searchPathSeparator] ++ "foo.jar')")
         , opts = def
               &= typ "\"ARGS\""
-              &= help ("space-delimited arguments to be passed to main()"
-                       ++ " (use --help for more info)")
+              &= help ("The space-delimited arguments to be passed to the Java main()"
+                       ++ " (use '--opts=--help' for more info)")
 
         , blast  = def &= help "Always bitblast symbolic condition terms at branches (may force symbolic termination)"
         , sat = def &= help "Always check satisfiability of symbolic path assertions at branches (subsumes bitblasting)"
@@ -138,29 +134,14 @@ main = do
     cname  = case mcname args' of
                Nothing -> error "Please provide the name of a class containing main()"
                Just x  -> x
-#ifdef mingw32_HOST_OS
-    cpaths = case runParser (delimited ';') () "classpath" (classpath args') of
-               Left _e -> error "Unable to parse semicolon-delimited CLASSPATH."
-               Right x -> x
-    jpaths = case runParser (delimited ';') () "jars" (jars args') of
-               Left _e -> error "Unable to parse semicolon-delimited list of jar files"
-               Right x -> x
-#else
-    cpaths = case runParser (delimited ':') () "classpath" (classpath args') of
-               Left _e -> error "Unable to parse colon-delimited CLASSPATH."
-               Right x -> x
-    jpaths = case runParser (delimited ':') () "jars" (jars args') of
-               Left _e -> error "Unable to parse colon-delimited list of jar files"
-               Right x -> x
-#endif
+    cpaths = splitSearchPath (classpath args')
+    jpaths = splitSearchPath (jars args')
     jopts  = case runParser (many $ eatWS $ many1 $ satisfy $ not . isSpace)
                () "java args" (opts args')
              of
                Left _e -> error "Unable to parse Java command line arguments"
                Right x -> x
     eatWS        = between spaces spaces
-    delimited ch = many1 (noneOf [ch]) `sepBy` char ch
-
 
   jpaths' <-
     if elem "galois.jar" $ map takeFileName jpaths
