@@ -6,10 +6,13 @@ Point-of-contact : jstanley
 -}
 
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE CPP #-}
 
 module Tests.RC564 (rc564Tests, runRC564) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+#endif
 import Control.Monad
 import qualified Data.Vector as V
 

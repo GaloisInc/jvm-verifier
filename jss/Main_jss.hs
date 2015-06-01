@@ -14,7 +14,9 @@ Point-of-contact : jstanley
 
 module Main where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative hiding (many)
+#endif
 import Control.Lens ((.=))
 import Control.Monad
 import Control.Monad.IO.Class

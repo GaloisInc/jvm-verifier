@@ -8,6 +8,7 @@ Point-of-contact : jhendrix
 {-# LANGUAGE Rank2Types                 #-}
 {-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE ViewPatterns               #-}
+{-# LANGUAGE CPP                        #-}
 {-# OPTIONS_GHC -O0 #-}
 module Verinf.Symbolic.OpCache (
   -- * OpCache
@@ -74,7 +75,9 @@ module Verinf.Symbolic.OpCache (
 
 -- Imports {{{1
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative ((<$>))
+#endif
 import Control.Exception (assert)
 import Control.Monad(liftM2)
 import Data.Bits

@@ -11,10 +11,13 @@ Point-of-contact : jstanley
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE CPP #-}
 
 module Tests.PrimOps (primOpTests) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+#endif
 import Control.Monad
 import Data.Bits
 import qualified Data.Vector as V

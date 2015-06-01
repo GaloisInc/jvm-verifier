@@ -4,10 +4,13 @@ Description      :
 Stability        : provisional
 Point-of-contact : atomb, jhendrix
 -}
+{-# LANGUAGE CPP #-}
 
 module Tests.PathStateMerges (psmsTests, mul2WithFlags) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+#endif
 import Control.Monad
 import Data.Maybe
 import Prelude

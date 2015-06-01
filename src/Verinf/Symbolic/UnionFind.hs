@@ -8,6 +8,7 @@ Point-of-contact : jhendrix
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE CPP #-}
 module Verinf.Symbolic.UnionFind (
     AssertResult(..)
   , assertSucceeded
@@ -28,7 +29,9 @@ module Verinf.Symbolic.UnionFind (
   , modifyClassDesc
   ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative (Applicative)
+#endif
 import Control.Monad.State.Strict
 import Data.List (foldl')
 import Data.Map (Map)

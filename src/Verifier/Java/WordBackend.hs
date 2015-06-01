@@ -5,6 +5,7 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE CPP #-}
 module Verifier.Java.WordBackend 
        ( -- * Re-exports from Verifier infrastructure.         
          DagTerm
@@ -35,7 +36,9 @@ module Verifier.Java.WordBackend
        , evalAigArgs64
        ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+#endif
 import Control.Exception (assert, bracket)
 import Control.Monad (void)
 import Data.Bits

@@ -7,6 +7,7 @@ Point-of-contact : jhendrix
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE CPP #-}
 module Verinf.Symbolic.Lit.DataTypes
   ( SatResult(..)
     -- * Quantifiers for QBF.
@@ -15,13 +16,15 @@ module Verinf.Symbolic.Lit.DataTypes
   , LitVector
   ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
 import Data.Foldable (Foldable)
-import qualified Data.Foldable as Fold
 import Data.Monoid
+import Data.Traversable (Traversable)
+#endif
+import qualified Data.Foldable as Fold
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
-import Data.Traversable (Traversable)
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 

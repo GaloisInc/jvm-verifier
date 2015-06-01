@@ -8,6 +8,7 @@ Point-of-contact : atomb, acfoltzer
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE CPP #-}
 module Data.JVM.Symbolic.Translation
   ( liftBB
   , liftCFG
@@ -23,7 +24,9 @@ module Data.JVM.Symbolic.Translation
   , SymTransWarning
   ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+#endif
 import Control.Monad
 import Control.Monad.RWS hiding ((<>))
 import Data.Int

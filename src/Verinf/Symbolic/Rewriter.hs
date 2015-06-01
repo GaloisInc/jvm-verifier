@@ -8,6 +8,7 @@ Point-of-contact : jhendrix
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE CPP #-}
 
 module Verinf.Symbolic.Rewriter (
   -- * TermCtor
@@ -43,7 +44,9 @@ module Verinf.Symbolic.Rewriter (
 
 -- Module imports {{{1
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative ((<$>))
+#endif
 import Control.Exception
 import Control.Monad.Identity
 import Control.Monad.State.Strict

@@ -5,6 +5,7 @@ Stability        : stable
 Point-of-contact : jhendrix
 -}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE CPP #-}
 -- This module provides operations on literals and data structures for word level operations on them.
 module Verinf.Symbolic.Lit
   ( module Verinf.Symbolic.Lit.DataTypes
@@ -55,7 +56,9 @@ module Verinf.Symbolic.Lit
   ) where
 
 -- Imports {{{1
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative ((<$>))
+#endif
 import qualified Control.Exception as CE
 import Data.Bits (shiftL, testBit)
 import qualified Data.Vector.Storable as LV

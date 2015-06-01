@@ -12,6 +12,7 @@ Point-of-contact : jhendrix
 {-# LANGUAGE PatternGuards              #-}
 {-# LANGUAGE Rank2Types                 #-}
 {-# LANGUAGE ViewPatterns               #-}
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -O0 #-}
 -- Exports {{{1
 module Verinf.Symbolic.Common (
@@ -136,7 +137,9 @@ module Verinf.Symbolic.Common (
   ) where
 
 -- Imports {{{1
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative ((<$>))
+#endif
 import Control.Exception (assert)
 import Control.Monad
 import Control.Monad.State.Strict

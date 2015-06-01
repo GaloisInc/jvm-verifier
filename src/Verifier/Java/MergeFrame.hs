@@ -6,10 +6,13 @@ Point-of-contact : acfoltzer
 -}
 
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE CPP #-}
 
 module Verifier.Java.MergeFrame where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+#endif
 import Control.Monad.Error
 import Control.Lens hiding (Path)
 

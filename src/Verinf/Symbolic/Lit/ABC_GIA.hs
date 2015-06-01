@@ -9,6 +9,7 @@ Point-of-contact : jhendrix
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE CPP #-}
 module Verinf.Symbolic.Lit.ABC_GIA
    ( Lit
    , prettyLit
@@ -28,7 +29,9 @@ module Verinf.Symbolic.Lit.ABC_GIA
    , createBitEngine
    ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+#endif
 import Control.Exception
 import Control.Monad
 import qualified Data.Foldable as Fold

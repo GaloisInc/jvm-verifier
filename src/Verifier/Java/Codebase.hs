@@ -8,6 +8,7 @@ Point-of-contact : jhendrix, jstanley
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DoAndIfThenElse #-}
+{-# LANGUAGE CPP #-}
 module Verifier.Java.Codebase
   ( Codebase
   , getClasses
@@ -25,7 +26,9 @@ module Verifier.Java.Codebase
   , module Language.JVM.Parser
   ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative ((<$>))
+#endif
 import Control.Monad
 import Data.Foldable (toList)
 import qualified Data.Map as M

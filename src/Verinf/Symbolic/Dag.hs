@@ -6,6 +6,7 @@ Point-of-contact : jhendrix
 -}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE CPP #-}
 module Verinf.Symbolic.Dag
   ( -- * DagEngine
     DagEngine(..)
@@ -19,7 +20,9 @@ module Verinf.Symbolic.Dag
 
 -- Imports {{{1
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative hiding (empty)
+#endif
 import Control.Exception (assert, Exception)
 import Data.IORef
 import Data.Map (Map)

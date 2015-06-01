@@ -4,6 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Verifier.Java.SAWBackend
   ( SharedContext
@@ -14,14 +15,16 @@ module Verifier.Java.SAWBackend
   , basic_ss
   ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+import Data.Traversable (traverse)
+#endif
 import Control.Monad (void)
 import Control.Monad.ST (RealWorld)
 import qualified Data.ABC as ABC
 import Data.AIG (IsAIG)
 import qualified Data.AIG as AIG
 import Data.IORef
-import Data.Traversable (traverse)
 import Data.Word
 import Text.PrettyPrint.HughesPJ
 

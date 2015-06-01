@@ -25,6 +25,7 @@ types defined in "Verifier.Java.Common".
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE CPP #-}
 
 -- for the JavaSemantics instance of Simulator
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -94,7 +95,9 @@ module Verifier.Java.Simulator
 
 import Prelude hiding (EQ, LT, GT)
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative hiding (empty)
+#endif
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class

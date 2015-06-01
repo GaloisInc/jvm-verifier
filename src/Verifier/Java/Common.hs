@@ -14,6 +14,7 @@ Point-of-contact : acfoltzer
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Verifier.Java.Common
@@ -167,7 +168,9 @@ module Verifier.Java.Common
 import Prelude hiding (EQ, GT, LT)
 import qualified Prelude as P
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative (Applicative, (<$>), (<*>))
+#endif
 import Control.Arrow ((***))
 import Control.Lens
 import Control.Monad

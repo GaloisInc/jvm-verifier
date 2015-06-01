@@ -9,6 +9,7 @@ Point-of-contact : jhendrix
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE CPP #-}
 module Verinf.Symbolic.Lit.ABC 
   ( module Verinf.Symbolic.Lit.DataTypes
   , Lit
@@ -16,7 +17,9 @@ module Verinf.Symbolic.Lit.ABC
   , prettyLit
   ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+#endif
 import qualified Control.Exception as CE
 import Control.Monad.Reader
 import qualified Data.Traversable as T

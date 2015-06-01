@@ -128,7 +128,9 @@ module Verinf.Symbolic (
 
 -- Imports {{{1
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+#endif
 import Control.Monad
 import Data.IORef
 import qualified Data.Set as Set
