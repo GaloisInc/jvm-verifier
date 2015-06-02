@@ -64,7 +64,7 @@ instance Show Codebase where
 -- | Loads Java classes directly beneath given path.  Also loads jar indices for
 -- lazy class loading.
 loadCodebase :: [FilePath] -> [FilePath] -> IO Codebase
-loadCodebase jarFiles classPaths = do
+loadCodebase jarFiles classPaths' = do
   -- REVISIT: Currently, classes found in the classpath shadow those in the
   -- jars.  Pretty sure the -classpath argument to the vanilla jvm allows
   -- mixture of jars and directories, and resolves names in the order in which
@@ -93,7 +93,7 @@ loadCodebase jarFiles classPaths = do
   -- merge the maps as in the current 'JarReader' type, but I doubt
   -- this would ever matter, performance wise.
   jars       <- newJarReader jarFiles
-  let cb = CodebaseState jars classPaths M.empty M.empty M.empty
+  let cb = CodebaseState jars classPaths' M.empty M.empty M.empty
   Codebase <$> newIORef cb
 
 -- | Register a class with the given codebase
@@ -160,8 +160,8 @@ loadClassFromDir clNm dir = do
     --
     -- TODO: move this to 'jvm-parser.git:Language.JVM.Common'?
     slashNameToClassFilePath :: String -> FilePath
-    slashNameToClassFilePath clNm =
-      map (\c -> if c == '/' then pathSeparator else c) clNm <.> "class"
+    slashNameToClassFilePath clNm' =
+      map (\c -> if c == '/' then pathSeparator else c) clNm' <.> "class"
 
 -- | Returns class with given name in codebase or raises error if no class with
 -- that name can be found.
