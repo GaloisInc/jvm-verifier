@@ -30,12 +30,11 @@ module Verifier.Java.Codebase
 import Control.Applicative ((<$>))
 #endif
 import Control.Monad
-import Data.Foldable (toList)
 import qualified Data.Map as M
 import Data.IORef
 import Data.Maybe
-import System.Directory.Tree (build, dirTree)
-import System.FilePath (takeExtension)
+import System.Directory (doesFileExist)
+import System.FilePath (pathSeparator, (<.>), (</>))
 
 import Text.PrettyPrint
 
@@ -48,7 +47,8 @@ import Verifier.Java.Utils
 -- | Collection of classes loaded by JVM.
 data CodebaseState = CodebaseState {
     jarReader   :: JarReader
-  -- ^ Maps class names to a lazily loaded class
+  -- ^ Maps class names to lazily loaded classes in JARs
+  , classPaths :: [FilePath]
   , classMap    :: M.Map String Class
   , subclassMap :: M.Map String [Class]
   -- ^ Maps class names to the list of classes that are direct subclasses, and
@@ -71,23 +71,35 @@ loadCodebase jarFiles classPaths = do
   -- those elements are encountered.  We probably want to do the same thing (and
   -- be able to just provide one argument to loadCodebase), but not for the
   -- beta. [js 04 Nov 2010]
+  --
+  -- UPDATE: docs on class resolution:
+  -- http://docs.oracle.com/javase/8/docs/technotes/tools/findingclasses.html.
+  -- I don't see any mention of resolution order in case of name
+  -- conflicts. This Stack Overflow answer claims it's complicated in
+  -- general, but that it will be the first encountered, searching
+  -- left to right in the class path:
+  -- http://stackoverflow.com/a/9757708/470844.
+  --
+  -- If we later want to make the resolution order be the
+  -- left-to-right-in-classpath order, then we can e.g. implement a
+  -- 'ClassPathLoader' which includes sequence of 'JarLoader' and
+  -- 'DirLoader' objects, which embed maps from class names to 'Class'
+  -- objects. A
+  --
+  --   getClass :: String -> IO (Maybe Class)
+  --
+  -- interface would be sufficient. If we want to avoid repeating the
+  -- lookup in many maps -- one for each classpath component -- we can
+  -- merge the maps as in the current 'JarReader' type, but I doubt
+  -- this would ever matter, performance wise.
   jars       <- newJarReader jarFiles
-  classFiles <- filter (\p -> takeExtension p == ".class")
-                  <$> recurseDirectories classPaths
-  classes <- mapM loadClass classFiles
-  let cb = foldr addClass (CodebaseState jars M.empty M.empty M.empty) classes
-  fmap Codebase $ newIORef cb
-  where
-    recurseDirectories :: [FilePath] -> IO [FilePath]
-    recurseDirectories paths = concat <$> mapM recurseDirectory paths
-
-    recurseDirectory :: FilePath -> IO [FilePath]
-    recurseDirectory path = toList . dirTree <$> build path
+  let cb = CodebaseState jars classPaths M.empty M.empty M.empty
+  Codebase <$> newIORef cb
 
 -- | Register a class with the given codebase
 addClass :: Class -> CodebaseState -> CodebaseState
-addClass cl (CodebaseState jr cMap scMap symMap) =
-  CodebaseState jr
+addClass cl (CodebaseState jr cp cMap scMap symMap) =
+  CodebaseState jr cp
                 (M.insert (className cl) cl cMap)
                 (foldr addToSuperclass scMap
                    (maybeToList (superClass cl)++classInterfaces cl))
@@ -107,15 +119,56 @@ tryLookupClass (Codebase cbRef) clNm = do
   case M.lookup clNm (classMap cb) of
     Just cl -> return (Just cl)
     Nothing -> do
-      mcl <- loadClassFromJar clNm (jarReader cb)
+      -- Here we bias our search to JARs before classpath directories,
+      -- as mentioned above in 'loadCodebase'.
+      let mcls = [loadClassFromJar clNm (jarReader cb)] ++
+                 map (loadClassFromDir clNm) (classPaths cb)
+      mcl <- foldl1 firstSuccess mcls
       case mcl of
         Just cl -> do
           writeIORef cbRef $! addClass cl cb
           return $ Just cl
         Nothing -> return Nothing
+  where
+    -- | Combine two @IO (Maybe a)@ computations lazily, choosing the
+    -- first to succeed (i.e. return 'Just').
+    firstSuccess :: IO (Maybe a) -> IO (Maybe a) -> IO (Maybe a)
+    -- This seems like it would be a common pattern, although I can't
+    -- find it in the standard libraries.
+    firstSuccess ima1 ima2 = do
+      ma1 <- ima1
+      case ma1 of
+        Nothing -> ima2
+        Just _ -> return ma1
+
+-- | Attempt to load a class by searching under directory @dir@, which
+-- is assumed to be a classpath component. If class @C1. ... .Cn@ is
+-- available under @dir@, then it must be located at
+-- @dir/C1/.../Cn.class@.
+-- http://docs.oracle.com/javase/8/docs/technotes/tools/findingclasses.html#userclass
+loadClassFromDir :: String -> FilePath -> IO (Maybe Class)
+loadClassFromDir clNm dir = do
+  exists <- doesFileExist file
+  if exists
+  then Just <$> loadClass file
+  else return Nothing
+  where
+    file = dir </> slashNameToClassFilePath clNm
+    -- | Turn a @com/example/Class@-style classname into a
+    --  @"com" </> "example" </> "Class.class"@-style platform dependent
+    --  relative class-file path.
+    --
+    -- TODO: move this to 'jvm-parser.git:Language.JVM.Common'?
+    slashNameToClassFilePath :: String -> FilePath
+    slashNameToClassFilePath clNm =
+      map (\c -> if c == '/' then pathSeparator else c) clNm <.> "class"
 
 -- | Returns class with given name in codebase or raises error if no class with
 -- that name can be found.
+--
+-- The components of class name @clNm@ should be slash separated, not
+-- dot separated. E.g. the class @com.example.Class@ should be
+-- @com/example/class@.
 lookupClass :: Codebase -> String -> IO Class
 lookupClass cb clNm = do
   maybeCl <- tryLookupClass cb clNm

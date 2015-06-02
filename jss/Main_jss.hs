@@ -132,7 +132,7 @@ main = do
 
   let
     cname  = case mcname args' of
-               Nothing -> error "Please provide the name of a class containing main()"
+               Nothing -> error "Please provide the /-separated name of a class containing main(). E.g. 'com/example/Class' for class 'Class' in package 'com.example'."
                Just x  -> x
     cpaths = splitSearchPath (classpath args')
     jpaths = splitSearchPath (jars args')
