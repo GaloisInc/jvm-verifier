@@ -106,8 +106,7 @@ basic_ss sc = do
   return $ addConvs procs (addRules (rs1 ++ rs2) emptySimpset)
   where
     eqs = map qualify
-      ["get_single", "get_set", "get_bvAnd", "get_bvOr", "get_bvXor"
-      , "get_bvNot", "not_not", "get_slice", "bvAddZeroL", "bvAddZeroR"
+      [ "not_not", "bvAddZeroL", "bvAddZeroR"
       , "eq_Fin", "eq_bitvector"
       , "eq_Bool", "eq_VecBool"
       ]
