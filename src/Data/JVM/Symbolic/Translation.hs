@@ -143,9 +143,14 @@ liftBB cfg bb = do
           Ifle tgt -> cmpZero pc (If_icmple tgt) currId is il
           Ifnonnull tgt -> br pc currId il (getBlock tgt) blk' NonNull
           Ifnull tgt -> br pc currId il (getBlock tgt) blk' Null
-          Lookupswitch d cs -> switch currId il d (map fst cs) cs
-          Tableswitch d l h cs -> switch currId il d vs (zip vs cs)
-            where vs = [l..h]
+          -- Lookupswitch PC           {- default target -}
+          --              [(Int32,PC)] {- [(case label, case target)] -}
+          Lookupswitch d cs -> switch currId il d cs
+          -- Tableswitch PC {- default target -}
+          --             Int32 {- low label -}
+          --             Int32 {- high label -}
+          --             [PC] {- [case target] -}
+          Tableswitch d l h cs -> switch currId il d (zip [l..h] cs)
           Jsr _ -> do warn "jsr not supported"
                       processInsns is currId il
           Ret _ -> do warn "ret not supported"
@@ -167,23 +172,50 @@ liftBB cfg bb = do
       retVoid pc currId il =
         defineBlock currId $ reverse ((Just pc, ReturnVoid) : il)
       switch :: BlockId 
-             -> [(Maybe PC, SymInsn)] 
-             -> PC
-             -> [Int32] 
-             -> [(Int32, PC)]
+             -> [(Maybe PC, SymInsn)] -- ^ Instructions before 'switch' in bb.
+             -> PC                    -- ^ Default target.
+             -> [(Int32, PC)]         -- ^ Cases: [(Case label, Case target)].
              -> SymTrans ()
-      switch currId il d is cs = do
+      -- Possible optimizations:
+      --
+      -- This is an 'O(n)' linear label search, for 'n' the number of
+      -- labels; we compare each case label with the 'switch'
+      -- statements' target value, jumping to the corresponding case
+      -- target PC if a match is found. For the 'lookupswitch'
+      -- instruction we could instead do 'O(log n)' search (binary
+      -- search), and for the 'tableswitch' instruction we could
+      -- instead do 'O(1)' search (jump).
+      --
+      -- We could eliminate the many 'dup's below by changing the
+      -- semantics of 'HasConstValue' to not pop the stack. We're the
+      -- only user of 'HasConstValue', so changing the semantics would
+      -- be safe, but not popping might be inconsistent with typical
+      -- stack machine semantics.
+      switch currId il d cs = do
         defineBlock currId $ reverse il ++ cases
-        zipWithM_ defineBlock caseBlockIds (brSymInstrs cfg <$> targets)
+        zipWithM_ defineBlock caseBlockIds caseBlockInstrss
           where targets = getBlock . snd <$> cs
+                labels = fromIntegral . fst <$> cs
+                dup = si (NormalInsn Dup)
+                pop = si (NormalInsn Pop)
+                defaultInstrs = pop : brSymInstrs cfg (getBlock d)
+                caseBlockInstrss = [ pop : brSymInstrs cfg t | t <- targets ]
                 caseBlockIds = 
                   [ currId { blockN = n } 
-                  | n <- [  blockN currId + 1 .. blockN currId + length cs]
+                  | n <- [ blockN currId + 1 .. blockN currId + length cs ]
                   ]
-                cases = foldr mkCase (brSymInstrs cfg (getBlock d))
-                         $ zip (fromIntegral <$> is) caseBlockIds
-                mkCase (cv, bid) rest = 
-                  [ si (PushPendingExecution bid (HasConstValue cv) pd rest) ]
+                cases = foldr mkCase defaultInstrs
+                          $ zip labels caseBlockIds
+                mkCase (label, bid) rest =
+                  -- Duplicate the 'switch' target value before each
+                  -- check, since evaluating 'HasConstValue' condition
+                  -- pops the stack. This results in a copy of the
+                  -- 'switch' target value at the top of the stack
+                  -- when we're finally ready to execute a case, so we
+                  -- prepend a pop to each case above.
+                  [ dup
+                  , si (PushPendingExecution bid (HasConstValue label) pd rest)
+                  ]
       br pc currBlk il thenBlk elseBlk cmp = do
         let suspendBlk = currBlk { blockN = (blockN currBlk) + 1 }
         -- Add pending execution for true branch, and execute false branch.
