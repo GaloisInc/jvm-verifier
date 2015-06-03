@@ -1,3 +1,10 @@
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : jhendrix
+-}
 module Verinf.Utils.CacheM (Cache, CacheM(..)) where
 
 import qualified Data.Map as Map

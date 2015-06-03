@@ -1,6 +1,7 @@
 {- |
 Module           : $Header$
 Description      : various performance benchmarks for JSS
+License          : Free for non-commercial use. See LICENSE.
 Stability        : provisional
 Point-of-contact : acfoltzer
 -}

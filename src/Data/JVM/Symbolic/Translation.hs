@@ -1,6 +1,7 @@
 {- |
 Module           : $Header$
 Description      : Translation of JVM instructions to symbolic form
+License          : Free for non-commercial use. See LICENSE.
 Stability        : experimental
 Point-of-contact : atomb, acfoltzer
 -}

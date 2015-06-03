@@ -1,8 +1,9 @@
 {- |
 Module           : $Header$
 Description      : The (default) symbolic backend.  Defines operations over a term DAG.
+License          : Free for non-commercial use. See LICENSE.
 Stability        : provisional
-Point-of-contact : jhendrix, jstanley
+Point-of-contact : jhendrix
 -}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}

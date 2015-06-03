@@ -1,4 +1,11 @@
 {-# LANGUAGE ImplicitParams #-}
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : jhendrix
+-}
 -- | Provides a functional interface to the bitblasting backend.
 module Verinf.Symbolic.Lit.Functional
   ( -- | Lit operations

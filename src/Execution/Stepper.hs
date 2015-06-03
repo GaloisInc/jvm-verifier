@@ -1,8 +1,9 @@
 {- |
 Module           : $Header$
 Description      : JVM instruction semantics
+License          : Free for non-commercial use. See LICENSE.
 Stability        : stable
-Point-of-contact : jhendrix, jstanley, acfoltzer
+Point-of-contact : jhendrix, acfoltzer
 
 This module defines the semantics of individual JVM instructions in
 terms of the 'Execution.JavaSemantics.JavaSemantics' operators. We

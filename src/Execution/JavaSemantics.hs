@@ -1,8 +1,9 @@
 {- |
 Module           : $Header$
 Description      : An interface for implementing JVM bytecode interpreters
+License          : Free for non-commercial use. See LICENSE.
 Stability        : stable
-Point-of-contact : jhendrix, jstanley, acfoltzer
+Point-of-contact : jhendrix, acfoltzer
 -}
 
 {-# LANGUAGE FlexibleContexts       #-}

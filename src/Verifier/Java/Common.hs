@@ -1,6 +1,7 @@
 {- |
 Module           : $Header$
 Description      : Shared types and utility functions for JSS
+License          : Free for non-commercial use. See LICENSE.
 Stability        : stable
 Point-of-contact : acfoltzer
 -}

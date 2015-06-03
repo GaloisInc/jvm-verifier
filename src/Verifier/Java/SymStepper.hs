@@ -1,6 +1,7 @@
 {- |
 Module           : $Header$
 Description      :
+License          : Free for non-commercial use. See LICENSE.
 Stability        : stable
 Point-of-contact : atomb
 -}

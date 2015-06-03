@@ -1,6 +1,13 @@
 #!/usr/bin/env runhaskell
 
 {-# OPTIONS_GHC -fno-warn-unused-do-bind #-}
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : atomb
+-}
 module Main where
 
 import Control.Monad

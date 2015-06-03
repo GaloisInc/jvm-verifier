@@ -1,8 +1,9 @@
 {- |
 Module           : $Header$
 Description      :
+License          : Free for non-commercial use. See LICENSE.
 Stability        : stable
-Point-of-contact : jhendrix, jstanley
+Point-of-contact : jhendrix
 -}
 
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}

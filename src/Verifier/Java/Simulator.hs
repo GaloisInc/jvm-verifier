@@ -1,8 +1,9 @@
 {- |
 Module           : $Header$
 Description      : JVM Symbolic Simulator implementation
+License          : Free for non-commercial use. See LICENSE.
 Stability        : provisional
-Point-of-contact : jstanley, acfoltzer
+Point-of-contact : acfoltzer
 
 Implementation of the JVM Symbolic Simulator. This module exposes an
 interface that allows clients to execute JVM semantics, yielding

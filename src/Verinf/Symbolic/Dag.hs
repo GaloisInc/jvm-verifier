@@ -1,6 +1,7 @@
 {- |
 Module           : $Header$
 Description      : Provides a mechanism for creating new dags.
+License          : Free for non-commercial use. See LICENSE.
 Stability        : stable
 Point-of-contact : jhendrix
 -}

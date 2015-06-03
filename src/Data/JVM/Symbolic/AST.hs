@@ -1,5 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : acfoltzer
+-}
+
 -- | This module defines the main data types for the AST interpreted
 -- by the symbolic simulator. It enriches the JVM instruction set with
 -- operations for handling symbolic execution paths and explicitly

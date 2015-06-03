@@ -6,7 +6,8 @@ Build-type:     Simple
 Cabal-version: >= 1.8
 Category:       Formal Methods
 Synopsis:       Symbolic simulator for Java bytecode
-License:        AllRightsReserved
+License:        AllRightReserved
+License-file:   LICENSE
 
 Flag build-library
   description: Build the jvm-verifier library.

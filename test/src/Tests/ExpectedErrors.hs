@@ -3,6 +3,13 @@
 {-# LANGUAGE TypeFamilies     #-}
 {-# LANGUAGE CPP     #-}
 
+{- |
+Module           : $Header$
+Description      :
+License          : Free for non-commercial use. See LICENSE.
+Stability        : provisional
+Point-of-contact : atomb
+-}
 module Tests.ExpectedErrors (expErrTests) where
 
 #if !MIN_VERSION_base(4,8,0)

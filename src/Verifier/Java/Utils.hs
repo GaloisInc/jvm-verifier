@@ -1,6 +1,7 @@
 {- |
 Module           : $Header$
 Description      : Utility functions for execution of JVM Symbolic programs
+License          : Free for non-commercial use. See LICENSE.
 Stability        : provisional
 Point-of-contact : acfoltzer
 -}
