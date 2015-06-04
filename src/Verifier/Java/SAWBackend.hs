@@ -112,7 +112,7 @@ basic_ss sc = do
       ]
     defs = map qualify ["not", "and", "or", "xor", "boolEq", "ite"]
     cdefs = map cqualify [ "seq", "ecEq", "ePCmp", "ePFin" ]
-    procs = bvConversions ++ natConversions ++ finConversions ++ vecConversions
+    procs = bvConversions ++ natConversions ++ vecConversions
     defRewrites ident =
       case findDef (scModule sc) ident of
         Nothing -> return []
