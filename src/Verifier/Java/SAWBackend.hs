@@ -107,8 +107,7 @@ basic_ss sc = do
   where
     eqs = map qualify
       [ "not_not", "bvAddZeroL", "bvAddZeroR"
-      , "eq_Fin", "eq_bitvector"
-      , "eq_Bool", "eq_VecBool"
+      , "eq_bitvector", "eq_Bool", "eq_VecBool"
       ]
     defs = map qualify ["not", "and", "or", "xor", "boolEq", "ite"]
     cdefs = map cqualify [ "seq", "ecEq", "ePCmp", "ePFin" ]
