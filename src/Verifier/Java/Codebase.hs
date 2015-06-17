@@ -34,6 +34,7 @@ import Control.Applicative ((<$>))
 import Control.Monad
 import qualified Data.Map as M
 import Data.IORef
+import Data.List (isPrefixOf)
 import Data.Maybe
 import System.Directory (doesFileExist)
 import System.FilePath (pathSeparator, (<.>), (</>))
@@ -176,7 +177,28 @@ lookupClass cb clNm = do
   maybeCl <- tryLookupClass cb clNm
   case maybeCl of
     Just cl -> return cl
-    Nothing -> error $ "Cannot find class " ++ slashesToDots clNm ++ " in codebase."
+    Nothing -> error $ errorMsg
+  where
+    dotNm = slashesToDots clNm
+    isStandardLibClass = "java.lang" `isPrefixOf` dotNm
+    errorMsg = unlines $
+      if isStandardLibClass then
+        [ "Cannot find class " ++ dotNm ++ " in codebase."
+        , ""
+        , "You probably forgot to specify the location of the"
+        , "Java 6 standard libraries JAR using the '-j' flag. The standard"
+        , "libraries JAR is called 'classes.jar' on OS X systems and 'rt.jar'"
+        , "on Windows and Linux systems. Its location can be found by"
+        , "running 'java -verbose 2>&1 | grep Opened', assuming you're using"
+        , "a Sun Java."
+        ]
+      else
+        [ "Cannot find class " ++ dotNm ++ " in codebase."
+        , ""
+        , "You can specify the location of classes you depend on using"
+        , "the '-c' flag to specify non-jar classpaths and the '-j' flag"
+        , "to specify the location of JAR files."
+        ]
 
 getClasses :: Codebase -> IO [Class]
 getClasses (Codebase cbRef) = do
