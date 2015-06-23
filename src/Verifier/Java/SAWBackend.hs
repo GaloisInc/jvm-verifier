@@ -33,6 +33,7 @@ import qualified Data.ABC as ABC
 import Data.AIG (IsAIG)
 import qualified Data.AIG as AIG
 import Data.IORef
+import qualified Data.Map as Map
 import Data.Word
 import Text.PrettyPrint.HughesPJ
 
@@ -321,7 +322,7 @@ sawBackend sc0 mr proxy = do
   let satTermFn :: SharedTerm s -> IO Bool
       satTermFn t = do
         t' <- abstract t
-        BB.withBitBlastedPred proxy sc t' $ \be l _domTys -> do
+        BB.withBitBlastedPred proxy sc (\_ -> Map.empty) t' $ \be l _domTys -> do
             r <- AIG.checkSat be l
             case r of
               AIG.Sat _ -> return True
@@ -337,7 +338,7 @@ sawBackend sc0 mr proxy = do
         -- blasting should be the same.
         t <- scTuple sc outs
         t' <- abstract t
-        BB.withBitBlastedTerm proxy sc t' $ \be ls -> do
+        BB.withBitBlastedTerm proxy sc (\_ -> Map.empty) t' $ \be ls -> do
         AIG.writeAiger fname (AIG.Network be (AIG.bvToList ls))
 
   -- Very similar to 'SAWScript.Builtins.writeCNF' and
@@ -345,7 +346,7 @@ sawBackend sc0 mr proxy = do
   let writeCnfToFileFn :: FilePath -> SharedTerm s -> IO ()
       writeCnfToFileFn fname out = do
         t' <- abstract out
-        BB.withBitBlastedPred proxy sc t' $ \be l _domTys -> do
+        BB.withBitBlastedPred proxy sc (\_ -> Map.empty) t' $ \be l _domTys -> do
         void $ AIG.writeCNF be l fname
 
   let maybeCons =
