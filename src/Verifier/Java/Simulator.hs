@@ -589,7 +589,7 @@ getArrayValue r idx = do
       Just i | i <= maxIdx -> return $ RValue (arr ! fromIntegral i)
              -- TODO: the following should really be an exception
              | otherwise -> err $ "Out of bounds array access (" ++ show i ++
-                                  ", " ++ show sz ++ ")"
+                                  ", " ++ show maxIdx ++ ")"
       _ -> err "Not supported: symbolic indexing into arrays of references."
   else if tp == LongType then
     liftIO $ do
