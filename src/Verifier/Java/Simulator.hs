@@ -584,8 +584,12 @@ getArrayValue r idx = do
   m <- getMem "getArrayValue"
   if isRValue tp then do
     let Just arr = M.lookup r (m^.memRefArrays)
+        sz = snd (bounds arr)
     case asInt sbe idx of
-      Just i -> return $ RValue (arr ! fromIntegral i)
+      Just i | i < sz -> return $ RValue (arr ! fromIntegral i)
+             -- TODO: the following should really be an exception
+             | otherwise -> err $ "Out of bounds array access (" ++ show i ++
+                                  ", " ++ show sz ++ ")"
       _ -> err "Not supported: symbolic indexing into arrays of references."
   else if tp == LongType then
     liftIO $ do
