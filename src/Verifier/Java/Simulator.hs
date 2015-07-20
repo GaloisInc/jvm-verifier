@@ -1849,6 +1849,21 @@ stdOverrides = do
                      a [] Nothing
                    _ -> abort "doPrivileged called with incorrect arguments"
       )
+    , ( "java/lang/System", makeMethodKey "nanoTime" "()J", \ _ -> do
+          whenVerbosity (>=2) $
+            dbugM "warning: long java.lang.System.nanoTime() always returns 0 during symbolic execution"
+          pushValue =<< withSBE (\sbe -> LValue <$> termLong sbe 0)
+      )
+    , ( "java/lang/System", makeMethodKey "currentTimeMillis" "()J", \ _ -> do
+          whenVerbosity (>=2) $
+            dbugM "warning: long java.lang.System.currentTimeMillis() always returns 0 during symbolic execution"
+          pushValue =<< withSBE (\sbe -> LValue <$> termLong sbe 0)
+      )
+    , ( "java/lang/System", makeMethodKey "identityHashCode" "(Ljava/lang/Object;)I", \ _ -> do
+          whenVerbosity (>=2) $
+            dbugM "warning: int java.lang.System.identityHashCode(Object) always returns 0 during symbolic execution"
+          pushValue =<< withSBE (\sbe -> IValue <$> termInt sbe 0)
+      )
     ]
   where
     printlnMthd t = ( "java/io/PrintStream"
