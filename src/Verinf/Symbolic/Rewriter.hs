@@ -252,8 +252,8 @@ data MatchExpr r
   -- | Abort program without a substitution.
   = MatchAbort
   -- | Yield a substitution using current registry indices.
-  | MatchYield String 
-               (Vector DagTerm -> Vector DagType -> r) 
+  | MatchYield String
+               (Vector DagTerm -> Vector DagType -> r)
                !(MatchExpr r)
   -- | @MatchBind r op t f@ attempts to match term at register @r@ against
   -- application @op(t1, ..., tn)@.  If successful, @t1@ to @tn@ are stored
@@ -715,16 +715,16 @@ mergeExpr m fn = do
 -- to classes.
 -- The d parameter is the op descriptor.
 
-matchType -- | Constraints between register equivalence classes and the term it
+matchType :: [(TypeRegClass, DagType)]
+          -- ^ Constraints between register equivalence classes and the term it
           -- should match.
-          :: [(TypeRegClass, DagType)]
-          -- | Maps type variables to associated registry class.
           -> TypeClassMap
-          -- | Continuation to call with new type bindings when constraints
-          -- succeed.
+          -- ^ Maps type variables to associated registry class.
           -> (TypeClassMap -> MatchBuilder (MatchExpr r))
-          -- | Match builder expression.
+          -- ^ Continuation to call with new type bindings when constraints
+          -- succeed.
           -> MatchBuilder (MatchExpr r)
+          -- ^ Match builder expression.
 matchType ((reg, tp@SymBool{}):r) typeBindings contFn = do
   regIdx <- typeUF $ getTypeRegIdx reg
   mergeExpr (matchType r typeBindings contFn) $ \newSucc ->
@@ -784,17 +784,17 @@ matchType [] typeRegMap contFn = contFn typeRegMap
 
 -- | matchTerm validates that a set of term constraints are satisified by the
 -- registry entries.
-matchTerm :: -- | Constraints between register equivalence classes and the term it
+matchTerm :: [(TermRegClass, TermCtor)]
+             -- ^ Constraints between register equivalence classes and the term it
              -- should match.
-             [(TermRegClass, TermCtor)]
-          -- | Maps term variables to associated registry class.
           -> TermClassMap
-          -- | Maps type variables to associated registry class.
+          -- ^ Maps term variables to associated registry class.
           -> TypeClassMap
-          -- | Continuation to call with new term bindings when constraints succeed.
+          -- ^ Maps type variables to associated registry class.
           -> NamedYieldFn r
-          -- | Match builder expression.
+          -- ^ Continuation to call with new term bindings when constraints succeed.
           -> MatchBuilder (MatchExpr r)
+          -- ^ Match builder expression.
 -- Finished matching term.
 matchTerm [] termBindings typeBindings (nm,contFn) = do
   let termVars = Map.keys termBindings

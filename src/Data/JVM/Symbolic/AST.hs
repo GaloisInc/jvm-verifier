@@ -6,12 +6,13 @@ Description      :
 License          : Free for non-commercial use. See LICENSE.
 Stability        : provisional
 Point-of-contact : acfoltzer
+
+This module defines the main data types for the AST interpreted
+by the symbolic simulator. It enriches the JVM instruction set with
+operations for handling symbolic execution paths and explicitly
+calling and returning from methods.
 -}
 
--- | This module defines the main data types for the AST interpreted
--- by the symbolic simulator. It enriches the JVM instruction set with
--- operations for handling symbolic execution paths and explicitly
--- calling and returning from methods.
 module Data.JVM.Symbolic.AST where
 
 import Prelude hiding (EQ, LT, GT)
@@ -83,7 +84,7 @@ data SymInsn
 
 ppSymInsn :: SymInsn -> Doc
 ppSymInsn stmt = case stmt of
-    PushInvokeFrame it ty key bid -> 
+    PushInvokeFrame it ty key bid ->
         "pushInvokeFrame" <+> ppInvokeType it
         <+> J.ppType ty <> "." <> J.ppMethodKey key
         <+> "returns to" <+> ppBlockId bid
@@ -127,9 +128,9 @@ data SymCond
   deriving (Eq)
 
 ppSymCond :: SymCond -> Doc
-ppSymCond c = case c of 
+ppSymCond c = case c of
     HasConstValue i   -> top <+> "==" <+> integer i
-    NotConstValues is -> top <+> "not in" <+> ppIntList is 
+    NotConstValues is -> top <+> "not in" <+> ppIntList is
     Null              -> top <+> "==" <+> nulls
     NonNull           -> top <+> "!=" <+> nulls
     TrueSymCond       -> "true"

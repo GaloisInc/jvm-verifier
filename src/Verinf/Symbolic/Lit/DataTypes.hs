@@ -88,7 +88,7 @@ data BitEngine l = BitEngine
   , beEqLit :: l -> l -> Bool
     -- | Returns number of input literals added to AIG.
   , beInputLitCount :: IO Int
-    -- | Returns vector with inputs in order they were added. 
+    -- | Returns vector with inputs in order they were added.
   , beInputLits :: IO (SV.Vector l)
     -- | Create a new input entry.
   , beMakeInputLit :: IO l
@@ -97,9 +97,12 @@ data BitEngine l = BitEngine
     -- | Evaluate given AIG on inputs
   , beEvalAigV :: SV.Vector Bool -> SV.Vector l -> IO (SV.Vector Bool)
     -- | Write aiger with given output bits to filename.
-  , beWriteAigerV :: FilePath -- ^ Filename
-                  -> SV.Vector l -- ^ Input lits to slice.
-                  -> SV.Vector l -- ^ Output lits (justposed in order of given list)
+  , beWriteAigerV :: FilePath
+                     -- Filename
+                  -> SV.Vector l
+                     -- Input lits to slice.
+                  -> SV.Vector l
+                     -- Output lits (justposed in order of given list)
                   -> IO ()
   -- | Write CNF file with given output bit, and return the mapping of
   -- CNF variables to AIG variables. The index corresponds to the AIG

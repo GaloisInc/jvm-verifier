@@ -294,7 +294,7 @@ sawBackend sc0 mr proxy = do
   let mkBvSShr32 x y = apply2 bvSShr32 x =<< scApply sc bvToNat32 y
   let mkBvSShr64 x y = apply2 bvSShr64 x =<< scApply sc bvToNat64 y
 
-  -- | Compare two 64bit integers (x & y), and return one of three 32-bit integers:
+  -- Compare two 64bit integers (x & y), and return one of three 32-bit integers:
   -- if x < y then return -1; if x == y then return 0; if x > y then return 1
   let termLCompareFn x y = do
         ite32 <- scApply sc iteOp bitvector32

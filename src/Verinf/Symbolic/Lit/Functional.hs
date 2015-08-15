@@ -5,8 +5,9 @@ Description      :
 License          : Free for non-commercial use. See LICENSE.
 Stability        : provisional
 Point-of-contact : jhendrix
+
+Provides a functional interface to the bitblasting backend.
 -}
--- | Provides a functional interface to the bitblasting backend.
 module Verinf.Symbolic.Lit.Functional
   ( -- | Lit operations
     BitEngine
@@ -116,7 +117,7 @@ lMkInput = beMakeInputLit ?be
 -- | Evaluate AIG on vector of arguments.
 lEvalAig :: (?be :: BitEngine l, LV.Storable l)
           => LV.Vector Bool -> LV.Vector l -> IO (LV.Vector Bool)
-lEvalAig = beEvalAigV ?be 
+lEvalAig = beEvalAigV ?be
 
 lWriteAiger :: (?be :: BitEngine l, LV.Storable l)
             => FilePath -> LV.Vector l -> IO ()
@@ -171,7 +172,7 @@ lGetUnsigned :: (?be :: BitEngine l, LV.Storable l)
              => LitVector l -> Maybe Integer
 lGetUnsigned v = impl 0 0
   where impl :: Int -> Integer -> Maybe Integer
-        impl i r 
+        impl i r
           | i == LV.length v = Just r
           | (v LV.! i) `lEqLit` lTrue  = impl (i+1) (r `setBit` i)
           | (v LV.! i) `lEqLit` lFalse = impl (i+1) r
@@ -181,13 +182,13 @@ lGetUnsigned v = impl 0 0
 -- a constant value, and Nothing if the lit vector is a symbolic value.
 lGetSigned :: (?be :: BitEngine l, LV.Storable l)
            => LitVector l -> Maybe Integer
-lGetSigned v 
+lGetSigned v
     | n == 0 = Just 0
     | otherwise = impl 0 0
   where n = LV.length v
         impl :: Int -> Integer -> Maybe Integer
         impl i r
-          | (v LV.! i) `lEqLit` lTrue  = 
+          | (v LV.! i) `lEqLit` lTrue  =
             if i + 1 == n then Just (r - 2 ^ i) else impl (i+1) (r `setBit` i)
           | (v LV.! i) `lEqLit` lFalse =
             if i + 1 == n then Just r else impl (i+1) r
