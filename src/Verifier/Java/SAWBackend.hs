@@ -34,6 +34,7 @@ import Data.AIG (IsAIG)
 import qualified Data.AIG as AIG
 import Data.IORef
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Data.Word
 import Text.PrettyPrint.HughesPJ
 
@@ -306,18 +307,12 @@ sawBackend sc0 mr proxy = do
         t <- scApplyAll sc ite32 [ltXY, minusone32, one32]
         scApplyAll sc ite32 [eqXY, zero32, t]
 
-  inputsRef <- newIORef []
-
   let blastTermFn :: SharedTerm s -> IO (Maybe Bool)
       blastTermFn t = return (R.asBool t)
 
-      -- Lambda abstract term @t@ over all symbolic variables.
-      -- NB: reverse the list in inputsRef because the most-recently
-      -- allocated symbolic variables are at the head of the list.
+  -- Lambda abstract term @t@ over all symbolic variables.
   let abstract :: SharedTerm s -> IO (SharedTerm s)
-      abstract t = do
-        ecs <- reverse <$> readIORef inputsRef
-        scAbstractExts sc ecs t
+      abstract t = scAbstractExts sc (Set.toList (getAllExtSet t)) t
 
   let satTermFn :: SharedTerm s -> IO Bool
       satTermFn t = do
@@ -359,7 +354,6 @@ sawBackend sc0 mr proxy = do
         i <- scFreshGlobalVar sc
         let ec = EC i "_" ty
         t <- scFlatTermF sc (ExtCns ec)
-        modifyIORef inputsRef (ec :)
         maybeCons t
         ext t
 
