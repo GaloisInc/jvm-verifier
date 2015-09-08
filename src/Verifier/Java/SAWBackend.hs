@@ -223,10 +223,10 @@ sawBackend sc0 mr proxy = do
   bvShr32 <- scApply sc bvShr nat32
   bvShr64 <- scApply sc bvShr nat64
 
-  -- bvSShr :: (n :: Nat) -> bitvector n -> Nat -> bitvector n;
+  -- bvSShr :: (n :: Nat) -> bitvector (Succ n) -> Nat -> bitvector (Succ n);
   bvSShr <- getBuiltin "bvSShr"
-  bvSShr32 <- scApply sc bvSShr nat32
-  bvSShr64 <- scApply sc bvSShr nat64
+  bvSShr32 <- scApply sc bvSShr nat31
+  bvSShr64 <- scApply sc bvSShr nat63
 
   -- bvNeg :: (x :: Nat) -> bitvector x -> bitvector x;
   bvNeg <- getBuiltin "bvNeg"
