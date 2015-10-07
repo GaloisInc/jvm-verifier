@@ -179,9 +179,9 @@ benchmark Benchmarks
       base >= 4
     , array
     , containers
-    , hastache >= 0.5 && < 0.6
-    , statistics >= 0.10 && < 0.11
-    , criterion >= 0.6 && < 0.8
+    , hastache >= 0.5
+    , statistics >= 0.10
+    , criterion >= 0.6
     , directory
     , filepath
     , haskeline >= 0.7
