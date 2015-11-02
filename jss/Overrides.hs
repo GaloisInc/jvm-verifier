@@ -82,17 +82,19 @@ jssOverrides = do
             cEq <- termEq sbe out zero
             cNeq <- termNot sbe cEq
             writeCnfToFile sbe fn cNeq
-  let writeAigerBody :: Ref
-                     -> [SBETerm sbe]
+  let writeAigerBody :: Ref   -- file name
+                     -> Ref   -- array of input values
+                     -> [SBETerm sbe]  -- output values
                      -> Simulator sbe m ()
-      writeAigerBody fnameRef outs = do
+      writeAigerBody fnameRef inRef outs = do
 --        abortWhenMultiPath "AIGER write"
+        ins <- mapM unwrapVal =<< getInputs inRef
         mfn <- lookupStringRef fnameRef
         case mfn of
           Nothing -> abort $ "writeAiger filename parameter does "
                        ++ "not refer to a constant string"
           Just fn -> liftIO $
-            writeAigToFile sbe fn outs 
+            writeAigToFile sbe fn ins outs
   mapM_ (\(cn, key, impl) -> overrideStaticMethod cn key impl)
       --------------------------------------------------------------------------------
       -- fresh vars
@@ -139,21 +141,24 @@ jssOverrides = do
       --------------------------------------------------------------------------------
       -- writeAiger
 
-    , sym "writeAiger" "(Ljava/lang/String;Z)V"  $ \([RValue fnameRef, IValue out]) -> do
+    , sym "writeAiger" "(Ljava/lang/String;Z[Ljava/lang/Object;)V"  $ \([RValue fnameRef, IValue out, RValue ins]) -> do
         neq <- liftIO $ termNot sbe =<< termEq sbe out =<< termInt sbe 0
-        writeAigerBody fnameRef [neq]
-    , sym "writeAiger" "(Ljava/lang/String;B)V"  $ \([RValue fnameRef, IValue out]) ->
-        writeAigerBody fnameRef [out]
-    , sym "writeAiger" "(Ljava/lang/String;I)V"  $ \([RValue fnameRef, IValue out]) ->
-        writeAigerBody fnameRef [out]
-    , sym "writeAiger" "(Ljava/lang/String;J)V"  $ \([RValue fnameRef, LValue out]) ->
-        writeAigerBody fnameRef [out]
-    , sym "writeAiger" "(Ljava/lang/String;[B)V" $ \([RValue fnameRef, RValue outs]) ->
-        writeAigerBody fnameRef =<< getByteArray outs
-    , sym "writeAiger" "(Ljava/lang/String;[I)V" $ \([RValue fnameRef, RValue outs]) ->
-        writeAigerBody fnameRef =<< getIntArray outs
-    , sym "writeAiger" "(Ljava/lang/String;[J)V" $ \([RValue fnameRef, RValue outs]) ->
-        writeAigerBody fnameRef =<< getLongArray outs
+        writeAigerBody fnameRef ins [neq]
+    , sym "writeAiger" "(Ljava/lang/String;B[Ljava/lang/Object;)V"  $ \([RValue fnameRef, IValue out, RValue ins]) ->
+        writeAigerBody fnameRef ins [out]
+    , sym "writeAiger" "(Ljava/lang/String;I[Ljava/lang/Object;)V"  $ \([RValue fnameRef, IValue out, RValue ins]) ->
+        writeAigerBody fnameRef ins [out]
+    , sym "writeAiger" "(Ljava/lang/String;J[Ljava/lang/Object;)V"  $ \([RValue fnameRef, LValue out, RValue ins]) ->
+        writeAigerBody fnameRef ins [out]
+    , sym "writeAiger" "(Ljava/lang/String;[B[Ljava/lang/Object;)V" $ \([RValue fnameRef, RValue outs, RValue ins]) ->
+        writeAigerBody fnameRef ins =<< getByteArray outs
+    , sym "writeAiger" "(Ljava/lang/String;[I[Ljava/lang/Object;)V" $ \([RValue fnameRef, RValue outs, RValue ins]) ->
+        writeAigerBody fnameRef ins =<< getIntArray outs
+    , sym "writeAiger" "(Ljava/lang/String;[J[Ljava/lang/Object;)V" $ \([RValue fnameRef, RValue outs, RValue ins]) ->
+        writeAigerBody fnameRef ins =<< getLongArray outs
+
+      --------------------------------------------------------------------------------
+      -- writeCnf
     , sym "writeCnf" "(Ljava/lang/String;Z)V" $ \([RValue fnameRef, IValue out]) ->
         writeCnf fnameRef out
 
@@ -187,7 +192,11 @@ jssOverrides = do
     symbolicCN    = "com/galois/symbolic/Symbolic"
     pushByteArr   = pushValue . RValue <=< newIntArray byteArrayTy
     pushIntArr    = pushValue . RValue <=< newIntArray intArrayTy
-    pushLongArr   = pushValue . RValue <=< newLongArray 
+    pushLongArr   = pushValue . RValue <=< newLongArray
+
+    unwrapVal (IValue x) = return x
+    unwrapVal (LValue x) = return x
+    unwrapVal _ = fail "expected integer or long value"
 
     assertAllInts xs = do
       when (any (\x -> case x of IValue{} -> False; _ -> True) xs) $
@@ -198,6 +207,11 @@ jssOverrides = do
       when (any (\x -> case x of LValue{} -> False; _ -> True) xs) $
         abort "JAPI: expected CValue operands to represent type long "
       return xs
+
+    -- Given an array of references, unbox the contained values, which are assumed
+    -- to be boxed primitives.  The boxes may either be the built-in Java
+    -- box types (Boolean, Byte Integer, Long) or our custom box types
+    -- (CValue.CBool, CValue.CByte, CValue.CInt, CValue.CLong).
     getInputs cvArr = do
       cvalRefs <- getRefArray cvArr
       forM cvalRefs $ \r -> do
@@ -209,6 +223,10 @@ jssOverrides = do
             | ty == ClassType czCN -> unboxCV czCN r "()Z"
             | ty == ClassType cjCN -> unboxCV cjCN r "()J"
             | ty == ClassType cbCN -> unboxCV cbCN r "()B"
+            | ty == ClassType  iCN -> unbox    iCN r "intValue" "()I"
+            | ty == ClassType  zCN -> unbox    zCN r "booleanValue" "()Z"
+            | ty == ClassType  jCN -> unbox    jCN r "longValue" "()J"
+            | ty == ClassType  bCN -> unbox    bCN r "byteValue" "()B"
             | otherwise ->
                 abort $ "evalAig concrete value operand type is not supported"
       where
@@ -216,8 +234,15 @@ jssOverrides = do
         ciCN              = "com/galois/symbolic/CValue$CInt"
         czCN              = "com/galois/symbolic/CValue$CBool"
         cjCN              = "com/galois/symbolic/CValue$CLong"
-        unboxCV cn ref td = do
-          mp <- execInstanceMethod cn (makeMethodKey "getValue" td) ref []
+        bCN               = "java/lang/Byte"
+        iCN               = "java/lang/Integer"
+        zCN               = "java/lang/Boolean"
+        jCN               = "java/lang/Long"
+
+        unboxCV cn ref td = unbox cn ref "getValue" td
+
+        unbox cn ref methName td = do
+          mp <- execInstanceMethod cn (makeMethodKey methName td) ref []
           case mp of
             Just v -> return v
             Nothing -> fail "getInputs: no return value"

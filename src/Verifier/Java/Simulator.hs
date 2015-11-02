@@ -590,7 +590,7 @@ getArrayValue r idx = do
              -- TODO: the following should really be an exception
              | otherwise -> err $ "Out of bounds array access (" ++ show i ++
                                   ", " ++ show maxIdx ++ ")"
-      _ -> err "Not supported: symbolic indexing into arrays of references."
+      _ -> err ("Not supported: symbolic indexing into arrays of references: " ++ show idx ++ " " ++ show arr)
   else if tp == LongType then
     liftIO $ do
       let Just (l,rslt) = M.lookup r (m^.memScalarArrays)
@@ -1863,6 +1863,28 @@ stdOverrides = do
           whenVerbosity (>=2) $
             dbugM "warning: int java.lang.System.identityHashCode(Object) always returns 0 during symbolic execution"
           pushValue =<< withSBE (\sbe -> IValue <$> termInt sbe 0)
+      )
+
+    -- Here we override the "valueOf" methods that are used for autoboxing primitive types.
+    -- We do this because these methods are defined to use a lookup table cache; if we attempt
+    -- to autobox a symbolic value, this results in indexing a reference array by a symbolic
+    -- value, which is not allowed.  Instead, we override these methods to just directly call
+    -- the appropriate class constructor.
+
+    , ( "java/lang/Boolean", makeMethodKey "valueOf" "(Z)Ljava/lang/Boolean;", \([IValue x]) -> do
+          pushValue . RValue =<< createInstance "java/lang/Boolean" (Just [(BooleanType, IValue x)])
+      )
+    , ( "java/lang/Byte", makeMethodKey "valueOf" "(B)Ljava/lang/Byte;", \([IValue x]) -> do
+          pushValue . RValue =<< createInstance "java/lang/Byte" (Just [(ByteType, IValue x)])
+      )
+    , ( "java/lang/Short", makeMethodKey "valueOf" "(S)Ljava/lang/Short;", \([IValue x]) -> do
+          pushValue . RValue =<< createInstance "java/lang/Short" (Just [(ShortType, IValue x)])
+      )
+    , ( "java/lang/Integer", makeMethodKey "valueOf" "(I)Ljava/lang/Integer;", \([IValue x]) -> do
+          pushValue . RValue =<< createInstance "java/lang/Integer" (Just [(IntType, IValue x)])
+      )
+    , ( "java/lang/Long", makeMethodKey "valueOf" "(J)Ljava/lang/Long;", \([LValue x]) -> do
+          pushValue . RValue =<< createInstance "java/lang/Long" (Just [(LongType, LValue x)])
       )
     ]
   where

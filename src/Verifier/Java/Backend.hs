@@ -171,9 +171,8 @@ data Backend sbe = Backend {
          -- assumed to be w bits.  If @ins@ is not a constant, then this fails.
        , evalAigArray :: Int -> [SBETerm sbe] -> [SBETerm sbe] -> IO [SBETerm sbe]
 
-
        , writeCnfToFile :: FilePath -> SBETerm sbe -> IO ()
-       , writeAigToFile :: FilePath -> [SBETerm sbe] -> IO ()
+       , writeAigToFile :: FilePath -> [SBETerm sbe] -> [SBETerm sbe] -> IO ()
 
        , prettyTermD :: SBETerm sbe -> Doc
        }

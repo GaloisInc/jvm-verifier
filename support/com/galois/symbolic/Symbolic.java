@@ -127,56 +127,98 @@ public class Symbolic
      *
      * @param fname the file name to store the AIG data
      * @param out the variable to symbolically represent as an AIG file
+     * @param inputs the inputs to the AIG, in the order they will appear in the file
+     *
+     * If no <code>inputs</code> are provided, a sufficent set of inputs will be chosen automatically, with
+     * no guarantees about their order, or that irrelevant inputs will be removed.
+     * If <code>inputs</code> are provided, but <code>out</code> depends on some symbolic input not mentioned,
+     * an error will occur.
      */
-    public static void writeAiger(String fname, boolean out) { return; }
+    public static void writeAiger(String fname, boolean out, Object... inputs) { return; }
 
     /** Write the AIG with the given byte output to the named file.
      * When invoked in a standard JVM, does nothing.
      *
      * @param fname the file name to store the AIG data
      * @param out the variable to symbolically represent as an AIG file
+     * @param inputs the inputs to the AIG, in the order they will appear in the file
+     *
+     * If no <code>inputs</code> are provided, a sufficent set of inputs will be chosen automatically, with
+     * no guarantees about their order, or that irrelevant inputs will be removed.
+     * If <code>inputs</code> are provided, but <code>out</code> depends on some symbolic input not mentioned,
+     * an error will occur.
      */
-    public static void writeAiger(String fname, byte out)    { return; }
+    public static void writeAiger(String fname, byte out, Object... inputs)    { return; }
 
     /** Write the AIG with the given int output to the named file.
      * When invoked in a standard JVM, does nothing.
      *
      * @param fname the file name to store the AIG data
      * @param out the variable to symbolically represent as an AIG file
+     * @param inputs the inputs to the AIG, in the order they will appear in the file
+     *
+     * If no <code>inputs</code> are provided, a sufficent set of inputs will be chosen automatically, with
+     * no guarantees about their order, or that irrelevant inputs will be removed.
+     * If <code>inputs</code> are provided, but <code>out</code> depends on some symbolic input not mentioned,
+     * an error will occur.
      */
-    public static void writeAiger(String fname, int out)     { return; }
+    public static void writeAiger(String fname, int out, Object... inputs)     { return; }
 
     /** Write the AIG with the given long output to the named file.
      * When invoked in a standard JVM, does nothing.
      *
      * @param fname the file name to store the AIG data
      * @param out the variable to symbolically represent as an AIG file
+     * @param inputs the inputs to the AIG, in the order they will appear in the file
+     *
+     * If no <code>inputs</code> are provided, a sufficent set of inputs will be chosen automatically, with
+     * no guarantees about their order, or that irrelevant inputs will be removed.
+     * If <code>inputs</code> are provided, but <code>out</code> depends on some symbolic input not mentioned,
+     * an error will occur.
      */
-    public static void writeAiger(String fname, long out)    { return; }
+    public static void writeAiger(String fname, long out, Object... inputs)    { return; }
 
     /** Write the AIG with the given byte outputs to the named file.
      * When invoked in a standard JVM, does nothing.
      *
      * @param fname the file name to store the AIG data
      * @param outs the variables to symbolically represent as an AIG file
+     * @param inputs the inputs to the AIG, in the order they will appear in the file
+     *
+     * If no <code>inputs</code> are provided, a sufficent set of inputs will be chosen automatically, with
+     * no guarantees about their order, or that irrelevant inputs will be removed.
+     * If <code>inputs</code> are provided, but <code>out</code> depends on some symbolic input not mentioned,
+     * an error will occur.
      */
-    public static void writeAiger(String fname, byte[] outs) { return; }
+    public static void writeAiger(String fname, byte[] outs, Object... inputs) { return; }
 
     /** Write the AIG with the given int outputs to the named file.
      * When invoked in the context of the standard JVM, does nothing.
      *
      * @param fname the file name to store the AIG data
      * @param outs the variables to symbolically represent as an AIG file
+     * @param inputs the inputs to the AIG, in the order they will appear in the file
+     *
+     * If no <code>inputs</code> are provided, a sufficent set of inputs will be chosen automatically, with
+     * no guarantees about their order, or that irrelevant inputs will be removed.
+     * If <code>inputs</code> are provided, but <code>out</code> depends on some symbolic input not mentioned,
+     * an error will occur.
      */
-    public static void writeAiger(String fname, int[] outs)  { return; }
+    public static void writeAiger(String fname, int[] outs, Object... inputs)  { return; }
 
     /** Write the AIG with the given long outputs to the named file.
      * When invoked in a standard JVM, does nothing.
      *
      * @param fname the file name to store the AIG data
      * @param outs the variables to symbolically represent as an AIG file
+     * @param inputs the inputs to the AIG, in the order they will appear in the file
+     *
+     * If no <code>inputs</code> are provided, a sufficent set of inputs will be chosen automatically, with
+     * no guarantees about their order, or that irrelevant inputs will be removed.
+     * If <code>inputs</code> are provided, but <code>out</code> depends on some symbolic input not mentioned,
+     * an error will occur.
      */
-    public static void writeAiger(String fname, long[] outs) { return; }
+    public static void writeAiger(String fname, long[] outs, Object... inputs) { return; }
 
     /** Write a CNF encoding of the given boolean to the named file
      * such that an "unsatisfiable" result indicates that the boolean

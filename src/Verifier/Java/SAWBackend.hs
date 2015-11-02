@@ -27,7 +27,7 @@ module Verifier.Java.SAWBackend
 import Control.Applicative
 import Data.Traversable (traverse)
 #endif
-import Control.Monad (void)
+import Control.Monad (void, unless)
 import Control.Monad.ST (RealWorld)
 import qualified Data.ABC as ABC
 import Data.AIG (IsAIG)
@@ -324,15 +324,33 @@ sawBackend sc0 mr proxy = do
               AIG.Unsat -> return False
               AIG.SatUnknown -> fail "SAT solver returned 'unknown'"
 
-  let writeAigToFileFn :: FilePath -> [SharedTerm s] -> IO ()
-      writeAigToFileFn fname outs = do
+  let extractEC :: SharedTerm s -> IO (ExtCns (SharedTerm s))
+      extractEC x = do
+         x' <- scWhnf sc x
+         case getAllExts x' of
+           [ec] -> return ec
+           [] -> fail $ "input value is not an external constant: " ++ show x'
+           ecs  -> fail $ "input value does not uniquely determine an external constant for abstraction: " ++ show x' ++ "\n" ++ show (map ecName ecs)
+
+  let writeAigToFileFn :: FilePath -> [SharedTerm s] -> [SharedTerm s] -> IO ()
+      writeAigToFileFn fname ins outs = do
         -- Usage of this function in 'Verifier.Java.Simulator' is only
         -- at arrays for parameter @outs@, so that 'scVector' would be
         -- appropriate below. However, seems safer to not worry about
         -- this invariant and so use 'scTuple'; the result of bit
         -- blasting should be the same.
         t <- scTuple sc outs
-        t' <- abstract t
+
+        -- If inputs are supplied, abstract over them explicitly.  Otherwise,
+        -- abstract over all ECs appearing in the term.
+        t' <- case ins of
+                [] -> abstract t
+                _ -> do
+                   ecs <- mapM extractEC ins
+                   t' <- scAbstractExts sc ecs t
+                   unless (null (getAllExts t'))
+                          (fail "Term depends on an input not supplied")
+                   return t'
         BB.withBitBlastedTerm proxy sc (\_ -> Map.empty) t' $ \be ls -> do
         AIG.writeAiger fname (AIG.Network be (AIG.bvToList ls))
 
@@ -352,7 +370,7 @@ sawBackend sc0 mr proxy = do
   let freshVar n ext = do
         ty <- scBitvector sc n
         i <- scFreshGlobalVar sc
-        let ec = EC i "_" ty
+        let ec = EC i ("_"++show i) ty
         t <- scFlatTermF sc (ExtCns ec)
         maybeCons t
         ext t
@@ -380,10 +398,20 @@ sawBackend sc0 mr proxy = do
                  , termNot   = scNot sc
                  , termAnd   = apply2 boolAndOp
 
-                 , termEq    = scEq sc
+                 , termEq    = \x y ->
+                     case (x, y) of
+                         (STApp ix _, STApp iy _) | ix == iy -> scBool sc True
+                         _ -> scEq sc x y
+
                  , termIte   = \b x y -> do
-                     tp <- scTypeOf sc x
-                     apply4 iteOp tp b x y
+                     case R.asBool b of
+                       Just True -> return x
+                       Just False -> return y
+                       _ -> case (x, y) of
+                              (STApp ix _, STApp iy _) | ix == iy -> return x
+                              _ -> do
+                                tp <- scTypeOf sc x
+                                apply4 iteOp tp b x y
 
                  , termILeq  = apply2 bvsle32
                  , termIAnd  = apply2 bvAnd32

@@ -295,11 +295,15 @@ symbolicBackend sms = do
           32 -> return $ map (mkCInt 32 . boolSeqToValue) $ splitN 32 rsl
           64 -> return $ map (mkCInt 64 . boolSeqToValue) $ splitN 64 rsl
           _  -> error $ "evalAigArray: input array elements have unexpected bit width"
-   , writeAigToFile = \fname res -> do
-       e <- mapM getTermLit res
-       let elts = concatMap (SV.toList . toLsbfV) e
-       ins <- beInputLits be
-       beWriteAigerV be fname ins (SV.fromList elts)
+   , writeAigToFile = \fname ins res -> do
+       case ins of
+         [] -> do
+            e <- mapM getTermLit res
+            let elts = concatMap (SV.toList . toLsbfV) e
+            allIns <- beInputLits be
+            beWriteAigerV be fname allIns (SV.fromList elts)
+         _ -> do
+            fail "FIXME: word backends do not support explict input specification when writing AIGER files"
    , writeCnfToFile = \fname res -> do
        LV l <- getTermLit res
        void $ beWriteCNF be fname mempty (SV.head l)
