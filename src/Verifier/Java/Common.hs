@@ -380,35 +380,41 @@ type Path sbe = Path' (SBETerm sbe)
 
 data Path' term = Path {
     _pathStack          :: ![CallFrame term]
-    -- ^ the current JVM call stack
+    -- ^ The current JVM call stack.
   , _pathStackHt        :: !Int
-    -- ^ the current call frames count
+    -- ^ The current call frames count.
   , _pathBlockId        :: !(Maybe BlockId)
-    -- ^ the currently-executing basic block on this path, if any
+    -- ^ The currently-executing basic block on this path, if any.
   , _pathRetVal         :: !(Maybe (Value term))
-    -- ^ the current return value, if this path has returned its last call frame
+    -- ^ The current return value, if this path has returned its last
+    -- call frame.
   , _pathException      :: !(Maybe (JavaException term))
-    -- ^ the exception thrown on this path, if any  
+    -- ^ The exception thrown on this path, if any.
   , _pathMemory         :: !(Memory term)
+    -- ^ The contents of the heap on the current path.
   , _pathAssertions     :: !term
-    -- ^ facts assumed to be true on this path
+    -- ^ The conditions necessary for the state of this path to be
+    -- well-defined. Note that this is different from the typical notion
+    -- of a path condition in symbolic execution! It does not include
+    -- assumptions (e.g., branch conditions up to this point).
   , _pathName           :: !PathDescriptor
-    -- ^ a unique name for this path
+    -- ^ A unique name for this path.
   }
 
 data Memory term = Memory {
     _memInitialization :: !(Map String InitializationStatus)
-    -- ^ the initialization status of classes
+    -- ^ The initialization status of classes.
   , _memStaticFields   :: !(Map FieldId (Value term))
-    -- ^ static field values 
+    -- ^ The values of all static fields.
   , _memInstanceFields :: !(Map InstanceFieldRef (Value term))
-    -- ^ instance field values 
+    -- ^ The values of all instance fields.
   , _memScalarArrays   :: !(Map Ref (Int32, term))
-    -- ^ integer and long array values (floating point not supported)
+    -- ^ The values of integer and long arrays (floating point not
+    -- supported).
   , _memRefArrays      :: !(Map Ref (Array Int32 Ref))
-    -- ^ reference array values
+    -- ^ The values of reference arrays.
   , _memClassObjects   :: !(Map String Ref)
-    -- ^ java.lang.Class objects
+    -- ^ References pointing to java.lang.Class objects.
   }
 
 emptyMemory :: Memory term
