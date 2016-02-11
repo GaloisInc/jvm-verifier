@@ -400,7 +400,8 @@ sawBackend sc0 mr proxy = do
 
                  , termEq    = \x y ->
                      case (x, y) of
-                         (STApp ix _, STApp iy _) | ix == iy -> scBool sc True
+                         (STApp{ stAppIndex = ix }, STApp{ stAppIndex = iy })
+                            | ix == iy -> scBool sc True
                          _ -> scEq sc x y
 
                  , termIte   = \b x y -> do
@@ -408,7 +409,8 @@ sawBackend sc0 mr proxy = do
                        Just True -> return x
                        Just False -> return y
                        _ -> case (x, y) of
-                              (STApp ix _, STApp iy _) | ix == iy -> return x
+                              (STApp{ stAppIndex = ix}, STApp{ stAppIndex = iy})
+                                 | ix == iy -> return x
                               _ -> do
                                 tp <- scTypeOf sc x
                                 apply4 iteOp tp b x y
