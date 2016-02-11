@@ -14,4 +14,4 @@ if [ -z "$JDK" ]; then
     echo "Sun-based JDKs." >&2
     exit 1
 fi
-echo $JDK
+echo -n $JDK
