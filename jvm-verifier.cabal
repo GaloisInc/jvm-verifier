@@ -166,6 +166,18 @@ test-suite test-java
 
   main-is          : Tests.hs
   hs-source-dirs   : jss test/src
+  other-modules    :
+    Overrides
+    Tests.Arrays
+    Tests.Common
+    Tests.Debugger
+    Tests.ExpectedErrors
+    Tests.JAPI
+    Tests.PathStateMerges
+    Tests.PrimOps
+    Tests.RC564
+    Tests.Regressions
+    Tests.SHA384
   ghc-options      : -O2 -Wall -fno-ignore-asserts
   ghc-prof-options : -prof -auto-all
 
