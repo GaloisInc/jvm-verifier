@@ -37,7 +37,6 @@ import Data.List
 import Data.List.Split
 import qualified Data.Map as M
 import qualified Data.Set as S
-import Data.Tuple.Curry
 import Data.Word (Word16)
 
 import System.Console.Haskeline
@@ -75,6 +74,9 @@ readMaybe s = case readEither s of
 #else
 import Text.Read (readMaybe)
 #endif
+
+uncurry3 :: (a -> b -> c -> d) -> (a, b, c) -> d
+uncurry3 f (a, b, c) = f a b c
 
 -- | Add a breakpoint to the @main@ method of the given class
 breakOnMain :: String -> Simulator sbe m ()
@@ -310,7 +312,7 @@ stopinCmd = Cmd {
       case args of
         [arg] -> do
           bps <- entriesForArg arg
-          forM_ bps $ uncurryN addBreakpoint
+          forM_ bps $ uncurry3 addBreakpoint
           return False
         _ -> failHelp
   }
@@ -325,7 +327,7 @@ clearinCmd = Cmd {
       case args of
         [arg] -> do
           bps <- entriesForArg arg
-          forM_ bps $ uncurryN removeBreakpoint
+          forM_ bps $ uncurry3 removeBreakpoint
           return False
         _ -> failHelp
   }
@@ -364,7 +366,7 @@ stopatCmd = Cmd {
   , cmdAction = \_ _ args ->
       case args of
         [arg] -> do
-          uncurryN removeBreakpoint =<< lineNumForArg arg
+          uncurry3 removeBreakpoint =<< lineNumForArg arg
           return False
         _ -> failHelp
   }
@@ -378,7 +380,7 @@ clearatCmd = Cmd {
   , cmdAction = \_ _ args ->
       case args of
         [arg] -> do
-          uncurryN removeBreakpoint =<< lineNumForArg arg
+          uncurry3 removeBreakpoint =<< lineNumForArg arg
           return False
         _ -> failHelp
   }
@@ -393,7 +395,7 @@ stoppcCmd = Cmd {
       case args of
         [arg] -> do
           bps <- pcsForArg arg
-          forM_ bps $ uncurryN addBreakpoint
+          forM_ bps $ uncurry3 addBreakpoint
           return False
         _ -> failHelp
   }
@@ -408,7 +410,7 @@ clearpcCmd = Cmd {
       case args of
         [arg] -> do
           bps <- pcsForArg arg
-          forM_ bps $ uncurryN removeBreakpoint
+          forM_ bps $ uncurry3 removeBreakpoint
           return False
         _ -> failHelp
   }

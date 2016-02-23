@@ -46,7 +46,6 @@ library
     , split >= 0.2
     , transformers >= 0.3
     , transformers-compat
-    , tuple >= 0.2
     , vector >= 0.7
     , saw-core
     , saw-core-aig
