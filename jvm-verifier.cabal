@@ -32,7 +32,6 @@ Flag build-benchmarks
 library
   build-depends:
       base >= 4 && < 5
-    , abcBridge
     , aig
     , array
     , containers
@@ -69,14 +68,12 @@ library
     Verifier.Java.WordBackend
     Verifier.Java.TestInterface
     Verinf.Symbolic
-    Verinf.Symbolic.Lit.ABC
-    Verinf.Symbolic.Lit.ABC_GIA
+    Verinf.Symbolic.Lit.DataTypes
 
   other-modules:
     Verinf.Symbolic.Common
     Verinf.Symbolic.Dag
     Verinf.Symbolic.Lit
-    Verinf.Symbolic.Lit.DataTypes
     Verinf.Symbolic.Lit.Functional
     Verinf.Symbolic.OpCache
     Verinf.Symbolic.Rewriter
@@ -98,8 +95,8 @@ executable jss
     buildable: False
 
   build-depends:
-      abcBridge
-    , array
+      array
+    , abcBridge
     , base >= 4
     , cmdargs >= 0.6.1
     , containers
@@ -118,6 +115,8 @@ executable jss
 
   other-modules:
     Overrides
+    Verinf.Symbolic.Lit.ABC
+    Verinf.Symbolic.Lit.ABC_GIA
 
   cpp-options   : -DUseSAW
 
