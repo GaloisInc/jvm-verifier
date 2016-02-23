@@ -18,9 +18,11 @@ module Main where
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative hiding (many)
 #endif
+import Control.Exception (bracket)
 import Control.Lens ((.=))
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.ST (RealWorld)
 import Data.Char
 import Data.Function
 import Data.List
@@ -42,6 +44,7 @@ import Text.PrettyPrint hiding (char)
 import Language.JVM.CFG
 import Language.JVM.Parser
 
+import qualified Data.ABC as ABC
 import Execution.JavaSemantics
 import Data.JVM.Symbolic.Translation
 import Verifier.Java.Codebase
@@ -49,7 +52,32 @@ import Verifier.Java.Debugger
 import Verifier.Java.Simulator
 import qualified Verifier.Java.WordBackend as W
 import qualified Verifier.Java.SAWBackend as S
+import Verinf.Symbolic
+import Verinf.Symbolic.Lit.ABC
 import Overrides
+
+withFreshSAWBackend :: (Backend (S.SharedContext RealWorld) -> IO a) -> IO a
+withFreshSAWBackend f = do
+  sc <- S.mkSharedContext S.javaModule
+  f =<< S.sawBackend sc Nothing ABC.giaNetwork
+
+-- | Create a fresh symbolic backend with a new op cache, and execute it.
+withFreshWordBackend :: (Backend W.SymbolicMonad -> IO a) -> IO a
+withFreshWordBackend f = do
+  oc <- W.mkOpCache
+  withBitEngine $ \be -> do
+    de <- mkConstantFoldingDagEngine
+    sms <- W.mkSymbolicMonadState oc be de
+    f (W.symbolicBackend sms)
+
+withBitEngine :: (BitEngine Lit -> IO a) -> IO a
+withBitEngine = bracket createBitEngine beFree
+
+withSymbolicMonadState :: OpCache -> (W.SymbolicMonadState Lit -> IO a) -> IO a
+withSymbolicMonadState oc f =
+  withBitEngine $ \be -> do
+    de <- mkConstantFoldingDagEngine
+    f =<< W.mkSymbolicMonadState oc be de
 
 simExcHndlr' :: Bool -> Doc -> InternalExc sbe m -> Simulator sbe m ()
 simExcHndlr' suppressOutput failMsg exc =
@@ -166,7 +194,7 @@ main = do
           :: forall a. (forall b. (AigOps b) => Backend b -> IO a)
           -> IO a
       withFreshBackend k =
-        if useSaw args' then S.withFreshBackend k else W.withFreshBackend k
+        if useSaw args' then withFreshSAWBackend k else withFreshWordBackend k
 
   withFreshBackend $ \sbe -> do
    let fl  = defaultSimFlags { alwaysBitBlastBranchTerms = blast args'

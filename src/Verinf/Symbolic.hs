@@ -19,8 +19,6 @@ Point-of-contact : jhendrix
 module Verinf.Symbolic (
    -- * Lit operations
     module Verinf.Symbolic.Lit
-  , Lit
-  , createBitEngine
   -- * Lit vector operations
   , BitWidth (..)
   , maxBitIdx
@@ -138,15 +136,12 @@ import qualified Data.Set as Set
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
-import Text.PrettyPrint.HughesPJ
 
 import Verinf.Symbolic.Common
 import Verinf.Symbolic.Dag
 import Verinf.Symbolic.Lit
 import Verinf.Symbolic.OpCache
 import Verinf.Symbolic.Rewriter
-
-import Verinf.Symbolic.Lit.ABC
 
 -- Utility functions {{{1
 
@@ -163,10 +158,6 @@ writeAiger :: SV.Storable l
 writeAiger be path l = do
   inputs <- beInputLits be
   beWriteAigerV be path inputs (SV.fromList l)
-
-instance PrettyTerm Lit where
-  prettyTerm = prettyLit
-  prettyTermWithD _ = text . prettyLit
 
 -- | Evaluates each node in dag on inputs and compares against bitblasted
 -- version.  This is useful for tracking down bugs in AIG generation.

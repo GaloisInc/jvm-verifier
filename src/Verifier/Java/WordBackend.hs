@@ -35,8 +35,6 @@ module Verifier.Java.WordBackend
        , module Verifier.Java.Backend
        , SymbolicMonad
        , mkSymbolicMonadState
-       , withSymbolicMonadState
-       , withFreshBackend
        , SymbolicMonadState(..)
        , symbolicBackend
        , evalAigArgs8
@@ -47,7 +45,7 @@ module Verifier.Java.WordBackend
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
 #endif
-import Control.Exception (assert, bracket)
+import Control.Exception (assert)
 import Control.Monad (void)
 import Data.Bits
 import Data.Int
@@ -63,19 +61,20 @@ import Verinf.Symbolic
 import Verifier.Java.Backend
 import Verifier.Java.Utils
 
-data SymbolicMonadState = SMS {
+data SymbolicMonadState l = SMS {
     smsOpCache :: OpCache
-  , smsBitEngine :: BitEngine Lit
+  , smsBitEngine :: BitEngine l
   , smsDagEngine :: DagEngine
   , smsVerbosityRef :: IORef Int
-  , smsInputLitRef :: IORef (Map.Map InputIndex (LitResult Lit))
-  , smsBitBlastFn :: DagTerm -> IO (LitResult Lit)
+  , smsInputLitRef :: IORef (Map.Map InputIndex (LitResult l))
+  , smsBitBlastFn :: DagTerm -> IO (LitResult l)
   }
 
-mkSymbolicMonadState :: OpCache
-                     -> BitEngine Lit
+mkSymbolicMonadState :: (Eq l, SV.Storable l) =>
+                        OpCache
+                     -> BitEngine l
                      -> DagEngine
-                     -> IO SymbolicMonadState
+                     -> IO (SymbolicMonadState l)
 mkSymbolicMonadState oc be de = do
   vr <- newIORef 1
   lr <- newIORef Map.empty
@@ -97,25 +96,8 @@ data SymbolicMonad
 instance AigOps SymbolicMonad where
 type instance SBETerm SymbolicMonad = DagTerm
 
-withBitEngine :: (BitEngine Lit -> IO a) -> IO a
-withBitEngine = bracket createBitEngine beFree
-
--- | Create a fresh symbolic backend with a new op cache, and execute it.
-withFreshBackend :: (Backend SymbolicMonad -> IO a) -> IO a
-withFreshBackend f = do
-  oc <- mkOpCache
-  withBitEngine $ \be -> do
-    de <- mkConstantFoldingDagEngine
-    sms <- mkSymbolicMonadState oc be de
-    f (symbolicBackend sms)
-
-withSymbolicMonadState :: OpCache -> (SymbolicMonadState -> IO a) -> IO a
-withSymbolicMonadState oc f =
-  withBitEngine $ \be -> do
-    de <- mkConstantFoldingDagEngine
-    f =<< mkSymbolicMonadState oc be de
-
-symbolicBackend :: SymbolicMonadState -> Backend SymbolicMonad
+symbolicBackend :: (Eq l, SV.Storable l) =>
+                   SymbolicMonadState l -> Backend SymbolicMonad
 symbolicBackend sms = do
   let ?be = smsBitEngine sms
   let be = smsBitEngine sms

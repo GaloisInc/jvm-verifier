@@ -68,14 +68,14 @@ library
     Verifier.Java.Utils
     Verifier.Java.WordBackend
     Verifier.Java.TestInterface
+    Verinf.Symbolic
+    Verinf.Symbolic.Lit.ABC
+    Verinf.Symbolic.Lit.ABC_GIA
 
   other-modules:
-    Verinf.Symbolic
     Verinf.Symbolic.Common
     Verinf.Symbolic.Dag
     Verinf.Symbolic.Lit
-    Verinf.Symbolic.Lit.ABC
-    Verinf.Symbolic.Lit.ABC_GIA
     Verinf.Symbolic.Lit.DataTypes
     Verinf.Symbolic.Lit.Functional
     Verinf.Symbolic.OpCache
@@ -98,7 +98,8 @@ executable jss
     buildable: False
 
   build-depends:
-      array
+      abcBridge
+    , array
     , base >= 4
     , cmdargs >= 0.6.1
     , containers

@@ -17,7 +17,6 @@ module Verifier.Java.SAWBackend
   ( SharedContext
   , mkSharedContext
   , sawBackend
-  , withFreshBackend
   , javaModule
   , basic_ss
   ) where
@@ -27,8 +26,6 @@ import Control.Applicative
 import Data.Traversable (traverse)
 #endif
 import Control.Monad (void, unless)
-import Control.Monad.ST (RealWorld)
-import qualified Data.ABC as ABC
 import Data.AIG (IsAIG)
 import qualified Data.AIG as AIG
 import Data.IORef
@@ -76,11 +73,6 @@ basic_ss sc = do
       case findDef (scModule sc) ident of
         Nothing -> return []
         Just def -> scDefRewriteRules sc def
-
-withFreshBackend :: (Backend (SharedContext RealWorld) -> IO a) -> IO a
-withFreshBackend f = do
-  sc <- mkSharedContext javaModule
-  f =<< sawBackend sc Nothing ABC.giaNetwork
 
 sawBackend :: forall s l g
             . IsAIG l g
