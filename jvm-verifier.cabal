@@ -145,6 +145,7 @@ test-suite test-java
 
   build-depends:
       base >= 4
+    , abcBridge
     , array
     , containers
     , directory
@@ -168,6 +169,7 @@ test-suite test-java
   main-is          : Tests.hs
   hs-source-dirs   : jss test/src
   other-modules    :
+    Backends
     Overrides
     Tests.Arrays
     Tests.Common
@@ -190,6 +192,7 @@ benchmark Benchmarks
 
   build-depends:
       base >= 4
+    , abcBridge
     , array
     , containers
     , hastache >= 0.5

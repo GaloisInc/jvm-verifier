@@ -21,6 +21,8 @@ module Tests.Common
   , module Verifier.Java.Utils
   , module Verifier.Java.WordBackend
   , module Verifier.Java.TestInterface
+  , module Verinf.Symbolic.Lit.ABC
+  , module Backends
   , BitEngine(..)
   
   ) where
@@ -52,6 +54,8 @@ import qualified Verifier.Java.Simulator as Sim
 import Verifier.Java.Utils
 import Verifier.Java.WordBackend
 import Verifier.Java.TestInterface
+import Verinf.Symbolic.Lit.ABC
+import Backends
 
 #if __GLASGOW_HASKELL__ < 706
 import Text.ParserCombinators.ReadP as P
@@ -144,7 +148,7 @@ type TrivialProp = Codebase -> PropertyM IO ()
 -- | The most "trivial" of any JSS test case; just needs a codebase
 type TrivialCase = Codebase -> Assertion
 
-mkPropWithSMS :: (SymbolicMonadState -> IO [Bool]) -> PropertyM IO ()
+mkPropWithSMS :: (SymbolicMonadState Lit -> IO [Bool]) -> PropertyM IO ()
 mkPropWithSMS f = do
   res <- run $ do
     oc <- mkOpCache
@@ -164,7 +168,7 @@ testNegPropertyN n name test = adjustOption optf prop
   where optf (QuickCheckTests old) = QuickCheckTests (min n old)
         prop = testProperty name . expectFailure . monadicIO $ test
 
-mkAssertionWithSMS :: (SymbolicMonadState -> Assertion) -> Assertion
+mkAssertionWithSMS :: (SymbolicMonadState Lit -> Assertion) -> Assertion
 mkAssertionWithSMS f = do
   oc <- mkOpCache
   withSymbolicMonadState oc f    

@@ -24,7 +24,6 @@ import Test.Tasty.HUnit
 
 import Tests.Common
 
-
 expErrTests :: Codebase -> TestTree
 expErrTests cb = testGroup "ExpectedErrors" $
   [
