@@ -64,6 +64,7 @@ library
     Verifier.Java.Common
     Verifier.Java.Debugger
     Verifier.Java.SAWBackend
+    Verifier.Java.SAWImport
     Verifier.Java.Simulator
     Verifier.Java.Utils
     Verifier.Java.WordBackend
