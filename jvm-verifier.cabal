@@ -49,6 +49,7 @@ library
     , tuple >= 0.2
     , vector >= 0.7
     , saw-core
+    , saw-core-aig
 
   hs-source-dirs: src
 
