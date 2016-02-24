@@ -408,5 +408,5 @@ sawBackend sc0 mr proxy = do
                  , writeCnfToFile     = writeCnfToFileFn
                  , satTerm            = satTermFn
                  -- TODO: refactor to use the same Doc everywhere
-                 , prettyTermD        = text . show . scPrettyTermDoc
+                 , prettyTermD        = text . show . scPrettyTermDoc defaultPPOpts
                  }
