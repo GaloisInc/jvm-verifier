@@ -114,6 +114,7 @@ executable jss
     , vector >= 0.7
 
   other-modules:
+    Backends
     Overrides
     Verinf.Symbolic.Lit.ABC
     Verinf.Symbolic.Lit.ABC_GIA
