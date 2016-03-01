@@ -51,6 +51,8 @@ module Verifier.Java.Simulator
   , run
   , execInstanceMethod
   , execStaticMethod
+  , execMethod
+  , setupLocals
   , errorPath
     -- * Method overriding
   , overrideInstanceMethod
