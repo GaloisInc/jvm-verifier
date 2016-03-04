@@ -53,7 +53,8 @@ doTest tn cb =
   mkSymAssertion $ \sbe -> do
     rs <- runDefSimulator cb sbe $ do
       jssOverrides
-      runMain "JAPI" =<< mkTestArgs tn
+      args <- mkTestArgs tn
+      runStaticMethod "JAPI" "main" "([Ljava/lang/String;)V" args
     length rs @?= 1
 
 -- --------------------------------------------------------------------------------

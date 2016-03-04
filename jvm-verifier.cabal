@@ -182,6 +182,7 @@ test-suite test-java
     Tests.RC564
     Tests.Regressions
     Tests.SHA384
+    Verinf.Symbolic.Lit.ABC
   ghc-options      : -O2 -Wall -fno-ignore-asserts
   ghc-prof-options : -prof -auto-all
 

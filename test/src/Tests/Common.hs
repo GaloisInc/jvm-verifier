@@ -15,7 +15,6 @@ Point-of-contact : atomb, jhendrix
 module Tests.Common 
   ( module Text.PrettyPrint
   , module Tests.Common
-  , module Execution
   , module Language.JVM.Parser
   , module Verifier.Java.Simulator
   , module Verifier.Java.Utils
@@ -47,7 +46,6 @@ import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 import Test.QuickCheck.Monadic as QC
 
-import Execution (runMain)
 import Language.JVM.Parser
 import Verifier.Java.Simulator hiding (run, assert, runSimulator, runDefSimulator)
 import qualified Verifier.Java.Simulator as Sim

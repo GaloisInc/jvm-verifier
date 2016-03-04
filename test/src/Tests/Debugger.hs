@@ -59,6 +59,7 @@ tmain cb =
       runStaticMethod clName (methodKeyName mKey) (unparseMethodDescriptor mKey) [IValue sym]
     return ()
 
+{-
 -- | Temporary: go into repl manually. TODO: feed repl a script
 trepl :: TrivialCase
 trepl cb =
@@ -71,3 +72,4 @@ trepl cb =
       breakOnMain clName
       runStaticMethod clName (methodKeyName mKey) (unparseMethodDescriptor mKey) [IValue sym]
     return ()
+-}
