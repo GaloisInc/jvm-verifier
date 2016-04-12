@@ -1,7 +1,7 @@
 {- |
 Module           : $Header$
 Description      : Provides a mechanism for creating new dags.
-License          : Free for non-commercial use. See LICENSE.
+License          : BSD3
 Stability        : stable
 Point-of-contact : jhendrix
 -}

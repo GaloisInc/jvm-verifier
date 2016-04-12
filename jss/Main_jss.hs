@@ -1,7 +1,7 @@
 {- |
 Module           : $Header$
 Description      : The command line driver for the Java Symbolic Simulator
-License          : Free for non-commercial use. See LICENSE.
+License          : BSD3
 Stability        : stable
 Point-of-contact : acfoltzer
 -}

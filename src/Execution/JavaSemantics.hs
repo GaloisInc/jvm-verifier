@@ -1,7 +1,7 @@
 {- |
 Module           : $Header$
 Description      : An interface for implementing JVM bytecode interpreters
-License          : Free for non-commercial use. See LICENSE.
+License          : BSD3
 Stability        : stable
 Point-of-contact : jhendrix, acfoltzer
 -}

@@ -1,7 +1,7 @@
 {- |
 Module           : $Header$
 Description      : operators for manipulating merge frames in the simulator
-License          : Free for non-commercial use. See LICENSE.
+License          : BSD3
 Stability        : stable
 Point-of-contact : acfoltzer
 -}

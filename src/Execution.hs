@@ -1,7 +1,7 @@
 {- |
 Module           : $Header$
 Description      : A basic subset of the JSS API for basic execution
-License          : Free for non-commercial use. See LICENSE.
+License          : BSD3
 Stability        : provisional
 Point-of-contact : jhendrix, acfoltzer
 -}

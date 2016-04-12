@@ -2,7 +2,7 @@
 {- |
 Module           : $Header$
 Description      :
-License          : Free for non-commercial use. See LICENSE.
+License          : BSD3
 Stability        : stable
 Point-of-contact : jhendrix
 -}

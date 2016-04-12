@@ -1,7 +1,7 @@
 {- |
 Module           : $Header$
 Description      : The (default) symbolic backend.  Defines operations over a term DAG.
-License          : Free for non-commercial use. See LICENSE.
+License          : BSD3
 Stability        : provisional
 Point-of-contact : jhendrix
 -}
