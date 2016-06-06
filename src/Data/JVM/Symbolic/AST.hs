@@ -42,6 +42,7 @@ data InvokeType
   | InvSpecial
   | InvStatic
   | InvVirtual
+  | InvDynamic
   deriving (Eq)
 
 ppInvokeType :: InvokeType -> Doc
@@ -50,6 +51,7 @@ ppInvokeType it = case it of
     InvSpecial   -> "special"
     InvStatic    -> "static"
     InvVirtual   -> "virtual"
+    InvDynamic   -> "dynamic"
 
 -- | A merge location is a block or @Nothing@ if the merge happens at a return.
 type MergeLocation = Maybe BlockId

@@ -1,5 +1,5 @@
 all : 
-	javac -target 1.6 -source 1.6 *.java
+	javac -target 1.8 -source 1.8 *.java
 
 clean :
 	rm -rf *.class

@@ -970,6 +970,9 @@ step (PushInvokeFrame InvStatic (ClassType cName) key retBlock) = do
 step (PushInvokeFrame InvStatic ty _ _) = do
   err . render $ "step: invokestatic on type" <+> ppType ty
 
+step (PushInvokeFrame InvDynamic _ _ _) =
+  err . render $ "step: invokedynamic not supported"
+
 step ReturnVoid = modifyCSM_ $ returnCurrentPath Nothing
 
 step ReturnVal = do

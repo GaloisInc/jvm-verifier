@@ -38,7 +38,7 @@ library
     , directory
     , filepath
     , haskeline >= 0.7
-    , jvm-parser >= 0.2.1
+    , jvm-parser >= 0.3
     , lens
     , mtl >= 2.1
     , pretty >= 1.1
@@ -105,7 +105,7 @@ executable jss
     , directory
     , executable-path
     , filepath
-    , jvm-parser >= 0.2.1
+    , jvm-parser >= 0.3
     , jvm-verifier
     , lens >= 3.8
     , mtl >= 2.1
@@ -136,7 +136,7 @@ executable jvmgraph
       base >= 4
     , cmdargs
     , pretty
-    , jvm-parser >= 0.2.1
+    , jvm-parser >= 0.3
 
   hs-source-dirs : jvmgraph
   main-is : Main.hs
@@ -154,7 +154,7 @@ test-suite test-java
     , directory
     , filepath
     , haskeline >= 0.7
-    , jvm-parser >= 0.2.1
+    , jvm-parser >= 0.3
     , lens >= 3.8
     , mtl >= 2.1
     , pretty
@@ -205,7 +205,7 @@ benchmark Benchmarks
     , directory
     , filepath
     , haskeline >= 0.7
-    , jvm-parser >= 0.2.1
+    , jvm-parser >= 0.3
     , lens >= 3.8
     , mtl >= 2.1
     , pretty

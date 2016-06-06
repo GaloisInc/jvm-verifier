@@ -38,8 +38,8 @@ import Text.PrettyPrint
 
 import Data.JVM.Symbolic.AST
 
-import Language.JVM.CFG    
-import Language.JVM.Common 
+import Language.JVM.CFG
+import Language.JVM.Common
 
 data SymBlock = SymBlock {
     sbId :: BlockId
@@ -53,9 +53,9 @@ instance Ord SymBlock where
 ppSymBlock :: SymBlock -> Doc
 ppSymBlock SymBlock { sbId, sbInsns } =
     ppBlockId sbId <> colon $+$ nest 2 insns
-  where insns = foldr ($+$) mempty 
-                  [ maybe "%" ppPC pc <> colon <+> ppSymInsn insn 
-                  | (pc, insn) <- sbInsns 
+  where insns = foldr ($+$) mempty
+                  [ maybe "%" ppPC pc <> colon <+> ppSymInsn insn
+                  | (pc, insn) <- sbInsns
                   ]
 
 type SymTransWarning = Doc
@@ -78,14 +78,14 @@ liftCFG cfg = (initBlock : bs, ws)
                        }
 
 symBlockMap :: [SymBlock] -> M.Map BlockId [SymInsn]
-symBlockMap symblocks = M.fromList [ (bid, map snd insns) 
+symBlockMap symblocks = M.fromList [ (bid, map snd insns)
                                    | SymBlock bid insns <- symblocks
                                    ]
 
 liftBB :: CFG -> BBId -> SymTrans ()
 liftBB cfg bb = do
   let blk = bbToBlockId bb
-      pd = case filter (isImmediatePostDominator cfg bb) 
+      pd = case filter (isImmediatePostDominator cfg bb)
                 $ getPostDominators' cfg bb of
              [] -> Nothing
              [pdbb] -> Just $ bbToBlockId pdbb
@@ -93,7 +93,7 @@ liftBB cfg bb = do
                     "more than one immediate postdominator for" <+> ppBlockId blk
       processInsns [] currId [] = defineBlock currId []
       processInsns [] currId il@((mpc, _) : _) =
-        defineBlock currId 
+        defineBlock currId
           (reverse il ++
            maybe [] (brSymInstrs cfg . bbToBlockId . BBId) (join $ nextPC cfg `fmap` mpc))
       processInsns ((pc,i):is) currId il =
@@ -109,7 +109,6 @@ liftBB cfg bb = do
           Ireturn -> retVal pc currId il
           Return -> retVoid pc currId il
           Invokeinterface n k -> do
-
             defineBlock currId $ reverse
               (si (PushInvokeFrame InvInterface (ClassType n) k blk''') : il)
             processInsns is blk''' []
@@ -124,6 +123,11 @@ liftBB cfg bb = do
           Invokevirtual t k -> do
             defineBlock currId $ reverse
               (si (PushInvokeFrame InvVirtual t k blk''') : il)
+            processInsns is blk''' []
+          Invokedynamic _ -> do
+            warn "invokedynamic not supported"
+            defineBlock currId $ reverse
+              (si (PushInvokeFrame InvDynamic undefined undefined blk''') : il)
             processInsns is blk''' []
           Goto tgt ->
             defineBlock currId $
@@ -172,7 +176,7 @@ liftBB cfg bb = do
         defineBlock currId $ reverse ((Just pc, ReturnVal) : il)
       retVoid pc currId il =
         defineBlock currId $ reverse ((Just pc, ReturnVoid) : il)
-      switch :: BlockId 
+      switch :: BlockId
              -> [(Maybe PC, SymInsn)] -- ^ Instructions before 'switch' in bb.
              -> PC                    -- ^ Default target.
              -> [(Int32, PC)]         -- ^ Cases: [(Case label, Case target)].
@@ -201,8 +205,8 @@ liftBB cfg bb = do
                 pop = si (NormalInsn Pop)
                 defaultInstrs = pop : brSymInstrs cfg (getBlock d)
                 caseBlockInstrss = [ pop : brSymInstrs cfg t | t <- targets ]
-                caseBlockIds = 
-                  [ currId { blockN = n } 
+                caseBlockIds =
+                  [ currId { blockN = n }
                   | n <- [ blockN currId + 1 .. blockN currId + length cs ]
                   ]
                 cases = foldr mkCase defaultInstrs

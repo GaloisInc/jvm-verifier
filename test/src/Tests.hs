@@ -23,6 +23,7 @@ import Tests.RC564
 import Tests.SHA384
 import Tests.JAPI
 import Tests.Regressions
+import Tests.Lambda
 
 main :: IO ()
 main = do cb <- commonLoadCB
@@ -47,4 +48,5 @@ allTests cb =
       , japiTests cb
       , debuggerTests cb
       , regressionTests cb
+      , lambdaTests cb
       ]
