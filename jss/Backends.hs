@@ -17,7 +17,7 @@ import qualified Verifier.Java.SAWBackend as S
 import Verinf.Symbolic
 import Verinf.Symbolic.Lit.ABC
 
-withFreshSAWBackend :: (Backend (S.SharedContext ()) -> IO a) -> IO a
+withFreshSAWBackend :: (Backend S.SharedContext -> IO a) -> IO a
 withFreshSAWBackend f = do
   sc <- S.mkSharedContext S.javaModule
   f =<< S.sawBackend sc Nothing ABC.giaNetwork

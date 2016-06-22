@@ -44,9 +44,9 @@ import qualified Verifier.SAW.Simulator.BitBlast as BB
 import Verifier.SAW.Conversion
 import Verifier.SAW.Rewriter
 
-instance Typeable s => AigOps (SharedContext s) where
+instance AigOps SharedContext where
 
-type instance SBETerm (SharedContext s) = SharedTerm s
+type instance SBETerm SharedContext = Term
 
 qualify :: String -> Ident
 qualify name = mkIdent preludeModuleName name
@@ -56,7 +56,7 @@ cqualify :: String -> Ident
 cqualify name = mkIdent cryptolModuleName name
   where cryptolModuleName = mkModuleName ["Cryptol"]
 
-basic_ss :: SharedContext s -> IO (Simpset (SharedTerm s))
+basic_ss :: SharedContext -> IO (Simpset Term)
 basic_ss sc = do
   rs1 <- concat <$> traverse defRewrites (defs ++ cdefs)
   rs2 <- scEqsRewriteRules sc eqs
@@ -74,12 +74,12 @@ basic_ss sc = do
         Nothing -> return []
         Just def -> scDefRewriteRules sc def
 
-sawBackend :: forall s l g
+sawBackend :: forall l g
             . IsAIG l g
-           => SharedContext s
-           -> Maybe (IORef [SharedTerm s]) -- ^ For storing the list of generated ExtCns inputs
+           => SharedContext
+           -> Maybe (IORef [Term]) -- ^ For storing the list of generated ExtCns inputs
            -> AIG.Proxy l g
-           -> IO (Backend (SharedContext s))
+           -> IO (Backend SharedContext)
 sawBackend sc0 mr proxy = do
   ss <- basic_ss sc0
   let sc = rewritingSharedContext sc0 ss
@@ -117,7 +117,7 @@ sawBackend sc0 mr proxy = do
 
   let asBvNat f t =
         do (g, x) <- R.asApp t
-           if f == g then R.asNatLit x else Nothing
+           if alphaEquiv f g then R.asNatLit x else Nothing
 
   zero32 <- scApply sc bvNat32 nat0
   zero64 <- scApply sc bvNat64 nat0
@@ -257,14 +257,14 @@ sawBackend sc0 mr proxy = do
         t <- scApplyAll sc ite32 [ltXY, minusone32, one32]
         scApplyAll sc ite32 [eqXY, zero32, t]
 
-  let blastTermFn :: SharedTerm s -> IO (Maybe Bool)
+  let blastTermFn :: Term -> IO (Maybe Bool)
       blastTermFn t = return (R.asBool t)
 
   -- Lambda abstract term @t@ over all symbolic variables.
-  let abstract :: SharedTerm s -> IO (SharedTerm s)
+  let abstract :: Term -> IO Term
       abstract t = scAbstractExts sc (Set.toList (getAllExtSet t)) t
 
-  let satTermFn :: SharedTerm s -> IO Bool
+  let satTermFn :: Term -> IO Bool
       satTermFn t = do
         t' <- abstract t
         BB.withBitBlastedPred proxy sc (\_ -> Map.empty) t' $ \be l _domTys -> do
@@ -274,7 +274,7 @@ sawBackend sc0 mr proxy = do
               AIG.Unsat -> return False
               AIG.SatUnknown -> fail "SAT solver returned 'unknown'"
 
-  let extractEC :: SharedTerm s -> IO (ExtCns (SharedTerm s))
+  let extractEC :: Term -> IO (ExtCns Term)
       extractEC x = do
          x' <- scWhnf sc x
          case getAllExts x' of
@@ -282,7 +282,7 @@ sawBackend sc0 mr proxy = do
            [] -> fail $ "input value is not an external constant: " ++ show x'
            ecs  -> fail $ "input value does not uniquely determine an external constant for abstraction: " ++ show x' ++ "\n" ++ show (map ecName ecs)
 
-  let writeAigToFileFn :: FilePath -> [SharedTerm s] -> [SharedTerm s] -> IO ()
+  let writeAigToFileFn :: FilePath -> [Term] -> [Term] -> IO ()
       writeAigToFileFn fname ins outs = do
         -- Usage of this function in 'Verifier.Java.Simulator' is only
         -- at arrays for parameter @outs@, so that 'scVector' would be
@@ -306,7 +306,7 @@ sawBackend sc0 mr proxy = do
 
   -- Very similar to 'SAWScript.Builtins.writeCNF' and
   -- 'Verifier.LLVM.Backend.SAW.scWriteCNF'.
-  let writeCnfToFileFn :: FilePath -> SharedTerm s -> IO ()
+  let writeCnfToFileFn :: FilePath -> Term -> IO ()
       writeCnfToFileFn fname out = do
         t' <- abstract out
         BB.withBitBlastedPred proxy sc (\_ -> Map.empty) t' $ \be l _domTys -> do
