@@ -48,20 +48,41 @@ mkArrayType n t = ArrayType n t;
 mkClassType :: String -> JavaType;
 mkClassType c = ClassType c;
 
-ecJoin :: Vec 12 (bitvector 32) -> bitvector 384;
-ecJoin x = joinLittleEndian 12 32 Bool x;
+boolExtend :: Bool -> bitvector 32;
+boolExtend b = bvUExt 31 1 (single Bool b);
 
-ecSplit :: bitvector 384 -> Vec 12 (bitvector 32);
-ecSplit x = splitLittleEndian 12 32 Bool x;
+byteExtend :: bitvector 8 -> bitvector 32;
+byteExtend x = bvSExt 24 7 x;
 
-ecJoin768 :: Vec 24 (bitvector 32) -> bitvector 768;
-ecJoin768 x = joinLittleEndian 24 32 Bool x;
+charExtend :: bitvector 16 -> bitvector 32;
+charExtend x = bvUExt 16 16 x;
 
-ecSplit768 :: bitvector 768 -> Vec 24 (bitvector 32);
-ecSplit768 x = splitLittleEndian 24 32 Bool x;
-
-ecExtend :: bitvector 32 -> bitvector 384;
-ecExtend x = bvUExt 352 32 x;
+shortExtend :: bitvector 16 -> bitvector 32;
+shortExtend x = bvSExt 16 15 x;
 
 longExtend :: bitvector 32 -> bitvector 64;
 longExtend x = bvUExt 32 32 x;
+
+extendBoolArray :: (n :: Nat) -> Vec n Bool -> Vec n (bitvector 32);
+extendBoolArray = map Bool (bitvector 32) boolExtend;
+
+extendByteArray :: (n :: Nat) -> Vec n (bitvector 8) -> Vec n (bitvector 32);
+extendByteArray = map (bitvector 8) (bitvector 32) byteExtend;
+
+extendCharArray :: (n :: Nat) -> Vec n (bitvector 16) -> Vec n (bitvector 32);
+extendCharArray = map (bitvector 16) (bitvector 32) charExtend;
+
+extendShortArray :: (n :: Nat) -> Vec n (bitvector 16) -> Vec n (bitvector 32);
+extendShortArray = map (bitvector 16) (bitvector 32) shortExtend;
+
+boolTrunc :: bitvector 32 -> Bool;
+boolTrunc = lsb 31;
+
+byteTrunc :: bitvector 32 -> bitvector 8;
+byteTrunc x = bvTrunc 24 8 x;
+
+charTrunc :: bitvector 32 -> bitvector 16;
+charTrunc x = bvTrunc 16 16 x;
+
+shortTrunc :: bitvector 32 -> bitvector 16;
+shortTrunc x = bvTrunc 16 16 x;
