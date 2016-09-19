@@ -49,7 +49,10 @@ mkClassType :: String -> JavaType;
 mkClassType c = ClassType c;
 
 boolExtend :: Bool -> bitvector 32;
-boolExtend b = bvUExt 31 1 (single Bool b);
+boolExtend b = boolExtend' (single Bool b);
+
+boolExtend' :: bitvector 1 -> bitvector 32;
+boolExtend' b = bvUExt 31 1 b;
 
 byteExtend :: bitvector 8 -> bitvector 32;
 byteExtend x = bvSExt 24 7 x;
@@ -86,3 +89,15 @@ charTrunc x = bvTrunc 16 16 x;
 
 shortTrunc :: bitvector 32 -> bitvector 16;
 shortTrunc x = bvTrunc 16 16 x;
+
+truncBoolArray :: (n :: Nat) -> Vec n (bitvector 32) -> Vec n Bool;
+truncBoolArray = map (bitvector 32) Bool boolTrunc;
+
+truncByteArray :: (n :: Nat) -> Vec n (bitvector 32) -> Vec n (bitvector 8);
+truncByteArray = map (bitvector 32) (bitvector 8) byteTrunc;
+
+truncCharArray :: (n :: Nat) -> Vec n (bitvector 32) -> Vec n (bitvector 16);
+truncCharArray = map (bitvector 32) (bitvector 16) charTrunc;
+
+truncShortArray :: (n :: Nat) -> Vec n (bitvector 32) -> Vec n (bitvector 16);
+truncShortArray = map (bitvector 32) (bitvector 16) shortTrunc;
