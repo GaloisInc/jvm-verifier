@@ -14,8 +14,8 @@ License          : BSD3
 Stability        : provisional
 Point-of-contact : jhendrix
 -}
-module Verifier.Java.WordBackend 
-       ( -- * Re-exports from Verifier infrastructure.         
+module Verifier.Java.WordBackend
+       ( -- * Re-exports from Verifier infrastructure.
          DagTerm
        , mkOpCache
        , mkCInt
@@ -103,9 +103,9 @@ symbolicBackend sms = do
   let be = smsBitEngine sms
   let de = smsDagEngine sms
   let oc = smsOpCache sms
-  let lr = smsInputLitRef sms 
+  let lr = smsInputLitRef sms
   let getTermLit = smsBitBlastFn sms
-  let freshTerm tp lv = do  
+  let freshTerm tp lv = do
         n@(InputTerm i _) <- deFreshInput (smsDagEngine sms) tp
         m <- readIORef lr
         writeIORef lr $! (Map.insert i (LV lv) m)
@@ -181,7 +181,7 @@ symbolicBackend sms = do
     , termLongFromInt = \t ->
         case termType t of
           SymInt iw@(widthConstant -> Just inputWidth)
-            | inputWidth <= 64  -> 
+            | inputWidth <= 64  ->
               deApplyUnary de (signedExtOp oc iw 64) t
           _ -> error "internal: illegal value to termLongFromInt"
     , termIntFromLong = \x -> termTrunc 32 x
@@ -193,9 +193,9 @@ symbolicBackend sms = do
     , termIAnd  = deApplyBinary de (iAndOp w32)
     , termIOr   = deApplyBinary de (iOrOp w32)
     , termIXor  = deApplyBinary de (iXorOp w32)
-    , termIShl  = termShift shlOp  "termIShl"  5 
+    , termIShl  = termShift shlOp  "termIShl"  5
     , termIShr  = termShift shrOp  "termIShr"  5
-    , termIUshr = termShift ushrOp "termIUshr" 5 
+    , termIUshr = termShift ushrOp "termIUshr" 5
     , termINeg  = deApplyUnary de (negOp w32)
     , termIAdd  = deApplyBinary de (addOp w32)
     , termISub  = deApplyBinary de (subOp w32)
@@ -229,13 +229,13 @@ symbolicBackend sms = do
         case fromIntegral <$> getSVal l of
           Just c ->
             Just <$> deApplyOp de (mkArrayOp oc c int32Type)
-                       (V.replicate c (mkCInt 32 0))  
+                       (V.replicate c (mkCInt 32 0))
           Nothing -> return Nothing
     , termLongArray = \l ->
         case fromIntegral <$> getSVal l of
           Just c ->
             Just <$> deApplyOp de (mkArrayOp oc c int64Type)
-                       (V.replicate c (mkCInt 64 0))  
+                       (V.replicate c (mkCInt 64 0))
           Nothing -> return Nothing
     , termGetIntArray  = getArray
     , termGetLongArray = getArray
@@ -314,7 +314,7 @@ evalAigArgs8 :: [Int32] -> [Bool]
 evalAigArgs8 = concatMap (\c -> map (testBit c) [0..7])
 
 evalAigArgs32 :: [Int32] -> [Bool]
-evalAigArgs32 = concatMap (\c -> map (testBit c) [0..31]) 
+evalAigArgs32 = concatMap (\c -> map (testBit c) [0..31])
 
 evalAigArgs64 :: [Int64] -> [Bool]
 evalAigArgs64 = concatMap (\c -> map (testBit c) [0..63])
