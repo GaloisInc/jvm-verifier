@@ -1639,6 +1639,28 @@ prettyTermSBE t = withSBE' $ \sbe -> prettyTermD sbe t
 prettyValueSBE :: MonadSim sbe m => Value (SBETerm sbe) -> Simulator sbe m Doc
 prettyValueSBE v = withSBE' $ \sbe -> ppValue sbe v
 
+fillArray :: (MonadIO m, AigOps sbe) =>
+             Ref
+          -> Maybe (Value (SBETerm sbe), Value (SBETerm sbe))
+          -> Value (SBETerm sbe)
+          -> Simulator sbe m ()
+fillArray ref mrange val = do
+  sbe <- use backend
+  (beg, end) <-
+    case mrange of
+      Just (IValue b, IValue e) ->
+        case (asInt sbe b, asInt sbe e) of
+          (Just bn, Just en) -> return (bn, en)
+          _ -> err "Arrays.fill called with non-constant ranges"
+      Just _ -> err "Arrays.fill called with invalid ranges"
+      Nothing -> do
+        l <- getArrayLength ref
+        case asInt sbe l of
+          Just ln -> return (0, ln - 1)
+          Nothing -> err "Arrays.fill called with array of non-constant length"
+  forM_ [beg..end] $ \i -> do
+    iterm <- liftIO $ termInt sbe i
+    setArrayValue ref iterm val
 
 -- | Override behavior of simulator when it encounters a specific instance
 -- method to perform a user-definable action.
@@ -1764,6 +1786,24 @@ stdOverrides = do
             pushStaticMethodCall nativeClass arrayCopyKey opds Nothing
         )
       -- java.lang.System.exit(int status)
+    , fillArrayMethod "([ZZ)V"
+    , fillArrayMethod "([ZIIZ)V"
+    , fillArrayMethod "([BB)V"
+    , fillArrayMethod "([BIIB)V"
+    , fillArrayMethod "([CC)V"
+    , fillArrayMethod "([CIIC)V"
+    , fillArrayMethod "([DD)V"
+    , fillArrayMethod "([DIID)V"
+    , fillArrayMethod "([FF)V"
+    , fillArrayMethod "([FIIF)V"
+    , fillArrayMethod "([II)V"
+    , fillArrayMethod "([IIII)V"
+    , fillArrayMethod "([JJ)V"
+    , fillArrayMethod "([JIIJ)V"
+    , fillArrayMethod "([SS)V"
+    , fillArrayMethod "([SIIS)V"
+    , fillArrayMethod "([Ljava/lang/Object;Ljava/lang/Object;)V"
+    , fillArrayMethod "([Ljava/lang/Object;IILjava/lang/Object;)V"
     , ( "java/lang/System"
       , makeMethodKey "exit" "(I)V"
       , \[IValue status] -> do
@@ -1901,6 +1941,15 @@ stdOverrides = do
                     , makeMethodKey "print" t
                     , \_ args -> printStream False (t == "(C)V") args
                     )
+    fillArrayMethod t =
+      ( "java/util/Arrays"
+      , makeMethodKey "fill" t
+      , \args ->
+          case args of
+            [RValue ref, val] -> fillArray ref Nothing val
+            [RValue ref, beg, end, val] -> fillArray ref (Just (beg, end)) val
+            _ -> abort "Arrays.fill called with invalid args"
+      )
 
     -- | Allows the user to append pretty-printed renditions of symbolic
     -- ints/longs as strings; however, we should REVISIT this.  Concatenation of
