@@ -56,7 +56,7 @@ cqualify :: String -> Ident
 cqualify name = mkIdent cryptolModuleName name
   where cryptolModuleName = mkModuleName ["Cryptol"]
 
-basic_ss :: SharedContext -> IO (Simpset Term)
+basic_ss :: SharedContext -> IO Simpset
 basic_ss sc = do
   rs1 <- concat <$> traverse defRewrites (defs ++ cdefs)
   rs2 <- scEqsRewriteRules sc eqs
