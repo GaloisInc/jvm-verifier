@@ -1176,7 +1176,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
             unless (skipInit name) $ do
               void $ execStaticMethod name clinit []
           Nothing -> return ()
-        setMem . setInitializationStatus name Initialized 
+        setMem . setInitializationStatus name Initialized
           =<< getMem "initializeClass"
       Just Erroneous -> do
         createAndThrow "java/lang/NoClassDefFoundError"

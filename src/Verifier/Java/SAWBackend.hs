@@ -279,7 +279,7 @@ sawBackend sc0 mr proxy = do
          x' <- scWhnf sc x
          case getAllExts x' of
            [ec] -> return ec
-           [] -> fail $ "input value is not an external constant: " ++ show x'
+           [] -> fail $ "input value is not an external constant: " ++ scPrettyTerm defaultPPOpts x'
            ecs  -> fail $ "input value does not uniquely determine an external constant for abstraction: " ++ show x' ++ "\n" ++ show (map ecName ecs)
 
   let writeAigToFileFn :: FilePath -> [Term] -> [Term] -> IO ()
