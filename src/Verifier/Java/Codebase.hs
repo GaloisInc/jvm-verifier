@@ -186,9 +186,9 @@ lookupClass cb clNm = do
         [ "Cannot find class " ++ dotNm ++ " in codebase."
         , ""
         , "You probably forgot to specify the location of the"
-        , "Java 6 standard libraries JAR using the '-j' flag. The standard"
-        , "libraries JAR is called 'classes.jar' on OS X systems and 'rt.jar'"
-        , "on Windows and Linux systems. Its location can be found by"
+        , "Java standard libraries JAR using the '-j' flag to saw or jss. The"
+        , " standard libraries JAR is called 'classes.jar' on OS X systems and"
+        , "'rt.jar' on Windows and Linux systems. Its location can be found by"
         , "running 'java -verbose 2>&1 | grep Opened', assuming you're using"
         , "a Sun Java."
         ]
