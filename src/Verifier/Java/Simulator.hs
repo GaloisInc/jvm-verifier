@@ -568,7 +568,7 @@ getArrayLength ref = do
   ArrayType tp <- getType ref
   m <- getMem "getArrayLength"
   sbe <- use backend
-  if isRValue tp then do
+  if isRefType tp then do
     let Just arr = M.lookup ref (m^.memRefArrays)
     liftIO $ termInt sbe (1 + snd (bounds arr))
   else do
@@ -584,7 +584,7 @@ getArrayValue r idx = do
   ArrayType tp <- getType r
   sbe <- use backend
   m <- getMem "getArrayValue"
-  if isRValue tp then do
+  if isRefType tp then do
     let Just arr = M.lookup r (m^.memRefArrays)
         maxIdx = snd (bounds arr)
     case asInt sbe idx of
@@ -1354,7 +1354,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   -- dimention len2 equals length of second dimension and so on.  Note: Assumes
   -- all integer values are nonnegative.
   newMultiArray tp []
-    | isRValue tp = return NullRef
+    | isRefType tp = return NullRef
   newMultiArray tp@(ArrayType eltType) [l]
     | isIValue eltType || (eltType == LongType) = do
       sbe <- use backend
