@@ -615,4 +615,3 @@ completer (revleft, right) = do
   where
     m :: M.Map String (Command (Simulator sbe m))
     m = commandMap
-

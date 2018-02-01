@@ -168,7 +168,7 @@ runStaticMethod cName mName mType args = do
   pushStaticMethodCall cName methodKey args Nothing
   run
   cs <- use ctrlStk
-  when (not $ isFinished cs) 
+  when (not $ isFinished cs)
     $ err "runStaticMethod: unexpected active control stack after executing method"
   case currentPath cs of
     Just p -> do
@@ -248,8 +248,8 @@ run = do
         Just symBlock -> do
           dbugM' 6 . render $ "run:" <+> ppSymBlock symBlock
           runInsns $ sbInsns symBlock
-        Nothing -> err . render 
-          $ "invalid basic block" <+> ppBlockId bid 
+        Nothing -> err . render
+          $ "invalid basic block" <+> ppBlockId bid
           <+> "for method" <+> ppMethod method
     run
   where
@@ -283,8 +283,8 @@ run = do
 pathAssertedFalse :: Backend sbe -> Path' (SBETerm sbe) -> Bool
 pathAssertedFalse sbe p = asBool sbe (p^.pathAssertions) == Just False
 
-lookupOverride :: M.Map (String, MethodKey) a 
-               -> String 
+lookupOverride :: M.Map (String, MethodKey) a
+               -> String
                -> MethodKey
                -> Simulator sbe m (Maybe a)
 lookupOverride overrides cName key = do
@@ -296,7 +296,7 @@ lookupOverride overrides cName key = do
     [] -> return Nothing
     (ovr:_) -> return (Just ovr)
 
-lookupStaticOverride :: String 
+lookupStaticOverride :: String
                      -> MethodKey
                      -> Simulator sbe m (Maybe (StaticOverride sbe m))
 lookupStaticOverride cName key = do
@@ -327,14 +327,14 @@ pushStaticMethodCall cName key args mRetBlock = do
       dbugM' 6 . render $ "found static impls:" <+> sep (map text impls)
       cl <- case impls of
               cl:_ -> lookupClass cl
-              _ -> err . render 
+              _ -> err . render
                      $ "pushStaticMethodCall: could not find method"
                      <+> text cName <> "." <> ppMethodKey key
       let cName' = className cl
       method <- case cl `lookupMethod` key of
                   Just m -> return m
-                  Nothing -> err . render 
-                    $ "pushStaticMethodCall: could not find method" 
+                  Nothing -> err . render
+                    $ "pushStaticMethodCall: could not find method"
                     <+> text cName' <> "." <> ppMethodKey key
       if methodIsNative method then
         err $ "Unsupported native static method " ++ show key ++ " in " ++ cName'
@@ -354,13 +354,13 @@ pushStaticMethodCall cName key args mRetBlock = do
       err $ "expected static override for " ++ cn ++ "."
             ++ methodKeyName key ++ unparseMethodDescriptor key
 
-lookupInstanceOverride :: String 
+lookupInstanceOverride :: String
                      -> MethodKey
                      -> Simulator sbe m (Maybe (InstanceOverride sbe m))
 lookupInstanceOverride cName key = do
   overrides <- use instanceOverrides
   lookupOverride overrides cName key
-  
+
 -- | Invoke an instance method in the current simulator state. If
 -- there is no basic block to return to, this is either a top-level
 -- invocation, or a special case like an overridden method. The given
@@ -385,15 +385,15 @@ pushInstanceMethodCall cName key objectRef args mRetBlock = do
       cl <- lookupClass cName
       method <- case cl `lookupMethod` key of
                   Just m -> return m
-                  Nothing -> err . render 
-                    $ "pushInstanceMethodCall: could not find method" 
+                  Nothing -> err . render
+                    $ "pushInstanceMethodCall: could not find method"
                     <+> text cName <> "." <> ppMethodKey key
       if methodIsNative method then
         err $ "Unsupported native instance method " ++ show key ++ " in " ++ cName
       else do
 --        dbugM $ "pushCallFrame: (instance) method call to " ++ cName ++ "." ++ methodName method
         case mRetBlock of
-          Just retBB -> do 
+          Just retBB -> do
             modifyCSM_ $ \cs ->
               case pushCallFrame cName method retBB locals cs of
                 Just cs' -> return cs'
@@ -409,7 +409,7 @@ setupLocals vals = M.fromList (snd $ foldl setupLocal (0, []) vals)
     setupLocal (n, acc) v          = (n + 1, (n, v) : acc)
 
 -- | Run the simulator with default event handlers and simulation flags
-runDefSimulator :: 
+runDefSimulator ::
      MonadSim sbe IO
   => Codebase              -- ^ JVM Codebase
   -> Backend sbe           -- ^ A symbolic backend
@@ -418,7 +418,7 @@ runDefSimulator ::
 runDefSimulator cb sbe m = runSimulator cb sbe defaultSEH Nothing m
 
 -- | Run the simulator with the given configuration
-runSimulator :: 
+runSimulator ::
      MonadSim sbe IO
   => Codebase              -- ^ JVM Codebase
   -> Backend sbe           -- ^ A symbolic backend
@@ -445,10 +445,10 @@ getProgramReturnValue :: MonadSim sbe m
                       => Simulator sbe m (Maybe (Value (SBETerm sbe)))
 getProgramReturnValue = do
   cs <- use ctrlStk
-  if isFinished cs 
+  if isFinished cs
     then case currentPath cs of
            Just p -> return (p^.pathRetVal)
-           _      -> return Nothing            
+           _      -> return Nothing
     else return Nothing
 
 -- | Get the return value of a completed simulator execution. If the simulator is still
@@ -521,7 +521,7 @@ updateSymbolicArray :: MonadSim sbe m
                     -> Simulator sbe m ()
 updateSymbolicArray r modFn = do
   m <- getMem "updateSymbolicArray"
-  (len,arr) <- 
+  (len,arr) <-
     maybe (err "updateSymbolicArray: reference is not a symbolic array") return
     $ M.lookup r (m^.memScalarArrays)
   sbe <- use backend
@@ -562,7 +562,7 @@ newLongArray values = do
   newSymbolicArray (ArrayType LongType) (safeCast (length values)) arr
 
 -- | Returns array length at given index in the current path.
-getArrayLength :: MonadSim sbe m 
+getArrayLength :: MonadSim sbe m
                => Ref -> Simulator sbe m (SBETerm sbe)
 getArrayLength ref = do
   ArrayType tp <- getType ref
@@ -695,7 +695,7 @@ withSBE :: MonadIO m
         => (Backend sbe -> IO a) -> Simulator sbe m a
 withSBE f = uses backend f >>= liftIO
 
-withSBE' :: Monad m 
+withSBE' :: Monad m
          => (Backend sbe -> a) -> Simulator sbe m a
 withSBE' f = uses backend f
 
@@ -814,14 +814,14 @@ errorPath rsn = do
   sbe <- use backend
   -- Update control stack.
   p <- getPath $ "errorPath" <+> parens (ppFailRsn rsn)
-  -- Log error path  
+  -- Log error path
   whenVerbosity (>=3) $ do
     dbugM $ "Error path encountered: " ++ show (ppFailRsn rsn)
     dbugM $ show $ ppPath sbe p
   cs' <- markCurrentPathAsError =<< use ctrlStk
   s <- get
   let s' = s & ctrlStk    .~ cs'
-             & errorPaths %~ (EP rsn p :) 
+             & errorPaths %~ (EP rsn p :)
   -- Merge negation of assumptions in current path into conditions on merge frame.
   -- NB: Since we've set up the control stack for the next invocation of
   -- run, and explicitly captured the error path, we need to be sure to
@@ -833,8 +833,8 @@ errorPath rsn = do
 -- initializing fields.
 defaultValue :: Backend sbe -> Type -> IO (Value (SBETerm sbe))
 defaultValue _   (ArrayType _tp) = return $ RValue NullRef
-defaultValue sbe BooleanType     = IValue <$> termInt sbe 0 
-defaultValue sbe ByteType        = IValue <$> termInt sbe 0 
+defaultValue sbe BooleanType     = IValue <$> termInt sbe 0
+defaultValue sbe ByteType        = IValue <$> termInt sbe 0
 defaultValue sbe CharType        = IValue <$> termInt sbe 0
 defaultValue _   (ClassType _st) = return $ RValue NullRef
 defaultValue _   DoubleType      = return $ DValue 0.0
@@ -860,18 +860,18 @@ dbugStep :: MonadSim sbe m
 dbugStep (pc, insn) = do
   mp <- getPathMaybe
   case mp of
-    Nothing -> dbugM' 4 . render $ "Executing: (no current path)" 
+    Nothing -> dbugM' 4 . render $ "Executing: (no current path)"
                <> colon <+> (ppSymInsn insn)
     Just p  -> do
       let loc = case currentCallFrame p of
                   Nothing -> "<unknown method>" <> parens bid
-                  Just cf -> text (cf^.cfClass) 
+                  Just cf -> text (cf^.cfClass)
                              <> "." <> ppMethod (cf^.cfMethod)
                              <> parens bid
           bid = case p^.pathBlockId of
                   Nothing -> "<no current block>"
                   Just b -> ppBlockId b
-      dbugM' 4 . render $ 
+      dbugM' 4 . render $
         "Executing" <+> parens ("#" <> integer (p^.pathName))
         <+> loc <> colon <+> (ppSymInsn insn)
 --  repl
@@ -894,9 +894,9 @@ step (PushInvokeFrame InvInterface (ClassType iName) key retBlock) = do
   objectRef   <- rPop
   throwIfRefNull objectRef
   dynBind iName key objectRef $ \iName' -> do
-    pushInstanceMethodCall iName' 
-                           key 
-                           objectRef 
+    pushInstanceMethodCall iName'
+                           key
+                           objectRef
                            (reverse reverseArgs)
                            (Just retBlock)
 
@@ -926,7 +926,7 @@ step (PushInvokeFrame InvSpecial (ArrayType _methodType) key retBlock) = do
   reverseArgs <- replicateM (length (methodKeyParameterTypes key)) popValue
   objectRef <- rPop
   throwIfRefNull objectRef
-  pushInstanceMethodCall "java/lang/Object" 
+  pushInstanceMethodCall "java/lang/Object"
                          key
                          objectRef
                          (reverse reverseArgs)
@@ -943,7 +943,7 @@ step (PushInvokeFrame InvVirtual (ArrayType _methodType) key retBlock) = do
   throwIfRefNull objectRef
   pushInstanceMethodCall "java/lang/Object"
                          key
-                         objectRef 
+                         objectRef
                          (reverse reverseArgs)
                          (Just retBlock)
 
@@ -952,10 +952,10 @@ step (PushInvokeFrame InvVirtual (ClassType cName) key retBlock) = do
   objectRef   <- rPop
   throwIfRefNull objectRef
   dynBind cName key objectRef $ \cName' -> do
-    pushInstanceMethodCall cName' 
+    pushInstanceMethodCall cName'
                            key
                            objectRef
-                           (reverse reverseArgs) 
+                           (reverse reverseArgs)
                            (Just retBlock)
 
 step (PushInvokeFrame InvVirtual ty _ _) = do
@@ -1024,7 +1024,7 @@ step (SetCurrentBlock bid) = setCurrentBlock bid
 
 step (NormalInsn insn) = Stepper.step insn
 
-step (BadInsn insn) = 
+step (BadInsn insn) =
   err . render $ "step: unexpected instruction" <+> text (ppInst insn)
 
 setCurrentBlock :: MonadSim sbe m => BlockId -> Simulator sbe m ()
@@ -1087,7 +1087,7 @@ defaultSEH = SEH
 --------------------------------------------------------------------------------
 -- Conversions
 
-compareFloat :: (Floating a, Ord a, MonadSim sbe m) 
+compareFloat :: (Floating a, Ord a, MonadSim sbe m)
              => a -> a -> Simulator sbe m (SBETerm sbe)
 compareFloat x y = withSBE $ \sbe -> termInt sbe (fromIntegral v)
   where v = fromEnum (compare x y) - 1
@@ -1191,13 +1191,13 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
           let fn = ppCurrentMethod p
           return $ case p^.pathBlockId of
             Nothing -> "at" <+> fn
-            Just cb -> "at" <+> fn <> colon <> ppBlockId cb        
-    liftIO . putStrLn . render $ 
+            Just cb -> "at" <+> fn <> colon <> ppBlockId cb
+    liftIO . putStrLn . render $
       "Warning" <> maybe empty (space <>) prefix <> colon <+> msg
 
 
   throw ref@(Ref _ (ClassType cName)) = do
-    ctrlStk %= modifyCurrentPath (\p -> 
+    ctrlStk %= modifyCurrentPath (\p ->
       let exc = JavaException ref (p^.pathStack)
       in p & pathException .~ Just exc)
     errorPath $ FailRsn cName
@@ -1206,7 +1206,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
 
 
   -- Negate a Boolean value
-  bNot x = withSBE $ \sbe -> termNot sbe x 
+  bNot x = withSBE $ \sbe -> termNot sbe x
 
   -- (x &&& y) returns logical and
   mx &&& my = do
@@ -1288,9 +1288,9 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   iRem  x y = withSBE $ \sbe -> termIRem   sbe x y
   iShl  x y = withSBE $ \sbe -> termIShl  sbe x y
   iShr  x y = withSBE $ \sbe -> termIShr  sbe x y
-  iSub  x y = withSBE $ \sbe -> termISub   sbe x y  
+  iSub  x y = withSBE $ \sbe -> termISub   sbe x y
   iUshr x y = withSBE $ \sbe -> termIUshr sbe x y
-  iXor  x y = withSBE $ \sbe -> termIXor  sbe x y 
+  iXor  x y = withSBE $ \sbe -> termIXor  sbe x y
 
   ------------------------------------------------------------------------------
   -- operations on longs
@@ -1337,7 +1337,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     dbugM' 6 . render $ "setting field" <+> text (ppFldId fieldId) <+> "to" <+> ppValue sbe v
     m <- getMem "setStaticFieldValue"
     setMem (m & memStaticFields %~ M.insert fieldId v)
-          
+
   byteArrayVal arrayRef value = do
     cond <- arrayRef `hasType` (ArrayType BooleanType)
     t <- boolFromInt value
@@ -1360,7 +1360,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
       sbe <- use backend
       l' <- case asInt sbe l of
               Nothing -> abort "Cannot create array with symbolic size"
-              Just i -> return i          
+              Just i -> return i
       ref <- genRef tp
       let arrayFn | eltType == LongType = termLongArray
                   | otherwise           = termIntArray
@@ -1510,7 +1510,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
     setMem (m & memInstanceFields %~ M.insert (r, fieldId) v)
 
   -- Pop value off top of stack.
-  popValue = modifyCallFrameM "popValue" $ \cf -> 
+  popValue = modifyCallFrameM "popValue" $ \cf ->
                case cf^.cfOpds of
                  [] -> err "empty operand stack"
                  (x:xs) -> return (x, cf & cfOpds .~ xs)
@@ -1528,7 +1528,7 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
       Just v -> return v
       Nothing -> err $ "internal: undefined local variable " ++ show i
 
-  setLocal i v = modifyCallFrameM_ "setLocal" $ \cf -> 
+  setLocal i v = modifyCallFrameM_ "setLocal" $ \cf ->
                    return $ cf & cfLocals %~ M.insert i v
 
   printStream nl _ []       = liftIO $ (if nl then putStrLn else putStr) "" >> hFlush stdout
@@ -1598,10 +1598,10 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   -- current path.
   assertTrueM cond exc = do
     sbe <- use backend
-    term <- cond    
+    term <- cond
     when (asBool sbe term == Just False) $ createAndThrow exc
     modifyPathM_ "assertTrueM" (addPathAssertion sbe term)
-    
+
 
 abort :: MonadSim sbe m => String -> Simulator sbe m a
 abort msg = do
@@ -2041,7 +2041,7 @@ getClassName _ = err "getClassName: wrong argument type"
 -- | Returns (the Value) 'true' if the given class name represents an array class
 -- (using java.lang.Class naming conventions)
 classNameIsArray :: MonadSim sbe m
-                 => String 
+                 => String
                  -> Simulator sbe m (Value (SBETerm sbe))
 classNameIsArray s = withSBE $ \sbe -> IValue <$> termInt sbe v
   where v = if classNameIsArray' s then 1 else 0
@@ -2052,12 +2052,12 @@ classNameIsArray' _       = False
 
 -- | Returns (the Value) 'true' if the given class name represents a primtive
 -- type (using java.lang.Class naming conventions)
-classNameIsPrimitive :: MonadSim sbe m 
+classNameIsPrimitive :: MonadSim sbe m
                      => String
                      -> Simulator sbe m (Value (SBETerm sbe))
-classNameIsPrimitive s = withSBE $ \sbe -> IValue <$> termInt sbe v 
+classNameIsPrimitive s = withSBE $ \sbe -> IValue <$> termInt sbe v
   where v = if classNameIsPrimitive' s then 1 else 0
-    
+
 classNameIsPrimitive' :: String -> Bool
 classNameIsPrimitive' (ch:[]) = ch `elem` ['B','S','I','J','F','D','Z','C']
 classNameIsPrimitive' _       = False
@@ -2078,10 +2078,10 @@ dynBind :: MonadSim sbe m
         -> (String -> Simulator sbe m ()) -- ^ e.g., an invokeInstanceMethod invocation.
         -> Simulator sbe m ()
 dynBind clName key objectRef f = do
-  impls <- dynBind' clName key objectRef    
+  impls <- dynBind' clName key objectRef
   case impls of
     cl:_ -> f cl
-    _    -> err . render $ "no implementations found for" 
+    _    -> err . render $ "no implementations found for"
               <+> text clName <+> ppMethodKey key
 
 -- | (dynBindSuper cln meth r f) provides to 'f' the class name
@@ -2092,14 +2092,14 @@ dynBindSuper :: MonadSim sbe m
              => String           -- ^ Name of 'this''s class
              -> MethodKey        -- ^ Key of method to invoke
              -> JSRef (Simulator sbe m) -- ^ 'this'
-             -> (String -> Simulator sbe m ()) 
+             -> (String -> Simulator sbe m ())
              -- ^ e.g., an invokeInstanceMethod invocation.
              -> Simulator sbe m ()
 dynBindSuper clName key objectRef f = do
-  impls <- dynBind' clName key objectRef    
+  impls <- dynBind' clName key objectRef
   case impls of
     _:cl:_ -> f cl
-    _    -> err . render $ "no super implementations found for" 
+    _    -> err . render $ "no super implementations found for"
               <+> text clName <+> ppMethodKey key
 
 -- | Assumes reference non-null

@@ -204,9 +204,9 @@ import Verifier.Java.Codebase hiding (lookupClass)
 import qualified Verifier.Java.Codebase as Codebase
 
 -- | A Simulator is a monad transformer around a symbolic backend
-newtype Simulator sbe (m :: * -> *) a = 
+newtype Simulator sbe (m :: * -> *) a =
   SM { runSM :: ExceptT (InternalExc sbe m) (StateT (State sbe m) IO) a }
-  deriving 
+  deriving
     ( Functor
     , Applicative
     , Monad
@@ -229,7 +229,7 @@ catchSM (SM m) h = SM (catchE m (runSM . h))
 instance (MonadException m) => MonadException (ExceptT e m) where
     controlIO f = ExceptT $ controlIO $ \(RunIO run) -> let
                     run' = RunIO (fmap ExceptT . run . runExceptT)
-                    in fmap runExceptT $ f run'  
+                    in fmap runExceptT $ f run'
 
 -- | These constraints are common to monads with a symbolic execution
 -- backend. Enable @{-# LANGUAGE ConstraintKinds #-}@ to use this in
@@ -313,7 +313,7 @@ data BranchAction sbe
   -- path for the @else@ of a branch with condition @cond@. When
   -- applied, it starts running the @then@ branch with the suspended
   -- path @p@.
-  = BranchRunTrue (SBETerm sbe) (Path sbe)   
+  = BranchRunTrue (SBETerm sbe) (Path sbe)
   -- | @BranchMerge a cond p@ is the continuation after finishing a
   -- path for the @then@ of a branch with condition cond. When
   -- applied, the finished path @p@ from the @else@ branch is merged
@@ -600,8 +600,8 @@ modifyPathM ctx f =
 
 -- | Modify the current path with the given function. Fails if there
 -- is no current path.
-modifyPathM_ :: Doc 
-             -> (Path sbe -> Simulator sbe m (Path sbe)) 
+modifyPathM_ :: Doc
+             -> (Path sbe -> Simulator sbe m (Path sbe))
              -> Simulator sbe m ()
 modifyPathM_ ctx f = modifyPathM ctx (\p -> ((),) <$> f p)
 
@@ -616,7 +616,7 @@ getPath ctx = do
 -- | Obtain the current path, if present.
 getPathMaybe :: (Functor m, Monad m) => Simulator sbe m (Maybe (Path sbe))
 getPathMaybe = uses ctrlStk currentPath
-  
+
 
 -- | Get the memory model of the current path. If there is no current
 -- path, this fails.
@@ -627,11 +627,11 @@ getMem ctx = do
 
 -- | Modify the current call frame with the given function, which may
 -- also return a result. Fails if there is no current call frame.
-modifyCallFrameM :: 
+modifyCallFrameM ::
      Doc
   -> (CallFrame (SBETerm sbe) -> Simulator sbe m (a, (CallFrame (SBETerm sbe))))
   -> Simulator sbe m a
-modifyCallFrameM ctx f = 
+modifyCallFrameM ctx f =
   modifyPathM ctx $ \p ->
     case p^.pathStack of
       [] -> err . render $ ctx <> ": no stack frames"
@@ -641,7 +641,7 @@ modifyCallFrameM ctx f =
 
 -- | Modify the current call frame with the given function. Fails if
 -- there is no current call frame.
-modifyCallFrameM_ :: 
+modifyCallFrameM_ ::
      Doc
   -> (CallFrame (SBETerm sbe) -> Simulator sbe m (CallFrame (SBETerm sbe)))
   -> Simulator sbe m ()
@@ -676,7 +676,7 @@ lookupClass cName = do
 -- initial function arguments, and basic block (in the caller's
 -- context) to return to once this method is finished.
 pushCallFrame :: String
-              -- ^ Class name   
+              -- ^ Class name
               -> Method
               -- ^ Method
               -> BlockId
@@ -686,7 +686,7 @@ pushCallFrame :: String
               -> CS sbe
               -- ^ Current control stack
               -> Maybe (CS sbe)
-pushCallFrame clname method retBB locals cs = 
+pushCallFrame clname method retBB locals cs =
     case cs of
       CompletedCS Nothing -> error "all paths failed"
       CompletedCS (Just p) -> Just $ ActiveCS (pushFrame p) EmptyCont
@@ -743,7 +743,7 @@ jumpCurrentPath b (ActiveCS p k) =
 -- the optional return value on the operand stack of the next frame.
 returnCurrentPath :: forall sbe m . (Functor m, MonadIO m)
                   => Maybe (Value (SBETerm sbe))
-                  -> CS sbe 
+                  -> CS sbe
                   -> Simulator sbe m (CS sbe)
 returnCurrentPath _ CompletedCS{} = err "path is completed"
 returnCurrentPath _ ResumedCS{}   = err "path is completed"
@@ -764,7 +764,7 @@ returnCurrentPath retVal (ActiveCS p k) = do
 branchError :: (Functor m, MonadIO m)
             => BranchAction sbe -- ^ action to run if branch occurs.
             -> SimCont sbe      -- ^ previous continuation
-            -> Simulator sbe m (CS sbe) 
+            -> Simulator sbe m (CS sbe)
 branchError ba k = do
   sbe <- use backend
   case ba of
@@ -793,11 +793,11 @@ markCurrentPathAsError cs = case cs of
   ActiveCS _ (SuspCont _ _)       -> return $ CompletedCS Nothing
 
 addPathAssertion :: (MonadIO m, Functor m)
-                 => Backend sbe 
-                 -> SBETerm sbe 
-                 -> Path sbe 
+                 => Backend sbe
+                 -> SBETerm sbe
+                 -> Path sbe
                  -> m (Path sbe)
-addPathAssertion sbe t p = 
+addPathAssertion sbe t p =
   p & pathAssertions %%~ \a -> liftIO (termAnd sbe a t)
 
 -- | Get top call frame from a path
@@ -807,19 +807,19 @@ currentCallFrame p = p^.pathStack^?_head
 -- | Called at symbolic return instructions and jumps to new basic
 -- blocks to check whether it is time to merge a path and move on to
 -- the next continuation. There are three cases:
--- 
+--
 --   1. There are no more call frames on the stack, and the
 --   continuation is empty. This leaves us with a completed or resumed
 --   control stack containing the current path.
 --
 --   1a. If we are resuming a parent computation, merge appropriate
 --   fields from the path.
--- 
+--
 --   2. We've reached the current path's 'MergePoint', so the current
 --   continuation is complete. Depending on the type of continuation,
 --   we either move on to a different path, or merge the current path
 --   with an already-finished path before continuing.
--- 
+--
 --   3. The current path's merge point does not indicate the current
 --   location, so we continue with the same path and continuation.
 mergeNextCont :: (Functor m, MonadIO m)
@@ -870,17 +870,17 @@ mergeNextCont p h = return (ActiveCS p h)
 atMergePoint :: Path' term -> MergePoint -> Bool
 p `atMergePoint` point = case point of
   ReturnPoint n -> n == p^.pathStackHt
-  PostdomPoint n b -> 
+  PostdomPoint n b ->
     n == p^.pathStackHt && Just b == p^.pathBlockId
 
-mergeRetVals :: MonadIO m 
+mergeRetVals :: MonadIO m
              => SBETerm sbe
              -> Maybe (Value (SBETerm sbe))
              -> Maybe (Value (SBETerm sbe))
              -> Simulator sbe m (Maybe (Value (SBETerm sbe)))
 mergeRetVals c (Just rv1) (Just rv2) = Just <$> mergeValues c rv1 rv2
 mergeRetVals _ Nothing    Nothing    = return Nothing
-mergeRetVals _ _          _          = 
+mergeRetVals _ _          _          =
     throwSM $ strExc "return value mismatch when merging paths"
 
 mergeMemories :: MonadIO m
@@ -900,7 +900,7 @@ mergeMemories assertions mem1 mem2 = do
       mergeTup (l1, v1) (l2, v2) = do
         assert "mergeMemories lengths equal" (l1 == l2)
         (,) l1 <$> (liftIO $ termIte sbe assertions v1 v2)
-            
+
   mergedSFields <- mergeBy (mergeValues assertions) sFields1 sFields2
   mergedIFields <- mergeBy (mergeValues assertions) iFields1 iFields2
   mergedScArrays <- mergeBy mergeTup scArrays1 scArrays2
@@ -950,13 +950,13 @@ mergeBy mrg m1 m2 = leftUnion <$> merged
 
 
 -- | Merge the two symbolic values under the given assertions
-mergeValues :: MonadIO m 
-            => SBETerm sbe 
-            -> Value (SBETerm sbe) 
-            -> Value (SBETerm sbe) 
-            -> Simulator sbe m (Value (SBETerm sbe)) 
+mergeValues :: MonadIO m
+            => SBETerm sbe
+            -> Value (SBETerm sbe)
+            -> Value (SBETerm sbe)
+            -> Simulator sbe m (Value (SBETerm sbe))
 mergeValues assertions x y = do
-  sbe <- use backend 
+  sbe <- use backend
   let abort = err . render
       t1 <-> t2 = liftIO $ termIte sbe assertions t1 t2
       mergeV (IValue v1) (IValue v2)             = IValue <$> v1 <-> v2
@@ -974,11 +974,11 @@ mergeValues assertions x y = do
       mergeV (RValue NullRef) (RValue NullRef) = return x
       mergeV (RValue (Ref r1 ty1)) (RValue (Ref r2 ty2)) = do
         when (r1 /= r2) $
-          abort $ "References differ when merging:" 
+          abort $ "References differ when merging:"
           <+> ppValue sbe x <+> "and" <+> ppValue sbe y
         assert "mergeValues types equal" (ty1 == ty2)
         return x
-      mergeV _ _ = 
+      mergeV _ _ =
         abort $ "Unsupported or mismatched type when merging values:"
         <+> ppValue sbe x <+> "and" <+> ppValue sbe y
   mergeV x y
@@ -1052,16 +1052,16 @@ ppMemory :: Backend sbe
          -> Memory (SBETerm sbe)
          -> Doc
 ppMemory sbe mem = hang ("memory" <> colon) 2 (brackets . commas $ rest)
-  where rest = [ 
+  where rest = [
             hang ("class initialization" <> colon) 2 $
               ppMap text (text . show) (mem^.memInitialization)
-          , hang ("static fields" <> colon) 2 $ 
+          , hang ("static fields" <> colon) 2 $
               ppMap (text . ppFldId) (ppValue sbe) (mem^.memStaticFields)
           , hang ("instance fields" <> colon) 2 $
               ppMap ppInstanceFieldRef (ppValue sbe) (mem^.memInstanceFields)
-          , let ppArr (len, a) = brackets (int (fromIntegral len)) 
+          , let ppArr (len, a) = brackets (int (fromIntegral len))
                                  <+> prettyTermD sbe a
-            in hang ("scalar arrays" <> colon) 2 $ 
+            in hang ("scalar arrays" <> colon) 2 $
                  ppMap ppRef ppArr (mem^.memScalarArrays)
           , let ppArr = ppArray (int . fromIntegral) ppRef
             in hang ("reference arrays" <> colon) 2 $
@@ -1155,11 +1155,11 @@ dumpCurrentPath = do
 
 ppInternalExc :: InternalExc sbe m -> Doc
 ppInternalExc exc = case exc of
-  ErrorPathExc rsn s -> 
+  ErrorPathExc rsn s ->
       "internal error" <> colon <+> ppFailRsn rsn <+> ppState s
-  UnknownExc Nothing -> 
+  UnknownExc Nothing ->
       "unknown error"
-  UnknownExc (Just rsn) -> 
+  UnknownExc (Just rsn) ->
       "unknown error" <> colon <+> ppFailRsn rsn
 
 ppBreakpoints :: Map (String, Method) (Set PC) -> Doc

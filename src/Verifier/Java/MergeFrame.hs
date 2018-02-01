@@ -23,12 +23,12 @@ pushMF :: MergeFrame sym -> Simulator sym ()
 pushMF mf = ctrlStk.mergeFrames %= (mf :)
 
 popMF :: String -> Simulator sym (MergeFrame sym)
-popMF ctx = do 
+popMF ctx = do
   stk <- use (ctrlStk.mergeFrames)
   case stk of
     []       -> fail $ ctx ++ ": empty CtrlStk"
     (mf:mfs) -> ctrlStk.mergeFrames .= mfs >> return mf
-                         
+
 
 peekMF :: String -> Simulator sym (MergeFrame sym)
 peekMF ctx = SM $ try =<< use (ctrlStk.mergeFrames)
@@ -39,7 +39,7 @@ bottomMF :: Simulator sym (Maybe (MergeFrame sym))
 bottomMF = SM $ uses (ctrlStk.mergeFrames) lastMay
 
 modifyMF :: String
-         -> (MergeFrame sym -> MergeFrame sym) 
+         -> (MergeFrame sym -> MergeFrame sym)
          -> Simulator sym ()
 modifyMF ctx f = pushMF . f =<< popMF ctx
 
@@ -50,9 +50,9 @@ withTopMF ctx f = f <$> peekMF ctx
 -- result is 'Just mf', then 'mf' will be pushed back on the 'CtrlStk'
 -- after running.
 withPoppedMF :: String
-             -> (MergeFrame sym -> Simulator sym (Maybe (MergeFrame sym), a)) 
+             -> (MergeFrame sym -> Simulator sym (Maybe (MergeFrame sym), a))
              -> Simulator sym a
-withPoppedMF ctx f = do 
+withPoppedMF ctx f = do
   (mmf', a) <- f =<< popMF ctx
   case mmf' of
     Just mf' -> pushMF mf'
@@ -69,13 +69,13 @@ popPending ctx = withPoppedMF ctx $ \mf ->
     (p:ps) -> return (Just $ mf & pending .~ ps, p)
 
 peekPending :: String -> Simulator sym (SymPath sym)
-peekPending ctx = do 
+peekPending ctx = do
     mf <- popMF ctx
     SM . try $ mf^.pending
   where try = tryHead $ ctx ++ ": no pending paths"
 
 modifyPending :: String
-              -> (SymPath sym -> SymPath sym) 
+              -> (SymPath sym -> SymPath sym)
               -> Simulator sym ()
 modifyPending ctx f = pushPending ctx . f =<< popPending ctx
 
@@ -98,7 +98,7 @@ withPoppedPending_ :: String
 withPoppedPending_ ctx f = withPoppedPending ctx (\p -> (,()) <$> f p)
 
 hasPending :: Simulator sym Bool
-hasPending = (popPending "" >>= pushPending "" >> return True) 
+hasPending = (popPending "" >>= pushPending "" >> return True)
              `catchError`
              const (return False)
 

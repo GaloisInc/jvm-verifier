@@ -234,7 +234,7 @@ locateField cb fldId = do
 isStrictSuper :: Codebase -> String -> Class -> IO Bool
 isStrictSuper cb name cl = do
   case superClass cl of
-    Just super 
+    Just super
       | name == super -> return True
       | otherwise -> isStrictSuper cb name =<< lookupClass cb super
     Nothing -> return False
@@ -281,11 +281,11 @@ findVirtualMethodsByRef cb name key instTyNm = do
 -- | Finds all classes that implement a given static method. List is
 -- ordered so that subclasses appear before their base class.
 findStaticMethodsByRef :: Codebase
-                       -> String 
+                       -> String
                        -- ^ Name of class given in the code for this call
                        -> MethodKey
                        -- ^ Method to call
-                       -> IO [String]                          
+                       -> IO [String]
 findStaticMethodsByRef cb name key = do
   cl <- lookupClass cb name
   sups <- supers cb cl
@@ -316,7 +316,7 @@ lookupSymbolicMethod (Codebase ref) clName key = do
   cb <- readIORef ref
   case M.lookup (clName, key) (symbolicMethodMap cb) of
     Just symblocks -> return $ Just symblocks
-    Nothing -> do 
+    Nothing -> do
       cl <- lookupClass (Codebase ref) clName
       case lookupSymbolicMethod' cl key of
         Nothing -> do dbugM . render $ "unable to translate" <+> ppMethodKey key
