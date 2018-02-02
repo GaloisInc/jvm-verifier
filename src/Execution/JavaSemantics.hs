@@ -513,7 +513,7 @@ class ( Monad m
 
   createInstance :: String -> Maybe [(Type, JSValue m)] -> m (JSRef m)
 
-  -- | Check an assertion in the current exection state. 
+  -- | Check an assertion in the current exection state.
   assertTrueM :: m (JSBool m) -- ^ Condition to check
               -> String       -- ^ Name of exception to throw if condition is false
               -> m ()

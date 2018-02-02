@@ -8,7 +8,7 @@ Point-of-contact : jhendrix, acfoltzer
 
 {-# LANGUAGE ConstraintKinds #-}
 
-module Execution 
+module Execution
 {-# DEPRECATED "use Execution.JavaSemantics with Verifier.Java.Simulator" #-}
   ( Codebase
   , AtomicValue(..)
@@ -38,7 +38,7 @@ import Verifier.Java.Simulator
 
 -- | Run the static @main@ method of a class, returning a list of all
 -- successful paths and their return values (if present).
-runMain :: MonadSim sbe m 
+runMain :: MonadSim sbe m
         => String
         -- ^ The name of the class containing @main@
         -> [Value (SBETerm sbe)]

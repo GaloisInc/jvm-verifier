@@ -117,7 +117,7 @@ step Dastore = {-# SCC "Dastore" #-}  do
   index <- iPop
   arrayRef <- rPop
   guardArray arrayRef index
-  setArrayValue arrayRef index (DValue value)  
+  setArrayValue arrayRef index (DValue value)
 
 step Dcmpg = {-# SCC "Dcmpg" #-}  do
   value2 <- dPop
@@ -205,13 +205,13 @@ step Fadd = {-# SCC "Fadd" #-}  do
   value2 <- fPop
   value1 <- fPop
   fPush =<< fAdd value1 value2
-  
+
 step Faload = {-# SCC "Faload" #-}  do
   index <- iPop
   arrayRef <- rPop
   guardArray arrayRef index
   pushArrayValue arrayRef index
-  
+
 step Fastore = {-# SCC "Fastore" #-}  do
   value <- fPop
   index <- iPop
@@ -289,7 +289,7 @@ step Iaload = {-# SCC "Iaload" #-}  do
   index <- iPop
   arrayRef <- rPop
   guardArray arrayRef index
-  pushArrayValue arrayRef index  
+  pushArrayValue arrayRef index
 
 step Iand = {-# SCC "Iand" #-}  do
   value2 <- iPop
@@ -308,7 +308,7 @@ step Idiv = {-# SCC "Idiv" #-}  do
   value1 <- iPop
   zero   <- iConst 0
   assertFalseM (value2 `iEq` zero) "java/lang/ArithmeticException"
-  iPush =<< value1 `iDiv` value2  
+  iPush =<< value1 `iDiv` value2
 
 step (Iinc index constant) = {-# SCC "Iinc" #-}  do
   IValue value <- getLocal index
@@ -440,7 +440,7 @@ step Laload = {-# SCC "Laload" #-}  do
   index <- iPop
   arrayRef <- rPop
   guardArray arrayRef index
-  pushArrayValue arrayRef index  
+  pushArrayValue arrayRef index
 
 step Land = {-# SCC "Land" #-}  do
   value2 <- lPop
@@ -452,7 +452,7 @@ step Lastore = {-# SCC "Lastore" #-}  do
   index <- iPop
   arrayRef <- rPop
   guardArray arrayRef index
-  setArrayValue arrayRef index (LValue value)  
+  setArrayValue arrayRef index (LValue value)
 
 step Lcmp = {-# SCC "Lcmp" #-}  do
   value2 <- lPop
@@ -472,7 +472,7 @@ step Ldiv = {-# SCC "Ldiv" #-}  do
   value2 <- lPop
   value1 <- lPop
   assertFalseM (lEq value2 =<< lConst 0) "java/lang/ArithmeticException"
-  lPush =<< value1 `lDiv` value2  
+  lPush =<< value1 `lDiv` value2
 
 step (Lload index) = {-# SCC "Lload" #-}  do
   pushValue =<< getLocal index
@@ -534,7 +534,7 @@ step (Multianewarray arrayType dimensions) = {-# SCC "Multianewarray" #-}  do
   forM_ counts $ \count -> do
     assertFalseM (count `iLt` zero) "java/lang/NegativeArraySizeException"
   pushValue . RValue =<< newMultiArray arrayType counts
-  
+
 step (New name) = {-# SCC "New" #-}  do
    pushValue . RValue =<< newObject name
 
@@ -576,7 +576,7 @@ step (Putstatic fieldId) = {-# SCC "Putstatic" #-}  do
   setStaticFieldValue fieldId value
 
 step (Ret _index) = {-# SCC "Ret" #-}  do
-  warning "jsr/ret not implemented" 
+  warning "jsr/ret not implemented"
   return ()
 
 step Return = {-# SCC "Return" #-}  return ()

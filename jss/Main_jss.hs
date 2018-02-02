@@ -54,7 +54,7 @@ simExcHndlr' :: Bool -> Doc -> InternalExc sbe m -> Simulator sbe m ()
 simExcHndlr' suppressOutput failMsg exc =
   case exc of
     epe@ErrorPathExc{} -> liftIO $
-      unless suppressOutput . hPutStr stderr . render 
+      unless suppressOutput . hPutStr stderr . render
         $ failMsg <> colon <+> ppInternalExc epe
     unk -> error . render $ ppInternalExc unk
 
@@ -190,7 +190,7 @@ main = do
                  -- As long as we filter out exception paths and our merging is working,
                  -- this warning shouldn't fire.
                  liftIO $ putStrLn $ "Warning: Simulator could not merge all paths."
-   runSimulator cb sbe defaultSEH (Just fl) $ 
+   runSimulator cb sbe defaultSEH (Just fl) $
      go `catchSM` \e -> do
                        simExcHndlr' False (text "jss") e
                        liftIO . exitWith $ ExitFailure 1
