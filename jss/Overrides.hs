@@ -1,4 +1,5 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE CPP #-}
@@ -188,7 +189,7 @@ jssOverrides = do
     ]
   where
     sym meth md f = (symbolicCN, makeMethodKey meth md, f)
-    dbg meth md f = (symbolicCN ++ "$Debug", makeMethodKey meth md, f)
+    dbg meth md f = (mkClassName (unClassName symbolicCN ++ "$Debug"), makeMethodKey meth md, f)
     symbolicCN    = "com/galois/symbolic/Symbolic"
     pushByteArr   = pushValue . RValue <=< newIntArray byteArrayTy
     pushIntArr    = pushValue . RValue <=< newIntArray intArrayTy

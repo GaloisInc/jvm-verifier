@@ -52,11 +52,11 @@ data CodebaseState = CodebaseState {
     jarReader   :: JarReader
   -- ^ Maps class names to lazily loaded classes in JARs
   , classPaths :: [FilePath]
-  , classMap    :: M.Map String Class
-  , subclassMap :: M.Map String [Class]
+  , classMap    :: M.Map ClassName Class
+  , subclassMap :: M.Map ClassName [Class]
   -- ^ Maps class names to the list of classes that are direct subclasses, and
   -- interfaces to list of classes that directly implement them.
-  , symbolicMethodMap :: M.Map (String, MethodKey) [SymBlock]
+  , symbolicMethodMap :: M.Map (ClassName, MethodKey) [SymBlock]
   }
 
 newtype Codebase = Codebase (IORef CodebaseState)
@@ -116,7 +116,7 @@ addClass cl (CodebaseState jr cp cMap scMap symMap) =
 
 -- | Returns class with given name in codebase or returns nothing if no class with
 -- that name can be found.
-tryLookupClass :: Codebase -> String -> IO (Maybe Class)
+tryLookupClass :: Codebase -> ClassName -> IO (Maybe Class)
 tryLookupClass (Codebase cbRef) clNm = do
   cb <- readIORef cbRef
   case M.lookup clNm (classMap cb) of
@@ -149,22 +149,22 @@ tryLookupClass (Codebase cbRef) clNm = do
 -- available under @dir@, then it must be located at
 -- @dir/C1/.../Cn.class@.
 -- http://docs.oracle.com/javase/8/docs/technotes/tools/findingclasses.html#userclass
-loadClassFromDir :: String -> FilePath -> IO (Maybe Class)
+loadClassFromDir :: ClassName -> FilePath -> IO (Maybe Class)
 loadClassFromDir clNm dir = do
   exists <- doesFileExist file
   if exists
   then Just <$> loadClass file
   else return Nothing
   where
-    file = dir </> slashNameToClassFilePath clNm
+    file = dir </> classNameToClassFilePath clNm
     -- | Turn a @com/example/Class@-style classname into a
     --  @"com" </> "example" </> "Class.class"@-style platform dependent
     --  relative class-file path.
     --
     -- TODO: move this to 'jvm-parser.git:Language.JVM.Common'?
-    slashNameToClassFilePath :: String -> FilePath
-    slashNameToClassFilePath clNm =
-      map (\c -> if c == '/' then pathSeparator else c) clNm <.> "class"
+    classNameToClassFilePath :: ClassName -> FilePath
+    classNameToClassFilePath clNm =
+      map (\c -> if c == '/' then pathSeparator else c) (unClassName clNm) <.> "class"
 
 -- | Returns class with given name in codebase or raises error if no class with
 -- that name can be found.
@@ -172,14 +172,14 @@ loadClassFromDir clNm dir = do
 -- The components of class name @clNm@ should be slash separated, not
 -- dot separated. E.g. the class @com.example.Class@ should be
 -- @com/example/class@.
-lookupClass :: Codebase -> String -> IO Class
+lookupClass :: Codebase -> ClassName -> IO Class
 lookupClass cb clNm = do
   maybeCl <- tryLookupClass cb clNm
   case maybeCl of
     Just cl -> return cl
     Nothing -> error $ errorMsg
   where
-    dotNm = slashesToDots clNm
+    dotNm = slashesToDots (unClassName clNm)
     isStandardLibClass = "java.lang" `isPrefixOf` dotNm
     errorMsg = unlines $
       if isStandardLibClass then
@@ -220,7 +220,7 @@ locateField cb fldId = do
       case filter hasField sups of
         -- In theory, this should be unreachable.
         [] -> error $ "Unable to find field '" ++ fldNm
-                    ++ "' in superclass hierarchy of class " ++ clNm
+                    ++ "' in superclass hierarchy of class " ++ unClassName clNm
         (cl' : _) -> return cl'
       where
         hasField cl = fldNm `elem` map fieldName accessibleFields
@@ -231,7 +231,7 @@ locateField cb fldId = do
 
 -- | (isStrictSuper cb name class) returns true if name is a (strict) superclass
 -- of class in cb.
-isStrictSuper :: Codebase -> String -> Class -> IO Bool
+isStrictSuper :: Codebase -> ClassName -> Class -> IO Bool
 isStrictSuper cb name cl = do
   case superClass cl of
     Just super
@@ -262,10 +262,10 @@ isSubtype _ _sub _super = return False
 -- | Finds all classes that implement a given method. List is ordered so that
 -- subclasses appear before their base class.
 findVirtualMethodsByRef :: Codebase
-                        -> String -- ^ Name of class given in code for this class.
+                        -> ClassName -- ^ Name of class given in code for this class.
                         -> MethodKey -- ^ Method to identify.
-                        -> String -- ^ Concrete class for this object.
-                        -> IO [String]
+                        -> ClassName -- ^ Concrete class for this object.
+                        -> IO [ClassName]
 findVirtualMethodsByRef cb name key instTyNm = do
   cl <- lookupClass cb name
   sups    <- drop 1 <$> supers cb cl
@@ -281,11 +281,11 @@ findVirtualMethodsByRef cb name key instTyNm = do
 -- | Finds all classes that implement a given static method. List is
 -- ordered so that subclasses appear before their base class.
 findStaticMethodsByRef :: Codebase
-                       -> String
+                       -> ClassName
                        -- ^ Name of class given in the code for this call
                        -> MethodKey
                        -- ^ Method to call
-                       -> IO [String]
+                       -> IO [ClassName]
 findStaticMethodsByRef cb name key = do
   cl <- lookupClass cb name
   sups <- supers cb cl
@@ -311,7 +311,7 @@ lookupSymbolicMethod' cl key = liftCFG <$> (methodCFG =<< lookupMethod cl key)
           Code _ _ cfg _ _ _ _ -> Just cfg
           _                    -> Nothing
 
-lookupSymbolicMethod :: Codebase -> String -> MethodKey -> IO (Maybe [SymBlock])
+lookupSymbolicMethod :: Codebase -> ClassName -> MethodKey -> IO (Maybe [SymBlock])
 lookupSymbolicMethod (Codebase ref) clName key = do
   cb <- readIORef ref
   case M.lookup (clName, key) (symbolicMethodMap cb) of

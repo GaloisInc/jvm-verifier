@@ -39,7 +39,7 @@ import Verifier.Java.Simulator
 -- | Run the static @main@ method of a class, returning a list of all
 -- successful paths and their return values (if present).
 runMain :: MonadSim sbe m
-        => String
+        => ClassName
         -- ^ The name of the class containing @main@
         -> [Value (SBETerm sbe)]
         -- ^ Arguments to @main@

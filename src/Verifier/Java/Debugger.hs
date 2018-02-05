@@ -79,7 +79,7 @@ uncurry3 :: (a -> b -> c -> d) -> (a, b, c) -> d
 uncurry3 f (a, b, c) = f a b c
 
 -- | Add a breakpoint to the @main@ method of the given class
-breakOnMain :: String -> Simulator sbe m ()
+breakOnMain :: ClassName -> Simulator sbe m ()
 breakOnMain clName = addBreakpoint clName mainKey BreakEntry
 
 -- | Given a step handler, return a new step handler that runs it when
@@ -151,7 +151,7 @@ printLoc msg mpc insn = do
                 sourceLineNumberOrPrev method =<< mpc
       pc = maybe "unknown" (integer . fromIntegral) mpc
   dbugM . render $
-    text msg <+> text clName <> "." <>
+    text msg <+> text (unClassName clName) <> "." <>
     ppMethod method <> colon <> lineNum <> "%" <> pc <> colon <>
     ppSymInsn insn
 
@@ -332,7 +332,7 @@ clearinCmd = Cmd {
         _ -> failHelp
   }
 
-entriesForArg :: String -> Simulator sbe m [(String, MethodKey, Breakpoint)]
+entriesForArg :: String -> Simulator sbe m [(ClassName, MethodKey, Breakpoint)]
 entriesForArg arg = do
   (clName, keys) <- keysForArg arg
   return . map (clName, , BreakEntry) $ keys
@@ -340,12 +340,12 @@ entriesForArg arg = do
 -- | Given a string expected to be a method signature of the form
 -- @com.Foo.bar@ or @com.Foo.bar(I)V@, return the class name and a
 -- list of method keys that correspond to that method
-keysForArg :: String -> Simulator sbe m (String, [MethodKey])
+keysForArg :: String -> Simulator sbe m (ClassName, [MethodKey])
 keysForArg arg = do
   let (sig, desc) = break (== '(') arg
       ids = reverse (splitOn "." sig)
   clName <- case ids of
-              (_methStr:rest) -> return . intercalate "/" . reverse $ rest
+              (_methStr:rest) -> return . mkClassName . intercalate "/" . reverse $ rest
               _ -> fail $ "invalid method signature " ++ arg
   methName <- case ids of
                 (methStr:_) -> return methStr
@@ -424,7 +424,7 @@ classCompletion = completeWordWithPrev Nothing " " fn
       classes <- liftIO $ getClasses cb
       return . map (notFinished . simpleCompletion)
              . filter (word `isPrefixOf`)
-             . map (slashesToDots . className)
+             . map (slashesToDots . unClassName . className)
              $ classes
 
 -- | Complete a method signature as the current word
@@ -434,7 +434,7 @@ methodCompletion = completeWordWithPrev Nothing " " fn
     fn _revleft word = do
       cb <- use codebase
       classes <- liftIO $ getClasses cb
-      let classNames = map (slashesToDots . className) classes
+      let classNames = map (slashesToDots . unClassName . className) classes
           strictPrefixOf pfx xs = pfx `isPrefixOf` xs && pfx /= xs
           matches = filter (word `strictPrefixOf`) classNames
       case matches of
@@ -444,7 +444,7 @@ methodCompletion = completeWordWithPrev Nothing " " fn
         [] -> do
           let matches' = filter (`isPrefixOf` word) classNames
           concat <$> forM matches' (\clName -> do
-            cl <- lookupClass clName
+            cl <- lookupClass (mkClassName clName)
             -- expect methods in their pretty-printed form
             let methodNames = map (render . ppMethod) . classMethods $ cl
                 cleanup = notFinished . simpleCompletion . ((clName ++ ".") ++)
@@ -476,7 +476,7 @@ dumpBPs = do
      then dbugM "no breakpoints set"
      else dbugM . render . ppBreakpoints $ bps
 
-pcsForArg :: String -> Simulator sbe m [(String, MethodKey, Breakpoint)]
+pcsForArg :: String -> Simulator sbe m [(ClassName, MethodKey, Breakpoint)]
 pcsForArg arg = do
   let (method, pcStr) = break (== '%') arg
   pc <- case readMaybe (drop 1 pcStr) of
@@ -485,9 +485,10 @@ pcsForArg arg = do
   (clName, keys) <- keysForArg method
   return . map (clName, , BreakPC pc) $ keys
 
-lineNumForArg :: String -> Simulator sbe m (String, MethodKey, Breakpoint)
+lineNumForArg :: String -> Simulator sbe m (ClassName, MethodKey, Breakpoint)
 lineNumForArg arg = do
-  let (clName, lnStr) = break (== ':') arg
+  let (clStr, lnStr) = break (== ':') arg
+  let clName = mkClassName clStr
   lineNum <- case readMaybe (drop 1 lnStr) of
                Just (n :: Word16) -> return n
                Nothing -> fail $ "invalid line number " ++ lnStr
@@ -497,7 +498,7 @@ lineNumForArg arg = do
       return (clName, (methodKey method), (BreakLineNum lineNum))
     Nothing -> fail . render $
       "line number" <+> integer (fromIntegral lineNum) <+> "not found in"
-      <+> text clName $$ "were class files compiled with debugging symbols?"
+      <+> text clStr $$ "were class files compiled with debugging symbols?"
 
 dumpCmd :: MonadSim sbe m => Command (Simulator sbe m)
 dumpCmd = let args = ["ctrlstk", "memory", "method", "path"]

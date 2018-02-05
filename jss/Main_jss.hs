@@ -58,12 +58,12 @@ simExcHndlr' suppressOutput failMsg exc =
         $ failMsg <> colon <+> ppInternalExc epe
     unk -> error . render $ ppInternalExc unk
 
-dumpSymASTs :: Codebase -> String -> IO ()
+dumpSymASTs :: Codebase -> ClassName -> IO ()
 dumpSymASTs cb cname = do
   mc <- tryLookupClass cb cname
   case mc of
     Just c -> mapM_ (dumpMethod c) $ classMethods c
-    Nothing -> putStrLn $ "Main class " ++ cname ++ " not found."
+    Nothing -> putStrLn $ "Main class " ++ unClassName cname ++ " not found."
   where ppInst' (pc, i) = show pc ++ ": " ++ ppInst i
         ppSymInst' (mpc, i) =
           maybe "" (\pc -> show pc ++ ": ") mpc ++ render (ppSymInsn i)
@@ -71,7 +71,7 @@ dumpSymASTs cb cname = do
           case methodBody m of
             Code _ _ cfg _ _ _ _ -> do
               putStrLn ""
-              putStrLn . className $ c
+              putStrLn . unClassName . className $ c
               putStrLn . show . methodKey $ m
               putStrLn ""
               mapM_ (putStrLn . ppInst') . concatMap bbInsts $ allBBs cfg
@@ -133,7 +133,7 @@ main = do
   let
     cname  = case mcname args' of
                Nothing -> error "Please provide the /-separated name of a class containing main(). E.g. 'com/example/Class' for class 'Class' in package 'com.example'."
-               Just x  -> x
+               Just x  -> mkClassName x
     cpaths = splitSearchPath (classpath args')
     jpaths = splitSearchPath (jars args')
     jopts  = case runParser (many $ eatWS $ many1 $ satisfy $ not . isSpace)
@@ -180,7 +180,7 @@ main = do
                  breakOnMain cname
                  evHandlers .= seh
                rs <- runStaticMethod cname "main" "([Ljava/lang/String;)V" =<< do
-                 jargs <- newMultiArray (ArrayType (ClassType "java/lang/String")) [tl]
+                 jargs <- newMultiArray (ArrayType (ClassType (mkClassName "java/lang/String"))) [tl]
                  forM_ ([0..length jopts - 1] `zip` jopts) $ \(i,s) -> do
                    r <- RValue <$> refFromString s
                    ti <- liftIO $ termInt sbe (fromIntegral i)

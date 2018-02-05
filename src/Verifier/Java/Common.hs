@@ -243,9 +243,9 @@ type StaticOverride sbe m = [Value' sbe m] -> Simulator sbe m ()
 
 data State sbe m = State {
     _codebase          :: !Codebase
-  , _instanceOverrides :: !(Map (String, MethodKey) (InstanceOverride sbe m))
+  , _instanceOverrides :: !(Map (ClassName, MethodKey) (InstanceOverride sbe m))
     -- ^ Maps instance method identifiers to a function for executing them.
-  , _staticOverrides   :: !(Map (String, MethodKey) (StaticOverride sbe m))
+  , _staticOverrides   :: !(Map (ClassName, MethodKey) (StaticOverride sbe m))
     -- ^ Maps static method identifiers to a function for executing them.
   , _ctrlStk           :: CS sbe
   , _nextPSS           :: PathDescriptor
@@ -257,7 +257,7 @@ data State sbe m = State {
   , _backend           :: Backend sbe
   , _errorPaths        :: [ErrorPath sbe]
   , _printErrPaths     :: Bool
-  , _breakpoints       :: Map (String, Method) (Set PC)
+  , _breakpoints       :: Map (ClassName, Method) (Set PC)
   , _trBreakpoints     :: S.Set TransientBreakpoint
   , _evHandlers        :: SEH sbe m
   }
@@ -402,7 +402,7 @@ data Path' term = Path {
   }
 
 data Memory term = Memory {
-    _memInitialization :: !(Map String InitializationStatus)
+    _memInitialization :: !(Map ClassName InitializationStatus)
     -- ^ The initialization status of classes.
   , _memStaticFields   :: !(Map FieldId (Value term))
     -- ^ The values of all static fields.
@@ -413,7 +413,7 @@ data Memory term = Memory {
     -- supported).
   , _memRefArrays      :: !(Map Ref (Array Int32 Ref))
     -- ^ The values of reference arrays.
-  , _memClassObjects   :: !(Map String Ref)
+  , _memClassObjects   :: !(Map ClassName Ref)
     -- ^ References pointing to java.lang.Class objects.
   }
 
@@ -423,7 +423,7 @@ emptyMemory = Memory M.empty M.empty M.empty M.empty M.empty M.empty
 -- | A JVM call frame
 data CallFrame term
   = CallFrame {
-      _cfClass       :: !String
+      _cfClass       :: !ClassName
       -- ^ Name of the class containing the current method
     , _cfMethod      :: !Method
       -- ^ The current method
@@ -649,7 +649,7 @@ modifyCallFrameM_ ctx f = modifyCallFrameM ctx (\cf -> ((),) <$> f cf)
 
 -- | Return the enclosing class of the method being executed by the
 -- current path
-getCurrentClassName :: Simulator sbe m String
+getCurrentClassName :: Simulator sbe m ClassName
 getCurrentClassName =
   modifyCallFrameM "getCurrentClassName" $ \cf -> return (cf^.cfClass, cf)
 
@@ -665,17 +665,17 @@ getCurrentLineNumber pc = do
   return $ sourceLineNumberOrPrev method pc
 
 -- | Resolve the given class in the simulator's current codebase
-lookupClass :: String -> Simulator sbe m Class
+lookupClass :: ClassName -> Simulator sbe m Class
 lookupClass cName = do
   cb <- use codebase
   mcl <- liftIO $ Codebase.tryLookupClass cb cName
-  maybe (err . render $ "class not found:" <+> text cName) return mcl
+  maybe (err . render $ "class not found:" <+> text (unClassName cName)) return mcl
 
 
 -- | Push a new call frame to the current path, if any. Needs the
 -- initial function arguments, and basic block (in the caller's
 -- context) to return to once this method is finished.
-pushCallFrame :: String
+pushCallFrame :: ClassName
               -- ^ Class name
               -> Method
               -- ^ Method
@@ -996,7 +996,7 @@ breakpointToPC method (BreakLineNum n) = lookupLineStartPC method n
 
 ppJavaException :: JavaException term -> Doc
 ppJavaException (JavaException (Ref _ (ClassType nm)) _) =
-  "Exception of type" <+> text (slashesToDots nm)
+  "Exception of type" <+> text (slashesToDots (unClassName nm))
 ppJavaException (JavaException r _) =
   "Unknown exception type" <+> ppRef r
 
@@ -1026,7 +1026,7 @@ ppPath sbe p =
     Just cf ->
       text "Path #"
       <>  integer (p^.pathName)
-      <>  brackets ( text (cf^.cfClass) <> "." <> ppMethod (cf^.cfMethod)
+      <>  brackets ( text (unClassName (cf^.cfClass)) <> "." <> ppMethod (cf^.cfMethod)
                    <> "/" <> maybe "none" ppBlockId (p^.pathBlockId)
                    )
       <>  colon
@@ -1038,7 +1038,7 @@ ppPath sbe p =
 
 ppStackTrace :: [CallFrame term] -> Doc
 ppStackTrace cfs = braces . vcat $
-  [ text cName <> "." <> ppMethod method
+  [ text (unClassName cName) <> "." <> ppMethod method
   | CallFrame { _cfClass = cName, _cfMethod = method } <- cfs
   ]
 
@@ -1054,7 +1054,7 @@ ppMemory :: Backend sbe
 ppMemory sbe mem = hang ("memory" <> colon) 2 (brackets . commas $ rest)
   where rest = [
             hang ("class initialization" <> colon) 2 $
-              ppMap text (text . show) (mem^.memInitialization)
+              ppMap (text . unClassName) (text . show) (mem^.memInitialization)
           , hang ("static fields" <> colon) 2 $
               ppMap (text . ppFldId) (ppValue sbe) (mem^.memStaticFields)
           , hang ("instance fields" <> colon) 2 $
@@ -1067,7 +1067,7 @@ ppMemory sbe mem = hang ("memory" <> colon) 2 (brackets . commas $ rest)
             in hang ("reference arrays" <> colon) 2 $
                  ppMap ppRef ppArr (mem^.memRefArrays)
           , hang ("class objects" <> colon) 2 $
-              ppMap text ppRef (mem^.memClassObjects)
+              ppMap (text . unClassName) ppRef (mem^.memClassObjects)
           ]
 
 dumpMemory :: (Functor m, MonadIO m) => Doc -> Simulator sbe m ()
@@ -1130,7 +1130,7 @@ dumpCtrlStk = do
 ppFailRsn :: FailRsn -> Doc
 ppFailRsn (FailRsn msg) = text msg
 
-setInitializationStatus :: String
+setInitializationStatus :: ClassName
                         -> InitializationStatus
                         -> Memory term
                         -> Memory term
@@ -1162,10 +1162,10 @@ ppInternalExc exc = case exc of
   UnknownExc (Just rsn) ->
       "unknown error" <> colon <+> ppFailRsn rsn
 
-ppBreakpoints :: Map (String, Method) (Set PC) -> Doc
+ppBreakpoints :: Map (ClassName, Method) (Set PC) -> Doc
 ppBreakpoints bps =
   hang "breakpoints set:" 2 . vcat $
-    [ text clName <> "." <> ppMethod method <> "%" <> text (show pc)
+    [ text (unClassName clName) <> "." <> ppMethod method <> "%" <> text (show pc)
     | ((clName, method), pcs) <- M.toList bps
     , pc <- S.toList pcs
     ]
@@ -1185,7 +1185,7 @@ backend = lens _backend (\s v -> s { _backend = v })
 
 -- src/Verifier/Java/Common.hs:1:1: Splicing declarations
 --     makeLenses ''State
-breakpoints :: Simple Lens (State sbe m) (Map (String, Method) (Set PC))
+breakpoints :: Simple Lens (State sbe m) (Map (ClassName, Method) (Set PC))
 breakpoints = lens _breakpoints (\s v -> s { _breakpoints = v })
 {-# INLINE breakpoints #-}
 
@@ -1345,7 +1345,7 @@ evHandlers
 {-# INLINE evHandlers #-}
 instanceOverrides ::
   forall sbe_aDu4 m_aDu5.
-  Lens' (State sbe_aDu4 m_aDu5) (Map (String,
+  Lens' (State sbe_aDu4 m_aDu5) (Map (ClassName,
                                       MethodKey) (InstanceOverride sbe_aDu4 m_aDu5))
 instanceOverrides
   _f_aEoq
@@ -1539,7 +1539,7 @@ simulationFlags
 {-# INLINE simulationFlags #-}
 staticOverrides ::
   forall sbe_aDu4 m_aDu5.
-  Lens' (State sbe_aDu4 m_aDu5) (Map (String,
+  Lens' (State sbe_aDu4 m_aDu5) (Map (ClassName,
                                       MethodKey) (StaticOverride sbe_aDu4 m_aDu5))
 staticOverrides
   _f_aEpN
@@ -1876,7 +1876,7 @@ pathStackHt
 --   ======>
 -- src/Verifier/Java/Common.hs:442:1-19
 memClassObjects ::
-  forall term_a3sz. Lens' (Memory term_a3sz) (Map String Ref)
+  forall term_a3sz. Lens' (Memory term_a3sz) (Map ClassName Ref)
 memClassObjects
   _f_a5Ex
   (Memory __memInitialization_a5Ey
@@ -1897,7 +1897,7 @@ memClassObjects
 {-# INLINE memClassObjects #-}
 memInitialization ::
   forall term_a3sz.
-  Lens' (Memory term_a3sz) (Map String InitializationStatus)
+  Lens' (Memory term_a3sz) (Map ClassName InitializationStatus)
 memInitialization
   _f_a5EF
   (Memory __memInitialization'_a5EG
@@ -2004,7 +2004,7 @@ memStaticFields
 --     makeLenses ''CallFrame
 --   ======>
 --    src/Verifier/Java/Common.hs:443:1-22
-cfClass :: forall term_a3sy. Lens' (CallFrame term_a3sy) String
+cfClass :: forall term_a3sy. Lens' (CallFrame term_a3sy) ClassName
 cfClass
   _f_a5FV
   (CallFrame __cfClass'_a5FW
