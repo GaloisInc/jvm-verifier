@@ -34,7 +34,7 @@ t1 cb =
   mkSymAssertion $ \sbe ->
     void $ runDefSimulator cb sbe $ do
       jssOverrides
-      runStaticMethod "Regressions" "one_armed_if" "()V" []
+      runStaticMethod (mkClassName "Regressions") "one_armed_if" "()V" []
 
 -- added overrides for native methods called by the String class
 -- initializer in Java 7+
@@ -44,4 +44,4 @@ t2 cb =
   mkSymAssertion $ \sbe ->
     void $ runDefSimulator cb sbe $ do
       jssOverrides
-      runStaticMethod "Regressions" "use_string" "()V" []
+      runStaticMethod (mkClassName "Regressions") "use_string" "()V" []

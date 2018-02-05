@@ -35,7 +35,7 @@ tbp :: TrivialCase
 tbp cb =
   mkSymAssertion $ \sbe -> do
     sym <- freshInt sbe
-    let clName = "Trivial"
+    let clName = mkClassName "Trivial"
         mName  = "long_array_idx_f7"
         mType  = "(I)J"
         mKey   = makeMethodKey mName mType
@@ -51,7 +51,7 @@ tmain :: TrivialCase
 tmain cb =
   mkSymAssertion $ \sbe -> do
     sym <- freshInt sbe
-    let clName = "IVTDriver"
+    let clName = mkClassName "IVTDriver"
         mKey   = mainKey
         dbgSEH = defaultSEH { onPreStep = breakpointLogger }
     _ <- runSimulator cb sbe dbgSEH Nothing $ do

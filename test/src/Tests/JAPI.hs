@@ -44,7 +44,7 @@ japiTests cb = testGroup "JAPI" $
 
 mkTestArgs :: String -> Simulator SymbolicMonad IO [Value DagTerm]
 mkTestArgs tn = do
-  args <- newMultiArray (ArrayType (ClassType "java/lang/String")) [mkCInt 32 1]
+  args <- newMultiArray (ArrayType (ClassType (mkClassName "java/lang/String"))) [mkCInt 32 1]
   setArrayValue args (mkCInt 32 0) =<< (RValue <$> refFromString tn)
   return [RValue args]
 
@@ -54,7 +54,7 @@ doTest tn cb =
     rs <- runDefSimulator cb sbe $ do
       jssOverrides
       args <- mkTestArgs tn
-      runStaticMethod "JAPI" "main" "([Ljava/lang/String;)V" args
+      runStaticMethod (mkClassName "JAPI") "main" "([Ljava/lang/String;)V" args
     length rs @?= 1
 
 -- --------------------------------------------------------------------------------

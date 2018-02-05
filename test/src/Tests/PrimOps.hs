@@ -158,7 +158,7 @@ t12cmn (cNm, mNm, sig) chk cb = do
   mkSymAssertion $ \sbe -> do
     syms <- replicateM 2 $ IValue <$> freshInt sbe
     [(_,Just (IValue rslt))] <- runDefSimulator cb sbe $ do
-      runStaticMethod cNm mNm sig syms
+      runStaticMethod (mkClassName cNm) mNm sig syms
     forM_ [[0,0],[1,0],[0,1],[1,1]] $ \[b0,b1] -> do
       evalFn <- concreteEvalFn (V.map constInt (V.fromList [b0, b1]))
       rsltVal <- evalFn rslt
@@ -330,7 +330,7 @@ evalBinOp32 cb (classNm, methodNm, sig) x y = do
     b <- IValue <$> freshInt sbe
     [(_,Just (IValue rslt))] <- runDefSimulator cb sbe $ do
       setVerbosity verb
-      runStaticMethod classNm methodNm sig [a, b]
+      runStaticMethod (mkClassName classNm) methodNm sig [a, b]
     let args = V.map (mkCInt 32 . toInteger) (V.fromList [x, y])
     evalFn <- concreteEvalFn args
     evalFn rslt
@@ -349,7 +349,7 @@ evalBinOp64 cb (classNm, methodNm, sig) x y = do
     b <- LValue <$> freshLong sbe
     [(_,Just (LValue rslt))] <- runDefSimulator cb sbe $ do
       setVerbosity verb
-      runStaticMethod classNm methodNm sig [a, b]
+      runStaticMethod (mkClassName classNm) methodNm sig [a, b]
     let args = V.map (mkCInt 64 . toInteger) (V.fromList [x, y])
     evalFn <- concreteEvalFn args
     evalFn rslt
