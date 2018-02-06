@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Data.JVM.Symbolic.Translation
 Description      : Translation of JVM instructions to symbolic form
 License          : BSD3
 Stability        : experimental

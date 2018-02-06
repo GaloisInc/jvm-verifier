@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verinf.Utils.CacheM
 Description      :
 License          : BSD3
 Stability        : provisional
@@ -29,5 +29,4 @@ instance CacheM IO where
 instance CacheM m => CacheM (MTLL.StateT s m) where
   newCache = lift newCache
   lookupCache c k   = lift (lookupCache c k)
-  updateCache c k v = lift (updateCache c k v) 
-
+  updateCache c k v = lift (updateCache c k v)

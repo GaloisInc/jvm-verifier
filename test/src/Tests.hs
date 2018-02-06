@@ -1,6 +1,6 @@
 {-# LANGUAGE Rank2Types #-}
 {- |
-Module           : $Header$
+Module           : Main
 Description      :
 License          : BSD3
 Stability        : provisional

@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verifier.Java.Utils
 Description      : Utility functions for execution of JVM Symbolic programs
 License          : BSD3
 Stability        : provisional

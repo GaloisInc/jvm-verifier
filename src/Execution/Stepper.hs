@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Execution.Stepper
 Description      : JVM instruction semantics
 License          : BSD3
 Stability        : stable

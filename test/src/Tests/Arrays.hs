@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
 {- |
-Module           : $Header$
+Module           : Tests.Arrays
 Description      :
 License          : BSD3
 Stability        : provisional

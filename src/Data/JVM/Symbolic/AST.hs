@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 {- |
-Module           : $Header$
+Module           : Data.JVM.Symbolic.AST
 Description      :
 License          : BSD3
 Stability        : provisional

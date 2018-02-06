@@ -7,7 +7,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 {- |
-Module           : $Header$
+Module           : Verifier.Java.SAWBackend
 Description      :
 License          : BSD3
 Stability        : provisional

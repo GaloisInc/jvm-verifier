@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Execution.JavaSemantics
 Description      : An interface for implementing JVM bytecode interpreters
 License          : BSD3
 Stability        : stable

@@ -2,7 +2,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 {- |
-Module           : $Header$
+Module           : Verifier.Java.Backend
 Description      :
 License          : BSD3
 Stability        : provisional

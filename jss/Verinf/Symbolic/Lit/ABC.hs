@@ -1,6 +1,6 @@
 
 {- |
-Module           : $Header$
+Module           : Verinf.Symbolic.Lit.ABC
 Description      :
 License          : BSD3
 Stability        : stable
@@ -11,7 +11,7 @@ Point-of-contact : jhendrix
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE CPP #-}
-module Verinf.Symbolic.Lit.ABC 
+module Verinf.Symbolic.Lit.ABC
   ( module Verinf.Symbolic.Lit.DataTypes
   , Lit
   , createBitEngine

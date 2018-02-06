@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Tests.RC564
 Description      :
 License          : BSD3
 Stability        : provisional

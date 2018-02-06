@@ -5,7 +5,7 @@
 {-# LANGUAGE CPP #-}
 
 {- |
-Module           : $Header$
+Module           : Overrides
 Description      :
 License          : BSD3
 Stability        : provisional

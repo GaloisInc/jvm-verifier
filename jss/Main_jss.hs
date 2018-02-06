@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Main
 Description      : The command line driver for the Java Symbolic Simulator
 License          : BSD3
 Stability        : stable

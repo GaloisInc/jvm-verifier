@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verinf.Symbolic.Rewriter
 Description      :
 License          : BSD3
 Stability        : provisional

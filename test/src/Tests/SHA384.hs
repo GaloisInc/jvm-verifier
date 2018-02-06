@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Tests.SHA384
 Description      :
 License          : BSD3
 Stability        : provisional

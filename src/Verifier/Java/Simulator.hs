@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verifier.Java.Simulator
 Description      : JVM Symbolic Simulator implementation
 License          : BSD3
 Stability        : provisional

@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Execution
 Description      : A basic subset of the JSS API for basic execution
 License          : BSD3
 Stability        : provisional

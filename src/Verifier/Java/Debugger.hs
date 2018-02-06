@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verifier.Java.Debugger
 Description      : Debugger implementation for JSS
 License          : BSD3
 Stability        : provisional

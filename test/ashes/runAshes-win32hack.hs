@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-unused-do-bind #-}
 {- |
-Module           : $Header$
+Module           : Main
 Description      :
 License          : BSD3
 Stability        : provisional

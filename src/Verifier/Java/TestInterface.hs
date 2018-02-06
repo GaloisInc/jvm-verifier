@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verifier.Java.TestInterface
 Description      :
 License          : BSD3
 Stability        : provisional

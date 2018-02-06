@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verifier.Java.MergeFrame
 Description      : operators for manipulating merge frames in the simulator
 License          : BSD3
 Stability        : stable

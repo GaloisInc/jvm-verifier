@@ -8,7 +8,7 @@
 {-# LANGUAGE CPP #-}
 
 {- |
-Module           : $Header$
+Module           : Verifier.Java.WordBackend
 Description      :
 License          : BSD3
 Stability        : provisional

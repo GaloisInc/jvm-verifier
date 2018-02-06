@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verinf.Symbolic
 Description      : The (default) symbolic backend.  Defines operations over a term DAG.
 License          : BSD3
 Stability        : provisional
@@ -118,7 +118,7 @@ module Verinf.Symbolic (
   , DagEngine(..)
   , mkExactDagEngine
   , mkConstantFoldingDagEngine
-  , concreteEvalFn 
+  , concreteEvalFn
   , evalDagTerm
   , evalDagTermFn
   , deTermSemantics
@@ -170,7 +170,7 @@ evalAndBlast :: (Eq l, SV.Storable l)
 evalAndBlast de be cv lv = do
   -- Get concreate evaluation
   cEval <- concreteEvalFn cv
-  lEval <- 
+  lEval <-
     let inputFn i _ = return (lv V.! i)
      in evalDagTermFn inputFn (mkBitBlastTermSemantics be)
   -- Get lit evaluator.

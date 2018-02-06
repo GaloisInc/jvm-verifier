@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verinf.Symbolic.Common
 Description      :
 License          : BSD3
 Stability        : stable
@@ -544,7 +544,7 @@ opDefFnType :: OpDef -> (V.Vector DagType, DagType)
 opDefFnType op = (opDefArgTypes op, opDefResultType op)
 
 -- | Returns definition of operator if this is a defined op.
-opDefDefinition :: OpDef -> Maybe DagTerm 
+opDefDefinition :: OpDef -> Maybe DagTerm
 opDefDefinition OpDef { opDefKind = DefinedOp t } = Just t
 opDefDefinition _ = Nothing
 
@@ -690,7 +690,7 @@ termAppIndex _ = Nothing
 
 type InputEvaluation m r = InputIndex -> DagType -> m r
 
-evalDagTermFn :: CacheM m 
+evalDagTermFn :: CacheM m
               => InputEvaluation m r -> TermSemantics m r -> m (DagTerm -> m r)
 evalDagTermFn inputFn ts = do
   cacheRef <- newCache
@@ -711,7 +711,7 @@ evalDagTermFn inputFn ts = do
             return res
   return fn
 
-evalDagTerm :: CacheM m 
+evalDagTerm :: CacheM m
             => InputEvaluation m r -> TermSemantics m r -> DagTerm -> m r
 evalDagTerm i ts t = (\fn -> fn t) =<< evalDagTermFn i ts
 
@@ -788,7 +788,7 @@ collectNodeInfo (AppVar i (appArgs -> args)) ni
    = case Map.lookup i ni of
        Just _  -> Map.adjust bumpCnt i ni
        Nothing -> d `seq` Map.insert i (d, 1) ni'
-   where 
+   where
          bumpCnt (depth, count) = let count' = count+1 in count' `seq` (depth, count')
          ni' = V.foldr collectNodeInfo ni args
          d   = 1 + V.maximum (V.cons 0 (V.map (depthOf ni') args))
@@ -1091,7 +1091,7 @@ evalTermSemantics =
        tsApplyOp op@(opSubst -> sub) args =
          case opDefEval (opDef op) of
            UnaryOpEval fn -> fn sub (args V.! 0)
-           BinaryOpEval fn -> fn sub (args V.! 0) (args V.! 1) 
+           BinaryOpEval fn -> fn sub (args V.! 0) (args V.! 1)
            TernaryOpEval fn -> fn sub (args V.! 0) (args V.! 1) (args V.! 2)
            VectorOpEval fn -> fn sub args
            NoOpEval -> error "Cannot evaluate uninterpreted op"
@@ -1107,16 +1107,16 @@ data LitResult l
 -- Conversion {{{2
 
 -- | Map between lit results.
-mapLitResult :: (SV.Storable x, SV.Storable y) 
+mapLitResult :: (SV.Storable x, SV.Storable y)
              => (x -> y) -> LitResult x -> LitResult y
-mapLitResult fn (LV v) = LV (SV.map fn v) 
+mapLitResult fn (LV v) = LV (SV.map fn v)
 mapLitResult fn (LVN v) = LVN (V.map (mapLitResult fn) v)
 
 -- | Flatten lit result into single vector.
 flattenLitResult :: (SV.Storable l) => LitResult l -> SV.Vector l
 flattenLitResult (LV v) = v
 flattenLitResult (LVN v) = SV.concatMap (flattenLitResult . (v V.!))
-                                        (SV.enumFromN 0 (V.length v)) 
+                                        (SV.enumFromN 0 (V.length v))
 
 -- | Returns lit vector from lit.
 litToLitResult :: SV.Storable l => l -> LitResult l
@@ -1183,7 +1183,7 @@ lIteLitResult = lLazyMux mergeFn
 lEqLitResult :: (?be :: BitEngine l, SV.Storable l)
              => LitResult l -> LitResult l -> l
 lEqLitResult (LV vx) (LV vy) = vx `lEqVector` vy
-lEqLitResult (LVN vx) (LVN vy) = 
+lEqLitResult (LVN vx) (LVN vy) =
   assert (V.length vx == V.length vy) $
     V.foldl' lAnd lTrue (V.zipWith lEqLitResult vx vy)
 lEqLitResult _ _ = error "internal: bad arguments to lEqLitResult"
@@ -1267,4 +1267,3 @@ class PrettyTerm a where
                    . prettyTermD
   prettyTermWith c = renderStyle style { lineLength = ppLineLength c }
                    . prettyTermWithD c
-

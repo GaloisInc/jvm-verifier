@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verifier.Java.Codebase
 Description      :
 License          : BSD3
 Stability        : stable

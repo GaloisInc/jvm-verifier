@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Tests.PathStateMerges
 Description      :
 License          : BSD3
 Stability        : provisional

@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verifier.Java.Common
 Description      : Shared types and utility functions for JSS
 License          : BSD3
 Stability        : stable

@@ -4,7 +4,7 @@
 {-# LANGUAGE CPP     #-}
 
 {- |
-Module           : $Header$
+Module           : Tests.ExpectedErrors
 Description      :
 License          : BSD3
 Stability        : provisional
