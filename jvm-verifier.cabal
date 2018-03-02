@@ -140,7 +140,6 @@ executable jvmgraph
   hs-source-dirs : jvmgraph
   main-is : Main.hs
   ghc-options      : -O2 -Wall -fno-ignore-asserts
-  ghc-prof-options : -prof -auto-all
 
 test-suite test-java
   type:       exitcode-stdio-1.0
@@ -185,7 +184,6 @@ test-suite test-java
     Tests.SHA384
     Verinf.Symbolic.Lit.ABC
   ghc-options      : -O2 -Wall -fno-ignore-asserts
-  ghc-prof-options : -prof -auto-all
 
 benchmark Benchmarks
   type:       exitcode-stdio-1.0
