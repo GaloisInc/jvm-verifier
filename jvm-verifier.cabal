@@ -126,7 +126,6 @@ executable jss
   hs-source-dirs: jss
   main-is: Main_jss.hs
   ghc-options: -O2 -Wall -fno-ignore-asserts
-  ghc-prof-options: -prof -auto-all
 
 executable jvmgraph
   if !flag(build-jvmgraph)
