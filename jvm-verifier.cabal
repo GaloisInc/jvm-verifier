@@ -196,7 +196,6 @@ benchmark Benchmarks
     , abcBridge
     , array
     , containers
-    , hastache >= 0.5
     , statistics >= 0.10
     , criterion >= 0.6
     , directory
