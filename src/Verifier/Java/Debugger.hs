@@ -50,6 +50,8 @@ import Data.JVM.Symbolic.AST
 import Verifier.Java.Common hiding (isFinished)
 import Verifier.Java.Simulator hiding (getCurrentClassName, getCurrentMethod, isFinished)
 
+import Prelude hiding ((<>))
+
 #if __GLASGOW_HASKELL__ < 706
 import qualified Text.ParserCombinators.ReadP as P
 import qualified Text.Read as R

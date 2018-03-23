@@ -15,7 +15,7 @@ calling and returning from methods.
 
 module Data.JVM.Symbolic.AST where
 
-import Prelude hiding (EQ, LT, GT)
+import Prelude hiding (EQ, LT, GT, (<>))
 import Text.PrettyPrint
 
 import qualified Language.JVM.CFG    as CFG

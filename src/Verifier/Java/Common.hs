@@ -166,7 +166,7 @@ module Verifier.Java.Common
   , assert
   ) where
 
-import Prelude hiding (EQ, GT, LT)
+import Prelude hiding (EQ, GT, LT, (<>))
 import qualified Prelude as P
 
 #if !MIN_VERSION_base(4,8,0)

@@ -61,6 +61,7 @@ import Data.Vector (Vector)
 import Data.List(sort, union, intercalate)
 import qualified Data.Vector as V
 import Text.PrettyPrint.HughesPJ
+import Prelude hiding ((<>))
 
 import Verinf.Symbolic.Common
 import Verinf.Symbolic.Dag

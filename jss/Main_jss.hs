@@ -35,6 +35,8 @@ import Text.ParserCombinators.Parsec
 
 #if __GLASGOW_HASKELL__ < 706
 import Prelude hiding (catch)
+#else
+import Prelude hiding ((<>))
 #endif
 
 import Text.PrettyPrint hiding (char)

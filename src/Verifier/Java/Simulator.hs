@@ -96,7 +96,7 @@ module Verifier.Java.Simulator
   , module Verifier.Java.Codebase
   ) where
 
-import Prelude hiding (EQ, LT, GT)
+import Prelude hiding (EQ, LT, GT, (<>))
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative hiding (empty)

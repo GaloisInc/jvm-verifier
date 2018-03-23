@@ -84,7 +84,7 @@ library
   if !flag(build-library)
     buildable: False
 
-  GHC-options: -Wall -Werror -fno-ignore-asserts
+  GHC-options: -Wall -fno-ignore-asserts
   if impl(ghc == 8.0.1)
     ghc-options: -Wno-redundant-constraints
 

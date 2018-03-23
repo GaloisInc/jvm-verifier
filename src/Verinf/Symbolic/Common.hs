@@ -162,6 +162,8 @@ import Verinf.Symbolic.Lit
 import Verinf.Symbolic.Lit.Functional
 import Verinf.Utils.CacheM
 
+import Prelude hiding ((<>))
+
 -- Bitwidth {{{1
 newtype BitWidth = Wx Int deriving (Eq, Ord)
 
