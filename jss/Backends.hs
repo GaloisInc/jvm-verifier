@@ -19,7 +19,9 @@ import Verinf.Symbolic.Lit.ABC
 
 withFreshSAWBackend :: (Backend S.SharedContext -> IO a) -> IO a
 withFreshSAWBackend f = do
-  sc <- S.mkSharedContext S.javaModule
+  sc <- S.mkSharedContext
+  S.scLoadPreludeModule sc
+  S.scLoadJavaModule sc
   f =<< S.sawBackend sc Nothing ABC.giaNetwork
 
 -- | Create a fresh symbolic backend with a new op cache, and execute it.

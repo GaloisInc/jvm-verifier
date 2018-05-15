@@ -17,7 +17,8 @@ module Verifier.Java.SAWBackend
   ( SharedContext
   , mkSharedContext
   , sawBackend
-  , javaModule
+  , scLoadPreludeModule
+  , scLoadJavaModule
   , basic_ss
   ) where
 
@@ -70,7 +71,8 @@ basic_ss sc = do
     cdefs = map cqualify [ "seq", "ecEq", "ePCmp", "ePFin" ]
     procs = bvConversions ++ natConversions ++ vecConversions
     defRewrites ident =
-      case findDef (scModule sc) ident of
+      scFindDef sc ident >>= \maybe_def ->
+      case maybe_def of
         Nothing -> return []
         Just def -> scDefRewriteRules sc def
 
@@ -279,7 +281,7 @@ sawBackend sc0 mr proxy = do
          x' <- scWhnf sc x
          case getAllExts x' of
            [ec] -> return ec
-           [] -> fail $ "input value is not an external constant: " ++ scPrettyTerm defaultPPOpts x'
+           [] -> fail $ "input value is not an external constant: " ++ showTerm x'
            ecs  -> fail $ "input value does not uniquely determine an external constant for abstraction: " ++ show x' ++ "\n" ++ show (map ecName ecs)
 
   let writeAigToFileFn :: FilePath -> [Term] -> [Term] -> IO ()
@@ -408,5 +410,5 @@ sawBackend sc0 mr proxy = do
                  , writeCnfToFile     = writeCnfToFileFn
                  , satTerm            = satTermFn
                  -- TODO: refactor to use the same Doc everywhere
-                 , prettyTermD        = text . show . scPrettyTermDoc defaultPPOpts
+                 , prettyTermD        = text . showTerm
                  }
