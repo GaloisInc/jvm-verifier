@@ -48,11 +48,11 @@ mkArrayType n t = ArrayType n t;
 mkClassType :: String -> JavaType;
 mkClassType c = ClassType c;
 
-boolExtend :: Bool -> bitvector 32;
-boolExtend b = boolExtend' (single Bool b);
-
 boolExtend' :: bitvector 1 -> bitvector 32;
 boolExtend' b = bvUExt 31 1 b;
+
+boolExtend :: Bool -> bitvector 32;
+boolExtend b = boolExtend' (single Bool b);
 
 byteExtend :: bitvector 8 -> bitvector 32;
 byteExtend x = bvSExt 24 7 x;
