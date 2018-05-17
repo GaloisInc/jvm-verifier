@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Tests.Lambda
 Description      :
 License          : BSD3
 Stability        : provisional
@@ -58,7 +58,7 @@ evalBinOp32 cb (classNm, methodNm, sig) x y = do
     b <- IValue <$> freshInt sbe
     [(_,Just (IValue rslt))] <- runDefSimulator cb sbe $ do
       setVerbosity verb
-      runStaticMethod classNm methodNm sig [a, b]
+      runStaticMethod (mkClassName classNm) methodNm sig [a, b]
     let args = V.map (mkCInt 32 . toInteger) (V.fromList [x, y])
     evalFn <- concreteEvalFn args
     evalFn rslt

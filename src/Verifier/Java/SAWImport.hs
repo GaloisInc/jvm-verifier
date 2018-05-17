@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 {- |
-Module           : $Header$
+Module           : Verifier.Java.SAWImport
 Description      :
 License          : BSD3
 Stability        : provisional

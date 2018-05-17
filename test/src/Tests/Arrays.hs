@@ -1,11 +1,11 @@
+{-# LANGUAGE CPP #-}
 {- |
-Module           : $Header$
+Module           : Tests.Arrays
 Description      :
 License          : BSD3
 Stability        : provisional
 Point-of-contact : atomb
 -}
-{-# LANGUAGE CPP #-}
 
 module Tests.Arrays (arrayTests) where
 
@@ -44,7 +44,7 @@ sa1 cb =
         let tint = mkCInt 32 . fromIntegral
         inpArr <- newIntArray intArrayTy $ map tint arrayElems
         [(_, Just (IValue rslt))] <-
-          runStaticMethod "Arrays" "index" "(I[I)I" [idx, RValue inpArr]
+          runStaticMethod (mkClassName "Arrays") "index" "(I[I)I" [idx, RValue inpArr]
         return rslt
       let getAt x = do
                x' <- termInt sbe x
@@ -65,7 +65,7 @@ sa2 cb =
     rslt <- runDefSimulator cb sbe $ do
       let tint = mkCInt 32 . fromIntegral
       arr <- newIntArray intArrayTy $ map tint arrayElems
-      [(_, Nothing)] <- runStaticMethod "Arrays" "update" "(II[I)V"
+      [(_, Nothing)] <- runStaticMethod (mkClassName "Arrays") "update" "(II[I)V"
                           [idx, val, RValue arr]
       getIntArray arr
 
@@ -89,7 +89,7 @@ sa3 cb =
     rslt <- runDefSimulator cb sbe $ do
       arr <- newIntArray intArrayTy symVals
       [(_, Nothing)] <-
-        runStaticMethod "Arrays" "update" "(II[I)V"
+        runStaticMethod (mkClassName "Arrays") "update" "(II[I)V"
           [IValue (mkCInt 32 $ fromIntegral n - 1), val, RValue arr]
       getIntArray arr
 
@@ -118,7 +118,7 @@ sa4 cb =
       forM_ (map (tint . fromIntegral) [0..nI] `zip` map RValue inners) $
         uncurry (setArrayValue twodim)
       [(_, Nothing)] <-
-        runStaticMethod "Arrays" "update" "(III[[I)V"
+        runStaticMethod (mkClassName "Arrays") "update" "(III[[I)V"
           (map (IValue . tint) [0, 0, 42] ++ [RValue twodim])
       concat <$> (mapM getIntArray =<< getRefArray twodim)
 

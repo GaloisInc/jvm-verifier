@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verinf.Symbolic.OpCache
 Description      :
 License          : BSD3
 Stability        : stable
@@ -26,7 +26,7 @@ module Verinf.Symbolic.OpCache (
   -- ** Common operations.
   , eqOp
   , iteOp
-  , truncOp 
+  , truncOp
   , signedExtOp
   , unsignedExtOp
   -- ** Boolean operations
@@ -127,7 +127,7 @@ cachedOpDef (OC r) opId opFn = unsafePerformIO $ do
         return opDef
 
 -- | A function used for definition a (possibly recursive function).
-type OpDefinition 
+type OpDefinition
   = DagEngine -- ^ Dag engine to use for creating term
     -> Op -- ^ Operator (for recursive ops).
     -> V.Vector DagTerm -- ^ Inputs for operator definition.
@@ -169,7 +169,7 @@ defineOp (OC r) nm argTypes resType rhsFn = do
   return (mkOpDef rhs)
 
 -- | Create uninterpreted operator with given name and index.
-uninterpretedOp :: OpCache 
+uninterpretedOp :: OpCache
                 -> String
                 -> V.Vector DagType
                 -> DagType
@@ -693,7 +693,7 @@ mulOp :: WidthExpr -> Op
 mulOp w = mkOp mulOpDef (mkWidthSubst w)
 
 signedDivOpDef :: OpDef
-signedDivOpDef = binaryIntOpDef Op.SignedDiv "div" mulPrec cSignedQuot lQuot 
+signedDivOpDef = binaryIntOpDef Op.SignedDiv "div" mulPrec cSignedQuot lQuot
 
 -- | Performs signed integer division.
 signedDivOp :: WidthExpr -> Op
@@ -777,7 +777,7 @@ unsignedLtOp w = mkOp unsignedLtOpDef (mkWidthSubst w)
 lEqConstant :: (?be :: BitEngine l, LV.Storable l)
             => LV.Vector l -> Int -> l
 lEqConstant v i =
-  LV.foldl' (\r j -> let l = v LV.! j 
+  LV.foldl' (\r j -> let l = v LV.! j
                       in r `lAnd` (if i `testBit` j then l else lNeg l))
             lTrue
             (LV.enumFromN 0 (LV.length v))
@@ -826,7 +826,7 @@ getArrayValueOpDef =
         , opDefEval = evalStrictPure2 Just Just $ \_ -> cGetArrayValue
         , opDefLitFn = litStrictPure2 isLVN isLV $ \va vi ->
              let len = V.length va
-              in case len of 
+              in case len of
                    0 -> error "internal: Current implementation does not allow bitblasting a 0 length vector"
                    _ -> lMuxInteger lIteLitResult (len-1) vi (va V.!)
         }

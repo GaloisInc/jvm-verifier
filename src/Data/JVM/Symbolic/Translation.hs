@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Data.JVM.Symbolic.Translation
 Description      : Translation of JVM instructions to symbolic form
 License          : BSD3
 Stability        : experimental
@@ -33,7 +33,7 @@ import Control.Monad.RWS hiding ((<>))
 import Data.Int
 import qualified Data.Map as M
 import Data.Maybe
-import Prelude hiding (EQ, LT, GT)
+import Prelude hiding (EQ, LT, GT, (<>))
 import Text.PrettyPrint
 
 import Data.JVM.Symbolic.AST

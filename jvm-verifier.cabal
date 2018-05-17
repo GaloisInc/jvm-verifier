@@ -84,7 +84,7 @@ library
   if !flag(build-library)
     buildable: False
 
-  GHC-options: -Wall -Werror -fno-ignore-asserts
+  GHC-options: -Wall -fno-ignore-asserts
   if impl(ghc == 8.0.1)
     ghc-options: -Wno-redundant-constraints
 
@@ -126,7 +126,6 @@ executable jss
   hs-source-dirs: jss
   main-is: Main_jss.hs
   ghc-options: -O2 -Wall -fno-ignore-asserts
-  ghc-prof-options: -prof -auto-all
 
 executable jvmgraph
   if !flag(build-jvmgraph)
@@ -141,7 +140,6 @@ executable jvmgraph
   hs-source-dirs : jvmgraph
   main-is : Main.hs
   ghc-options      : -O2 -Wall -fno-ignore-asserts
-  ghc-prof-options : -prof -auto-all
 
 test-suite test-java
   type:       exitcode-stdio-1.0
@@ -186,7 +184,6 @@ test-suite test-java
     Tests.SHA384
     Verinf.Symbolic.Lit.ABC
   ghc-options      : -O2 -Wall -fno-ignore-asserts
-  ghc-prof-options : -prof -auto-all
 
 benchmark Benchmarks
   type:       exitcode-stdio-1.0
@@ -199,7 +196,6 @@ benchmark Benchmarks
     , abcBridge
     , array
     , containers
-    , hastache >= 0.5
     , statistics >= 0.10
     , criterion >= 0.6
     , directory

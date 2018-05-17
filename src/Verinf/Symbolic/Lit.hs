@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verinf.Symbolic.Lit
 Description      :
 License          : BSD3
 Stability        : stable
@@ -271,11 +271,11 @@ beSubInt be vx vy = return (snd (let ?be = be in lFullSub vx vy))
 -- | Returns the product of two lit vectors.
 beMulInt :: (LV.Storable l)
          => BitEngine l -> LitVector l -> LitVector l -> IO (LitVector l)
-beMulInt be vx vy = CE.assert (LV.length vx == LV.length vy) 
+beMulInt be vx vy = CE.assert (LV.length vx == LV.length vy)
                   $ mulStepM 0 (LV.replicate n lf)
   where lf = beFalse be
         n = LV.length vx
-        mulStepM i r 
+        mulStepM i r
           | i == n = return r
           | otherwise = mulStepM (i+1) =<< beIteVector be (vy LV.! i) nextIntM (return r)
           where nextIntM = beAddInt be r (beShiftLeftC vx lf i)

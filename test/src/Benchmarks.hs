@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Main
 Description      : various performance benchmarks for JSS
 License          : BSD3
 Stability        : provisional

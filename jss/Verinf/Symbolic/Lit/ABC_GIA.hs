@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verinf.Symbolic.Lit.ABC_GIA
 Description      :
 License          : BSD3
 Stability        : stable

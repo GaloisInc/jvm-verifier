@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verinf.Symbolic.UnionFind
 Description      :
 License          : BSD3
 Stability        : stable

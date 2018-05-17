@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Tests.RC564
 Description      :
 License          : BSD3
 Stability        : provisional
@@ -91,7 +91,7 @@ runRC564 keyVars inpVars = do
   inpArray <- newIntArray byteArrayType inpVars
   l16 <- withSBE $ \sbe -> termInt sbe 16
   outArray <- newMultiArray byteArrayType [l16]
-  _ <- runStaticMethod "TestRC564"
+  _ <- runStaticMethod (mkClassName "TestRC564")
                        "rc564_encrypt"
                        "([B[B[B)V"
                        [ RValue keyArray

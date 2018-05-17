@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verinf.Symbolic.Lit.DataTypes
 Description      :
 License          : BSD3
 Stability        : stable
@@ -24,6 +24,7 @@ import Data.Monoid
 import Data.Traversable (Traversable)
 #endif
 import qualified Data.Foldable as Fold
+import Data.Semigroup
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Vector as V
@@ -46,13 +47,16 @@ data QuantifierSet l = QS !Quantifier !(Seq l)
 newtype Quantifiers l = Q (Seq (QuantifierSet l))
   deriving (Functor, Foldable, Traversable)
 
-instance Monoid (Quantifiers l) where
-  mempty = Q Seq.empty
-  mappend (Q x) (Q y) = Q $
+instance Semigroup (Quantifiers l) where
+  Q x <> Q y = Q $
     case (Seq.viewr x, Seq.viewl y) of
       (x' Seq.:> QS xq xl, QS yq yl Seq.:< y') | xq == yq ->
         x' Seq.>< (QS yq (xl `mappend` yl) Seq.<| y')
       _ -> x Seq.>< y
+
+instance Monoid (Quantifiers l) where
+  mempty = Q Seq.empty
+  mappend = (<>)
 
 forall :: l -> Quantifiers l
 forall l = Q $ Seq.singleton $ QS Forall $ Seq.singleton $! l

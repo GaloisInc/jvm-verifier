@@ -4,7 +4,7 @@
 {-# LANGUAGE CPP     #-}
 
 {- |
-Module           : $Header$
+Module           : Tests.ExpectedErrors
 Description      :
 License          : BSD3
 Stability        : provisional
@@ -61,14 +61,14 @@ go cb a = do
 
 -- | Negative test case: fail on single path exception
 exc1 :: TrivialCase
-exc1 cb = go cb . void $ runStaticMethod "Trivial" "always_throws" "()V" []
+exc1 cb = go cb . void $ runStaticMethod (mkClassName "Trivial") "always_throws" "()V" []
 
 -- | Negative test case: expect fail when all paths raise an exception
 exc2 :: TrivialCase
 exc2 cb = go cb $ do
   sbe <- use backend
   b <- liftIO $ freshInt sbe
-  void $ runStaticMethod "Errors" "allPathsThrowExc" "(Z)V" [IValue b]
+  void $ runStaticMethod (mkClassName "Errors") "allPathsThrowExc" "(Z)V" [IValue b]
 
 --------------------------------------------------------------------------------
 -- Array (negative) tests
@@ -80,7 +80,7 @@ sa1 cb = go cb $ do
   symIdx <- liftIO $ IValue <$> freshInt sbe
   arr <- newMultiArray (ArrayType intArrayTy) [mkCInt 32 1, mkCInt 32 1]
   [(_, Just (RValue r))] <-
-    runStaticMethod "Errors" "getArrayRef" "(I[[I)[I"
+    runStaticMethod (mkClassName "Errors") "getArrayRef" "(I[[I)[I"
       [symIdx , RValue arr]
   getIntArray r
 
@@ -103,7 +103,7 @@ sa4 cb = go cb $ do
   arr <- newMultiArray (ArrayType intArrayTy) [mkCInt 32 1, mkCInt 32 1]
   elm <- newIntArray intArrayTy [mkCInt 32 1]
   [(_pd, Nothing)] <-
-    runStaticMethod "Errors" "updArrayRef" "(I[I[[I)V"
+    runStaticMethod (mkClassName "Errors") "updArrayRef" "(I[I[[I)V"
       [symIdx, RValue elm, RValue arr]
   return ()
 

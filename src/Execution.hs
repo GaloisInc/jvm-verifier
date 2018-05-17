@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Execution
 Description      : A basic subset of the JSS API for basic execution
 License          : BSD3
 Stability        : provisional
@@ -8,7 +8,7 @@ Point-of-contact : jhendrix, acfoltzer
 
 {-# LANGUAGE ConstraintKinds #-}
 
-module Execution 
+module Execution
 {-# DEPRECATED "use Execution.JavaSemantics with Verifier.Java.Simulator" #-}
   ( Codebase
   , AtomicValue(..)
@@ -38,8 +38,8 @@ import Verifier.Java.Simulator
 
 -- | Run the static @main@ method of a class, returning a list of all
 -- successful paths and their return values (if present).
-runMain :: MonadSim sbe m 
-        => String
+runMain :: MonadSim sbe m
+        => ClassName
         -- ^ The name of the class containing @main@
         -> [Value (SBETerm sbe)]
         -- ^ Arguments to @main@

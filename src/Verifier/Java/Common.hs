@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verifier.Java.Common
 Description      : Shared types and utility functions for JSS
 License          : BSD3
 Stability        : stable
@@ -166,7 +166,7 @@ module Verifier.Java.Common
   , assert
   ) where
 
-import Prelude hiding (EQ, GT, LT)
+import Prelude hiding (EQ, GT, LT, (<>))
 import qualified Prelude as P
 
 #if !MIN_VERSION_base(4,8,0)
@@ -204,9 +204,9 @@ import Verifier.Java.Codebase hiding (lookupClass)
 import qualified Verifier.Java.Codebase as Codebase
 
 -- | A Simulator is a monad transformer around a symbolic backend
-newtype Simulator sbe (m :: * -> *) a = 
+newtype Simulator sbe (m :: * -> *) a =
   SM { runSM :: ExceptT (InternalExc sbe m) (StateT (State sbe m) IO) a }
-  deriving 
+  deriving
     ( Functor
     , Applicative
     , Monad
@@ -229,7 +229,7 @@ catchSM (SM m) h = SM (catchE m (runSM . h))
 instance (MonadException m) => MonadException (ExceptT e m) where
     controlIO f = ExceptT $ controlIO $ \(RunIO run) -> let
                     run' = RunIO (fmap ExceptT . run . runExceptT)
-                    in fmap runExceptT $ f run'  
+                    in fmap runExceptT $ f run'
 
 -- | These constraints are common to monads with a symbolic execution
 -- backend. Enable @{-# LANGUAGE ConstraintKinds #-}@ to use this in
@@ -243,9 +243,9 @@ type StaticOverride sbe m = [Value' sbe m] -> Simulator sbe m ()
 
 data State sbe m = State {
     _codebase          :: !Codebase
-  , _instanceOverrides :: !(Map (String, MethodKey) (InstanceOverride sbe m))
+  , _instanceOverrides :: !(Map (ClassName, MethodKey) (InstanceOverride sbe m))
     -- ^ Maps instance method identifiers to a function for executing them.
-  , _staticOverrides   :: !(Map (String, MethodKey) (StaticOverride sbe m))
+  , _staticOverrides   :: !(Map (ClassName, MethodKey) (StaticOverride sbe m))
     -- ^ Maps static method identifiers to a function for executing them.
   , _ctrlStk           :: CS sbe
   , _nextPSS           :: PathDescriptor
@@ -257,7 +257,7 @@ data State sbe m = State {
   , _backend           :: Backend sbe
   , _errorPaths        :: [ErrorPath sbe]
   , _printErrPaths     :: Bool
-  , _breakpoints       :: Map (String, Method) (Set PC)
+  , _breakpoints       :: Map (ClassName, Method) (Set PC)
   , _trBreakpoints     :: S.Set TransientBreakpoint
   , _evHandlers        :: SEH sbe m
   }
@@ -313,7 +313,7 @@ data BranchAction sbe
   -- path for the @else@ of a branch with condition @cond@. When
   -- applied, it starts running the @then@ branch with the suspended
   -- path @p@.
-  = BranchRunTrue (SBETerm sbe) (Path sbe)   
+  = BranchRunTrue (SBETerm sbe) (Path sbe)
   -- | @BranchMerge a cond p@ is the continuation after finishing a
   -- path for the @then@ of a branch with condition cond. When
   -- applied, the finished path @p@ from the @else@ branch is merged
@@ -402,7 +402,7 @@ data Path' term = Path {
   }
 
 data Memory term = Memory {
-    _memInitialization :: !(Map String InitializationStatus)
+    _memInitialization :: !(Map ClassName InitializationStatus)
     -- ^ The initialization status of classes.
   , _memStaticFields   :: !(Map FieldId (Value term))
     -- ^ The values of all static fields.
@@ -413,7 +413,7 @@ data Memory term = Memory {
     -- supported).
   , _memRefArrays      :: !(Map Ref (Array Int32 Ref))
     -- ^ The values of reference arrays.
-  , _memClassObjects   :: !(Map String Ref)
+  , _memClassObjects   :: !(Map ClassName Ref)
     -- ^ References pointing to java.lang.Class objects.
   }
 
@@ -423,7 +423,7 @@ emptyMemory = Memory M.empty M.empty M.empty M.empty M.empty M.empty
 -- | A JVM call frame
 data CallFrame term
   = CallFrame {
-      _cfClass       :: !String
+      _cfClass       :: !ClassName
       -- ^ Name of the class containing the current method
     , _cfMethod      :: !Method
       -- ^ The current method
@@ -600,8 +600,8 @@ modifyPathM ctx f =
 
 -- | Modify the current path with the given function. Fails if there
 -- is no current path.
-modifyPathM_ :: Doc 
-             -> (Path sbe -> Simulator sbe m (Path sbe)) 
+modifyPathM_ :: Doc
+             -> (Path sbe -> Simulator sbe m (Path sbe))
              -> Simulator sbe m ()
 modifyPathM_ ctx f = modifyPathM ctx (\p -> ((),) <$> f p)
 
@@ -616,7 +616,7 @@ getPath ctx = do
 -- | Obtain the current path, if present.
 getPathMaybe :: (Functor m, Monad m) => Simulator sbe m (Maybe (Path sbe))
 getPathMaybe = uses ctrlStk currentPath
-  
+
 
 -- | Get the memory model of the current path. If there is no current
 -- path, this fails.
@@ -627,11 +627,11 @@ getMem ctx = do
 
 -- | Modify the current call frame with the given function, which may
 -- also return a result. Fails if there is no current call frame.
-modifyCallFrameM :: 
+modifyCallFrameM ::
      Doc
   -> (CallFrame (SBETerm sbe) -> Simulator sbe m (a, (CallFrame (SBETerm sbe))))
   -> Simulator sbe m a
-modifyCallFrameM ctx f = 
+modifyCallFrameM ctx f =
   modifyPathM ctx $ \p ->
     case p^.pathStack of
       [] -> err . render $ ctx <> ": no stack frames"
@@ -641,7 +641,7 @@ modifyCallFrameM ctx f =
 
 -- | Modify the current call frame with the given function. Fails if
 -- there is no current call frame.
-modifyCallFrameM_ :: 
+modifyCallFrameM_ ::
      Doc
   -> (CallFrame (SBETerm sbe) -> Simulator sbe m (CallFrame (SBETerm sbe)))
   -> Simulator sbe m ()
@@ -649,7 +649,7 @@ modifyCallFrameM_ ctx f = modifyCallFrameM ctx (\cf -> ((),) <$> f cf)
 
 -- | Return the enclosing class of the method being executed by the
 -- current path
-getCurrentClassName :: Simulator sbe m String
+getCurrentClassName :: Simulator sbe m ClassName
 getCurrentClassName =
   modifyCallFrameM "getCurrentClassName" $ \cf -> return (cf^.cfClass, cf)
 
@@ -665,18 +665,18 @@ getCurrentLineNumber pc = do
   return $ sourceLineNumberOrPrev method pc
 
 -- | Resolve the given class in the simulator's current codebase
-lookupClass :: String -> Simulator sbe m Class
+lookupClass :: ClassName -> Simulator sbe m Class
 lookupClass cName = do
   cb <- use codebase
   mcl <- liftIO $ Codebase.tryLookupClass cb cName
-  maybe (err . render $ "class not found:" <+> text cName) return mcl
+  maybe (err . render $ "class not found:" <+> text (unClassName cName)) return mcl
 
 
 -- | Push a new call frame to the current path, if any. Needs the
 -- initial function arguments, and basic block (in the caller's
 -- context) to return to once this method is finished.
-pushCallFrame :: String
-              -- ^ Class name   
+pushCallFrame :: ClassName
+              -- ^ Class name
               -> Method
               -- ^ Method
               -> BlockId
@@ -686,7 +686,7 @@ pushCallFrame :: String
               -> CS sbe
               -- ^ Current control stack
               -> Maybe (CS sbe)
-pushCallFrame clname method retBB locals cs = 
+pushCallFrame clname method retBB locals cs =
     case cs of
       CompletedCS Nothing -> error "all paths failed"
       CompletedCS (Just p) -> Just $ ActiveCS (pushFrame p) EmptyCont
@@ -743,7 +743,7 @@ jumpCurrentPath b (ActiveCS p k) =
 -- the optional return value on the operand stack of the next frame.
 returnCurrentPath :: forall sbe m . (Functor m, MonadIO m)
                   => Maybe (Value (SBETerm sbe))
-                  -> CS sbe 
+                  -> CS sbe
                   -> Simulator sbe m (CS sbe)
 returnCurrentPath _ CompletedCS{} = err "path is completed"
 returnCurrentPath _ ResumedCS{}   = err "path is completed"
@@ -764,7 +764,7 @@ returnCurrentPath retVal (ActiveCS p k) = do
 branchError :: (Functor m, MonadIO m)
             => BranchAction sbe -- ^ action to run if branch occurs.
             -> SimCont sbe      -- ^ previous continuation
-            -> Simulator sbe m (CS sbe) 
+            -> Simulator sbe m (CS sbe)
 branchError ba k = do
   sbe <- use backend
   case ba of
@@ -793,11 +793,11 @@ markCurrentPathAsError cs = case cs of
   ActiveCS _ (SuspCont _ _)       -> return $ CompletedCS Nothing
 
 addPathAssertion :: (MonadIO m, Functor m)
-                 => Backend sbe 
-                 -> SBETerm sbe 
-                 -> Path sbe 
+                 => Backend sbe
+                 -> SBETerm sbe
+                 -> Path sbe
                  -> m (Path sbe)
-addPathAssertion sbe t p = 
+addPathAssertion sbe t p =
   p & pathAssertions %%~ \a -> liftIO (termAnd sbe a t)
 
 -- | Get top call frame from a path
@@ -807,19 +807,19 @@ currentCallFrame p = p^.pathStack^?_head
 -- | Called at symbolic return instructions and jumps to new basic
 -- blocks to check whether it is time to merge a path and move on to
 -- the next continuation. There are three cases:
--- 
+--
 --   1. There are no more call frames on the stack, and the
 --   continuation is empty. This leaves us with a completed or resumed
 --   control stack containing the current path.
 --
 --   1a. If we are resuming a parent computation, merge appropriate
 --   fields from the path.
--- 
+--
 --   2. We've reached the current path's 'MergePoint', so the current
 --   continuation is complete. Depending on the type of continuation,
 --   we either move on to a different path, or merge the current path
 --   with an already-finished path before continuing.
--- 
+--
 --   3. The current path's merge point does not indicate the current
 --   location, so we continue with the same path and continuation.
 mergeNextCont :: (Functor m, MonadIO m)
@@ -870,17 +870,17 @@ mergeNextCont p h = return (ActiveCS p h)
 atMergePoint :: Path' term -> MergePoint -> Bool
 p `atMergePoint` point = case point of
   ReturnPoint n -> n == p^.pathStackHt
-  PostdomPoint n b -> 
+  PostdomPoint n b ->
     n == p^.pathStackHt && Just b == p^.pathBlockId
 
-mergeRetVals :: MonadIO m 
+mergeRetVals :: MonadIO m
              => SBETerm sbe
              -> Maybe (Value (SBETerm sbe))
              -> Maybe (Value (SBETerm sbe))
              -> Simulator sbe m (Maybe (Value (SBETerm sbe)))
 mergeRetVals c (Just rv1) (Just rv2) = Just <$> mergeValues c rv1 rv2
 mergeRetVals _ Nothing    Nothing    = return Nothing
-mergeRetVals _ _          _          = 
+mergeRetVals _ _          _          =
     throwSM $ strExc "return value mismatch when merging paths"
 
 mergeMemories :: MonadIO m
@@ -900,7 +900,7 @@ mergeMemories assertions mem1 mem2 = do
       mergeTup (l1, v1) (l2, v2) = do
         assert "mergeMemories lengths equal" (l1 == l2)
         (,) l1 <$> (liftIO $ termIte sbe assertions v1 v2)
-            
+
   mergedSFields <- mergeBy (mergeValues assertions) sFields1 sFields2
   mergedIFields <- mergeBy (mergeValues assertions) iFields1 iFields2
   mergedScArrays <- mergeBy mergeTup scArrays1 scArrays2
@@ -950,13 +950,13 @@ mergeBy mrg m1 m2 = leftUnion <$> merged
 
 
 -- | Merge the two symbolic values under the given assertions
-mergeValues :: MonadIO m 
-            => SBETerm sbe 
-            -> Value (SBETerm sbe) 
-            -> Value (SBETerm sbe) 
-            -> Simulator sbe m (Value (SBETerm sbe)) 
+mergeValues :: MonadIO m
+            => SBETerm sbe
+            -> Value (SBETerm sbe)
+            -> Value (SBETerm sbe)
+            -> Simulator sbe m (Value (SBETerm sbe))
 mergeValues assertions x y = do
-  sbe <- use backend 
+  sbe <- use backend
   let abort = err . render
       t1 <-> t2 = liftIO $ termIte sbe assertions t1 t2
       mergeV (IValue v1) (IValue v2)             = IValue <$> v1 <-> v2
@@ -974,11 +974,11 @@ mergeValues assertions x y = do
       mergeV (RValue NullRef) (RValue NullRef) = return x
       mergeV (RValue (Ref r1 ty1)) (RValue (Ref r2 ty2)) = do
         when (r1 /= r2) $
-          abort $ "References differ when merging:" 
+          abort $ "References differ when merging:"
           <+> ppValue sbe x <+> "and" <+> ppValue sbe y
         assert "mergeValues types equal" (ty1 == ty2)
         return x
-      mergeV _ _ = 
+      mergeV _ _ =
         abort $ "Unsupported or mismatched type when merging values:"
         <+> ppValue sbe x <+> "and" <+> ppValue sbe y
   mergeV x y
@@ -996,7 +996,7 @@ breakpointToPC method (BreakLineNum n) = lookupLineStartPC method n
 
 ppJavaException :: JavaException term -> Doc
 ppJavaException (JavaException (Ref _ (ClassType nm)) _) =
-  "Exception of type" <+> text (slashesToDots nm)
+  "Exception of type" <+> text (slashesToDots (unClassName nm))
 ppJavaException (JavaException r _) =
   "Unknown exception type" <+> ppRef r
 
@@ -1026,7 +1026,7 @@ ppPath sbe p =
     Just cf ->
       text "Path #"
       <>  integer (p^.pathName)
-      <>  brackets ( text (cf^.cfClass) <> "." <> ppMethod (cf^.cfMethod)
+      <>  brackets ( text (unClassName (cf^.cfClass)) <> "." <> ppMethod (cf^.cfMethod)
                    <> "/" <> maybe "none" ppBlockId (p^.pathBlockId)
                    )
       <>  colon
@@ -1038,7 +1038,7 @@ ppPath sbe p =
 
 ppStackTrace :: [CallFrame term] -> Doc
 ppStackTrace cfs = braces . vcat $
-  [ text cName <> "." <> ppMethod method
+  [ text (unClassName cName) <> "." <> ppMethod method
   | CallFrame { _cfClass = cName, _cfMethod = method } <- cfs
   ]
 
@@ -1052,22 +1052,22 @@ ppMemory :: Backend sbe
          -> Memory (SBETerm sbe)
          -> Doc
 ppMemory sbe mem = hang ("memory" <> colon) 2 (brackets . commas $ rest)
-  where rest = [ 
+  where rest = [
             hang ("class initialization" <> colon) 2 $
-              ppMap text (text . show) (mem^.memInitialization)
-          , hang ("static fields" <> colon) 2 $ 
+              ppMap (text . unClassName) (text . show) (mem^.memInitialization)
+          , hang ("static fields" <> colon) 2 $
               ppMap (text . ppFldId) (ppValue sbe) (mem^.memStaticFields)
           , hang ("instance fields" <> colon) 2 $
               ppMap ppInstanceFieldRef (ppValue sbe) (mem^.memInstanceFields)
-          , let ppArr (len, a) = brackets (int (fromIntegral len)) 
+          , let ppArr (len, a) = brackets (int (fromIntegral len))
                                  <+> prettyTermD sbe a
-            in hang ("scalar arrays" <> colon) 2 $ 
+            in hang ("scalar arrays" <> colon) 2 $
                  ppMap ppRef ppArr (mem^.memScalarArrays)
           , let ppArr = ppArray (int . fromIntegral) ppRef
             in hang ("reference arrays" <> colon) 2 $
                  ppMap ppRef ppArr (mem^.memRefArrays)
           , hang ("class objects" <> colon) 2 $
-              ppMap text ppRef (mem^.memClassObjects)
+              ppMap (text . unClassName) ppRef (mem^.memClassObjects)
           ]
 
 dumpMemory :: (Functor m, MonadIO m) => Doc -> Simulator sbe m ()
@@ -1130,7 +1130,7 @@ dumpCtrlStk = do
 ppFailRsn :: FailRsn -> Doc
 ppFailRsn (FailRsn msg) = text msg
 
-setInitializationStatus :: String
+setInitializationStatus :: ClassName
                         -> InitializationStatus
                         -> Memory term
                         -> Memory term
@@ -1155,17 +1155,17 @@ dumpCurrentPath = do
 
 ppInternalExc :: InternalExc sbe m -> Doc
 ppInternalExc exc = case exc of
-  ErrorPathExc rsn s -> 
+  ErrorPathExc rsn s ->
       "internal error" <> colon <+> ppFailRsn rsn <+> ppState s
-  UnknownExc Nothing -> 
+  UnknownExc Nothing ->
       "unknown error"
-  UnknownExc (Just rsn) -> 
+  UnknownExc (Just rsn) ->
       "unknown error" <> colon <+> ppFailRsn rsn
 
-ppBreakpoints :: Map (String, Method) (Set PC) -> Doc
+ppBreakpoints :: Map (ClassName, Method) (Set PC) -> Doc
 ppBreakpoints bps =
   hang "breakpoints set:" 2 . vcat $
-    [ text clName <> "." <> ppMethod method <> "%" <> text (show pc)
+    [ text (unClassName clName) <> "." <> ppMethod method <> "%" <> text (show pc)
     | ((clName, method), pcs) <- M.toList bps
     , pc <- S.toList pcs
     ]
@@ -1185,7 +1185,7 @@ backend = lens _backend (\s v -> s { _backend = v })
 
 -- src/Verifier/Java/Common.hs:1:1: Splicing declarations
 --     makeLenses ''State
-breakpoints :: Simple Lens (State sbe m) (Map (String, Method) (Set PC))
+breakpoints :: Simple Lens (State sbe m) (Map (ClassName, Method) (Set PC))
 breakpoints = lens _breakpoints (\s v -> s { _breakpoints = v })
 {-# INLINE breakpoints #-}
 
@@ -1345,7 +1345,7 @@ evHandlers
 {-# INLINE evHandlers #-}
 instanceOverrides ::
   forall sbe_aDu4 m_aDu5.
-  Lens' (State sbe_aDu4 m_aDu5) (Map (String,
+  Lens' (State sbe_aDu4 m_aDu5) (Map (ClassName,
                                       MethodKey) (InstanceOverride sbe_aDu4 m_aDu5))
 instanceOverrides
   _f_aEoq
@@ -1539,7 +1539,7 @@ simulationFlags
 {-# INLINE simulationFlags #-}
 staticOverrides ::
   forall sbe_aDu4 m_aDu5.
-  Lens' (State sbe_aDu4 m_aDu5) (Map (String,
+  Lens' (State sbe_aDu4 m_aDu5) (Map (ClassName,
                                       MethodKey) (StaticOverride sbe_aDu4 m_aDu5))
 staticOverrides
   _f_aEpN
@@ -1876,7 +1876,7 @@ pathStackHt
 --   ======>
 -- src/Verifier/Java/Common.hs:442:1-19
 memClassObjects ::
-  forall term_a3sz. Lens' (Memory term_a3sz) (Map String Ref)
+  forall term_a3sz. Lens' (Memory term_a3sz) (Map ClassName Ref)
 memClassObjects
   _f_a5Ex
   (Memory __memInitialization_a5Ey
@@ -1897,7 +1897,7 @@ memClassObjects
 {-# INLINE memClassObjects #-}
 memInitialization ::
   forall term_a3sz.
-  Lens' (Memory term_a3sz) (Map String InitializationStatus)
+  Lens' (Memory term_a3sz) (Map ClassName InitializationStatus)
 memInitialization
   _f_a5EF
   (Memory __memInitialization'_a5EG
@@ -2004,7 +2004,7 @@ memStaticFields
 --     makeLenses ''CallFrame
 --   ======>
 --    src/Verifier/Java/Common.hs:443:1-22
-cfClass :: forall term_a3sy. Lens' (CallFrame term_a3sy) String
+cfClass :: forall term_a3sy. Lens' (CallFrame term_a3sy) ClassName
 cfClass
   _f_a5FV
   (CallFrame __cfClass'_a5FW

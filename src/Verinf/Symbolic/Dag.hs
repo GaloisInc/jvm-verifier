@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verinf.Symbolic.Dag
 Description      : Provides a mechanism for creating new dags.
 License          : BSD3
 Stability        : stable
@@ -51,11 +51,11 @@ data DagEngine = DagEngine {
 
 -- | Returns types of inputs so far.
 deInputTypes :: DagEngine -> IO (Vector DagType)
-deInputTypes de = V.map termType <$> deInputTerms de 
+deInputTypes de = V.map termType <$> deInputTerms de
 
 -- | Return number of input nodes created so far.
 deGetInputCount :: DagEngine -> IO Int
-deGetInputCount de = V.length <$> deInputTerms de 
+deGetInputCount de = V.length <$> deInputTerms de
 
 -- | Create TermSemantics from DagEngine
 deTermSemantics :: DagEngine -> TermSemantics IO DagTerm
@@ -103,7 +103,7 @@ getBinding bindingsRef a = do
 
 mkExactDagEngine :: IO DagEngine
 mkExactDagEngine = do
-  bindingsRef <- newIORef 
+  bindingsRef <- newIORef
     NodeDagEngineState {
         bindings     = Map.empty
       , nextAppIndex = 0
@@ -197,7 +197,7 @@ mkConstantFoldingDagEngine = do
           3 -> deApplyTernary op (args V.! 0) (args V.! 1) (args V.! 2)
           _ -> assert (opArgTypes op == V.map termType args) $
                  case (opEval op, V.mapM termConst args) of
-                   (VectorOpEval fn, Just cns) -> 
+                   (VectorOpEval fn, Just cns) ->
                      mkConst op $ fn (opSubst op) (V.map return cns)
                    _ -> getBinding bindingsRef (App op args)
     , deFreshInput = \tp -> do
@@ -221,4 +221,3 @@ data SymbolicExc
   deriving (Show,Typeable)
 
 instance Exception SymbolicExc
-

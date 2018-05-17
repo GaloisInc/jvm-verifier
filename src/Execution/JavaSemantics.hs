@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Execution.JavaSemantics
 Description      : An interface for implementing JVM bytecode interpreters
 License          : BSD3
 Stability        : stable
@@ -80,15 +80,15 @@ class ( Monad m
   -- Control related functions {{{1
 
   getCodebase :: m Codebase
-  
+
   -- | Returns name of current class in
-  getCurrentClassName :: m String
+  getCurrentClassName :: m ClassName
 
   -- | Returns current method
   getCurrentMethod :: m Method
 
   -- | Ensures class with given name is initialized.
-  initializeClass :: String -> m ()
+  initializeClass :: ClassName -> m ()
 
   -- | Emit a warning during execution
   warning :: Doc -> m ()
@@ -396,7 +396,7 @@ class ( Monad m
   -- | @newObject className@ returns a reference to a new instance of @className@.
   -- NOTE: Will initialize class if it has not already been initialized.
   --       Fields are initialized to have default value.
-  newObject :: String -> m (JSRef m)
+  newObject :: ClassName -> m (JSRef m)
 
   -- | @isValidEltOfArray elt array@ returns true if @elt@ can be stored in
   -- arrayRef.
@@ -422,7 +422,7 @@ class ( Monad m
   -- | @superHasType ref typeName@ returns true if super class of @ref@ has
   -- type @typeName@.
   -- Note: Requires @ref@ points to a class type.
-  superHasType :: JSRef m -> String -> m (JSBool m)
+  superHasType :: JSRef m -> ClassName -> m (JSBool m)
 
   -- | @rEq x y@ returns true if x == y.
   rEq :: JSRef m -> JSRef m -> m (JSBool m)
@@ -435,7 +435,7 @@ class ( Monad m
   refFromString :: String -> m (JSRef m)
 
   -- Returns the @Class@ instance corresponding to the given class name.
-  getClassObject :: String -> m (JSRef m)
+  getClassObject :: ClassName -> m (JSRef m)
 
   -- Heap related functions {{{1
 
@@ -511,16 +511,16 @@ class ( Monad m
   -- a newline when @nl@ is True, and in binary when @binary@ is true.
   printStream :: Bool -> Bool -> [JSValue m] -> m ()
 
-  createInstance :: String -> Maybe [(Type, JSValue m)] -> m (JSRef m)
+  createInstance :: ClassName -> Maybe [(Type, JSValue m)] -> m (JSRef m)
 
-  -- | Check an assertion in the current exection state. 
+  -- | Check an assertion in the current exection state.
   assertTrueM :: m (JSBool m) -- ^ Condition to check
-              -> String       -- ^ Name of exception to throw if condition is false
+              -> ClassName    -- ^ Name of exception to throw if condition is false
               -> m ()
-  
+
   -- | Check a negated assertion in the current execution state.
   assertFalseM :: m (JSBool m) -- ^ Condition to check
-               -> String       -- ^ Name of exception to throw if condition is true
+               -> ClassName    -- ^ Name of exception to throw if condition is true
                -> m ()
   assertFalseM cond exc = assertTrueM (bNot =<< cond) exc
 
@@ -539,21 +539,21 @@ guardArray arrayRef index = do
   zero <- iConst 0
   arrayLen <- arrayLength arrayRef
   assertTrueM (zero `iLeq` index &&& index `iLt` arrayLen)
-    "java/lang/ArrayIndexOutOfBoundsException"
- 
+    (mkClassName "java/lang/ArrayIndexOutOfBoundsException")
+
 
 -- | Creates an exception of the given class (which is assumed to have a no
 -- argument constructor) and throws it.
-createAndThrow :: JavaSemantics m => String -> m ()
+createAndThrow :: JavaSemantics m => ClassName -> m ()
 createAndThrow = (`createInstance` Nothing) >=> throw
 
 -- | @java.lang.NullPointerException@
-nullPtrExc :: String
-nullPtrExc = "java/lang/NullPointerException"
+nullPtrExc :: ClassName
+nullPtrExc = mkClassName "java/lang/NullPointerException"
 
 throwNullPtrExc :: JavaSemantics m => m a
 throwNullPtrExc = do
-  createAndThrow "java/lang/NullPointerException"
+  createAndThrow nullPtrExc
   error "unreachable"
 
 -- | If the given reference is @null@, throw a @java.lang.NullPointerException@

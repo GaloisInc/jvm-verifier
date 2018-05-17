@@ -1,6 +1,6 @@
 {-# LANGUAGE ImplicitParams #-}
 {- |
-Module           : $Header$
+Module           : Verinf.Symbolic.Lit.Functional
 Description      :
 License          : BSD3
 Stability        : provisional

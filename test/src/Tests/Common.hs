@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Tests.Common
 Description      :
 License          : BSD3
 Stability        : provisional
@@ -12,7 +12,7 @@ Point-of-contact : atomb, jhendrix
 {-# LANGUAGE TypeFamilies         #-}
 {-# LANGUAGE ViewPatterns         #-}
 {-# LANGUAGE CPP                  #-}
-module Tests.Common 
+module Tests.Common
   ( module Text.PrettyPrint
   , module Tests.Common
   , module Language.JVM.Parser
@@ -23,7 +23,7 @@ module Tests.Common
   , module Verinf.Symbolic.Lit.ABC
   , module Backends
   , BitEngine(..)
-  
+
   ) where
 
 import Control.Monad
@@ -103,7 +103,7 @@ runSimulator cb sbe seh msf m =
 
 runDefSimulator :: AigOps sbe =>
                    Codebase -> Backend sbe -> Simulator sbe IO a -> IO a
-runDefSimulator cb sbe m = 
+runDefSimulator cb sbe m =
   Sim.runDefSimulator cb sbe (setVerbosity verb >> m)
 
 -- | Run the Java interpreter on 'args' with the class path set to
@@ -169,7 +169,7 @@ testNegPropertyN n name test = adjustOption optf prop
 mkAssertionWithSMS :: (SymbolicMonadState Lit -> Assertion) -> Assertion
 mkAssertionWithSMS f = do
   oc <- mkOpCache
-  withSymbolicMonadState oc f    
+  withSymbolicMonadState oc f
 
 mkSymAssertion :: (Backend SymbolicMonad -> Assertion) -> Assertion
 mkSymAssertion m = mkAssertionWithSMS (m . symbolicBackend)

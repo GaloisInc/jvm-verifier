@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Verifier.Java.Utils
 Description      : Utility functions for execution of JVM Symbolic programs
 License          : BSD3
 Stability        : provisional
@@ -92,7 +92,7 @@ hexToNumSeq n = reverse . impl
         impl [] = []
         impl _  = error "internal: hexToNumSeq invalid input string"
         dToNum  = fromIntegral . digitToInt
-        
+
 hexToIntSeq :: String -> [Int32]
 hexToIntSeq = reverse . impl
   where impl (x0 : x1 : x2 : x3 : x4 : x5 : x6 : x7 : r)

@@ -1,5 +1,5 @@
 {- |
-Module           : $Header$
+Module           : Tests.SHA384
 Description      :
 License          : BSD3
 Stability        : provisional
@@ -95,7 +95,7 @@ runSHA384 msgVars = do
   msgArray <- newIntArray intArrayTy msgVars
   l <- withSBE $ \sbe -> termInt sbe 48
   outArray <- newMultiArray (ArrayType ByteType) [l]
-  _ <- runStaticMethod "TestSHA384"
+  _ <- runStaticMethod (mkClassName "TestSHA384")
                        "sha384_digest"
                        "([B[B)V"
                        [ RValue msgArray

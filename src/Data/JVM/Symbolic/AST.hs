@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 {- |
-Module           : $Header$
+Module           : Data.JVM.Symbolic.AST
 Description      :
 License          : BSD3
 Stability        : provisional
@@ -15,7 +15,7 @@ calling and returning from methods.
 
 module Data.JVM.Symbolic.AST where
 
-import Prelude hiding (EQ, LT, GT)
+import Prelude hiding (EQ, LT, GT, (<>))
 import Text.PrettyPrint
 
 import qualified Language.JVM.CFG    as CFG
