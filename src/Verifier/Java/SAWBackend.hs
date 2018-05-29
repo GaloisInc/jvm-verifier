@@ -18,6 +18,7 @@ module Verifier.Java.SAWBackend
   , mkSharedContext
   , sawBackend
   , scLoadPreludeModule
+  , scLoadCryptolModule
   , scLoadJavaModule
   , basic_ss
   ) where
@@ -38,6 +39,7 @@ import Text.PrettyPrint.HughesPJ
 import Verifier.SAW
 import Verifier.SAW.ParserUtils
 import Verifier.SAW.Prelude (scEq)
+import Verifier.SAW.Cryptol.Prelude (scLoadCryptolModule)
 import qualified Verifier.SAW.Recognizer as R
 import Verifier.Java.Backend
 import Verifier.Java.SAWImport

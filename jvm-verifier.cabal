@@ -48,6 +48,7 @@ library
     , vector >= 0.7
     , saw-core
     , saw-core-aig
+    , cryptol-verifier
 
   hs-source-dirs: src
 

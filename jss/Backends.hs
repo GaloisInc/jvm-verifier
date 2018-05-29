@@ -21,6 +21,7 @@ withFreshSAWBackend :: (Backend S.SharedContext -> IO a) -> IO a
 withFreshSAWBackend f = do
   sc <- S.mkSharedContext
   S.scLoadPreludeModule sc
+  S.scLoadCryptolModule sc
   S.scLoadJavaModule sc
   f =<< S.sawBackend sc Nothing ABC.giaNetwork
 
