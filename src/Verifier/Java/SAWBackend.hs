@@ -121,7 +121,7 @@ sawBackend sc0 mr proxy = do
 
   let asBvNat f t =
         do (g, x) <- R.asApp t
-           if alphaEquiv f g then R.asNatLit x else Nothing
+           if alphaEquiv f g then R.asNat x else Nothing
 
   zero32 <- scApply sc bvNat32 nat0
   zero64 <- scApply sc bvNat64 nat0
