@@ -68,9 +68,33 @@ basic_ss sc = do
     eqs = map qualify
       [ "not_not", "bvAddZeroL", "bvAddZeroR"
       , "eq_bitvector", "eq_Bool", "eq_VecBool"
-      ]
-    defs = map qualify ["not", "and", "or", "xor", "boolEq", "ite"]
-    cdefs = map cqualify [ "seq", "ecEq", "ePCmp", "ePFin" ]
+      , "ite_true"
+      , "ite_false"
+      , "ite_not"
+      , "ite_nest1"
+      , "ite_nest2"
+      , "ite_eq"
+      , "ite_bit_false_1"
+      , "ite_bit_true_1"
+      , "ite_bit"
+      , "not_not"
+      , "and_True"
+      , "and_False"
+      , "and_True2"
+      , "and_False2"
+      , "and_idem"
+      , "or_True"
+      , "or_False"
+      , "or_True2"
+      , "or_False2"
+      , "or_idem"
+      , "not_or"
+      , "not_and"
+      , "boolEq__eq"
+      ] ++
+      map cqualify [ "seq_TCNum", "seq_TCInf" ]
+    defs = map qualify []
+    cdefs = map cqualify [ "ecEq" ]
     procs = bvConversions ++ natConversions ++ vecConversions
     defRewrites ident =
       scFindDef sc ident >>= \maybe_def ->
