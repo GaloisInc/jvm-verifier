@@ -63,10 +63,14 @@ basic_ss sc = do
   return $ addConvs procs (addRules (rs1 ++ rs2) emptySimpset)
   where
     eqs = map qualify
-      [ "not_not", "bvAddZeroL", "bvAddZeroR"
+      [ "ite_true", "ite_false"
+      , "not_True", "not_False", "not_not"
+      , "and_True1", "and_False1", "and_True2", "and_False2"
+      , "or_True1", "or_False1", "or_True2", "or_False2"
+      , "bvAddZeroL", "bvAddZeroR"
       , "eq_bitvector", "eq_Bool", "eq_VecBool"
       ]
-    defs = map qualify ["not", "and", "or", "xor", "boolEq", "ite"]
+    defs = map qualify ["xor", "boolEq"]
     cdefs = map cqualify [ "seq", "ecEq", "ePCmp", "ePFin" ]
     procs = bvConversions ++ natConversions ++ vecConversions
     defRewrites ident =
