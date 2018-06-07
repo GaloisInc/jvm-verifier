@@ -66,7 +66,7 @@ basic_ss sc = do
   return $ addConvs procs (addRules (rs1 ++ rs2) emptySimpset)
   where
     eqs = map qualify
-      [ "not_not", "bvAddZeroL", "bvAddZeroR"
+      [ "bvAddZeroL", "bvAddZeroR"
       , "eq_bitvector", "eq_Bool", "eq_VecBool"
       , "ite_true"
       , "ite_false"
@@ -77,6 +77,8 @@ basic_ss sc = do
       , "ite_bit_false_1"
       , "ite_bit_true_1"
       , "ite_bit"
+      , "not_True"
+      , "not_False"
       , "not_not"
       , "and_True1"
       , "and_False1"
