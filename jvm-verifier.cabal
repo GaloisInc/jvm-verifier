@@ -126,7 +126,8 @@ executable jss
 
   hs-source-dirs: jss
   main-is: Main_jss.hs
-  ghc-options: -O2 -Wall -fno-ignore-asserts
+  ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlg++
+  extra-libraries:      stdc++
 
 executable jvmgraph
   if !flag(build-jvmgraph)
@@ -184,7 +185,8 @@ test-suite test-java
     Tests.Regressions
     Tests.SHA384
     Verinf.Symbolic.Lit.ABC
-  ghc-options      : -O2 -Wall -fno-ignore-asserts
+  ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlg++
+  extra-libraries:      stdc++
 
 benchmark Benchmarks
   type:       exitcode-stdio-1.0
@@ -221,4 +223,5 @@ benchmark Benchmarks
 
   main-is          : Benchmarks.hs
   hs-source-dirs   : jss test/src
-  ghc-options      : -O2 -Wall -fno-ignore-asserts
+  ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlg++
+  extra-libraries:      stdc++
