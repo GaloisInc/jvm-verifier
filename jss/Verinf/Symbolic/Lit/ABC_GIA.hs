@@ -199,7 +199,7 @@ createEmptyNetwork = do
 
 -- | Attempt to read GIA from AIGER file.
 readAiger :: FilePath -> IO (Maybe Network)
-readAiger path = resolve <$> giaAigerRead path False False
+readAiger path = resolve <$> giaAigerRead path False False False
   where resolve m | m == nullPtr = Nothing
                   | otherwise    = Just (Network m)
 

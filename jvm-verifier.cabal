@@ -99,7 +99,7 @@ executable jss
 
   build-depends:
       array
-    , abcBridge
+    , abcBridge >= 0.17.1
     , base >= 4
     , cmdargs >= 0.6.1
     , containers
@@ -147,7 +147,7 @@ test-suite test-java
 
   build-depends:
       base >= 4
-    , abcBridge
+    , abcBridge >= 0.17.1
     , array
     , containers
     , directory
@@ -194,7 +194,7 @@ benchmark Benchmarks
 
   build-depends:
       base >= 4
-    , abcBridge
+    , abcBridge >= 0.17.1
     , array
     , containers
     , statistics >= 0.10
