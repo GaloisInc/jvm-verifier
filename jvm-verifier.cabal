@@ -178,6 +178,7 @@ test-suite test-java
     Tests.Debugger
     Tests.ExpectedErrors
     Tests.JAPI
+    Tests.Lambda
     Tests.PathStateMerges
     Tests.PrimOps
     Tests.RC564
