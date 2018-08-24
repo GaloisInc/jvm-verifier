@@ -99,7 +99,7 @@ executable jss
 
   build-depends:
       array
-    , abcBridge
+    , abcBridge >= 0.17.1
     , base >= 4
     , cmdargs >= 0.6.1
     , containers
@@ -126,7 +126,8 @@ executable jss
 
   hs-source-dirs: jss
   main-is: Main_jss.hs
-  ghc-options: -O2 -Wall -fno-ignore-asserts
+  ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlg++
+  extra-libraries:      stdc++
 
 executable jvmgraph
   if !flag(build-jvmgraph)
@@ -147,7 +148,7 @@ test-suite test-java
 
   build-depends:
       base >= 4
-    , abcBridge
+    , abcBridge >= 0.17.1
     , array
     , containers
     , directory
@@ -185,7 +186,8 @@ test-suite test-java
     Tests.Regressions
     Tests.SHA384
     Verinf.Symbolic.Lit.ABC
-  ghc-options      : -O2 -Wall -fno-ignore-asserts
+  ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlg++
+  extra-libraries:      stdc++
 
 benchmark Benchmarks
   type:       exitcode-stdio-1.0
@@ -195,7 +197,7 @@ benchmark Benchmarks
 
   build-depends:
       base >= 4
-    , abcBridge
+    , abcBridge >= 0.17.1
     , array
     , containers
     , statistics >= 0.10
@@ -222,4 +224,5 @@ benchmark Benchmarks
 
   main-is          : Benchmarks.hs
   hs-source-dirs   : jss test/src
-  ghc-options      : -O2 -Wall -fno-ignore-asserts
+  ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlg++
+  extra-libraries:      stdc++
