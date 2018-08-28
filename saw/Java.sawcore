@@ -2,102 +2,102 @@ module Java where
 
 import Prelude;
 
-data JavaType :: sort 0 where {
+data JavaType : sort 0 where {
     -- Primitive types that we support.
-    BooleanType :: JavaType;
-    ByteType :: JavaType;
-    CharType :: JavaType;
-    ShortType :: JavaType;
-    IntType :: JavaType;
-    LongType :: JavaType;
-    FloatType  :: JavaType;
-    DoubleType :: JavaType;
+    BooleanType : JavaType;
+    ByteType : JavaType;
+    CharType : JavaType;
+    ShortType : JavaType;
+    IntType : JavaType;
+    LongType : JavaType;
+    FloatType  : JavaType;
+    DoubleType : JavaType;
     -- Type for arrays.
-    ArrayType :: (n :: Nat) -> JavaType -> JavaType;
+    ArrayType : (n : Nat) -> JavaType -> JavaType;
     -- Type for class instances.
-    ClassType :: String -> JavaType;
+    ClassType : String -> JavaType;
   }
 
-mkBooleanType :: JavaType;
+mkBooleanType : JavaType;
 mkBooleanType = BooleanType;
 
-mkByteType :: JavaType;
+mkByteType : JavaType;
 mkByteType = ByteType;
 
-mkCharType :: JavaType;
+mkCharType : JavaType;
 mkCharType = CharType;
 
-mkShortType :: JavaType;
+mkShortType : JavaType;
 mkShortType = ShortType;
 
-mkIntType :: JavaType;
+mkIntType : JavaType;
 mkIntType = IntType;
 
-mkLongType :: JavaType;
+mkLongType : JavaType;
 mkLongType = LongType;
 
-mkFloatType :: JavaType;
+mkFloatType : JavaType;
 mkFloatType = FloatType;
 
-mkDoubleType :: JavaType;
+mkDoubleType : JavaType;
 mkDoubleType = DoubleType;
 
-mkArrayType :: (n :: Nat) -> JavaType -> JavaType;
+mkArrayType : (n : Nat) -> JavaType -> JavaType;
 mkArrayType n t = ArrayType n t;
 
-mkClassType :: String -> JavaType;
+mkClassType : String -> JavaType;
 mkClassType c = ClassType c;
 
-boolExtend' :: bitvector 1 -> bitvector 32;
+boolExtend' : bitvector 1 -> bitvector 32;
 boolExtend' b = bvUExt 31 1 b;
 
-boolExtend :: Bool -> bitvector 32;
+boolExtend : Bool -> bitvector 32;
 boolExtend b = boolExtend' (single Bool b);
 
-byteExtend :: bitvector 8 -> bitvector 32;
+byteExtend : bitvector 8 -> bitvector 32;
 byteExtend x = bvSExt 24 7 x;
 
-charExtend :: bitvector 16 -> bitvector 32;
+charExtend : bitvector 16 -> bitvector 32;
 charExtend x = bvUExt 16 16 x;
 
-shortExtend :: bitvector 16 -> bitvector 32;
+shortExtend : bitvector 16 -> bitvector 32;
 shortExtend x = bvSExt 16 15 x;
 
-longExtend :: bitvector 32 -> bitvector 64;
+longExtend : bitvector 32 -> bitvector 64;
 longExtend x = bvUExt 32 32 x;
 
-extendBoolArray :: (n :: Nat) -> Vec n Bool -> Vec n (bitvector 32);
+extendBoolArray : (n : Nat) -> Vec n Bool -> Vec n (bitvector 32);
 extendBoolArray = map Bool (bitvector 32) boolExtend;
 
-extendByteArray :: (n :: Nat) -> Vec n (bitvector 8) -> Vec n (bitvector 32);
+extendByteArray : (n : Nat) -> Vec n (bitvector 8) -> Vec n (bitvector 32);
 extendByteArray = map (bitvector 8) (bitvector 32) byteExtend;
 
-extendCharArray :: (n :: Nat) -> Vec n (bitvector 16) -> Vec n (bitvector 32);
+extendCharArray : (n : Nat) -> Vec n (bitvector 16) -> Vec n (bitvector 32);
 extendCharArray = map (bitvector 16) (bitvector 32) charExtend;
 
-extendShortArray :: (n :: Nat) -> Vec n (bitvector 16) -> Vec n (bitvector 32);
+extendShortArray : (n : Nat) -> Vec n (bitvector 16) -> Vec n (bitvector 32);
 extendShortArray = map (bitvector 16) (bitvector 32) shortExtend;
 
-boolTrunc :: bitvector 32 -> Bool;
+boolTrunc : bitvector 32 -> Bool;
 boolTrunc = lsb 31;
 
-byteTrunc :: bitvector 32 -> bitvector 8;
+byteTrunc : bitvector 32 -> bitvector 8;
 byteTrunc x = bvTrunc 24 8 x;
 
-charTrunc :: bitvector 32 -> bitvector 16;
+charTrunc : bitvector 32 -> bitvector 16;
 charTrunc x = bvTrunc 16 16 x;
 
-shortTrunc :: bitvector 32 -> bitvector 16;
+shortTrunc : bitvector 32 -> bitvector 16;
 shortTrunc x = bvTrunc 16 16 x;
 
-truncBoolArray :: (n :: Nat) -> Vec n (bitvector 32) -> Vec n Bool;
+truncBoolArray : (n : Nat) -> Vec n (bitvector 32) -> Vec n Bool;
 truncBoolArray = map (bitvector 32) Bool boolTrunc;
 
-truncByteArray :: (n :: Nat) -> Vec n (bitvector 32) -> Vec n (bitvector 8);
+truncByteArray : (n : Nat) -> Vec n (bitvector 32) -> Vec n (bitvector 8);
 truncByteArray = map (bitvector 32) (bitvector 8) byteTrunc;
 
-truncCharArray :: (n :: Nat) -> Vec n (bitvector 32) -> Vec n (bitvector 16);
+truncCharArray : (n : Nat) -> Vec n (bitvector 32) -> Vec n (bitvector 16);
 truncCharArray = map (bitvector 32) (bitvector 16) charTrunc;
 
-truncShortArray :: (n :: Nat) -> Vec n (bitvector 32) -> Vec n (bitvector 16);
+truncShortArray : (n : Nat) -> Vec n (bitvector 32) -> Vec n (bitvector 16);
 truncShortArray = map (bitvector 32) (bitvector 16) shortTrunc;
