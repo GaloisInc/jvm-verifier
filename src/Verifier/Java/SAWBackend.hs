@@ -268,12 +268,15 @@ sawBackend sc0 mr proxy = do
         lnat <- mkBvToNat32 l
         scApplyAll sc setOp [lnat,eltType,nat32,a,i,v]
 
-  let mkBvShl32 x y = apply2 bvShl32 x =<< scApply sc bvToNat32 y
-  let mkBvShl64 x y = apply2 bvShl64 x =<< scApply sc bvToNat64 y
-  let mkBvShr32 x y = apply2 bvShr32 x =<< scApply sc bvToNat32 y
-  let mkBvShr64 x y = apply2 bvShr64 x =<< scApply sc bvToNat64 y
-  let mkBvSShr32 x y = apply2 bvSShr32 x =<< scApply sc bvToNat32 y
-  let mkBvSShr64 x y = apply2 bvSShr64 x =<< scApply sc bvToNat64 y
+  -- NB: JVM shift instructions mask the lower 5 or 6 bits of the shift amount
+  mask31 <- scApply sc bvNat32 nat31
+  mask63 <- scApply sc bvNat64 nat63
+  let mkBvShl32 x y = apply2 bvShl32 x =<< scApply sc bvToNat32 =<< apply2 bvAnd32 mask31 y
+  let mkBvShl64 x y = apply2 bvShl64 x =<< scApply sc bvToNat64 =<< apply2 bvAnd64 mask63 y
+  let mkBvShr32 x y = apply2 bvShr32 x =<< scApply sc bvToNat32 =<< apply2 bvAnd32 mask31 y
+  let mkBvShr64 x y = apply2 bvShr64 x =<< scApply sc bvToNat64 =<< apply2 bvAnd64 mask63 y
+  let mkBvSShr32 x y = apply2 bvSShr32 x =<< scApply sc bvToNat32 =<< apply2 bvAnd32 mask31 y
+  let mkBvSShr64 x y = apply2 bvSShr64 x =<< scApply sc bvToNat64 =<< apply2 bvAnd64 mask63 y
 
   -- Compare two 64bit integers (x & y), and return one of three 32-bit integers:
   -- if x < y then return -1; if x == y then return 0; if x > y then return 1
