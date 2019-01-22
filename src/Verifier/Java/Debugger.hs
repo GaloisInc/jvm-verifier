@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {- |
 Module           : Verifier.Java.Debugger
 Description      : Debugger implementation for JSS
@@ -240,11 +241,13 @@ killCmd = Cmd {
       let rte = "java/lang/RuntimeException"
       when (null args) $ createAndThrow rte
 
-      msgStr@(Ref _ ty) <- refFromString (unwords args)
-      let params = Just [(ty, RValue msgStr)]
-      exc <- createInstance rte params
-      throw exc
-      error "unreachable"
+      refFromString (unwords args) >>= \case
+        msgStr@(Ref _ ty) -> do
+          let params = Just [(ty, RValue msgStr)]
+          exc <- createInstance rte params
+          throw exc
+          error "unreachable"
+        _ -> failHelp
   }
 
 satpathCmd :: (MonadSim sbe m) => Command (Simulator sbe m)
