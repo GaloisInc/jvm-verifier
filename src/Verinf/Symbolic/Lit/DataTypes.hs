@@ -30,6 +30,9 @@ import qualified Data.Sequence as Seq
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as SV
 
+import Prelude
+
+
 -- | Result of checking if literal is satisfible.
 data SatResult = Sat (SV.Vector Bool) | UnSat | Unknown
   deriving (Eq,Show)
