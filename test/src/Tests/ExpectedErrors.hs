@@ -52,7 +52,7 @@ go cb a = do
           h (UnknownExc (Just (FailRsn rsn))) = succeed rsn
           h _ = liftIO $ assertFailure "unknown exception"
       runDefSimulator cb sbe a'
-  assert b
+  return b
   where
     succeed _msg = return ()
 
