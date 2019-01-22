@@ -435,9 +435,7 @@ runSimulator cb sbe seh mflags m = do
     stdOverrides
     m
   case ea of
-    Left ErrorPathExc{}   -> fail "internal: uncaught error path exception"
-    Left (UnknownExc mfr) -> fail $ "internal: uncaught unknown exception: "
-                                     ++ maybe "(no details)" (show . ppFailRsn) mfr
+    Left e -> throwM $ Common.SimulatorException $ show $ ppInternalExc e
     Right x               -> return x
 
 -- | Get the return value of a completed simulator execution. If there

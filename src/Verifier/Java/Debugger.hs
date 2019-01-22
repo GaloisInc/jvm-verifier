@@ -28,6 +28,7 @@ module Verifier.Java.Debugger
 import Control.Applicative
 #endif
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Trans
 import Control.Lens
@@ -578,8 +579,8 @@ helpCmd = Cmd {
       return False
   }
 
-failHelp :: Monad m => m a
-failHelp = fail "invalid arguments; type 'help' for details"
+failHelp :: MonadThrow m => m a
+failHelp = throwM $ SimulatorException "invalid arguments; type 'help' for details"
 
 helpString :: [Command m] -> String
 helpString cmds' = render . vcat $

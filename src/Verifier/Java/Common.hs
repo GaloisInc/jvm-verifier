@@ -128,6 +128,7 @@ module Verifier.Java.Common
   , epRsn
   , epPath
   , InternalExc(ErrorPathExc, InvalidType, UnknownExc)
+  , SimulatorException(..)
 
     -- ** Event handlers and debug interface
   , SEH(..)
@@ -464,6 +465,13 @@ strExc = UnknownExc . Just . FailRsn
 
 err :: String -> Simulator sbe m a
 err = throwSM . strExc
+
+-- | InternalExc is suitable only for internals; its parameterization
+-- and inclusion State makes it inappropriate for Show or Exception
+-- instances, so when those are needed, use SimulatorException
+-- instead.
+data SimulatorException = SimulatorException String deriving Show
+instance Exception SimulatorException
 
 -- | Types of breakpoints
 data Breakpoint = BreakEntry | BreakPC PC | BreakLineNum Word16
