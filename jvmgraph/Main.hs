@@ -14,6 +14,9 @@ import Text.PrettyPrint.HughesPJ
 
 import Language.JVM.Parser
 
+import Prelude hiding ( (<>) )
+
+
 data JVMGraphOpts =
   JVMGraphOpts {
     jvmClassFile :: FilePath
@@ -37,7 +40,7 @@ main = do
          [] -> do
            putStrLn $ render $ 
              text "Could not find method" <+> quotes (text mn) <> text ".\n" $$
-             text "Methods in" <+> text (className cl) <+> text "include:" $$
+             text "Methods in" <+> text (unClassName $ className cl) <+> text "include:" $$
                vcat [nest 2 (text (methodName m)) | m <- classMethods cl]
            exitFailure
          _:_:_ -> do
