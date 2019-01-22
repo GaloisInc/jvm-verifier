@@ -127,7 +127,7 @@ module Verifier.Java.Common
   , ErrorPath(EP)
   , epRsn
   , epPath
-  , InternalExc(ErrorPathExc, UnknownExc)
+  , InternalExc(ErrorPathExc, InvalidType, UnknownExc)
 
     -- ** Event handlers and debug interface
   , SEH(..)
@@ -453,7 +453,11 @@ data ErrorPath sbe = EP { _epRsn :: FailRsn, _epPath :: Path sbe }
 -- simulator.
 data InternalExc sbe m
   = ErrorPathExc FailRsn (State sbe m)
+  | InvalidType ExpectedType ActualType
   | UnknownExc (Maybe FailRsn)
+
+type ExpectedType = String
+type ActualType = String
 
 strExc :: String -> InternalExc sbe m
 strExc = UnknownExc . Just . FailRsn
@@ -1159,6 +1163,8 @@ ppInternalExc :: InternalExc sbe m -> Doc
 ppInternalExc exc = case exc of
   ErrorPathExc rsn s ->
       "internal error" <> colon <+> ppFailRsn rsn <+> ppState s
+  InvalidType wanted got ->
+      "invalid type, wanted" <+> text wanted <+> "but got" <+> text got
   UnknownExc Nothing ->
       "unknown error"
   UnknownExc (Just rsn) ->

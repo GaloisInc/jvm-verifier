@@ -20,6 +20,7 @@ types defined in "Verifier.Java.Common".
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -103,6 +104,7 @@ import Control.Applicative hiding (empty)
 #endif
 import Control.Lens
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.State.Class (get, put)
 import Control.Monad.Trans.Except
@@ -564,46 +566,50 @@ newLongArray values = do
 -- | Returns array length at given index in the current path.
 getArrayLength :: MonadSim sbe m
                => Ref -> Simulator sbe m (SBETerm sbe)
-getArrayLength ref = do
-  ArrayType tp <- getType ref
-  m <- getMem "getArrayLength"
-  sbe <- use backend
-  if isRefType tp then do
-    let Just arr = M.lookup ref (m^.memRefArrays)
-    liftIO $ termInt sbe (1 + snd (bounds arr))
-  else do
-    let Just (len,_) = M.lookup ref (m^.memScalarArrays)
-    liftIO $ termInt sbe len
+getArrayLength ref =
+  getType ref >>= \case
+    ArrayType tp -> do
+      m <- getMem "getArrayLength"
+      sbe <- use backend
+      if isRefType tp
+        then let Just arr = M.lookup ref (m^.memRefArrays) in
+               liftIO $ termInt sbe (1 + snd (bounds arr))
+        else let Just (len,_) = M.lookup ref (m^.memScalarArrays) in
+               liftIO $ termInt sbe len
+    errVal -> throwSM $ InvalidType "getArrayLength::ArrayType" $ show errVal
+
 
 -- | Returns value in array at given index.
 getArrayValue :: (AigOps sbe, Functor m, MonadIO m)
               => Ref
               -> SBETerm sbe
               -> Simulator sbe m (Value (SBETerm sbe))
-getArrayValue r idx = do
-  ArrayType tp <- getType r
-  sbe <- use backend
-  m <- getMem "getArrayValue"
-  if isRefType tp then do
-    let Just arr = M.lookup r (m^.memRefArrays)
-        maxIdx = snd (bounds arr)
-    case asInt sbe idx of
-      Just i | i <= maxIdx -> return $ RValue (arr ! fromIntegral i)
-             -- TODO: the following should really be an exception
-             | otherwise -> err $ "Out of bounds array access (" ++ show i ++
-                                  ", " ++ show maxIdx ++ ")"
-      _ -> err ("Not supported: symbolic indexing into arrays of references: " ++ show idx ++ " " ++ show arr)
-  else if tp == LongType then
-    liftIO $ do
-      let Just (l,rslt) = M.lookup r (m^.memScalarArrays)
-      l' <- termInt sbe l
-      LValue <$> termGetLongArray sbe l' rslt idx
-  else do
-    assert "getArrayValue type" (isIValue tp)
-    liftIO $ do
-      let Just (l,rslt) = M.lookup r (m^.memScalarArrays)
-      l' <- termInt sbe l
-      IValue <$> termGetIntArray sbe l' rslt idx
+getArrayValue r idx =
+  getType r >>= \case
+    ArrayType tp -> do
+      sbe <- use backend
+      m <- getMem "getArrayValue"
+      if isRefType tp then do
+        let Just arr = M.lookup r (m^.memRefArrays)
+            maxIdx = snd (bounds arr)
+        case asInt sbe idx of
+          Just i | i <= maxIdx -> return $ RValue (arr ! fromIntegral i)
+                 -- TODO: the following should really be an exception
+                 | otherwise -> err $ "Out of bounds array access (" ++ show i ++
+                                ", " ++ show maxIdx ++ ")"
+          _ -> err ("Not supported: symbolic indexing into arrays of references: " ++ show idx ++ " " ++ show arr)
+       else if tp == LongType then
+        liftIO $ do
+        let Just (l,rslt) = M.lookup r (m^.memScalarArrays)
+        l' <- termInt sbe l
+        LValue <$> termGetLongArray sbe l' rslt idx
+       else do
+        assert "getArrayValue type" (isIValue tp)
+        liftIO $ do
+          let Just (l,rslt) = M.lookup r (m^.memScalarArrays)
+          l' <- termInt sbe l
+          IValue <$> termGetIntArray sbe l' rslt idx
+    errVal -> throwSM $ InvalidType "getArrayValue::ArrayType" $ show errVal
 
 -- | Returns values in an array at a given reference, passing them through the
 -- given projection
@@ -1409,9 +1415,12 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
       withSBE $ \sbe -> termBool sbe True
     else do
       cb <- use codebase
-      ArrayType arrayTy <- getType arr
-      elTy              <- getType elt
-      withSBE $ \sbe -> termBool sbe =<< isSubtype cb elTy arrayTy
+      getType arr >>= \case
+        ArrayType arrayTy -> do
+          elTy <- getType elt
+          withSBE $ \sbe -> termBool sbe =<< isSubtype cb elTy arrayTy
+        errVal -> throwSM $ InvalidType "JavaSemantics.isValidEltOfArray::ArrayType" $ show errVal
+
 
   hasType ref tp = do
     cb <- use codebase
@@ -1438,15 +1447,17 @@ instance MonadSim sbe m => JavaSemantics (Simulator sbe m) where
   coerceRef (Ref x _) ty = return (Ref x ty)
 
   -- Retuns predicate indicating super class of ref has given type.
-  superHasType ref tp = do
-    ClassType refClassname <- getType ref
-    cb <- use codebase
-    cl <- lookupClass refClassname
-    withSBE $ \sbe -> do
-      b <- case superClass cl of
-             Just super -> isSubtype cb (ClassType super) (ClassType tp)
-             Nothing    -> return False
-      termBool sbe b
+  superHasType ref tp =
+    getType ref >>= \case
+      ClassType refClassname -> do
+        cb <- use codebase
+        cl <- lookupClass refClassname
+        withSBE $ \sbe -> do
+          b <- case superClass cl of
+                 Just super -> isSubtype cb (ClassType super) (ClassType tp)
+                 Nothing    -> return False
+          termBool sbe b
+      errVal -> throwSM $ InvalidType "JavaSemantics.superHasType::ClassType" $ show errVal
 
   -- (rEq x y) returns boolean formula that holds if x == y.
   rEq x y = withSBE $ \sbe -> termBool sbe (x == y)
@@ -1992,8 +2003,9 @@ lookupStringRef r =
 -- contains concrete characters.
 drefString :: MonadSim sbe m => Ref -> Simulator sbe m String
 drefString strRef = do
-  Just ty <- typeOf strRef
-  assert "derefString type" (ty == stringTy)
+  typeOf strRef >>= \case
+    Just ty -> assert "derefString type" (ty == stringTy)
+    Nothing -> throwSM $ InvalidType "drefString::typeOf" "Nothing"
 
   m <- getMem "drefString"
   let iflds  = m^.memInstanceFields
