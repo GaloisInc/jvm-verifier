@@ -34,6 +34,7 @@ module Execution.JavaSemantics (
 ) where
 
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.State
 
 import Data.Int
@@ -68,6 +69,7 @@ type JSValue m = AtomicValue (JSDouble m) (JSFloat m) (JSInt m) (JSLong m) (JSRe
 -- step function.
 class ( Monad m
       , MonadIO m
+      , MonadThrow m
       , Functor m
       , Show (JSDouble m)
       , Show (JSFloat m)

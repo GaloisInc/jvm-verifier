@@ -175,6 +175,7 @@ import Control.Applicative (Applicative, (<$>), (<*>))
 import Control.Arrow ((***))
 import Control.Lens
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.State.Class
 import Control.Monad.Trans
@@ -211,6 +212,7 @@ newtype Simulator sbe (m :: * -> *) a =
     , Applicative
     , Monad
     , MonadIO
+    , MonadThrow
     , MonadException
     )
 
