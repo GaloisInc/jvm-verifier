@@ -689,8 +689,8 @@ applyMatch (MatchTypeCompare xr yr oldSucc oldFail) contM s =
   let Just xc = Map.lookup xr (typeRegClassMap s)
       Just yc = Map.lookup yr (typeRegClassMap s)
       newSucc = applyMatch oldSucc contM $ modifyMatchState s $ do
-                  UF.AssertSuccess <- typeUF $ mergeTypeRegs [(xc,yc)]
-                  return ()
+                  res <- typeUF $ mergeTypeRegs [(xc,yc)]
+                  assert (res == UF.AssertSuccess) $ return ()
       newFail = applyMatch oldFail contM $ modifyMatchState s $ do
                   res <- typeUF $ UF.setUnequal xc yc
                   assert (UF.assertSucceeded res) $ return ()
