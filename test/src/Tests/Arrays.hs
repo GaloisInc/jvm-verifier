@@ -43,9 +43,11 @@ sa1 cb =
       outVar <- runDefSimulator cb sbe $ do
         let tint = mkCInt 32 . fromIntegral
         inpArr <- newIntArray intArrayTy $ map tint arrayElems
-        [(_, Just (IValue rslt))] <-
+        runRes <-
           runStaticMethod (mkClassName "Arrays") "index" "(I[I)I" [idx, RValue inpArr]
-        return rslt
+        case runRes of
+          [(_, Just (IValue rslt))] -> return rslt
+          _ -> error "did not get expected sa1 test result"
       let getAt x = do
                x' <- termInt sbe x
                z <- evalAigIntegral sbe id [x'] outVar
@@ -65,9 +67,11 @@ sa2 cb =
     rslt <- runDefSimulator cb sbe $ do
       let tint = mkCInt 32 . fromIntegral
       arr <- newIntArray intArrayTy $ map tint arrayElems
-      [(_, Nothing)] <- runStaticMethod (mkClassName "Arrays") "update" "(II[I)V"
+      runRes  <- runStaticMethod (mkClassName "Arrays") "update" "(II[I)V"
                           [idx, val, RValue arr]
-      getIntArray arr
+      case runRes of
+        [(_, Nothing)] -> getIntArray arr
+        _ -> error "did not get expected sa2 test result"
 
     -- Overwrite a random index with 42 and check it
     oidx <- termInt sbe overwriteIdx
@@ -88,10 +92,12 @@ sa3 cb =
     symVals <- replicateM n $ freshInt sbe
     rslt <- runDefSimulator cb sbe $ do
       arr <- newIntArray intArrayTy symVals
-      [(_, Nothing)] <-
+      runRes <-
         runStaticMethod (mkClassName "Arrays") "update" "(II[I)V"
           [IValue (mkCInt 32 $ fromIntegral n - 1), val, RValue arr]
-      getIntArray arr
+      case runRes of
+        [(_, Nothing)] -> getIntArray arr
+        _ -> error "did not get expected sa3 test result"
 
     -- Overwrite the last index with 42 and check it
     xs <- mapM (termInt sbe) (42 : replicate n fill)
@@ -117,10 +123,12 @@ sa4 cb =
       twodim <- newMultiArray (ArrayType intArrayTy) [tint nI]
       forM_ (map (tint . fromIntegral) [0..nI] `zip` map RValue inners) $
         uncurry (setArrayValue twodim)
-      [(_, Nothing)] <-
-        runStaticMethod (mkClassName "Arrays") "update" "(III[[I)V"
+      runRes <- runStaticMethod (mkClassName "Arrays") "update" "(III[[I)V"
           (map (IValue . tint) [0, 0, 42] ++ [RValue twodim])
-      concat <$> (mapM getIntArray =<< getRefArray twodim)
+      case runRes of
+        [(_, Nothing)] ->
+          concat <$> (mapM getIntArray =<< getRefArray twodim)
+        _ -> error "did not get expected sa4 result"
 
     xs <- mapM (termInt sbe) (42 : replicate (numElems - 1) fill)
     arr <- evalAigArray sbe 32 xs rslt

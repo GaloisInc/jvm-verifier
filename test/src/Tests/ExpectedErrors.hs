@@ -79,10 +79,11 @@ sa1 cb = go cb $ do
   sbe <- use backend
   symIdx <- liftIO $ IValue <$> freshInt sbe
   arr <- newMultiArray (ArrayType intArrayTy) [mkCInt 32 1, mkCInt 32 1]
-  [(_, Just (RValue r))] <-
-    runStaticMethod (mkClassName "Errors") "getArrayRef" "(I[[I)[I"
+  runRes <- runStaticMethod (mkClassName "Errors") "getArrayRef" "(I[[I)[I"
       [symIdx , RValue arr]
-  getIntArray r
+  case runRes of
+    [(_, Just (RValue r))] -> getIntArray r
+    _ -> error "did not get expected sa1 test response"
 
 -- | Expected to fail: arrays with given element type are not supported
 sa2 :: Type -> TrivialCase
@@ -102,10 +103,12 @@ sa4 cb = go cb $ do
   symIdx <- liftIO $ IValue <$> freshInt sbe
   arr <- newMultiArray (ArrayType intArrayTy) [mkCInt 32 1, mkCInt 32 1]
   elm <- newIntArray intArrayTy [mkCInt 32 1]
-  [(_pd, Nothing)] <-
+  runRes <-
     runStaticMethod (mkClassName "Errors") "updArrayRef" "(I[I[[I)V"
       [symIdx, RValue elm, RValue arr]
-  return ()
+  case runRes of
+    [(_pd, Nothing)] -> return ()
+    _ -> error "did not get expected sa4 test result"
 
 --------------------------------------------------------------------------------
 -- Scratch
