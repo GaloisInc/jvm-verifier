@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {- |
 Module           : Execution.Stepper
 Description      : JVM instruction semantics
@@ -14,15 +15,32 @@ implemented here.
 
 {-# LANGUAGE OverloadedStrings #-}
 
-module Execution.Stepper (step) where
+module Execution.Stepper
+  ( step
+  , ExecutionError(..)
+  )
+where
 
 import Control.Monad
 import Control.Monad.Trans (liftIO)
+import Control.Monad.Catch
 
 import Text.PrettyPrint ()
 
 import Execution.JavaSemantics
 import Verifier.Java.Codebase
+
+
+-- Errors that can be raised during execution
+
+data ExecutionError = InvalidType ExpectedType ActualType
+  deriving Show
+
+type ExpectedType = String
+type ActualType = String
+
+instance Exception ExecutionError
+
 
 -- -- Step function {{{1
 
@@ -310,10 +328,12 @@ step Idiv = {-# SCC "Idiv" #-}  do
   assertFalseM (value2 `iEq` zero) "java/lang/ArithmeticException"
   iPush =<< value1 `iDiv` value2
 
-step (Iinc index constant) = {-# SCC "Iinc" #-}  do
-  IValue value <- getLocal index
-  constValue   <- iConst (fromIntegral constant)
-  setLocal index . IValue =<< value `iAdd` constValue
+step (Iinc index constant) = {-# SCC "Iinc" #-}
+  getLocal index >>= \case
+    IValue value -> do
+      constValue   <- iConst (fromIntegral constant)
+      setLocal index . IValue =<< value `iAdd` constValue
+    errVal -> throwM $ InvalidType "IValue" $ show errVal
 
 step (Iload index) = {-# SCC "Iload" #-}  do
   pushValue =<< getLocal index
