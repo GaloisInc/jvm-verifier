@@ -127,7 +127,7 @@ executable jss
 
   hs-source-dirs: jss
   main-is: Main_jss.hs
-  ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlg++ -Wcompat
+  ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlc++ -Wcompat
   extra-libraries:      stdc++
 
 executable jvmgraph
@@ -187,7 +187,7 @@ test-suite test-java
     Tests.Regressions
     Tests.SHA384
     Verinf.Symbolic.Lit.ABC
-  ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlg++ -Wcompat
+  ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlc++ -Wcompat
   extra-libraries:      stdc++
 
 benchmark Benchmarks
@@ -225,5 +225,5 @@ benchmark Benchmarks
 
   main-is          : Benchmarks.hs
   hs-source-dirs   : jss test/src
-  ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlg++ -Wcompat
+  ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlc++ -Wcompat
   extra-libraries:      stdc++
