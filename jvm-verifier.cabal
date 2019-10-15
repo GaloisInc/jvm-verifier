@@ -9,6 +9,8 @@ Synopsis:       Symbolic simulator for Java bytecode
 License:        BSD3
 License-file:   LICENSE
 
+extra-source-files: saw/Java.sawcore
+
 Flag build-library
   description: Build the jvm-verifier library.
   default: True
