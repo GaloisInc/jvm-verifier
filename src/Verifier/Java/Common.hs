@@ -177,6 +177,7 @@ import Control.Arrow ((***))
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
+import qualified Control.Monad.Fail as Fail
 import Control.Monad.IO.Class
 import Control.Monad.State.Class
 import Control.Monad.Trans
@@ -212,6 +213,7 @@ newtype Simulator sbe (m :: * -> *) a =
     ( Functor
     , Applicative
     , Monad
+    , Fail.MonadFail
     , MonadIO
     , MonadThrow
     , MonadException
