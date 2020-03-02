@@ -187,6 +187,7 @@ import qualified Control.Monad.Trans.State.Strict as Strict
 
 import Data.Array (Array, Ix, assocs)
 import qualified Data.Foldable as DF
+import Data.Kind
 import Data.Int (Int32)
 import Data.Map (Map)
 import qualified Data.Map as M
@@ -207,7 +208,7 @@ import Verifier.Java.Codebase hiding (lookupClass)
 import qualified Verifier.Java.Codebase as Codebase
 
 -- | A Simulator is a monad transformer around a symbolic backend
-newtype Simulator sbe (m :: * -> *) a =
+newtype Simulator sbe (m :: Type -> Type) a =
   SM { runSM :: ExceptT (InternalExc sbe m) (StateT (State sbe m) IO) a }
   deriving
     ( Functor

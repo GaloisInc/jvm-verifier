@@ -17,6 +17,7 @@ module Verifier.Java.Backend
   , Backend(..)
   ) where
 
+import Data.Kind
 import Data.Int
 import Data.Typeable
 import Text.PrettyPrint (Doc)
@@ -25,7 +26,7 @@ type UnaryOp sbe = SBETerm sbe -> IO (SBETerm sbe)
 type BinaryOp sbe = SBETerm sbe -> SBETerm sbe -> IO (SBETerm sbe)
 
 -- | Returns term type associated with monad.
-type family SBETerm (sbe :: *)
+type family SBETerm (sbe :: Type)
 
 class ( Show (SBETerm m)
       , Typeable (SBETerm m)
