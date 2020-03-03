@@ -36,7 +36,7 @@ module Execution.JavaSemantics (
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State
-import Data.Kind
+import qualified Data.Kind as K
 import Data.Int
 
 import Text.PrettyPrint
@@ -53,13 +53,13 @@ data AtomicValue double float int long ref
   | RValue { unRValue :: ref }
   | AValue PC
 
-type family JSDouble (m :: Type -> Type)
-type family JSFloat  (m :: Type -> Type)
-type family JSInt    (m :: Type -> Type)
-type family JSLong   (m :: Type -> Type)
-type family JSRef    (m :: Type -> Type)
-type family JSBool   (m :: Type -> Type)
-type family JSRslt   (m :: Type -> Type)
+type family JSDouble (m :: K.Type -> K.Type)
+type family JSFloat  (m :: K.Type -> K.Type)
+type family JSInt    (m :: K.Type -> K.Type)
+type family JSLong   (m :: K.Type -> K.Type)
+type family JSRef    (m :: K.Type -> K.Type)
+type family JSBool   (m :: K.Type -> K.Type)
+type family JSRslt   (m :: K.Type -> K.Type)
 
 -- | We usually use the same index to each value type function; using
 -- this type enforces that
