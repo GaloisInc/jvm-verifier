@@ -145,7 +145,7 @@ import Control.Exception (assert)
 import Control.Monad
 import Control.Monad.State.Strict
 import Data.Bits
-import Data.List
+import Data.List ( foldl', intercalate )
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe

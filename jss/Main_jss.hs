@@ -23,7 +23,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Data.Char
 import Data.Function
-import Data.List
+import Data.List ( sortBy )
 import System.Console.CmdArgs.Implicit hiding (verbosity, setVerbosity)
 import System.Directory
 import System.Environment (getArgs)

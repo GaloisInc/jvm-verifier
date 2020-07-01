@@ -35,7 +35,7 @@ import Control.Monad.Trans
 import Control.Lens
 
 import Data.Char
-import Data.List
+import Data.List ( intercalate, isPrefixOf, stripPrefix )
 import Data.List.Split
 import qualified Data.Map as M
 import qualified Data.Set as S
