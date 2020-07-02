@@ -278,9 +278,9 @@ instance MonadMask (Simulator sbe m) where
       liftBase = SM . ExceptT . StateT
       lossyExc = SomeException . SimulatorException . show . ppInternalExc
       retWithState ((Right b, _s2), (Right c, s3)) = (Right (b, c), s3)
-      -- If use or release fails in ExceptT, return the exception.
+      -- If 'use_op' or 'release' fails in ExceptT, return the exception.
       -- InternalExc is not a monoid, so if both have an exception,
-      -- favor the 'use' exception over the 'release' exception
+      -- favor the 'use_op' exception over the 'release' exception
       retWithState ((Left b, _s2), (_, s3)) = (Left b, s3)  -- n.b. discards `release` exception
       retWithState ((_, _s2), (Left c, s3)) = (Left c, s3)  -- n.b. discards `use` exception
 
