@@ -231,8 +231,8 @@ catchSM (SM m) h = SM (catchE m (runSM . h))
 
 
 -- n.b. Cannot use MonadBaseControl for MonadCatch and MonadMask
--- because ExceptT left and StateT internal state both paramerize over
--- m, and the base is fixed at IO.
+-- because ExceptT left and StateT internal state both parameterize
+-- over m, and the base is fixed at IO.
 
 instance MonadCatch (Simulator sbe m) where
   catch sm_op handler = SM $ ExceptT $ StateT $ \s ->
