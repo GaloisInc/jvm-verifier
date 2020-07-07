@@ -195,6 +195,10 @@ import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Word (Word16, Word32)
 
+#if !MIN_VERSION_haskeline(0,8,0)
+import System.Console.Haskeline.MonadException (MonadException(..), RunIO(..))
+#endif
+
 import Text.PrettyPrint
 
 import Language.JVM.Common (ppFldId, ppType)
@@ -215,6 +219,9 @@ newtype Simulator sbe (m :: K.Type -> K.Type) a =
     , Fail.MonadFail
     , MonadIO
     , MonadThrow
+#if !MIN_VERSION_haskeline(0,8,0)
+    , MonadException
+#endif
     )
 
 instance MonadState (State sbe m) (Simulator sbe m) where
@@ -230,6 +237,13 @@ catchSM :: Simulator sbe m a
 catchSM (SM m) h = SM (catchE m (runSM . h))
 
 
+#if !MIN_VERSION_haskeline(0,8,0)
+instance (MonadException m) => MonadException (ExceptT e m) where
+    controlIO f = ExceptT $ controlIO $ \(RunIO run) -> let
+                    run' = RunIO (fmap ExceptT . run . runExceptT)
+                    in fmap runExceptT $ f run'
+
+#else
 -- n.b. Cannot use MonadBaseControl for MonadCatch and MonadMask
 -- because ExceptT left and StateT internal state both parameterize
 -- over m, and the base is fixed at IO.
@@ -283,7 +297,7 @@ instance MonadMask (Simulator sbe m) where
       -- favor the 'use_op' exception over the 'release' exception
       retWithState ((Left b, _s2), (_, s3)) = (Left b, s3)  -- n.b. discards `release` exception
       retWithState ((_, _s2), (Left c, s3)) = (Left c, s3)  -- n.b. discards `use` exception
-
+#endif
 
 -- | These constraints are common to monads with a symbolic execution
 -- backend. Enable @{-# LANGUAGE ConstraintKinds #-}@ to use this in
