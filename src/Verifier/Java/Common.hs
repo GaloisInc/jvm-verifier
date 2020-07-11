@@ -195,7 +195,9 @@ import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Word (Word16, Word32)
 
+#if !MIN_VERSION_haskeline(0,8,0)
 import System.Console.Haskeline.MonadException (MonadException(..), RunIO(..))
+#endif
 
 import Text.PrettyPrint
 
@@ -217,7 +219,9 @@ newtype Simulator sbe (m :: K.Type -> K.Type) a =
     , Fail.MonadFail
     , MonadIO
     , MonadThrow
+#if !MIN_VERSION_haskeline(0,8,0)
     , MonadException
+#endif
     )
 
 instance MonadState (State sbe m) (Simulator sbe m) where
@@ -232,10 +236,68 @@ catchSM :: Simulator sbe m a
         -> Simulator sbe m a
 catchSM (SM m) h = SM (catchE m (runSM . h))
 
+
+#if !MIN_VERSION_haskeline(0,8,0)
 instance (MonadException m) => MonadException (ExceptT e m) where
     controlIO f = ExceptT $ controlIO $ \(RunIO run) -> let
                     run' = RunIO (fmap ExceptT . run . runExceptT)
                     in fmap runExceptT $ f run'
+
+#else
+-- n.b. Cannot use MonadBaseControl for MonadCatch and MonadMask
+-- because ExceptT left and StateT internal state both parameterize
+-- over m, and the base is fixed at IO.
+
+instance MonadCatch (Simulator sbe m) where
+  catch sm_op handler = SM $ ExceptT $ StateT $ \s ->
+    catch (lower sm_op s) (\e -> lower (handler e) s)
+    where
+      lower = runStateT . runExceptT . runSM
+
+instance MonadMask (Simulator sbe m) where
+
+  mask sm_op = liftBase $ \s ->
+    mask (\runIO -> lower (sm_op (\f -> liftBase (\s' -> runIO (lower f s')))) s)
+    where
+      lower = runStateT . runExceptT . runSM
+      liftBase = SM . ExceptT . StateT
+
+  uninterruptibleMask sm_op = liftBase $ \s ->
+    mask (\runIO -> lower (sm_op (\f -> liftBase (\s' -> runIO (lower f s')))) s)
+    where
+      lower = runStateT . runExceptT . runSM
+      liftBase = SM . ExceptT . StateT
+
+  generalBracket acquire release use_op = liftBase $ \s0 ->
+    retWithState <$> generalBracket
+      (lower acquire s0)
+      (\(rsrc, s1) exitCase ->
+         case rsrc of
+           Left e -> return (Left e, s1)
+           Right resource ->
+             let rlsWith s e = lower (release resource e) s in
+             case exitCase of
+               ExitCaseSuccess (Right b, s2) -> rlsWith s2 $ ExitCaseSuccess b
+               ExitCaseSuccess (Left e, s2) -> rlsWith s2 $ ExitCaseException $ lossyExc e
+               ExitCaseException e -> rlsWith s1 $ ExitCaseException e
+               ExitCaseAbort -> rlsWith s1 ExitCaseAbort
+      )
+      (\(rsrc, s1) ->
+         case rsrc of
+           Left e -> return (Left e, s1)
+           Right resource -> lower (use_op resource) s1
+      )
+    where
+      lower = runStateT . runExceptT . runSM
+      liftBase = SM . ExceptT . StateT
+      lossyExc = SomeException . SimulatorException . show . ppInternalExc
+      retWithState ((Right b, _s2), (Right c, s3)) = (Right (b, c), s3)
+      -- If 'use_op' or 'release' fails in ExceptT, return the exception.
+      -- InternalExc is not a monoid, so if both have an exception,
+      -- favor the 'use_op' exception over the 'release' exception
+      retWithState ((Left b, _s2), (_, s3)) = (Left b, s3)  -- n.b. discards `release` exception
+      retWithState ((_, _s2), (Left c, s3)) = (Left c, s3)  -- n.b. discards `use` exception
+#endif
 
 -- | These constraints are common to monads with a symbolic execution
 -- backend. Enable @{-# LANGUAGE ConstraintKinds #-}@ to use this in
