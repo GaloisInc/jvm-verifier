@@ -31,6 +31,10 @@ Flag build-benchmarks
   description: Build the benchmark executables
   default: True
 
+Flag builtin-abc
+  description: Link with ABC as a static library
+  default: True
+
 library
   build-depends:
       base >= 4 && < 5
@@ -102,7 +106,6 @@ executable jss
 
   build-depends:
       array
-    , abcBridge >= 0.17.1
     , base >= 4
     , cmdargs >= 0.6.1
     , containers
@@ -122,15 +125,23 @@ executable jss
   other-modules:
     Backends
     Overrides
-    Verinf.Symbolic.Lit.ABC
-    Verinf.Symbolic.Lit.ABC_GIA
 
   cpp-options: -DUseSAW
 
   hs-source-dirs: jss
   main-is: Main_jss.hs
-  ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlc++ -Wcompat
-  extra-libraries:      stdc++
+
+  if flag(builtin-abc)
+    cpp-options: -DUSE_BUILTIN_ABC
+    build-depends: abcBridge
+    extra-libraries:      stdc++
+    ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlc++ -Wcompat
+    other-modules:
+      Verinf.Symbolic.Lit.ABC
+      Verinf.Symbolic.Lit.ABC_GIA
+  else
+    build-depends: aig
+    ghc-options: -O2 -Wall -fno-ignore-asserts -Wcompat
 
 executable jvmgraph
   if !flag(build-jvmgraph)
@@ -151,7 +162,6 @@ test-suite test-java
 
   build-depends:
       base >= 4
-    , abcBridge >= 0.17.1
     , array
     , containers
     , directory
@@ -188,9 +198,18 @@ test-suite test-java
     Tests.RC564
     Tests.Regressions
     Tests.SHA384
-    Verinf.Symbolic.Lit.ABC
-  ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlc++ -Wcompat
-  extra-libraries:      stdc++
+
+  if flag(builtin-abc)
+    cpp-options: -DUSE_BUILTIN_ABC
+    build-depends: abcBridge
+    extra-libraries:      stdc++
+    ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlc++ -Wcompat
+    other-modules:
+      Verinf.Symbolic.Lit.ABC
+      Verinf.Symbolic.Lit.ABC_GIA
+  else
+    build-depends: aig
+    ghc-options: -O2 -Wall -fno-ignore-asserts -Wcompat
 
 benchmark Benchmarks
   type:       exitcode-stdio-1.0
@@ -200,7 +219,6 @@ benchmark Benchmarks
 
   build-depends:
       base >= 4
-    , abcBridge >= 0.17.1
     , array
     , containers
     , statistics >= 0.10
@@ -227,5 +245,15 @@ benchmark Benchmarks
 
   main-is          : Benchmarks.hs
   hs-source-dirs   : jss test/src
-  ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlc++ -Wcompat
-  extra-libraries:      stdc++
+
+  if flag(builtin-abc)
+    cpp-options: -DUSE_BUILTIN_ABC
+    build-depends: abcBridge
+    extra-libraries:      stdc++
+    ghc-options: -O2 -Wall -fno-ignore-asserts -pgmlc++ -Wcompat
+    other-modules:
+      Verinf.Symbolic.Lit.ABC
+      Verinf.Symbolic.Lit.ABC_GIA
+  else
+    build-depends: aig
+    ghc-options: -O2 -Wall -fno-ignore-asserts -Wcompat
