@@ -95,7 +95,9 @@ data JSS = JSS
   , dbug          :: Int
   , mcname        :: Maybe String
   , startDebugger :: Bool
+#if USE_BUILTIN_ABC
   , useSaw        :: Bool
+#endif
   } deriving (Show, Data, Typeable)
 
 main :: IO ()
@@ -127,7 +129,9 @@ main = do
         , xlate  = def &= help "Print the symbolic AST translation stdout and terminate"
         , mcname = def &= typ "MAIN CLASS NAME" &= args
         , startDebugger = def &= help "Break and enter the JSS debugger when running main method"
+#if USE_BUILTIN_ABC
         , useSaw = def &= help "Use SAWCore backend instead of default word backend"
+#endif
         }
     &= summary ("Java Symbolic Simulator (jss) 0.4 September 2013. "
                 ++ "Copyright 2010-2013 Galois, Inc. All rights reserved.")
@@ -167,7 +171,11 @@ main = do
           :: forall a. (forall b. (AigOps b) => Backend b -> IO a)
           -> IO a
       withFreshBackend k =
+#if USE_BUILTIN_ABC
         if useSaw args' then withFreshSAWBackend k else withFreshWordBackend k
+#else
+        withFreshSAWBackend k
+#endif
 
   withFreshBackend $ \sbe -> do
    let fl  = defaultSimFlags { alwaysBitBlastBranchTerms = blast args'

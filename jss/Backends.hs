@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {- |
 Module           : Backends
 Description      : The command line driver for the Java Symbolic Simulator
@@ -10,12 +11,16 @@ module Backends where
 
 import Control.Exception (bracket)
 
+#if USE_BUILTIN_ABC
 import qualified Data.ABC as ABC
+import Verinf.Symbolic.Lit.ABC
+#else
+import qualified Data.AIG as AIG
+#endif
 import Verifier.Java.Simulator
 import qualified Verifier.Java.WordBackend as W
 import qualified Verifier.Java.SAWBackend as S
 import Verinf.Symbolic
-import Verinf.Symbolic.Lit.ABC
 
 withFreshSAWBackend :: (Backend S.SharedContext -> IO a) -> IO a
 withFreshSAWBackend f = do
@@ -23,8 +28,13 @@ withFreshSAWBackend f = do
   S.scLoadPreludeModule sc
   S.scLoadCryptolModule sc
   S.scLoadJavaModule sc
+#if USE_BUILTIN_ABC
   f =<< S.sawBackend sc Nothing ABC.giaNetwork
+#else
+  f =<< S.sawBackend sc Nothing AIG.basicProxy
+#endif
 
+#if USE_BUILTIN_ABC
 -- | Create a fresh symbolic backend with a new op cache, and execute it.
 withFreshWordBackend :: (Backend W.SymbolicMonad -> IO a) -> IO a
 withFreshWordBackend f = do
@@ -42,3 +52,4 @@ withSymbolicMonadState oc f =
   withBitEngine $ \be -> do
     de <- mkConstantFoldingDagEngine
     f =<< W.mkSymbolicMonadState oc be de
+#endif

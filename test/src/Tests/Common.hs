@@ -52,7 +52,9 @@ import qualified Verifier.Java.Simulator as Sim
 import Verifier.Java.Utils
 import Verifier.Java.WordBackend
 import Verifier.Java.TestInterface
+#if USE_BUILTIN_ABC
 import Verinf.Symbolic.Lit.ABC
+#endif
 import Backends
 
 #if __GLASGOW_HASKELL__ < 706
