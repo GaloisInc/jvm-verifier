@@ -352,8 +352,7 @@ sawBackend sc0 mr proxy = do
 
   let freshVar n ext = do
         ty <- scBitvector sc n
-        i <- scFreshGlobalVar sc
-        let ec = EC i ("_"++show i) ty
+        ec <- scFreshEC sc "_" ty
         t <- scFlatTermF sc (ExtCns ec)
         maybeCons t
         ext t
