@@ -48,56 +48,56 @@ mkArrayType n t = ArrayType n t;
 mkClassType : String -> JavaType;
 mkClassType c = ClassType c;
 
-boolExtend' : bitvector 1 -> bitvector 32;
+boolExtend' : Vec 1 Bool -> Vec 32 Bool;
 boolExtend' b = bvUExt 31 1 b;
 
-boolExtend : Bool -> bitvector 32;
+boolExtend : Bool -> Vec 32 Bool;
 boolExtend b = boolExtend' (single Bool b);
 
-byteExtend : bitvector 8 -> bitvector 32;
+byteExtend : Vec 8 Bool -> Vec 32 Bool;
 byteExtend x = bvSExt 24 7 x;
 
-charExtend : bitvector 16 -> bitvector 32;
+charExtend : Vec 16 Bool -> Vec 32 Bool;
 charExtend x = bvUExt 16 16 x;
 
-shortExtend : bitvector 16 -> bitvector 32;
+shortExtend : Vec 16 Bool -> Vec 32 Bool;
 shortExtend x = bvSExt 16 15 x;
 
-longExtend : bitvector 32 -> bitvector 64;
+longExtend : Vec 32 Bool -> Vec 64 Bool;
 longExtend x = bvUExt 32 32 x;
 
-extendBoolArray : (n : Nat) -> Vec n Bool -> Vec n (bitvector 32);
-extendBoolArray = map Bool (bitvector 32) boolExtend;
+extendBoolArray : (n : Nat) -> Vec n Bool -> Vec n (Vec 32 Bool);
+extendBoolArray = map Bool (Vec 32 Bool) boolExtend;
 
-extendByteArray : (n : Nat) -> Vec n (bitvector 8) -> Vec n (bitvector 32);
-extendByteArray = map (bitvector 8) (bitvector 32) byteExtend;
+extendByteArray : (n : Nat) -> Vec n (Vec 8 Bool) -> Vec n (Vec 32 Bool);
+extendByteArray = map (Vec 8 Bool) (Vec 32 Bool) byteExtend;
 
-extendCharArray : (n : Nat) -> Vec n (bitvector 16) -> Vec n (bitvector 32);
-extendCharArray = map (bitvector 16) (bitvector 32) charExtend;
+extendCharArray : (n : Nat) -> Vec n (Vec 16 Bool) -> Vec n (Vec 32 Bool);
+extendCharArray = map (Vec 16 Bool) (Vec 32 Bool) charExtend;
 
-extendShortArray : (n : Nat) -> Vec n (bitvector 16) -> Vec n (bitvector 32);
-extendShortArray = map (bitvector 16) (bitvector 32) shortExtend;
+extendShortArray : (n : Nat) -> Vec n (Vec 16 Bool) -> Vec n (Vec 32 Bool);
+extendShortArray = map (Vec 16 Bool) (Vec 32 Bool) shortExtend;
 
-boolTrunc : bitvector 32 -> Bool;
+boolTrunc : Vec 32 Bool -> Bool;
 boolTrunc = lsb 31;
 
-byteTrunc : bitvector 32 -> bitvector 8;
+byteTrunc : Vec 32 Bool -> Vec 8 Bool;
 byteTrunc x = bvTrunc 24 8 x;
 
-charTrunc : bitvector 32 -> bitvector 16;
+charTrunc : Vec 32 Bool -> Vec 16 Bool;
 charTrunc x = bvTrunc 16 16 x;
 
-shortTrunc : bitvector 32 -> bitvector 16;
+shortTrunc : Vec 32 Bool -> Vec 16 Bool;
 shortTrunc x = bvTrunc 16 16 x;
 
-truncBoolArray : (n : Nat) -> Vec n (bitvector 32) -> Vec n Bool;
-truncBoolArray = map (bitvector 32) Bool boolTrunc;
+truncBoolArray : (n : Nat) -> Vec n (Vec 32 Bool) -> Vec n Bool;
+truncBoolArray = map (Vec 32 Bool) Bool boolTrunc;
 
-truncByteArray : (n : Nat) -> Vec n (bitvector 32) -> Vec n (bitvector 8);
-truncByteArray = map (bitvector 32) (bitvector 8) byteTrunc;
+truncByteArray : (n : Nat) -> Vec n (Vec 32 Bool) -> Vec n (Vec 8 Bool);
+truncByteArray = map (Vec 32 Bool) (Vec 8 Bool) byteTrunc;
 
-truncCharArray : (n : Nat) -> Vec n (bitvector 32) -> Vec n (bitvector 16);
-truncCharArray = map (bitvector 32) (bitvector 16) charTrunc;
+truncCharArray : (n : Nat) -> Vec n (Vec 32 Bool) -> Vec n (Vec 16 Bool);
+truncCharArray = map (Vec 32 Bool) (Vec 16 Bool) charTrunc;
 
-truncShortArray : (n : Nat) -> Vec n (bitvector 32) -> Vec n (bitvector 16);
-truncShortArray = map (bitvector 32) (bitvector 16) shortTrunc;
+truncShortArray : (n : Nat) -> Vec n (Vec 32 Bool) -> Vec n (Vec 16 Bool);
+truncShortArray = map (Vec 32 Bool) (Vec 16 Bool) shortTrunc;
