@@ -1,4 +1,4 @@
-#! /bin/bash
+#!/usr/bin/env bash
 
 # Find the Java core classes JAR, 'rt.jar' (called 'classes.jar' on OS
 # X for JDKs prior to 1.7).
